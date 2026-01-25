@@ -242,6 +242,187 @@ MVP budgets:
 
 ---
 
+# Norma PDCA Loop (bd-backed)
+
+Norma runs a tight PDCA cycle over the `bd` graph. `bd` is the single source of truth for backlog, hierarchy (parent-child), and hard prerequisites (blocks). Norma orchestrator selects work; agents refine and execute.
+
+## Concepts
+
+### Issue types
+- **epic**: big outcome + acceptance criteria (AC)
+- **feature**: slice of value under an epic (should be verifiable)
+- **task/bug**: executable unit
+- **spike**: resolve an unknown → information artifact
+
+### Relationships
+- **parent-child**: hierarchy (epic → feature → task/spike/bug)
+- **blocks**: hard prerequisite (B blocks A = B must complete before A)
+- **related**: soft link (optional)
+- **discovered-from**: used when new work is discovered during Do (optional)
+
+### “Ready” (execution gate)
+An issue is **Ready** if:
+- `bd ready` includes it (status open AND no blocking deps)
+- and it is a **leaf** (no children), unless explicitly selected for decomposition
+- and its description contains the Ready Contract fields (below)
+
+### Ready Contract (must be present in description for executable tasks)
+- **Objective**: what this issue accomplishes
+- **Artifact**: where the change lands (files/paths/PR)
+- **Verify**: commands/checks that prove it works
+
+(Spikes can use Verify = “unknown resolved + notes captured”.)
+
+---
+
+## PDCA Responsibilities (who does what)
+
+### Orchestrator responsibilities
+- Select the next issue deterministically (scheduler)
+- Enforce WIP limits
+- Enforce focus (active epic/feature)
+- Run the PDCA loop steps and record outcomes
+
+### Agent responsibilities
+- Plan agent: refine/decompose a *selected* issue into Ready leaf tasks
+- Do agent: implement exactly one Ready leaf task
+- Check agent/tool: run Verify steps and attach evidence
+- Agents must not perform global reprioritization outside the selected subtree
+
+---
+
+## Orchestrator: Selection Policy
+
+Input: `bd ready` list
+
+Default selection algorithm:
+1. Prefer issues under `active_feature_id` (if set), else under `active_epic_id`.
+2. Prefer **leaf** issues (no children).
+3. Sort by `priority` ascending (0 highest).
+4. Tie-breakers:
+   - Has Verify field (quality) first
+   - Oldest open first (FIFO)
+
+Output:
+- `selected_issue_id`
+- `selection_reason` (short string)
+
+WIP:
+- At most 1 task per agent (or 2 if one is a spike).
+
+---
+
+## PDCA Loop (single iteration)
+
+### 1) PLAN (Plan Agent, scoped)
+Input:
+- `bd show <selected_issue_id>`
+- parent chain (optional): epic/feature context
+- current `progress.md` (optional)
+Output: one of three results
+
+**A. READY**
+- The selected issue becomes executable (Ready Contract complete).
+- Return: `next_issue_id = selected_issue_id`.
+
+**B. DECOMPOSE**
+- If selected issue is epic/feature or “too big”, create child issues (parent-child).
+- Ensure at least 1–3 children are Ready.
+- Return: `next_issue_id = <one Ready child leaf issue>`.
+
+**C. BLOCKED**
+- If selected issue is missing a prerequisite, create prerequisite issue and add `blocks`.
+- Return: `next_issue_id = <prerequisite issue>` (must be Ready or made Ready).
+
+Plan agent allowed mutations:
+- Create/update issues in the selected subtree (selected issue + descendants)
+- Add/remove **blocks** edges involving the selected subtree
+- Create new issues marked as discovered work under the same parent feature
+Plan agent forbidden:
+- Reprioritizing unrelated features/epics
+- Editing unrelated issues
+
+Stop condition inside Plan:
+- If no Ready leaf can be produced, return BLOCKED with explicit prerequisite.
+
+### 2) DO (Do Agent)
+Input:
+- `bd show <next_issue_id>` (must be Ready)
+Output:
+- Artifacts (code/doc/config changes)
+- Any discovered work as new issues under same parent (parent-child)
+- Proposed status updates (but orchestrator applies them)
+
+Do agent rules:
+- Work on exactly one issue per iteration (`next_issue_id`)
+- Do not start additional ready issues
+- If scope grows, split: create new child tasks and stop
+
+### 3) CHECK (Tool or Check Agent)
+Input:
+- `Verify` field from the issue
+Output:
+- PASS / FAIL / PARTIAL
+- Evidence (test output summary, commands run, links to artifacts)
+
+### 4) ACT (Orchestrator)
+If PASS:
+- Close `next_issue_id`
+- Append a short entry to `progress.md` (what worked, what to repeat)
+
+If FAIL or PARTIAL:
+- Keep issue open (or reopen)
+- Optionally create “Fix …” child task(s) and/or spike(s)
+- Update deps if a prerequisite was discovered
+- Append learnings to `progress.md`
+
+Then loop.
+
+---
+
+## Completion Rules
+
+### Feature complete
+A feature is complete when:
+- All descendant leaf issues are closed
+- Feature-level acceptance checklist (in feature description) is satisfied
+
+### Epic complete
+An epic is complete when:
+- All features under it are complete
+- Epic-level acceptance criteria are satisfied
+
+---
+
+## Suggested description templates
+
+### Feature description
+- Goal:
+- Acceptance:
+  - [ ] ...
+  - [ ] ...
+- Notes/Constraints:
+
+### Task description (Ready Contract)
+- Objective:
+- Artifact:
+- Verify:
+- Notes (optional):
+
+### Spike description
+- Objective (unknown to resolve):
+- Artifact (notes/doc/decision):
+- Verify (how we know unknown is resolved):
+
+---
+
+## Notes on dependency hygiene
+- Use `blocks` only for true prerequisites (avoid over-blocking).
+- Prefer parent-child for structure, and `related` for soft links.
+- Regularly run `bd dep cycles` to prevent deadlocks.
+
+---
+
 ## 6) Agent system
 
 ### 6.1 Agent types (MVP)
