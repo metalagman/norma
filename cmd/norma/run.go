@@ -13,24 +13,16 @@ import (
 )
 
 func runCmd() *cobra.Command {
-	var runLeaves bool
 	var continueOnFail bool
 	var activeFeatureID string
 	var activeEpicID string
 	cmd := &cobra.Command{
 		Use:          "run [task-id]",
-		Short:        "Run a task by id or run leaf tasks",
-		Long:         "Run a task by id. If no task id is provided, run all leaf tasks in dependency order.",
+		Short:        "Run a task by id or run the next ready task",
+		Long:         "Run a task by id. If no task id is provided, run the next ready task chosen by the scheduler.",
 		SilenceUsage: true,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				runLeaves = true
-				return nil
-			}
-			if runLeaves {
-				if len(args) != 0 {
-					return fmt.Errorf("no task id allowed with --leaf")
-				}
 				return nil
 			}
 			if len(args) != 1 {
@@ -60,7 +52,7 @@ func runCmd() *cobra.Command {
 				return err
 			}
 
-			if runLeaves {
+			if len(args) == 0 {
 				policy := task.SelectionPolicy{
 					ActiveFeatureID: activeFeatureID,
 					ActiveEpicID:    activeEpicID,
@@ -78,8 +70,7 @@ func runCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&runLeaves, "leaf", false, "run all leaf tasks")
-	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running leaf tasks after a failure")
+	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running ready tasks after a failure")
 	cmd.Flags().StringVar(&activeFeatureID, "active-feature", "", "prefer ready issues under this feature id")
 	cmd.Flags().StringVar(&activeEpicID, "active-epic", "", "prefer ready issues under this epic id")
 	return cmd
