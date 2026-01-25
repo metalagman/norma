@@ -117,7 +117,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		res.Status = "fail"
 		res.Protocol = "agent_failed"
 		res.Summary = fmt.Sprintf("agent failed: %v", runErr)
-		log.Debug().Str("role", res.Role).Int("step_index", res.StepIndex).Int("exit_code", exitCode).Msg("agent execution failed")
+		log.Warn().Str("role", res.Role).Int("step_index", res.StepIndex).Int("exit_code", exitCode).Msg("agent execution failed")
 	} else {
 		resp, protoErr := parseAgentResponse(stdout)
 		if protoErr != "" {
