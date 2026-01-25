@@ -67,7 +67,7 @@ Everything lives under the project root:
   - timeline events
 - **No task state in Norma DB:** task status, priority, dependencies, and selection are managed in Beads only.
 - Files in `runs/<run_id>/steps/...` are authoritative artifacts.
-- Agents MUST only write inside their current `step_dir`.
+- Agents MUST only write inside their current `step_dir`, except for **Do** which may modify repo files to implement the selected issue.
 - Step directories appear only when complete (created under a temp name then renamed).
 
 ---
@@ -347,11 +347,11 @@ Stop condition inside Plan:
 
 ### 2) DO (Do Agent)
 Input:
-- `bd show <next_issue_id>` (must be Ready)
+- `bd show <next_issue_id>` (must be Ready) + repo + conventions
 Output:
-- Artifacts (code/doc/config changes)
-- Any discovered work as new issues under same parent (parent-child)
-- Proposed status updates (but orchestrator applies them)
+- code/doc artifacts
+- proposed status change
+- anything discovered → new issues under same parent
 
 Do agent rules:
 - Work on exactly one issue per iteration (`next_issue_id`)
@@ -552,6 +552,7 @@ MUST:
 - Produce `output.json` (AgentResponse)
 - Write logs:
   - `logs/stdout.txt`, `logs/stderr.txt` (norma captures these)
+ - Implement the selected issue by modifying repo files as needed.
 SHOULD:
 - Write evidence under `files/` (e.g. `files/run.log`, `files/commands.txt`)
 
