@@ -13,6 +13,9 @@ Single fixed workflow:
 - **Artifacts are files** (human-debuggable).
 - **Run/step state is in SQLite** (queryable, UI-friendly).
 - **Task state lives only in Beads** (no task/backlog state in Norma DB or kv).
+- **Workspaces (Git Worktrees):** Every run MUST operate in a dedicated Git worktree located inside the run directory. Agents perform all work within this isolated workspace.
+- **Workspace Isolation:** Workspaces are ephemeral and reside at `.norma/runs/<run_id>/workspace/`. They use Git branches named `norma/<task_id>/<run_id>`.
+- **Git History as Source of Truth:** Agents communicate changes by modifying the workspace directly. The orchestrator extracts changes using Git history (e.g., `git diff HEAD`).
 - **Atomic commits**: a step is committed by an atomic directory rename + a DB transaction.
 - **Any agent** is supported through a **normalized JSON contract**.
 
@@ -32,6 +35,7 @@ Everything lives under the project root:
   locks/run.lock           # exclusive lock for "norma run"
   runs/<run_id>/
     norma.md               # goal + AC + budgets (human readable)
+    workspace/             # Git worktree (the active workspace for this run)
     steps/
       001-plan/
         input.json
@@ -54,7 +58,6 @@ Everything lives under the project root:
       004-act/
         input.json
         output.json
-        patch.diff          # OPTIONAL (usually required when FAIL)
         logs/...
 ```
 
@@ -65,9 +68,10 @@ Everything lives under the project root:
   - current iteration/cursor
   - step records
   - timeline events
+- **Workspaces:** The `workspace/` directory is a Git worktree. Agents perform all work within this isolated workspace. The orchestrator tracks changes by inspecting the Git history/diff of the workspace.
 - **No task state in Norma DB:** task status, priority, dependencies, and selection are managed in Beads only.
 - Files in `runs/<run_id>/steps/...` are authoritative artifacts.
-- Agents MUST only write inside their current `step_dir`, except for **Do** which may modify repo files to implement the selected issue.
+- Agents MUST only write inside their current `step_dir`, except for **Do** and **Act** which modify files in the `workspace/` to implement the selected issue or fix.
 - Step directories appear only when complete (created under a temp name then renamed).
 
 ---
@@ -154,7 +158,7 @@ A step is committed in this order:
 
 1) Create temp step dir:
    - `steps/003-check.tmp-<rand>/`
-2) Write all step files inside it (inputs, outputs, logs, verdict/patch, etc).
+2) Write all step files inside it (inputs, outputs, logs, verdict, etc).
 3) Rename temp dir to final dir:
    - `rename(tmpDir, steps/003-check/)`  (atomic on same filesystem)
 4) DB transaction (`BEGIN IMMEDIATE` recommended):
@@ -185,7 +189,7 @@ On `norma` start:
 - `plan`  : outline approach and intent
 - `do`    : generate evidence or execute work
 - `check` : evaluate evidence against acceptance criteria, produce verdict
-- `act`   : propose patch + next plan
+- `act`   : propose and implement fix
 
 ### Sane Norma Loop (PDCA)
 State machine per iteration:
@@ -231,7 +235,7 @@ Example:
 - Start run with `iteration=1`
 - `plan` → `do` → `check`
 - If `verdict=PASS`: mark run `passed`, stop
-- Else `act`, apply patch (by norma), `iteration++`, repeat
+- Else `act`, `iteration++`, repeat
 
 ### Budgets
 `norma` MUST stop when any budget is exceeded, with `status=stopped` and an event.
@@ -349,7 +353,7 @@ Stop condition inside Plan:
 Input:
 - `bd show <next_issue_id>` (must be Ready) + repo + conventions
 Output:
-- code/doc artifacts
+- code/doc artifacts in `workspace/`
 - proposed status change
 - anything discovered → new issues under same parent
 
@@ -368,6 +372,7 @@ Output:
 ### 4) ACT (Orchestrator)
 If PASS:
 - Close `next_issue_id`
+- Extract changes from `workspace/` and apply to main repository
 - Append a short entry to `progress.md` (what worked, what to repeat)
 
 If FAIL or PARTIAL:
@@ -486,7 +491,7 @@ Notes:
     }
   },
   "paths": {
-    "repo_root": "/abs/path/to/repo",
+    "repo_root": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/workspace",
     "run_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd",
     "step_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/steps/003-check"
   },
@@ -494,15 +499,26 @@ Notes:
     "artifacts": [
       "/abs/.../steps/001-plan/plan.md"
     ],
+    "next_actions": [
+      "Implement feature X"
+    ],
     "notes": "Optional free-form"
+  },
+  "plan": {
+    "issue": { "id": "bd-1" }
+  },
+  "do": {
+    "issue": { "id": "bd-1" }
   }
 }
 ```
 
 **Rules**
-- Agent MUST treat `step_dir` as the only writable location.
-- Agent MUST NOT write outside `step_dir`.
-- If agent needs to reference files, it should reference repo files read-only unless role explicitly permits patch proposal (`act`).
+- Agent MUST treat `step_dir` as the only writable location for artifacts.
+- Agent MUST NOT write outside `step_dir`, EXCEPT for `do` and `act` which modify the `workspace/`.
+- `paths.repo_root` points to the isolated Git worktree (`workspace/`).
+- `plan` and `do` blocks are role-specific and only present for their respective roles.
+- `context.next_actions` contains the `next_actions` suggested by the previous step in the same iteration.
 
 ### 7.2 Response: AgentResponse (norma expects JSON on stdout; stored as `steps/<n>/output.json`)
 ```json
@@ -515,7 +531,7 @@ Notes:
     "scorecard.md"
   ],
   "next_actions": [
-    "Apply patch.diff and re-run tests",
+    "Re-run tests",
     "Re-check AC2 using golangci-lint"
   ],
   "errors": []
@@ -542,25 +558,19 @@ MUST:
 SHOULD:
 - Write `plan.md` with ordered backlog, Next Slice, stop conditions, and verification checklist (validated by norma)
 
-MUST NOT:
-- Produce `patch.diff` (ignored if present)
-
 ### 8.2 Role: do
-Purpose: generate evidence or execute work.
+Purpose: implement work in workspace.
 
 MUST:
 - Produce `output.json` (AgentResponse)
 - Write logs:
   - `logs/stdout.txt`, `logs/stderr.txt` (norma captures these)
- - Implement the selected issue by modifying repo files as needed.
+- Implement the selected issue by modifying files in `workspace/`.
 SHOULD:
 - Write evidence under `files/` (e.g. `files/run.log`, `files/commands.txt`)
 
-MUST NOT:
-- Produce `patch.diff` (ignored if present)
-
 ### 8.3 Role: check
-Purpose: evaluate evidence vs acceptance criteria.
+Purpose: evaluate workspace vs acceptance criteria.
 
 MUST:
 - Produce `verdict.json`
@@ -593,46 +603,41 @@ Rules:
 - `verdict` MUST be `PASS` or `FAIL`.
 - If `verdict.json` missing or invalid → norma stops run as failed (`protocol_error`).
 
-MUST NOT:
-- Produce `patch.diff` (ignored if present)
-
 ### 8.4 Role: act
-Purpose: propose patch to satisfy failed criteria.
+Purpose: propose and implement fix in workspace.
 
 MUST:
 - Produce `output.json`
 SHOULD:
-- Produce `patch.diff` in unified diff format
+- Modify files in the `workspace/` to implement the proposed fix.
 - Explain in `summary` which ACs it targets and why
 
 Rules:
-- Agent does not apply the patch.
-- Patch application is performed by norma.
+- Agent does not apply changes to the main repository.
+- The `workspace/` serves as the staging area.
 
 ---
 
-## 9) Patch application (norma responsibility)
+## 9) Applying Changes (norma responsibility)
 
-When a `patch.diff` is present:
-- norma applies it atomically (preferred via git if available):
+norma extracts changes from the ephemeral workspace using Git:
+- When a run reaches a `PASS` verdict, norma extracts changes from `workspace/` (e.g., via `git diff HEAD`).
+- norma applies the captured changes to the main repository atomically:
   - record git status/hash "before"
-  - apply diff
+  - apply changes
   - if successful, commit changes using **Conventional Commits** format:
-    - `fix: <summary>` or `feat: <summary>` based on the `act` response
+    - `fix: <summary>` or `feat: <summary>` based on the goal/task
     - Include `run_id` and `step_index` in the commit footer
   - record git status/hash "after"
 - On apply failure:
   - rollback to "before" (best-effort)
-  - mark step failed and stop (MVP)
-
-Patch budgets (optional MVP):
-- Reject patch if size > `max_patch_kb`.
+  - mark run failed and stop
 
 ---
 
 ## 10) Commit Conventions (MUST)
 
-All git commits generated by `norma` or proposed by agents MUST follow the **Conventional Commits** specification.
+All git commits generated by `norma` MUST follow the **Conventional Commits** specification.
 
 Format: `<type>[optional scope]: <description>`
 
@@ -661,7 +666,7 @@ Common types:
 - Non-zero exit code:
   - mark step failed
   - store logs
-  - stop or continue depending on role (MVP: stop)
+  - stop run
 
 ---
 
@@ -671,9 +676,9 @@ Codex typically outputs free-form text. MVP requires deterministic output:
 
 ### Codex prompt policy (MUST)
 norma generates a role-specific prompt that instructs Codex to:
-- write required files for the role (check: verdict.json + scorecard.md; act: patch.diff)
+- write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir`
+- write only inside `step_dir` (or `workspace/` for `do`/`act`)
 - keep paths relative in `files[]`
 
 ### Capturing
@@ -687,9 +692,9 @@ OpenCode typically outputs free-form text. MVP requires deterministic output:
 
 ### OpenCode prompt policy (MUST)
 norma generates a role-specific prompt that instructs OpenCode to:
-- write required files for the role (check: verdict.json + scorecard.md; act: patch.diff)
+- write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir`
+- write only inside `step_dir` (or `workspace/` for `do`/`act`)
 - keep paths relative in `files[]`
 
 ### Capturing
@@ -705,9 +710,9 @@ Gemini CLI typically outputs free-form text. MVP requires deterministic output:
 
 ### Gemini prompt policy (MUST)
 norma generates a role-specific prompt that instructs Gemini to:
-- write required files for the role (check: verdict.json + scorecard.md; act: patch.diff)
+- write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir`
+- write only inside `step_dir` (or `workspace/` for `do`/`act`)
 - keep paths relative in `files[]`
 
 ### Capturing
@@ -720,10 +725,11 @@ norma generates a role-specific prompt that instructs Gemini to:
 ## 15) Acceptance checklist (MVP)
 
 - [ ] `norma run <task-id>` creates a run and DB entry in `.norma/norma.db`
+- [ ] Each run creates an isolated Git worktree at `runs/<run_id>/workspace/`
 - [ ] Each step creates artifacts in `runs/<run_id>/steps/<n>-<role>/`
 - [ ] Steps are committed atomically (tmp dir → rename; then DB transaction)
 - [ ] check produces `verdict.json` + `scorecard.md`
-- [ ] act can produce `patch.diff`, and norma applies it and records before/after snapshot
+- [ ] Successful runs extract changes from `workspace/` and apply them to the main repo
 - [ ] Crash recovery cleans tmp dirs and reconciles missing DB step records
 
 ## Landing the Plane (Session Completion)

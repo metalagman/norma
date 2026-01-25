@@ -23,6 +23,23 @@ type AgentRequest struct {
 	Norma   NormaInfo      `json:"norma"`
 	Paths   RequestPaths   `json:"paths"`
 	Context RequestContext `json:"context"`
+	Plan    *PlanContext   `json:"plan,omitempty"`
+	Do      *DoContext     `json:"do,omitempty"`
+}
+
+// PlanContext provides role-specific context for the plan agent.
+type PlanContext struct {
+	Issue IDInfo `json:"issue"`
+}
+
+// DoContext provides role-specific context for the do agent.
+type DoContext struct {
+	Issue IDInfo `json:"issue"`
+}
+
+// IDInfo contains identification info for an issue.
+type IDInfo struct {
+	ID string `json:"id"`
 }
 
 // StepInfo identifies the step in the run.
@@ -47,8 +64,9 @@ type RequestPaths struct {
 
 // RequestContext supplies artifacts from previous steps and optional notes.
 type RequestContext struct {
-	Artifacts []string `json:"artifacts,omitempty"`
-	Notes     string   `json:"notes,omitempty"`
+	Artifacts   []string `json:"artifacts,omitempty"`
+	NextActions []string `json:"next_actions,omitempty"`
+	Notes       string   `json:"notes,omitempty"`
 }
 
 // AgentResponse is the normalized stdout response from agents.

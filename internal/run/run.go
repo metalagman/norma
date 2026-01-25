@@ -18,11 +18,13 @@ import (
 
 // Runner executes the norma workflow for a run.
 type Runner struct {
-	repoRoot string
-	normaDir string
-	cfg      config.Config
-	store    *Store
-	agents   map[string]agent.Runner
+	repoRoot     string
+	normaDir     string
+	cfg          config.Config
+	store        *Store
+	agents       map[string]agent.Runner
+	issueID      string
+	workspaceDir string
 }
 
 // Result summarizes a completed run.
@@ -56,11 +58,15 @@ func NewRunner(repoRoot string, cfg config.Config, store *Store) (*Runner, error
 }
 
 // Run starts a new run with the given goal and acceptance criteria.
-func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCriterion) (res Result, err error) {
+func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCriterion, issueID string) (res Result, err error) {
+	r.issueID = issueID
 	startedAt := time.Now().UTC()
 	defer func() {
 		if res.RunID == "" {
 			return
+		}
+		if r.workspaceDir != "" {
+			_ = cleanupWorkspace(ctx, r.repoRoot, r.workspaceDir, r.issueID)
 		}
 		status := res.Status
 		if status == "" && err != nil {
@@ -115,20 +121,27 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		Int("ac_count", len(ac)).
 		Msg("run started")
 	runDir := filepath.Join(r.normaDir, "runs", runID)
+	
+	r.workspaceDir, err = createWorkspace(ctx, r.repoRoot, runDir, r.issueID)
+	if err != nil {
+		return Result{RunID: runID}, fmt.Errorf("create workspace: %w", err)
+	}
+
 	stepsDir := filepath.Join(runDir, "steps")
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
-		return Result{}, fmt.Errorf("create run steps: %w", err)
+		return Result{RunID: runID}, fmt.Errorf("create run steps: %w", err)
 	}
 	if err := writeNormaMD(runDir, goal, ac, r.cfg.Budgets); err != nil {
-		return Result{}, err
+		return Result{RunID: runID}, err
 	}
 	if err := r.store.CreateRun(ctx, runID, goal, runDir, 1); err != nil {
-		return Result{}, err
+		return Result{RunID: runID}, err
 	}
 
 	iteration := 1
 	stepIndex := 0
 	artifacts := []string{}
+	nextActions := []string{}
 	budgets := budgetsFromConfig(BudgetsConfig{
 		MaxIterations:   r.cfg.Budgets.MaxIterations,
 		MaxPatchKB:      r.cfg.Budgets.MaxPatchKB,
@@ -139,11 +152,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		stepIndex++
 		log.Info().Str("role", "plan").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "plan", artifacts, runDir, stepsDir, budgets)
+		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "plan", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
 		artifacts = append(artifacts, stepArtifacts(planRes)...)
+		if planRes.Response != nil {
+			nextActions = planRes.Response.NextActions
+		}
 		if err := r.commitStep(ctx, runID, planRes, "running", nil); err != nil {
 			return Result{RunID: runID}, err
 		}
@@ -156,11 +172,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 		stepIndex++
 		log.Info().Str("role", "do").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "do", artifacts, runDir, stepsDir, budgets)
+		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "do", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
 		artifacts = append(artifacts, stepArtifacts(doRes)...)
+		if doRes.Response != nil {
+			nextActions = doRes.Response.NextActions
+		}
 		if err := r.commitStep(ctx, runID, doRes, "running", nil); err != nil {
 			return Result{RunID: runID}, err
 		}
@@ -173,11 +192,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 		stepIndex++
 		log.Info().Str("role", "check").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "check", artifacts, runDir, stepsDir, budgets)
+		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "check", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
 		artifacts = append(artifacts, stepArtifacts(checkRes)...)
+		if checkRes.Response != nil {
+			nextActions = checkRes.Response.NextActions
+		}
 		verdict := ""
 		if checkRes.Verdict != nil {
 			verdict = checkRes.Verdict.Verdict
@@ -192,6 +214,39 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				return Result{RunID: runID}, err
 			}
 			if verdict == "PASS" {
+				// Extract and apply patch from workspace only when task is done
+				patch, err := getWorkspacePatch(ctx, r.workspaceDir)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to extract patch from workspace")
+					if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to extract patch from workspace"); err != nil {
+						return Result{RunID: runID}, err
+					}
+					return Result{RunID: runID, Status: "failed"}, nil
+				}
+				
+				if patch != "" {
+					// We need to write the patch somewhere temporarily to apply it
+					tmpPatch := filepath.Join(r.workspaceDir, "..", "workspace.diff")
+					if err := os.WriteFile(tmpPatch, []byte(patch), 0o644); err != nil {
+						return Result{RunID: runID}, fmt.Errorf("write tmp patch: %w", err)
+					}
+					defer os.Remove(tmpPatch)
+					
+					beforeAfterHash, beforeAfterStatus, err := applyPatch(ctx, r.repoRoot, tmpPatch, budgets)
+					if err != nil {
+						log.Error().Err(err).Msg("failed to apply patch to main repo")
+						if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to apply patch to main repo: "+err.Error()); err != nil {
+							return Result{RunID: runID}, err
+						}
+						return Result{RunID: runID, Status: "failed"}, nil
+					}
+					
+					log.Info().
+						Str("before_after_hash", beforeAfterHash).
+						Str("before_after_status", beforeAfterStatus).
+						Msg("patch applied successfully to main repo")
+				}
+
 				return Result{RunID: runID, Status: "passed", Verdict: &verdictCopy}, nil
 			}
 		} else {
@@ -208,11 +263,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 		stepIndex++
 		log.Info().Str("role", "act").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "act", artifacts, runDir, stepsDir, budgets)
+		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "act", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
 		artifacts = append(artifacts, stepArtifacts(actRes)...)
+		if actRes.Response != nil {
+			nextActions = actRes.Response.NextActions
+		}
 
 		runStatus := "running"
 		if actRes.Protocol == "budget_exceeded" {
@@ -243,7 +301,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	return Result{RunID: runID, Status: "stopped"}, nil
 }
 
-func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration, stepIndex int, role string, artifacts []string, runDir, stepsDir string) (stepResult, error) {
+func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration, stepIndex int, role string, artifacts []string, nextActions []string, runDir, stepsDir string) (stepResult, error) {
 	req := model.AgentRequest{
 		Version: 1,
 		RunID:   runID,
@@ -263,48 +321,40 @@ func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.Acc
 			},
 		},
 		Paths: model.RequestPaths{
-			RepoRoot: r.repoRoot,
+			RepoRoot: r.workspaceDir,
 			RunDir:   runDir,
 			StepDir:  "",
 		},
 		Context: model.RequestContext{
-			Artifacts: artifacts,
+			Artifacts:   artifacts,
+			NextActions: nextActions,
 		},
+	}
+	if role == "plan" && r.issueID != "" {
+		req.Plan = &model.PlanContext{
+			Issue: model.IDInfo{ID: r.issueID},
+		}
+	}
+	if role == "do" && r.issueID != "" {
+		req.Do = &model.DoContext{
+			Issue: model.IDInfo{ID: r.issueID},
+		}
 	}
 	return executeStep(ctx, r.agents[role], req, stepsDir)
 }
 
 const maxAgentRetries = 2
 
-func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration int, stepIndex *int, role string, artifacts []string, runDir, stepsDir string, budgets Budgets) (stepResult, error) {
+func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration int, stepIndex *int, role string, artifacts []string, nextActions []string, runDir, stepsDir string, budgets Budgets) (stepResult, error) {
 	attempts := maxAgentRetries + 1
 	for attempt := 1; attempt <= attempts; attempt++ {
 		currentIndex := *stepIndex
 		if attempt > 1 {
 			log.Info().Str("role", role).Str("run_id", runID).Int("iteration", iteration).Int("step_index", currentIndex).Int("attempt", attempt).Msg("step retry start")
 		}
-		res, err := r.runStep(ctx, runID, goal, ac, iteration, currentIndex, role, artifacts, runDir, stepsDir)
+		res, err := r.runStep(ctx, runID, goal, ac, iteration, currentIndex, role, artifacts, nextActions, runDir, stepsDir)
 		if err != nil {
 			return res, err
-		}
-		if role == "act" && res.Status == "ok" && res.PatchPath != "" {
-			beforeAfterHash, beforeAfterStatus, err := applyPatch(ctx, r.repoRoot, res.PatchPath, budgets)
-			if err != nil {
-				res.Status = "fail"
-				if isBudgetError(err) {
-					res.Protocol = "budget_exceeded"
-				} else {
-				res.Protocol = "patch_failed"
-				}
-				res.Summary = err.Error()
-			} else if beforeAfterHash != "" || beforeAfterStatus != "" {
-				_ = r.store.UpdateRun(ctx, runID, RunUpdate{
-					CurrentStepIndex: currentIndex,
-					Iteration:        iteration,
-					Status:           "running",
-					Verdict:          nil,
-				}, &Event{Type: "patch_applied", Message: "patch applied", DataJSON: patchEventData(beforeAfterHash, beforeAfterStatus)})
-			}
 		}
 		retryable := res.Status != "ok" && res.Protocol != ""
 		if res.Protocol == "budget_exceeded" {
@@ -441,9 +491,6 @@ func stepArtifacts(res stepResult) []string {
 	if res.Role == "check" {
 		addIfExists(filepath.Join(res.FinalDir, "verdict.json"))
 		addIfExists(filepath.Join(res.FinalDir, "scorecard.md"))
-	}
-	if res.PatchPath != "" {
-		addIfExists(filepath.Join(res.FinalDir, "patch.diff"))
 	}
 	return artifacts
 }

@@ -168,7 +168,7 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 	if err := tracker.MarkStatus(ctx, id, "doing"); err != nil {
 		return err
 	}
-	result, err := runner.Run(ctx, item.Goal, item.Criteria)
+	result, err := runner.Run(ctx, item.Goal, item.Criteria, id)
 	if err != nil {
 		_ = tracker.MarkStatus(ctx, id, "failed")
 		return err

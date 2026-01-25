@@ -30,7 +30,6 @@ type stepResult struct {
 	Response  *model.AgentResponse
 	Protocol  string
 	Verdict   *model.Verdict
-	PatchPath string
 }
 
 func executeStep(ctx context.Context, runner agent.Runner, req model.AgentRequest, runStepsDir string) (stepResult, error) {
@@ -172,11 +171,6 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 				res.Protocol = "missing scorecard.md"
 				res.Summary = res.Protocol
 			}
-		case "act":
-			patchPath := filepath.Join(tempDir, "patch.diff")
-			if _, err := os.Stat(patchPath); err == nil {
-				res.PatchPath = patchPath
-			}
 		}
 	}
 
@@ -301,9 +295,6 @@ func truncateLog(data []byte, limit int) string {
 func finalizeStep(res *stepResult) error {
 	if err := os.Rename(res.TempDir, res.FinalDir); err != nil {
 		return fmt.Errorf("rename step dir: %w", err)
-	}
-	if res.PatchPath != "" {
-		res.PatchPath = filepath.Join(res.FinalDir, "patch.diff")
 	}
 	return nil
 }
