@@ -43,7 +43,7 @@ func runCmd() *cobra.Command {
 
 			tracker := task.NewBeadsTracker("")
 			runStore := run.NewStore(storeDB)
-			runner, err := run.NewRunner(repoRoot, cfg, runStore)
+			runner, err := run.NewRunner(repoRoot, cfg, runStore, tracker)
 			if err != nil {
 				return err
 			}

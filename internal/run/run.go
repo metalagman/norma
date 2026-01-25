@@ -13,6 +13,7 @@ import (
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
 	"github.com/metalagman/norma/internal/reconcile"
+	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
 )
 
@@ -23,6 +24,7 @@ type Runner struct {
 	cfg          config.Config
 	store        *Store
 	agents       map[string]agent.Runner
+	tracker      task.Tracker
 	issueID      string
 	workspaceDir string
 }
@@ -35,7 +37,7 @@ type Result struct {
 }
 
 // NewRunner constructs a Runner with agent implementations.
-func NewRunner(repoRoot string, cfg config.Config, store *Store) (*Runner, error) {
+func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tracker) (*Runner, error) {
 	agents := make(map[string]agent.Runner)
 	for _, role := range []string{"plan", "do", "check", "act"} {
 		agentCfg, ok := cfg.Agents[role]
@@ -54,6 +56,7 @@ func NewRunner(repoRoot string, cfg config.Config, store *Store) (*Runner, error
 		cfg:      cfg,
 		store:    store,
 		agents:   agents,
+		tracker:  tracker,
 	}, nil
 }
 
@@ -151,6 +154,9 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		stepIndex++
+		if r.issueID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.issueID, "planning")
+		}
 		log.Info().Str("role", "plan").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "plan", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
@@ -171,6 +177,9 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
+		if r.issueID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.issueID, "doing")
+		}
 		log.Info().Str("role", "do").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "do", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
@@ -191,6 +200,9 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
+		if r.issueID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.issueID, "checking")
+		}
 		log.Info().Str("role", "check").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "check", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
@@ -262,6 +274,9 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
+		if r.issueID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.issueID, "acting")
+		}
 		log.Info().Str("role", "act").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "act", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {

@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 type budgetError struct {
@@ -20,6 +22,7 @@ func (e budgetError) Error() string {
 }
 
 func applyPatch(ctx context.Context, repoRoot string, patchPath string, budgets Budgets) (string, string, error) {
+	log.Debug().Str("repo_root", repoRoot).Str("patch_path", patchPath).Msg("applying patch")
 	if budgets.MaxPatchKB > 0 {
 		info, err := os.Stat(patchPath)
 		if err != nil {
@@ -42,9 +45,11 @@ func applyPatch(ctx context.Context, repoRoot string, patchPath string, budgets 
 
 	gitOK := gitAvailable(ctx, repoRoot)
 	if gitOK {
+		log.Debug().Str("repo_root", repoRoot).Msg("using git to apply patch")
 		beforeHash := strings.TrimSpace(runCmd(ctx, repoRoot, "git", "rev-parse", "HEAD"))
 		beforeStatus := runCmd(ctx, repoRoot, "git", "status", "--porcelain")
 		if err := runCmdErr(ctx, repoRoot, "git", "apply", "--whitespace=nowarn", patchPath); err != nil {
+			log.Warn().Err(err).Str("repo_root", repoRoot).Msg("git apply failed, attempting rollback")
 			_ = bestEffortRollback(ctx, repoRoot, patchPath)
 			return beforeHash, beforeStatus, fmt.Errorf("git apply failed: %w", err)
 		}
@@ -53,6 +58,7 @@ func applyPatch(ctx context.Context, repoRoot string, patchPath string, budgets 
 		return beforeHash + "|" + afterHash, beforeStatus + "|" + afterStatus, nil
 	}
 
+	log.Debug().Str("repo_root", repoRoot).Msg("git not available, using patch command")
 	if err := runCmdErr(ctx, repoRoot, "patch", "-p1", "-i", patchPath); err != nil {
 		return "", "", fmt.Errorf("patch apply failed: %w", err)
 	}
@@ -102,6 +108,7 @@ func bestEffortRollback(ctx context.Context, repoRoot, patchPath string) error {
 }
 
 func runCmd(ctx context.Context, dir string, name string, args ...string) string {
+	log.Debug().Str("dir", dir).Str("cmd", name).Strs("args", args).Msg("running git command")
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	out, _ := cmd.Output()
@@ -109,6 +116,7 @@ func runCmd(ctx context.Context, dir string, name string, args ...string) string
 }
 
 func runCmdErr(ctx context.Context, dir string, name string, args ...string) error {
+	log.Debug().Str("dir", dir).Str("cmd", name).Strs("args", args).Msg("running git command (err return)")
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Stderr = os.Stderr

@@ -105,7 +105,7 @@ func (t *BeadsTracker) List(ctx context.Context, status *string) ([]Task, error)
 		switch *status {
 		case "todo":
 			beadsStatus = "open"
-		case "doing":
+		case "planning", "doing", "checking", "acting":
 			beadsStatus = "in_progress"
 		case "done":
 			beadsStatus = "closed"
@@ -219,7 +219,7 @@ func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string)
 	switch status {
 	case "todo":
 		beadsStatus = "open"
-	case "doing":
+	case "planning", "doing", "checking", "acting":
 		beadsStatus = "in_progress"
 	case "done":
 		beadsStatus = "closed"
@@ -311,7 +311,7 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 	switch issue.Status {
 	case "open":
 		status = "todo"
-	case "in_progress":
+	case "in_progress", "planning", "doing", "checking", "acting":
 		status = "doing"
 	case "closed":
 		status = "done"
