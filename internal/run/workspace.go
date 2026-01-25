@@ -16,10 +16,8 @@ func createWorkspace(ctx context.Context, repoRoot, runDir, issueID string) (str
 		return "", fmt.Errorf("create run dir: %w", err)
 	}
 
-	// We create a temporary branch for the worktree to avoid collisions.
-	// We include the task/issue ID and the run ID in the branch name.
-	runID := filepath.Base(runDir)
-	branchName := fmt.Sprintf("norma/%s/%s", issueID, runID)
+	// We create a branch scoped to the task to allow restartable progress.
+	branchName := fmt.Sprintf("norma/task/%s", issueID)
 	
 	log.Info().
 		Str("repo_root", repoRoot).
@@ -32,8 +30,28 @@ func createWorkspace(ctx context.Context, repoRoot, runDir, issueID string) (str
 		return "", fmt.Errorf("not a git repository: %s", repoRoot)
 	}
 
-	// Create worktree: git worktree add -b <branch> <path>
-	err := runCmdErr(ctx, repoRoot, "git", "worktree", "add", "-b", branchName, workspaceDir)
+	// Prune any stale worktree metadata
+	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
+
+	// Check if branch already exists
+	branchExists := strings.TrimSpace(runCmd(ctx, repoRoot, "git", "branch", "--list", branchName)) != ""
+
+	if branchExists {
+		// Ensure it's not checked out in another worktree
+		forceCleanupStaleWorktree(ctx, repoRoot, branchName)
+	}
+
+	args := []string{"worktree", "add"}
+	if !branchExists {
+		args = append(args, "-b", branchName)
+	}
+	args = append(args, workspaceDir)
+	if branchExists {
+		args = append(args, branchName)
+	}
+
+	// Create worktree
+	err := runCmdErr(ctx, repoRoot, "git", args...)
 	if err != nil {
 		return "", fmt.Errorf("git worktree add: %w", err)
 	}
@@ -41,25 +59,37 @@ func createWorkspace(ctx context.Context, repoRoot, runDir, issueID string) (str
 	return workspaceDir, nil
 }
 
+func forceCleanupStaleWorktree(ctx context.Context, repoRoot, branchName string) {
+	out := runCmd(ctx, repoRoot, "git", "worktree", "list", "--porcelain")
+	lines := strings.Split(out, "\n")
+	var currentWorktree string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "worktree ") {
+			currentWorktree = strings.TrimPrefix(line, "worktree ")
+		} else if strings.HasPrefix(line, "branch ") {
+			branch := strings.TrimPrefix(line, "branch refs/heads/")
+			if branch == branchName {
+				log.Warn().Str("branch", branchName).Str("stale_worktree", currentWorktree).Msg("found stale worktree, forcing removal")
+				// Try to remove the worktree
+				_ = runCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", currentWorktree)
+			}
+		}
+	}
+}
+
 func cleanupWorkspace(ctx context.Context, repoRoot, workspaceDir, issueID string) error {
-	runID := filepath.Base(filepath.Dir(workspaceDir))
-	branchName := fmt.Sprintf("norma/%s/%s", issueID, runID)
-	
 	log.Info().
 		Str("workspace_dir", workspaceDir).
-		Str("branch", branchName).
-		Msg("cleaning up git workspace")
+		Msg("cleaning up git workspace (removing worktree only)")
 
-	// Remove worktree
+	// Remove worktree only, keep the branch for restartable progress
 	err := runCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", workspaceDir)
 	if err != nil {
 		log.Warn().Err(err).Str("workspace_dir", workspaceDir).Msg("failed to remove git worktree")
-	}
-	
-	// Delete temporary branch
-	err = runCmdErr(ctx, repoRoot, "git", "branch", "-D", branchName)
-	if err != nil {
-		log.Warn().Err(err).Str("branch", branchName).Msg("failed to delete git branch")
 	}
 	
 	return nil
