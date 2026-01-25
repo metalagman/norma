@@ -303,6 +303,9 @@ func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac 
 			}
 		}
 		retryable := res.Status != "ok" && res.Protocol != ""
+		if role == "check" {
+			retryable = false
+		}
 		if res.Protocol == "budget_exceeded" {
 			retryable = false
 		}
