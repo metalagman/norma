@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -209,7 +210,10 @@ func validatePlan(path string) error {
 func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {
 	var resp model.AgentResponse
 	if err := json.Unmarshal(stdout, &resp); err != nil {
-		return nil, "protocol_error: stdout not valid JSON"
+		recovered, ok := extractJSON(stdout)
+		if !ok || json.Unmarshal(recovered, &resp) != nil {
+			return nil, "protocol_error: stdout not valid JSON"
+		}
 	}
 	if resp.Status != "ok" && resp.Status != "fail" {
 		return nil, "protocol_error: status must be ok or fail"
@@ -220,6 +224,15 @@ func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {
 		}
 	}
 	return &resp, ""
+}
+
+func extractJSON(data []byte) ([]byte, bool) {
+	start := bytes.IndexByte(data, '{')
+	end := bytes.LastIndexByte(data, '}')
+	if start == -1 || end == -1 || start >= end {
+		return nil, false
+	}
+	return data[start : end+1], true
 }
 
 func validRelPath(p string) bool {
