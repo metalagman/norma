@@ -70,8 +70,8 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 
 	info := runner.Describe()
 	log.Info().
-		Str("run_id", req.RunID).
 		Str("role", req.Step.Role).
+		Str("run_id", req.RunID).
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Step.Iteration).
 		Str("agent_type", info.Type).
@@ -85,8 +85,8 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	stdout, stderr, exitCode, runErr := runner.Run(ctx, req, stdoutFile, stderrFile)
 	agentDuration := time.Since(agentStart)
 	log.Info().
-		Str("run_id", req.RunID).
 		Str("role", req.Step.Role).
+		Str("run_id", req.RunID).
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Step.Iteration).
 		Int("exit_code", exitCode).

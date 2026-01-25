@@ -138,7 +138,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		stepIndex++
-		log.Info().Str("run_id", runID).Str("role", "plan").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
+		log.Info().Str("role", "plan").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "plan", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
@@ -155,7 +155,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
-		log.Info().Str("run_id", runID).Str("role", "do").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
+		log.Info().Str("role", "do").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "do", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
@@ -172,7 +172,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
-		log.Info().Str("run_id", runID).Str("role", "check").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
+		log.Info().Str("role", "check").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "check", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
@@ -207,7 +207,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
-		log.Info().Str("run_id", runID).Str("role", "act").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
+		log.Info().Str("role", "act").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "act", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
@@ -281,7 +281,7 @@ func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac 
 	for attempt := 1; attempt <= attempts; attempt++ {
 		currentIndex := *stepIndex
 		if attempt > 1 {
-			log.Info().Str("run_id", runID).Str("role", role).Int("iteration", iteration).Int("step_index", currentIndex).Int("attempt", attempt).Msg("step retry start")
+			log.Info().Str("role", role).Str("run_id", runID).Int("iteration", iteration).Int("step_index", currentIndex).Int("attempt", attempt).Msg("step retry start")
 		}
 		res, err := r.runStep(ctx, runID, goal, ac, iteration, currentIndex, role, artifacts, runDir, stepsDir)
 		if err != nil {
@@ -317,9 +317,14 @@ func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac 
 			}
 			return res, nil
 		}
-		_ = os.RemoveAll(res.TempDir)
+		if err := finalizeStep(&res); err != nil {
+			return res, err
+		}
+		if err := r.commitStep(ctx, runID, res, "running", nil); err != nil {
+			return res, err
+		}
 		nextIndex := *stepIndex + 1
-		log.Debug().Str("run_id", runID).Str("role", role).Int("step_index", currentIndex).Int("next_step_index", nextIndex).Int("attempt", attempt).Msg("retrying step")
+		log.Debug().Str("role", role).Str("run_id", runID).Int("step_index", currentIndex).Int("next_step_index", nextIndex).Int("attempt", attempt).Msg("retrying step")
 		*stepIndex = nextIndex
 	}
 	return stepResult{}, fmt.Errorf("exhausted retries")
