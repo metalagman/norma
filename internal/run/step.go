@@ -54,6 +54,19 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		return stepResult{}, err
 	}
 
+	stdoutPath := filepath.Join(tempDir, "logs", "stdout.txt")
+	stderrPath := filepath.Join(tempDir, "logs", "stderr.txt")
+	stdoutFile, err := os.Create(stdoutPath)
+	if err != nil {
+		return stepResult{}, fmt.Errorf("create stdout log: %w", err)
+	}
+	defer stdoutFile.Close()
+	stderrFile, err := os.Create(stderrPath)
+	if err != nil {
+		return stepResult{}, fmt.Errorf("create stderr log: %w", err)
+	}
+	defer stderrFile.Close()
+
 	info := runner.Describe()
 	log.Info().
 		Str("run_id", req.RunID).
@@ -68,10 +81,8 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		Msg("agent start")
 
 	agentStart := time.Now().UTC()
-	stdout, stderr, exitCode, runErr := runner.Run(ctx, req)
+	stdout, stderr, exitCode, runErr := runner.Run(ctx, req, stdoutFile, stderrFile)
 	agentDuration := time.Since(agentStart)
-	writeFile(filepath.Join(tempDir, "logs", "stdout.txt"), stdout)
-	writeFile(filepath.Join(tempDir, "logs", "stderr.txt"), stderr)
 	log.Info().
 		Str("run_id", req.RunID).
 		Str("role", req.Step.Role).

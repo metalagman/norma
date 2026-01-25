@@ -18,7 +18,7 @@ import (
 
 // Runner executes an agent with a normalized request.
 type Runner interface {
-	Run(ctx context.Context, req model.AgentRequest) (stdout, stderr []byte, exitCode int, err error)
+	Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
 	Describe() RunnerInfo
 }
 
@@ -100,12 +100,12 @@ type execRunner struct {
 	workDir string
 }
 
-func (r *execRunner) Run(ctx context.Context, req model.AgentRequest) ([]byte, []byte, int, error) {
+func (r *execRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("marshal request: %w", err)
 	}
-	return runCommand(ctx, r.cmd, r.workDir, data)
+	return runCommand(ctx, r.cmd, r.workDir, data, stdout, stderr)
 }
 
 func (r *execRunner) Describe() RunnerInfo {
@@ -119,7 +119,7 @@ type codexRunner struct {
 	useTTY  bool
 }
 
-func (r *codexRunner) Run(ctx context.Context, req model.AgentRequest) ([]byte, []byte, int, error) {
+func (r *codexRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	prompt, err := agentPrompt(req, r.model)
 	if err != nil {
 		return nil, nil, 0, err
@@ -127,10 +127,10 @@ func (r *codexRunner) Run(ctx context.Context, req model.AgentRequest) ([]byte, 
 	argv := appendCodexFlags(r.cmd, r.model)
 	if r.useTTY {
 		log.Debug().Strs("cmd", argv).Bool("tty", true).Msg("run codex agent")
-		return runCommandWithTTY(ctx, argv, r.workDir, []byte(prompt))
+		return runCommandWithTTY(ctx, argv, r.workDir, []byte(prompt), stdout)
 	}
 	log.Debug().Strs("cmd", argv).Bool("tty", false).Msg("run codex agent")
-	return runCommand(ctx, argv, r.workDir, []byte(prompt))
+	return runCommand(ctx, argv, r.workDir, []byte(prompt), stdout, stderr)
 }
 
 func (r *codexRunner) Describe() RunnerInfo {
@@ -144,7 +144,7 @@ type opencodeRunner struct {
 	useTTY  bool
 }
 
-func (r *opencodeRunner) Run(ctx context.Context, req model.AgentRequest) ([]byte, []byte, int, error) {
+func (r *opencodeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	prompt, err := agentPrompt(req, r.model)
 	if err != nil {
 		return nil, nil, 0, err
@@ -153,10 +153,10 @@ func (r *opencodeRunner) Run(ctx context.Context, req model.AgentRequest) ([]byt
 	argv = append(argv, prompt)
 	if r.useTTY {
 		log.Debug().Strs("cmd", argv).Bool("tty", true).Msg("run opencode agent")
-		return runCommandWithTTY(ctx, argv, r.workDir, nil)
+		return runCommandWithTTY(ctx, argv, r.workDir, nil, stdout)
 	}
 	log.Debug().Strs("cmd", argv).Bool("tty", false).Msg("run opencode agent")
-	return runCommand(ctx, argv, r.workDir, nil)
+	return runCommand(ctx, argv, r.workDir, nil, stdout, stderr)
 }
 
 func (r *opencodeRunner) Describe() RunnerInfo {
@@ -170,7 +170,7 @@ type geminiRunner struct {
 	useTTY  bool
 }
 
-func (r *geminiRunner) Run(ctx context.Context, req model.AgentRequest) ([]byte, []byte, int, error) {
+func (r *geminiRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	prompt, err := agentPrompt(req, r.model)
 	if err != nil {
 		return nil, nil, 0, err
@@ -179,17 +179,17 @@ func (r *geminiRunner) Run(ctx context.Context, req model.AgentRequest) ([]byte,
 	argv = append(argv, prompt)
 	if r.useTTY {
 		log.Debug().Strs("cmd", argv).Bool("tty", true).Msg("run gemini agent")
-		return runCommandWithTTY(ctx, argv, r.workDir, nil)
+		return runCommandWithTTY(ctx, argv, r.workDir, nil, stdout)
 	}
 	log.Debug().Strs("cmd", argv).Bool("tty", false).Msg("run gemini agent")
-	return runCommand(ctx, argv, r.workDir, nil)
+	return runCommand(ctx, argv, r.workDir, nil, stdout, stderr)
 }
 
 func (r *geminiRunner) Describe() RunnerInfo {
 	return RunnerInfo{Type: "gemini", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, UseTTY: r.useTTY}
 }
 
-func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte) ([]byte, []byte, int, error) {
+func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink, stderrSink io.Writer) ([]byte, []byte, int, error) {
 	if len(argv) == 0 {
 		return nil, nil, 0, fmt.Errorf("agent command is empty")
 	}
@@ -198,8 +198,16 @@ func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte
 	cmd.Stdin = bytes.NewReader(stdin)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	if stdoutSink != nil {
+		cmd.Stdout = io.MultiWriter(&stdout, stdoutSink)
+	} else {
+		cmd.Stdout = &stdout
+	}
+	if stderrSink != nil {
+		cmd.Stderr = io.MultiWriter(&stderr, stderrSink)
+	} else {
+		cmd.Stderr = &stderr
+	}
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return stdout.Bytes(), stderr.Bytes(), exitErr.ExitCode(), err
@@ -209,7 +217,7 @@ func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte
 	return stdout.Bytes(), stderr.Bytes(), 0, nil
 }
 
-func runCommandWithTTY(ctx context.Context, argv []string, workDir string, stdin []byte) ([]byte, []byte, int, error) {
+func runCommandWithTTY(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink io.Writer) ([]byte, []byte, int, error) {
 	if len(argv) == 0 {
 		return nil, nil, 0, fmt.Errorf("agent command is empty")
 	}
@@ -220,9 +228,13 @@ func runCommandWithTTY(ctx context.Context, argv []string, workDir string, stdin
 		return nil, nil, 0, fmt.Errorf("start pty: %w", err)
 	}
 	var out bytes.Buffer
+	var outWriter io.Writer = &out
+	if stdoutSink != nil {
+		outWriter = io.MultiWriter(&out, stdoutSink)
+	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := io.Copy(&out, ptmx)
+		_, err := io.Copy(outWriter, ptmx)
 		done <- err
 	}()
 	if len(stdin) > 0 {
