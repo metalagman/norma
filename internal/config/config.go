@@ -8,8 +8,9 @@ import (
 
 // Config holds agent configuration and run budgets.
 type Config struct {
-	Agents  map[string]AgentConfig `json:"agents" mapstructure:"agents"`
-	Budgets Budgets                `json:"budgets" mapstructure:"budgets"`
+	Agents    map[string]AgentConfig `json:"agents" mapstructure:"agents"`
+	Budgets   Budgets                `json:"budgets" mapstructure:"budgets"`
+	Retention Retention              `json:"retention,omitempty" mapstructure:"retention"`
 }
 
 // AgentConfig describes how to invoke an agent.
@@ -29,6 +30,12 @@ type Budgets struct {
 	MaxRiskyFiles   int `json:"max_risky_files,omitempty" mapstructure:"max_risky_files"`
 }
 
+// Retention controls auto-pruning of runs.
+type Retention struct {
+	KeepLast int `json:"keep_last,omitempty" mapstructure:"keep_last"`
+	KeepDays int `json:"keep_days,omitempty" mapstructure:"keep_days"`
+}
+
 // Load reads config from the given path.
 func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
@@ -41,6 +48,9 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Budgets.MaxIterations <= 0 {
 		return Config{}, fmt.Errorf("budgets.max_iterations must be > 0")
+	}
+	if cfg.Retention.KeepLast < 0 || cfg.Retention.KeepDays < 0 {
+		return Config{}, fmt.Errorf("retention.keep_last and retention.keep_days must be >= 0")
 	}
 	return cfg, nil
 }

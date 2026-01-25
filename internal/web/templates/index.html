@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Norma Tasks</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .task-item { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center; }
+        .task-item.done { text-decoration: line-through; color: #888; }
+        .task-form { margin-bottom: 20px; border: 1px solid #ccc; padding: 15px; border-radius: 4px; }
+        .task-form input, .task-form textarea { display: block; width: 100%; margin-bottom: 10px; padding: 8px; box-sizing: border-box; }
+        .btn { padding: 5px 10px; cursor: pointer; }
+        .btn-delete { color: red; }
+        .task-edit-form { border: 1px solid #007bff; padding: 10px; border-radius: 4px; background: #f0f7ff; }
+    </style>
+</head>
+<body>
+    <h1>Norma Tasks</h1>
+    
+    <div class="task-form">
+        <h3>Add New Task</h3>
+        <form hx-post="/tasks" hx-target="#task-list" hx-swap="afterbegin" hx-on::after-request="this.reset()">
+            <input type="text" name="title" placeholder="Title" required>
+            <textarea name="goal" placeholder="Goal"></textarea>
+            <button type="submit" class="btn">Add Task</button>
+        </form>
+    </div>
+
+    <div id="task-list">
+        {{ range .Tasks }}
+            {{ template "task-item" . }}
+        {{ end }}
+    </div>
+
+    {{ define "task-item" }}
+    <div class="task-item {{ if eq .Status "done" }}done{{ end }}" id="task-{{ .ID }}">
+        <div>
+            <strong>{{ .Title }}</strong>
+            <p>{{ .Goal }}</p>
+            <small>Status: {{ .Status }}</small>
+        </div>
+        <div>
+            {{ if ne .Status "done" }}
+            <button class="btn" hx-get="/tasks/{{ .ID }}/edit" hx-target="#task-{{ .ID }}" hx-swap="outerHTML">Edit</button>
+            <button class="btn" hx-post="/tasks/{{ .ID }}/done" hx-target="#task-{{ .ID }}" hx-swap="outerHTML">Done</button>
+            {{ end }}
+            <button class="btn btn-delete" hx-delete="/tasks/{{ .ID }}" hx-target="#task-{{ .ID }}" hx-swap="outerHTML" hx-confirm="Are you sure?">Delete</button>
+        </div>
+    </div>
+    {{ end }}
+
+    {{ define "task-edit" }}
+    <div class="task-item" id="task-{{ .ID }}">
+        <form hx-put="/tasks/{{ .ID }}" hx-target="#task-{{ .ID }}" hx-swap="outerHTML" class="task-edit-form" style="width: 100%;">
+            <input type="text" name="title" value="{{ .Title }}" required style="width: 100%; margin-bottom: 5px;">
+            <textarea name="goal" style="width: 100%; margin-bottom: 5px;">{{ .Goal }}</textarea>
+            <button type="submit" class="btn">Save</button>
+            <button type="button" class="btn" hx-get="/tasks/{{ .ID }}" hx-target="#task-{{ .ID }}" hx-swap="outerHTML">Cancel</button>
+        </form>
+    </div>
+    {{ end }}
+</body>
+</html>

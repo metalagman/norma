@@ -151,3 +151,16 @@ func nullableStringPtr(value *string) any {
 	}
 	return *value
 }
+
+// GetRunStatus returns the status for a run id, or empty if missing.
+func (s *Store) GetRunStatus(ctx context.Context, runID string) (string, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT status FROM runs WHERE run_id=?`, runID)
+	var status string
+	if err := row.Scan(&status); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("read run status: %w", err)
+	}
+	return status, nil
+}

@@ -5,8 +5,8 @@
       "model": "gpt-5.2-codex"
     },
     "do": {
-      "type": "gemini",
-      "model": "gemini-3-flash-preview"
+      "type": "codex",
+      "model": "gpt-5.2-codex"
     },
     "check": {
       "type": "codex",
@@ -20,5 +20,9 @@
   "budgets": {
     "max_iterations": 5,
     "max_patch_kb": 200
+  },
+  "retention": {
+    "keep_last": 50,
+    "keep_days": 30
   }
 }

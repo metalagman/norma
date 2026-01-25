@@ -31,7 +31,9 @@ func Execute() error {
 		logging.Init(debug)
 	}
 	rootCmd.AddCommand(runCmd())
+	rootCmd.AddCommand(runsCmd())
 	rootCmd.AddCommand(taskCmd())
+	rootCmd.AddCommand(uiCmd())
 	return rootCmd.Execute()
 }
 

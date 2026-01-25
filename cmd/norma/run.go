@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"path/filepath"
-	"strconv"
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
@@ -48,25 +47,22 @@ func runCmd() *cobra.Command {
 				return err
 			}
 
-			taskStore := task.NewStore(storeDB)
+			tracker := task.NewBeadsTracker("")
 			runStore := run.NewStore(storeDB)
 			runner, err := run.NewRunner(repoRoot, cfg, runStore)
 			if err != nil {
 				return err
 			}
 			normaDir := filepath.Join(repoRoot, ".norma")
-			if err := recoverDoingTasks(cmd.Context(), taskStore, normaDir); err != nil {
+			if err := recoverDoingTasks(cmd.Context(), tracker, runStore, normaDir); err != nil {
 				return err
 			}
 
 			if runLeaves {
-				return runLeafTasks(cmd.Context(), taskStore, runner, continueOnFail)
+				return runLeafTasks(cmd.Context(), tracker, runStore, runner, continueOnFail)
 			}
-			id, err := strconv.ParseInt(args[0], 10, 64)
-			if err != nil {
-				return fmt.Errorf("invalid task id")
-			}
-			if err := runTaskByID(cmd.Context(), taskStore, runner, id); err != nil {
+			id := args[0]
+			if err := runTaskByID(cmd.Context(), tracker, runStore, runner, id); err != nil {
 				if continueOnFail {
 					fmt.Println(err)
 					return nil

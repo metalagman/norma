@@ -45,10 +45,10 @@ type RequestPaths struct {
 	StepDir  string `json:"step_dir"`
 }
 
-// RequestContext supplies previous steps and optional notes.
+// RequestContext supplies artifacts from previous steps and optional notes.
 type RequestContext struct {
-	PreviousStepDirs []string `json:"previous_step_dirs"`
-	Notes            string   `json:"notes"`
+	Artifacts []string `json:"artifacts,omitempty"`
+	Notes     string   `json:"notes,omitempty"`
 }
 
 // AgentResponse is the normalized stdout response from agents.

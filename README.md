@@ -13,7 +13,7 @@ norma is a minimal agent workflow runner for Go projects. It orchestrates a fixe
 
 ## Getting Started
 
-1. **Requirements.** Go 1.22 or newer and a writable working tree (norma only needs filesystem + SQLite).
+1. **Requirements.** Go 1.22 or newer, `bd` (beads CLI) executable in PATH, and a writable working tree (norma only needs filesystem + SQLite).
 2. **Build/install.**
 
    ```bash
@@ -52,6 +52,10 @@ Configuration lives in `.norma/config.json` (overridable via `--config`). It dec
     "max_patch_kb": 200,
     "max_changed_files": 20,
     "max_risky_files": 5
+  },
+  "retention": {
+    "keep_last": 50,
+    "keep_days": 30
   }
 }
 ```
@@ -59,6 +63,7 @@ Configuration lives in `.norma/config.json` (overridable via `--config`). It dec
 - `exec` agents receive `AgentRequest` JSON on stdin and must emit `AgentResponse` JSON on stdout.
 - `codex`, `opencode`, and `gemini` agents wrap their respective CLIs. norma uses the fixed tool binary name (no `cmd` override) and constrains their working directory (`path`) while enforcing JSON-only stdout.
 - Budgets cap iterations and patch size/width (`max_patch_kb`, `max_changed_files`). `max_risky_files` is reserved for future heuristics. `max_iterations` is required.
+- Retention prunes old runs on every `norma run`. Set `keep_last`, `keep_days`, or both.
 
 ## Agent Contract
 
@@ -79,7 +84,7 @@ Each step receives a normalized request (paths are absolute, but the agent may o
     "run_dir": "/abs/path/.norma/runs/20260123-145501-ab12cd",
     "step_dir": "/abs/path/.../steps/003-check"
   },
-  "context": { "previous_step_dirs": [".../001-plan"], "notes": "Optional" }
+  "context": { "artifacts": ["/abs/path/.../steps/001-plan/plan.md"], "notes": "Optional" }
 }
 ```
 
@@ -120,6 +125,15 @@ Every step is materialized under `.norma/runs/<run_id>/steps/` using the `NNN-ro
         logs/stdout.txt
         logs/stderr.txt
         plan.md
+
+## Sane Norma Loop (PDCA)
+
+- **PLAN:** update ordered backlog, pick a Next Slice (1 feature + 1–3 tasks), define stop conditions and what Check must verify.
+- **DO:** execute only the slice and produce artifacts. If scope grows or uncertainty appears, create a Spike or split tasks—don’t expand scope inside Do.
+- **CHECK:** run verifications for the slice (tests/lint/build/AC checks/diff review) and classify pass/partial/fail.
+- **ACT:** update backlog and decisions, then choose continue, re-plan, rollback, or ship.
+
+Invariants: bounded work, always verifiable tasks, backlog as the source of truth. Stop conditions include scope growth to L, missing requirements, blockers, systemic test issues, or repeated retries.
       002-do/
         input.json
         output.json
@@ -155,38 +169,33 @@ Key rules:
   - `steps`: one row per committed step (primary key `(run_id, step_index)`).
   - `events`: append-only timeline for UI/debugging.
   - `kv_run`: optional JSON blobs per run.
-  - `tasks`, `task_edges`: task graph backing the `norma task` commands.
 
-You can inspect the state directly:
+## Task Graph Workflow (Beads)
 
-```bash
-sqlite3 .norma/norma.db 'SELECT run_id, status, iteration FROM runs ORDER BY created_at DESC;'
-```
-
-## Crash Recovery & Patch Application
-
-- On every `norma run`, the reconciler deletes leftover `.tmp-*` directories and inserts "reconciled" step records for any orphaned artifact directories so the DB stays authoritative.
-- Step commits happen in two phases: (1) filesystem rename, (2) DB transaction that inserts the step, events (including verdicts and protocol errors), and updates the run cursor/status.
-- `act` patches are validated against budgets. norma snapshots `git status` / `git rev-parse`, applies the diff, emits a `patch_applied` event, and rolls back if the patch fails to apply.
-- When budgets such as `max_patch_kb` or `max_changed_files` are exceeded, the run stops with status `stopped` and the reason is recorded in events. You can pre-set `max_risky_files` for downstream tooling even though norma does not enforce it yet.
-
-## Task Graph Workflow
-
-norma ships with a lightweight task tracker stored in the same SQLite database. Typical flow:
+norma uses the `beads` tool for task management. Typical flow:
 
 ```bash
 norma task add "Tighten lint config" --ac "AC1: golangci-lint passes"
 norma task list --status todo
 norma task link 12 --depends-on 7 --depends-on 9
 norma run 12          # run a specific task
-norma run             # run all leaf TODO tasks in dependency order
-norma run --leaf      # equivalent to running with no task id
+norma run             # run all leaf TODO tasks (ready in beads)
 ```
 
-- Task rows track status (`todo|doing|done|failed|stopped`), optional associated run IDs, and acceptance criteria JSON.
-- `run` (with no task id) keeps pulling TODO DAG leaves so dependencies finish first; `--continue` lets you keep going after failures.
+- Tasks are stored in `.beads/` as JSONL files.
+- `norma` interacts with `beads` via the `bd` CLI.
+- Epics, Features, and Tasks are supported.
+- `run` (with no task id) pulls leaf tasks that are "ready" in beads.
 - To retry a failed/stopped task, run it explicitly by id (`norma run <task-id>`).
 - On startup, norma recovers `doing` tasks whose runs are not active, marking them `failed` so you can retry.
+
+Manual run pruning:
+
+```bash
+norma runs prune --keep-last 20
+norma runs prune --keep-days 14
+norma runs prune --keep-last 50 --keep-days 30 --dry-run
+```
 
 ## Development Tips
 

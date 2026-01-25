@@ -136,6 +136,12 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 
 	if res.Status == "ok" {
 		switch res.Role {
+		case "plan":
+			if err := validatePlan(filepath.Join(tempDir, "plan.md")); err != nil {
+				res.Status = "fail"
+				res.Protocol = err.Error()
+				res.Summary = res.Protocol
+			}
 		case "check":
 			verdict, err := readVerdict(filepath.Join(tempDir, "verdict.json"))
 			if err != nil {
@@ -163,6 +169,30 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	}
 
 	return res, nil
+}
+
+func validatePlan(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("missing plan.md")
+	}
+	text := strings.ToLower(string(data))
+	required := []string{
+		"backlog",
+		"next slice",
+		"stop condition",
+		"verification",
+	}
+	missing := make([]string, 0, len(required))
+	for _, key := range required {
+		if !strings.Contains(text, key) {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("invalid plan.md: missing sections: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {

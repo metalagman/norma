@@ -175,7 +175,8 @@ func (r *geminiRunner) Run(ctx context.Context, req model.AgentRequest) ([]byte,
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	argv := appendGeminiFlags(r.cmd, r.model, prompt)
+	argv := appendGeminiFlags(r.cmd, r.model)
+	argv = append(argv, prompt)
 	if r.useTTY {
 		log.Debug().Strs("cmd", argv).Bool("tty", true).Msg("run gemini agent")
 		return runCommandWithTTY(ctx, argv, r.workDir, nil)
@@ -279,14 +280,17 @@ func appendOpenCodeFlags(argv []string, model string) []string {
 	return out
 }
 
-func appendGeminiFlags(argv []string, model string, prompt string) []string {
+func appendGeminiFlags(argv []string, model string) []string {
 	out := make([]string, 0, len(argv)+4)
 	out = append(out, argv...)
 	if model != "" && !hasFlag(out, "--model") && !hasFlag(out, "-m") {
 		out = append(out, "--model", model)
 	}
-	if !hasFlag(out, "--prompt") && !hasFlag(out, "-p") {
-		out = append(out, "--prompt", prompt)
+	if !hasFlag(out, "--output-format") {
+		out = append(out, "--output-format", "text")
+	}
+	if !hasFlag(out, "--approval-mode") && !hasFlag(out, "--yolo") {
+		out = append(out, "--approval-mode", "yolo")
 	}
 	return out
 }
@@ -331,6 +335,8 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- Write only inside the provided step_dir.\n")
 	b.WriteString("- Output ONLY valid JSON for AgentResponse on stdout.\n")
 	b.WriteString("- The files[] entries must be relative to step_dir.\n")
+	b.WriteString("- You only know what is in context.artifacts; do not assume other prior step context.\n")
+	b.WriteString("- Follow the Sane Norma Loop: bounded work (1–3 tasks), always verifiable, backlog is the truth.\n")
 	if modelName != "" {
 		b.WriteString("- Use model hint: ")
 		b.WriteString(modelName)
@@ -339,12 +345,15 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	switch req.Step.Role {
 	case "check":
 		b.WriteString("Role requirements: write verdict.json and scorecard.md.\n")
+		b.WriteString("Check must record evidence and classify: pass/partial/fail (put this in scorecard.md).\n")
 	case "act":
 		b.WriteString("Role requirements: write patch.diff if proposing changes.\n")
+		b.WriteString("Act must update backlog state and record decisions (lightweight ADR if needed).\n")
 	case "do":
-		b.WriteString("Role guidance: produce evidence under files/.\n")
+		b.WriteString("Role guidance: execute only the locked slice; produce evidence under files/.\n")
+		b.WriteString("If scope blows up, create a Spike or split tasks; do not expand scope in Do.\n")
 	case "plan":
-		b.WriteString("Role guidance: write plan.md outlining the approach.\n")
+		b.WriteString("Role guidance: write plan.md with ordered backlog, Next Slice (1 feature + 1–3 tasks), stop conditions, and verification checklist.\n")
 	}
 	b.WriteString("\nAgentRequest:\n")
 	b.Write(data)

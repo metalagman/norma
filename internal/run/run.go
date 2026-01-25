@@ -87,6 +87,22 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	if err := reconcile.Run(ctx, r.store.db, r.normaDir); err != nil {
 		return Result{}, err
 	}
+	if r.cfg.Retention.KeepLast > 0 || r.cfg.Retention.KeepDays > 0 {
+		policy := RetentionPolicy{KeepLast: r.cfg.Retention.KeepLast, KeepDays: r.cfg.Retention.KeepDays}
+		if res, err := PruneRuns(ctx, r.store.db, filepath.Join(r.normaDir, "runs"), policy, false); err != nil {
+			return Result{}, err
+		} else {
+			log.Info().
+				Str("operation", "auto-prune").
+				Int("keep_last", policy.KeepLast).
+				Int("keep_days", policy.KeepDays).
+				Int("considered", res.Considered).
+				Int("kept", res.Kept).
+				Int("deleted", res.Deleted).
+				Int("skipped", res.Skipped).
+				Msg("auto-prune runs")
+		}
+	}
 
 	runID, err := newRunID()
 	if err != nil {
@@ -112,7 +128,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 	iteration := 1
 	stepIndex := 0
-	previousStepDirs := []string{}
+	artifacts := []string{}
 	budgets := budgetsFromConfig(BudgetsConfig{
 		MaxIterations:   r.cfg.Budgets.MaxIterations,
 		MaxPatchKB:      r.cfg.Budgets.MaxPatchKB,
@@ -123,11 +139,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		stepIndex++
 		log.Info().Str("run_id", runID).Str("role", "plan").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "plan", previousStepDirs, runDir, stepsDir, budgets)
+		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "plan", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		previousStepDirs = append(previousStepDirs, planRes.FinalDir)
+		artifacts = append(artifacts, stepArtifacts(planRes)...)
 		if err := r.commitStep(ctx, runID, planRes, "running", nil); err != nil {
 			return Result{RunID: runID}, err
 		}
@@ -140,11 +156,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 		stepIndex++
 		log.Info().Str("run_id", runID).Str("role", "do").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "do", previousStepDirs, runDir, stepsDir, budgets)
+		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "do", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		previousStepDirs = append(previousStepDirs, doRes.FinalDir)
+		artifacts = append(artifacts, stepArtifacts(doRes)...)
 		if err := r.commitStep(ctx, runID, doRes, "running", nil); err != nil {
 			return Result{RunID: runID}, err
 		}
@@ -157,11 +173,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 		stepIndex++
 		log.Info().Str("run_id", runID).Str("role", "check").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "check", previousStepDirs, runDir, stepsDir, budgets)
+		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "check", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		previousStepDirs = append(previousStepDirs, checkRes.FinalDir)
+		artifacts = append(artifacts, stepArtifacts(checkRes)...)
 		verdict := ""
 		if checkRes.Verdict != nil {
 			verdict = checkRes.Verdict.Verdict
@@ -192,11 +208,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 		stepIndex++
 		log.Info().Str("run_id", runID).Str("role", "act").Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "act", previousStepDirs, runDir, stepsDir, budgets)
+		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, stepIndex, "act", artifacts, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		previousStepDirs = append(previousStepDirs, actRes.FinalDir)
+		artifacts = append(artifacts, stepArtifacts(actRes)...)
 
 		runStatus := "running"
 		if actRes.Protocol == "budget_exceeded" {
@@ -227,7 +243,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	return Result{RunID: runID, Status: "stopped"}, nil
 }
 
-func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration, stepIndex int, role string, previous []string, runDir, stepsDir string) (stepResult, error) {
+func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration, stepIndex int, role string, artifacts []string, runDir, stepsDir string) (stepResult, error) {
 	req := model.AgentRequest{
 		Version: 1,
 		RunID:   runID,
@@ -252,7 +268,7 @@ func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.Acc
 			StepDir:  "",
 		},
 		Context: model.RequestContext{
-			PreviousStepDirs: previous,
+			Artifacts: artifacts,
 		},
 	}
 	return executeStep(ctx, r.agents[role], req, stepsDir)
@@ -260,10 +276,10 @@ func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.Acc
 
 const maxAgentRetries = 2
 
-func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration, stepIndex int, role string, previous []string, runDir, stepsDir string, budgets Budgets) (stepResult, error) {
+func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration, stepIndex int, role string, artifacts []string, runDir, stepsDir string, budgets Budgets) (stepResult, error) {
 	attempts := maxAgentRetries + 1
 	for attempt := 1; attempt <= attempts; attempt++ {
-		res, err := r.runStep(ctx, runID, goal, ac, iteration, stepIndex, role, previous, runDir, stepsDir)
+		res, err := r.runStep(ctx, runID, goal, ac, iteration, stepIndex, role, artifacts, runDir, stepsDir)
 		if err != nil {
 			return res, err
 		}
@@ -379,6 +395,46 @@ func stepEventData(res stepResult) string {
 		return ""
 	}
 	return string(data)
+}
+
+func stepArtifacts(res stepResult) []string {
+	if res.FinalDir == "" {
+		return nil
+	}
+	artifacts := make([]string, 0, 4)
+	seen := map[string]struct{}{}
+	addIfExists := func(path string) {
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		if _, err := os.Stat(path); err == nil {
+			artifacts = append(artifacts, path)
+			seen[path] = struct{}{}
+		}
+	}
+	if res.Response != nil {
+		for _, rel := range res.Response.Files {
+			if rel == "" {
+				continue
+			}
+			path := filepath.Join(res.FinalDir, filepath.Clean(rel))
+			addIfExists(path)
+		}
+	}
+	if res.Role == "plan" {
+		addIfExists(filepath.Join(res.FinalDir, "plan.md"))
+	}
+	if res.Role == "check" {
+		addIfExists(filepath.Join(res.FinalDir, "verdict.json"))
+		addIfExists(filepath.Join(res.FinalDir, "scorecard.md"))
+	}
+	if res.PatchPath != "" {
+		addIfExists(filepath.Join(res.FinalDir, "patch.diff"))
+	}
+	return artifacts
 }
 
 func patchEventData(hashSnapshot, statusSnapshot string) string {
