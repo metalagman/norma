@@ -1,0 +1,40 @@
+# IDE/editor settings
+.idea/
+.vscode/
+*.code-workspace
+
+# Build artifacts
+/bin/
+/build/
+/dist/
+/tmp/
+/out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+cmd/norma/norma
+
+# Coverage / profiling output
+coverage/
+coverage.*
+*.coverprofile
+*.cov
+*.prof
+
+# Tool caches
+.cache/
+
+# Norma runtime data
+.norma/norma.db*
+.norma/runs/
+.norma/locks/
+.norma/**/*.log
+.norma/**/*.tmp
+
+# OS metadata
+.DS_Store
+Thumbs.db

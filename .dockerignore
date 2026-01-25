@@ -1,0 +1,28 @@
+# VCS metadata
+.git
+.gitignore
+
+# IDE/editor files
+.idea
+.vscode
+*.code-workspace
+
+# Norma runtime data
+.norma/norma.db*
+.norma/runs/
+.norma/locks/
+
+# Build outputs and caches
+bin
+build
+dist
+tmp
+out
+coverage
+coverage.*
+.cache
+
+# Logs and patch artifacts
+*.log
+*.tmp
+patch.diff

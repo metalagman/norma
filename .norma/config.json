@@ -1,0 +1,24 @@
+{
+  "agents": {
+    "plan": {
+      "type": "codex",
+      "model": "gpt-5.2-codex"
+    },
+    "do": {
+      "type": "gemini",
+      "model": "gemini-3-flash-preview"
+    },
+    "check": {
+      "type": "codex",
+      "model": "gpt-5.1-codex-mini"
+    },
+    "act": {
+      "type": "codex",
+      "model": "gpt-5.1-codex-mini"
+    }
+  },
+  "budgets": {
+    "max_iterations": 5,
+    "max_patch_kb": 200
+  }
+}

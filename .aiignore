@@ -1,0 +1,19 @@
+# Exclude runtime state and generated artifacts from AI prompts
+.git/
+.norma/norma.db*
+.norma/runs/
+.norma/locks/
+.cache/
+.idea/
+.vscode/
+build/
+dist/
+bin/
+tmp/
+coverage/
+coverage.*
+*.log
+*.tmp
+*.shm
+*.wal
+*.sqlite
