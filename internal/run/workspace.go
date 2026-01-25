@@ -115,3 +115,28 @@ func getWorkspacePatch(ctx context.Context, workspaceDir string) (string, error)
 	
 	return diff, nil
 }
+
+func commitWorkspace(ctx context.Context, workspaceDir, message string) error {
+	log.Debug().Str("workspace_dir", workspaceDir).Str("message", message).Msg("committing changes in workspace")
+	
+	// Add all changes
+	err := runCmdErr(ctx, workspaceDir, "git", "add", ".")
+	if err != nil {
+		return fmt.Errorf("git add: %w", err)
+	}
+	
+	// Check if there are changes to commit
+	status := runCmd(ctx, workspaceDir, "git", "status", "--porcelain")
+	if strings.TrimSpace(status) == "" {
+		log.Debug().Str("workspace_dir", workspaceDir).Msg("no changes to commit in workspace")
+		return nil
+	}
+	
+	// Commit
+	err = runCmdErr(ctx, workspaceDir, "git", "commit", "-m", message)
+	if err != nil {
+		return fmt.Errorf("git commit: %w", err)
+	}
+	
+	return nil
+}

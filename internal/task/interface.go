@@ -38,4 +38,7 @@ type Tracker interface {
 	SetRun(ctx context.Context, id string, runID string) error
 	AddDependency(ctx context.Context, taskID, dependsOnID string) error
 	LeafTasks(ctx context.Context) ([]Task, error)
+	UpdateWorkflowState(ctx context.Context, id string, state string) error
+	AddLabel(ctx context.Context, id string, label string) error
+	SetNotes(ctx context.Context, id string, notes string) error
 }

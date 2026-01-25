@@ -216,23 +216,55 @@ func (t *BeadsTracker) MarkDone(ctx context.Context, id string) error {
 // MarkStatus updates task status.
 func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string) error {
 	beadsStatus := status
+	removeLabels := []string{"planning", "doing", "checking", "acting"}
 	switch status {
 	case "todo":
 		beadsStatus = "open"
 	case "planning", "doing", "checking", "acting":
 		beadsStatus = "in_progress"
+		// When using these granular statuses, we also update labels
+		return t.UpdateWorkflowState(ctx, id, status)
 	case "done":
 		beadsStatus = "closed"
 	case "failed":
-		// Beads has no failed. Maybe add label?
-		// For now map to open + label "failed"? Or just keep open.
 		beadsStatus = "open"
 	case "stopped":
 		beadsStatus = "deferred"
 	}
 
-	// If mapping to same status, we use bd update --status
-	_, err := t.exec(ctx, "update", id, "--status", beadsStatus, "--json", "--quiet")
+	args := []string{"update", id, "--status", beadsStatus, "--json", "--quiet"}
+	for _, label := range removeLabels {
+		args = append(args, "--remove-label", label)
+	}
+
+	_, err := t.exec(ctx, args...)
+	return err
+}
+
+// UpdateWorkflowState updates the granular workflow state using labels.
+func (t *BeadsTracker) UpdateWorkflowState(ctx context.Context, id string, state string) error {
+	allStates := []string{"planning", "doing", "checking", "acting"}
+	args := []string{"update", id, "--status", "in_progress", "--json", "--quiet"}
+	
+	for _, s := range allStates {
+		if s == state {
+			args = append(args, "--add-label", s)
+		} else {
+			args = append(args, "--remove-label", s)
+		}
+	}
+
+	_, err := t.exec(ctx, args...)
+	return err
+}
+
+func (t *BeadsTracker) AddLabel(ctx context.Context, id string, label string) error {
+	_, err := t.exec(ctx, "update", id, "--add-label", label, "--json", "--quiet")
+	return err
+}
+
+func (t *BeadsTracker) SetNotes(ctx context.Context, id string, notes string) error {
+	_, err := t.exec(ctx, "update", id, "--notes", notes, "--json", "--quiet")
 	return err
 }
 

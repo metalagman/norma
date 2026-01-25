@@ -21,7 +21,6 @@ type stepResult struct {
 	StepIndex int
 	Role      string
 	Iteration int
-	TempDir   string
 	FinalDir  string
 	StartedAt time.Time
 	EndedAt   time.Time
@@ -34,28 +33,23 @@ type stepResult struct {
 
 func executeStep(ctx context.Context, runner agent.Runner, req model.AgentRequest, runStepsDir string) (stepResult, error) {
 	stepName := fmt.Sprintf("%03d-%s", req.Step.Index, req.Step.Role)
-	tmpSuffix, err := randomHex(3)
-	if err != nil {
-		return stepResult{}, fmt.Errorf("random suffix: %w", err)
-	}
-	tempDir := filepath.Join(runStepsDir, stepName+".tmp-"+tmpSuffix)
 	finalDir := filepath.Join(runStepsDir, stepName)
 
 	startedAt := time.Now().UTC()
-	if err := os.MkdirAll(tempDir, 0o755); err != nil {
-		return stepResult{}, fmt.Errorf("create temp step dir: %w", err)
+	if err := os.MkdirAll(finalDir, 0o755); err != nil {
+		return stepResult{}, fmt.Errorf("create step dir: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(tempDir, "logs"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(finalDir, "logs"), 0o755); err != nil {
 		return stepResult{}, fmt.Errorf("create logs dir: %w", err)
 	}
 
-	req.Paths.StepDir = tempDir
-	if err := writeJSON(filepath.Join(tempDir, "input.json"), req); err != nil {
+	req.Paths.StepDir = finalDir
+	if err := writeJSON(filepath.Join(finalDir, "input.json"), req); err != nil {
 		return stepResult{}, err
 	}
 
-	stdoutPath := filepath.Join(tempDir, "logs", "stdout.txt")
-	stderrPath := filepath.Join(tempDir, "logs", "stderr.txt")
+	stdoutPath := filepath.Join(finalDir, "logs", "stdout.txt")
+	stderrPath := filepath.Join(finalDir, "logs", "stderr.txt")
 	stdoutFile, err := os.Create(stdoutPath)
 	if err != nil {
 		return stepResult{}, fmt.Errorf("create stdout log: %w", err)
@@ -105,7 +99,6 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		StepIndex: req.Step.Index,
 		Role:      req.Step.Role,
 		Iteration: req.Step.Iteration,
-		TempDir:   tempDir,
 		FinalDir:  finalDir,
 		StartedAt: startedAt,
 		EndedAt:   time.Now().UTC(),
@@ -137,7 +130,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 				Int("files_count", len(resp.Files)).
 				Int("next_actions_count", len(resp.NextActions)).
 				Msg("agent response parsed")
-			if err := writeJSON(filepath.Join(tempDir, "output.json"), resp); err != nil {
+			if err := writeJSON(filepath.Join(finalDir, "output.json"), resp); err != nil {
 				res.Status = "fail"
 				res.Protocol = fmt.Sprintf("write output.json: %v", err)
 				res.Summary = res.Protocol
@@ -148,13 +141,13 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	if res.Status == "ok" {
 		switch res.Role {
 		case "plan":
-			if err := validatePlan(filepath.Join(tempDir, "plan.md")); err != nil {
+			if err := validatePlan(filepath.Join(finalDir, "plan.md")); err != nil {
 				res.Status = "fail"
 				res.Protocol = err.Error()
 				res.Summary = res.Protocol
 			}
 		case "check":
-			verdict, err := readVerdict(filepath.Join(tempDir, "verdict.json"))
+			verdict, err := readVerdict(filepath.Join(finalDir, "verdict.json"))
 			if err != nil {
 				res.Status = "fail"
 				res.Protocol = err.Error()
@@ -166,7 +159,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 			} else {
 				res.Verdict = verdict
 			}
-			if _, err := os.Stat(filepath.Join(tempDir, "scorecard.md")); err != nil {
+			if _, err := os.Stat(filepath.Join(finalDir, "scorecard.md")); err != nil {
 				res.Status = "fail"
 				res.Protocol = "missing scorecard.md"
 				res.Summary = res.Protocol
@@ -290,11 +283,4 @@ func truncateLog(data []byte, limit int) string {
 		return text
 	}
 	return text[:limit] + "...(truncated)"
-}
-
-func finalizeStep(res *stepResult) error {
-	if err := os.Rename(res.TempDir, res.FinalDir); err != nil {
-		return fmt.Errorf("rename step dir: %w", err)
-	}
-	return nil
 }

@@ -14,9 +14,9 @@ Single fixed workflow:
 - **Run/step state is in SQLite** (queryable, UI-friendly).
 - **Task state lives only in Beads** (no task/backlog state in Norma DB or kv).
 - **Workspaces (Git Worktrees):** Every run MUST operate in a dedicated Git worktree located inside the run directory. Agents perform all work within this isolated workspace.
-- **Workspace Isolation:** Workspaces are ephemeral and reside at `.norma/runs/<run_id>/workspace/`. They use Git branches named `norma/<task_id>/<run_id>`.
+- **Task-scoped Branches:** Workspaces use Git branches scoped to the task: `norma/task/<task_id>`. This allows progress to be restartable across multiple runs.
+- **Workflow State in Labels:** Granular workflow states (`planning`, `doing`, `checking`, `acting`) are tracked using `bd` labels on the task.
 - **Git History as Source of Truth:** Agents communicate changes by modifying the workspace directly. The orchestrator extracts changes using Git history (e.g., `git diff HEAD`).
-- **Atomic commits**: a step is committed by an atomic directory rename + a DB transaction.
 - **Any agent** is supported through a **normalized JSON contract**.
 
 ---
@@ -72,7 +72,6 @@ Everything lives under the project root:
 - **No task state in Norma DB:** task status, priority, dependencies, and selection are managed in Beads only.
 - Files in `runs/<run_id>/steps/...` are authoritative artifacts.
 - Agents MUST only write inside their current `step_dir`, except for **Do** and **Act** which modify files in the `workspace/` to implement the selected issue or fix.
-- Step directories appear only when complete (created under a temp name then renamed).
 
 ---
 
@@ -156,24 +155,19 @@ Notes:
 ### 4.1 Step commit protocol (MUST)
 A step is committed in this order:
 
-1) Create temp step dir:
-   - `steps/003-check.tmp-<rand>/`
+1) Create step dir: `steps/003-check/`
 2) Write all step files inside it (inputs, outputs, logs, verdict, etc).
-3) Rename temp dir to final dir:
-   - `rename(tmpDir, steps/003-check/)`  (atomic on same filesystem)
-4) DB transaction (`BEGIN IMMEDIATE` recommended):
+3) DB transaction (`BEGIN IMMEDIATE` recommended):
    - insert step record into `steps`
    - append one or more records into `events`
    - update `runs.current_step_index`, `runs.iteration`, `runs.verdict/status` if applicable
-5) `COMMIT`
+4) `COMMIT`
 
 If the process crashes:
-- after (3) but before (5): artifacts exist, DB missing step → reconcile on startup.
-- before (3): only temp dir exists → cleanup temp dir on startup.
+- Artifacts might exist without a matching DB record.
 
 ### 4.2 Reconciliation on startup (MVP MUST)
 On `norma` start:
-- Delete any `steps/*.tmp-*` directories older than a short threshold (e.g. 5 minutes) OR unconditionally (MVP can be unconditional).
 - For each run in `.norma/runs/*`:
   - list `steps/<NNN-role>/`
   - ensure there is a matching DB `steps` record
@@ -726,8 +720,9 @@ norma generates a role-specific prompt that instructs Gemini to:
 
 - [ ] `norma run <task-id>` creates a run and DB entry in `.norma/norma.db`
 - [ ] Each run creates an isolated Git worktree at `runs/<run_id>/workspace/`
+- [ ] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
+- [ ] Workflow states are tracked via `bd` labels on the task
 - [ ] Each step creates artifacts in `runs/<run_id>/steps/<n>-<role>/`
-- [ ] Steps are committed atomically (tmp dir → rename; then DB transaction)
 - [ ] check produces `verdict.json` + `scorecard.md`
 - [ ] Successful runs extract changes from `workspace/` and apply them to the main repo
 - [ ] Crash recovery cleans tmp dirs and reconciles missing DB step records

@@ -176,6 +176,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			return Result{RunID: runID, Status: "failed"}, nil
 		}
 
+		if r.issueID != "" && r.tracker != nil {
+			planPath := filepath.Join(planRes.FinalDir, "plan.md")
+			if planData, err := os.ReadFile(planPath); err == nil {
+				_ = r.tracker.SetNotes(ctx, r.issueID, string(planData))
+				_ = r.tracker.AddLabel(ctx, r.issueID, "norma-planned")
+			}
+		}
+
 		stepIndex++
 		if r.issueID != "" && r.tracker != nil {
 			_ = r.tracker.MarkStatus(ctx, r.issueID, "doing")
@@ -197,6 +205,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				return Result{RunID: runID}, err
 			}
 			return Result{RunID: runID, Status: "failed"}, nil
+		}
+
+		// Commit changes in workspace
+		if r.workspaceDir != "" {
+			_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("do: iteration %d", iteration))
 		}
 
 		stepIndex++
@@ -226,38 +239,47 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				return Result{RunID: runID}, err
 			}
 			if verdict == "PASS" {
-				// Extract and apply patch from workspace only when task is done
-				patch, err := getWorkspacePatch(ctx, r.workspaceDir)
+				// Apply changes from workspace branch to main repo when task is done
+				log.Info().Str("issue_id", r.issueID).Msg("task passed, applying changes to main repo")
+				
+				branchName := fmt.Sprintf("norma/task/%s", r.issueID)
+				
+				// record git status/hash "before"
+				beforeHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
+				beforeStatus := runCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
+
+				// merge --squash
+				err := runCmdErr(ctx, r.repoRoot, "git", "merge", "--squash", branchName)
 				if err != nil {
-					log.Error().Err(err).Msg("failed to extract patch from workspace")
-					if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to extract patch from workspace"); err != nil {
+					log.Error().Err(err).Msg("failed to merge task branch")
+					if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to merge task branch: "+err.Error()); err != nil {
 						return Result{RunID: runID}, err
 					}
 					return Result{RunID: runID, Status: "failed"}, nil
 				}
-				
-				if patch != "" {
-					// We need to write the patch somewhere temporarily to apply it
-					tmpPatch := filepath.Join(r.workspaceDir, "..", "workspace.diff")
-					if err := os.WriteFile(tmpPatch, []byte(patch), 0o644); err != nil {
-						return Result{RunID: runID}, fmt.Errorf("write tmp patch: %w", err)
+
+				// commit using Conventional Commits
+				commitMsg := fmt.Sprintf("feat: %s\n\nRun: %s\nIssue: %s", goal, runID, r.issueID)
+				err = runCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to commit merged changes")
+					// rollback if possible
+					_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", "HEAD")
+					if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to commit merged changes: "+err.Error()); err != nil {
+						return Result{RunID: runID}, err
 					}
-					defer os.Remove(tmpPatch)
-					
-					beforeAfterHash, beforeAfterStatus, err := applyPatch(ctx, r.repoRoot, tmpPatch, budgets)
-					if err != nil {
-						log.Error().Err(err).Msg("failed to apply patch to main repo")
-						if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to apply patch to main repo: "+err.Error()); err != nil {
-							return Result{RunID: runID}, err
-						}
-						return Result{RunID: runID, Status: "failed"}, nil
-					}
-					
-					log.Info().
-						Str("before_after_hash", beforeAfterHash).
-						Str("before_after_status", beforeAfterStatus).
-						Msg("patch applied successfully to main repo")
+					return Result{RunID: runID, Status: "failed"}, nil
 				}
+
+				afterHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
+				afterStatus := runCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
+
+				log.Info().
+					Str("before_hash", beforeHash).
+					Str("after_hash", afterHash).
+					Str("before_status", beforeStatus).
+					Str("after_status", afterStatus).
+					Msg("changes applied and committed successfully")
 
 				return Result{RunID: runID, Status: "passed", Verdict: &verdictCopy}, nil
 			}
@@ -305,6 +327,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				return Result{RunID: runID}, err
 			}
 			return Result{RunID: runID, Status: "failed"}, nil
+		}
+
+		// Commit changes in workspace
+		if r.workspaceDir != "" {
+			_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("act: iteration %d", iteration))
 		}
 
 		iteration++
@@ -377,13 +404,7 @@ func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac 
 		}
 		lastAttempt := attempt == attempts
 		if !retryable || lastAttempt || res.Status == "ok" {
-			if err := finalizeStep(&res); err != nil {
-				return res, err
-			}
 			return res, nil
-		}
-		if err := finalizeStep(&res); err != nil {
-			return res, err
 		}
 		if err := r.commitStep(ctx, runID, res, "running", nil); err != nil {
 			return res, err

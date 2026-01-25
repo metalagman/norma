@@ -5,8 +5,8 @@
       "model": "gpt-5.2-codex"
     },
     "do": {
-      "type": "codex",
-      "model": "gpt-5.2-codex"
+      "type": "opencode",
+      "model": "opencode/big-pickle"
     },
     "check": {
       "type": "codex",
