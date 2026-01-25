@@ -14,6 +14,7 @@ Single fixed workflow:
 - **Run/step state is in SQLite** (queryable, UI-friendly).
 - **Task state lives only in Beads** (no task/backlog state in Norma DB or kv).
 - **Workspaces (Git Worktrees):** Every run MUST operate in a dedicated Git worktree located inside the run directory. Agents perform all work within this isolated workspace.
+- **Shared Artifacts:** Every run has a shared `artifacts/` directory where agents produce evidence and consume data from previous steps. This replaces step-local artifact storage.
 - **Task-scoped Branches:** Workspaces use Git branches scoped to the task: `norma/task/<task_id>`. This allows progress to be restartable across multiple runs.
 - **Workflow State in Labels:** Granular workflow states (`planning`, `doing`, `checking`, `acting`) are tracked using `bd` labels on the task.
 - **Git History as Source of Truth:** Agents communicate changes by modifying the workspace directly. The orchestrator extracts changes using Git history (e.g., `git diff HEAD`).
@@ -36,24 +37,25 @@ Everything lives under the project root:
   runs/<run_id>/
     norma.md               # goal + AC + budgets (human readable)
     workspace/             # Git worktree (the active workspace for this run)
+    artifacts/             # Shared artifacts (produced and consumed by agents)
+      plan.md
+      verdict.json
+      scorecard.md
+      evidence/...
     steps/
       001-plan/
         input.json
         output.json
         logs/stdout.txt
         logs/stderr.txt
-        plan.md            # OPTIONAL
       002-do/
         input.json
         output.json
         logs/stdout.txt
         logs/stderr.txt
-        files/...
       003-check/
         input.json
         output.json
-        verdict.json        # REQUIRED
-        scorecard.md        # REQUIRED
         logs/...
       004-act/
         input.json
@@ -70,8 +72,8 @@ Everything lives under the project root:
   - timeline events
 - **Workspaces:** The `workspace/` directory is a Git worktree. Agents perform all work within this isolated workspace. The orchestrator tracks changes by inspecting the Git history/diff of the workspace.
 - **No task state in Norma DB:** task status, priority, dependencies, and selection are managed in Beads only.
-- Files in `runs/<run_id>/steps/...` are authoritative artifacts.
-- Agents MUST only write inside their current `step_dir`, except for **Do** and **Act** which modify files in the `workspace/` to implement the selected issue or fix.
+- **Artifacts:** The `artifacts/` directory contains all artifacts produced during the run. Agents MUST write their artifacts here and MAY read existing artifacts from here.
+- Agents MUST only write inside their current `step_dir` (for logs/metadata) and the shared `artifacts/` directory, except for **Do** and **Act** which modify files in the `workspace/` to implement the selected issue or fix.
 
 ---
 
@@ -302,7 +304,7 @@ Default selection algorithm:
    - Oldest open first (FIFO)
 
 Output:
-- `selected_issue_id`
+- `selected_task_id`
 - `selection_reason` (short string)
 
 WIP:
@@ -314,26 +316,26 @@ WIP:
 
 ### 1) PLAN (Plan Agent, scoped)
 Input:
-- `bd show <selected_issue_id>`
+- `bd show <selected_task_id>`
 - parent chain (optional): epic/feature context
 - current `progress.md` (optional)
 Output: one of three results
 
 **A. READY**
-- The selected issue becomes executable (Ready Contract complete).
-- Return: `next_issue_id = selected_issue_id`.
+- The selected task becomes executable (Ready Contract complete).
+- Return: `next_task_id = selected_task_id`.
 
 **B. DECOMPOSE**
-- If selected issue is epic/feature or “too big”, create child issues (parent-child).
+- If selected task is epic/feature or “too big”, create child issues (parent-child).
 - Ensure at least 1–3 children are Ready.
-- Return: `next_issue_id = <one Ready child leaf issue>`.
+- Return: `next_task_id = <one Ready child leaf task>`.
 
 **C. BLOCKED**
-- If selected issue is missing a prerequisite, create prerequisite issue and add `blocks`.
-- Return: `next_issue_id = <prerequisite issue>` (must be Ready or made Ready).
+- If selected task is missing a prerequisite, create prerequisite issue and add `blocks`.
+- Return: `next_task_id = <prerequisite issue>` (must be Ready or made Ready).
 
 Plan agent allowed mutations:
-- Create/update issues in the selected subtree (selected issue + descendants)
+- Create/update issues in the selected subtree (selected task + descendants)
 - Add/remove **blocks** edges involving the selected subtree
 - Create new issues marked as discovered work under the same parent feature
 Plan agent forbidden:
@@ -345,32 +347,32 @@ Stop condition inside Plan:
 
 ### 2) DO (Do Agent)
 Input:
-- `bd show <next_issue_id>` (must be Ready) + repo + conventions
+- `bd show <next_task_id>` (must be Ready) + repo + conventions
 Output:
 - code/doc artifacts in `workspace/`
 - proposed status change
 - anything discovered → new issues under same parent
 
 Do agent rules:
-- Work on exactly one issue per iteration (`next_issue_id`)
+- Work on exactly one task per iteration (`next_task_id`)
 - Do not start additional ready issues
 - If scope grows, split: create new child tasks and stop
 
 ### 3) CHECK (Tool or Check Agent)
 Input:
-- `Verify` field from the issue
+- `Verify` field from the task
 Output:
 - PASS / FAIL / PARTIAL
 - Evidence (test output summary, commands run, links to artifacts)
 
 ### 4) ACT (Orchestrator)
 If PASS:
-- Close `next_issue_id`
+- Close `next_task_id`
 - Extract changes from `workspace/` and apply to main repository
 - Append a short entry to `progress.md` (what worked, what to repeat)
 
 If FAIL or PARTIAL:
-- Keep issue open (or reopen)
+- Keep task open (or reopen)
 - Optionally create “Fix …” child task(s) and/or spike(s)
 - Update deps if a prerequisite was discovered
 - Append learnings to `progress.md`
@@ -487,11 +489,12 @@ Notes:
   "paths": {
     "repo_root": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/workspace",
     "run_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd",
-    "step_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/steps/003-check"
+    "step_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/steps/003-check",
+    "artifacts_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/artifacts"
   },
   "context": {
     "artifacts": [
-      "/abs/.../steps/001-plan/plan.md"
+      "plan.md"
     ],
     "next_actions": [
       "Implement feature X"
@@ -499,17 +502,19 @@ Notes:
     "notes": "Optional free-form"
   },
   "plan": {
-    "issue": { "id": "bd-1" }
+    "task": { "id": "bd-1" }
   },
   "do": {
-    "issue": { "id": "bd-1" }
+    "task": { "id": "bd-1" }
   }
 }
 ```
 
 **Rules**
-- Agent MUST treat `step_dir` as the only writable location for artifacts.
-- Agent MUST NOT write outside `step_dir`, EXCEPT for `do` and `act` which modify the `workspace/`.
+- Agent MUST treat `step_dir` as the location for step-specific logs and metadata.
+- Agent MUST treat `artifacts_dir` as the primary location for producing evidence, plans, and other shared artifacts.
+- Agent MAY read existing artifacts from `artifacts_dir`.
+- Agent MUST NOT write outside `step_dir` or `artifacts_dir`, EXCEPT for `do` and `act` which modify the `workspace/`.
 - `paths.repo_root` points to the isolated Git worktree (`workspace/`).
 - `plan` and `do` blocks are role-specific and only present for their respective roles.
 - `context.next_actions` contains the `next_actions` suggested by the previous step in the same iteration.
@@ -521,7 +526,7 @@ Notes:
   "status": "ok",
   "summary": "What happened, 1-3 sentences",
   "files": [
-    "files/test.log",
+    "evidence/test.log",
     "scorecard.md"
   ],
   "next_actions": [
@@ -534,7 +539,7 @@ Notes:
 
 **Rules**
 - `status` is `ok` or `fail`.
-- `files` MUST be relative paths under `step_dir` (no `..`, no absolute paths).
+- `files` MUST be relative paths under `artifacts_dir` (no `..`, no absolute paths).
 - If stdout is not valid JSON:
   - norma MUST store raw stdout in logs and mark step failed (`protocol_error`).
 
@@ -550,7 +555,7 @@ MUST:
 - Write logs:
   - `logs/stdout.txt`, `logs/stderr.txt` (norma captures these)
 SHOULD:
-- Write `plan.md` with ordered backlog, Next Slice, stop conditions, and verification checklist (validated by norma)
+- Write `plan.md` in `artifacts_dir` with ordered backlog, Next Slice, stop conditions, and verification checklist (validated by norma)
 
 ### 8.2 Role: do
 Purpose: implement work in workspace.
@@ -559,16 +564,16 @@ MUST:
 - Produce `output.json` (AgentResponse)
 - Write logs:
   - `logs/stdout.txt`, `logs/stderr.txt` (norma captures these)
-- Implement the selected issue by modifying files in `workspace/`.
+- Implement the selected task by modifying files in `workspace/`.
 SHOULD:
-- Write evidence under `files/` (e.g. `files/run.log`, `files/commands.txt`)
+- Write evidence under `artifacts_dir` (e.g. `evidence/run.log`, `evidence/commands.txt`)
 
 ### 8.3 Role: check
 Purpose: evaluate workspace vs acceptance criteria.
 
 MUST:
-- Produce `verdict.json`
-- Produce `scorecard.md` (human-readable summary)
+- Produce `verdict.json` in `artifacts_dir`
+- Produce `scorecard.md` in `artifacts_dir` (human-readable summary)
 - Produce `output.json`
 
 `verdict.json` schema:
@@ -581,7 +586,7 @@ MUST:
       "id": "AC1",
       "text": "All unit tests pass",
       "pass": true,
-      "evidence": "files/test.log"
+      "evidence": "evidence/test.log"
     }
   ],
   "metrics": {
@@ -672,7 +677,7 @@ Codex typically outputs free-form text. MVP requires deterministic output:
 norma generates a role-specific prompt that instructs Codex to:
 - write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir` (or `workspace/` for `do`/`act`)
+- write only inside `step_dir` or `artifacts_dir` (or `workspace/` for `do`/`act`)
 - keep paths relative in `files[]`
 
 ### Capturing
@@ -688,7 +693,7 @@ OpenCode typically outputs free-form text. MVP requires deterministic output:
 norma generates a role-specific prompt that instructs OpenCode to:
 - write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir` (or `workspace/` for `do`/`act`)
+- write only inside `step_dir` or `artifacts_dir` (or `workspace/` for `do`/`act`)
 - keep paths relative in `files[]`
 
 ### Capturing
@@ -706,7 +711,7 @@ Gemini CLI typically outputs free-form text. MVP requires deterministic output:
 norma generates a role-specific prompt that instructs Gemini to:
 - write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir` (or `workspace/` for `do`/`act`)
+- write only inside `step_dir` or `artifacts_dir` (or `workspace/` for `do`/`act`)
 - keep paths relative in `files[]`
 
 ### Capturing
@@ -722,6 +727,7 @@ norma generates a role-specific prompt that instructs Gemini to:
 - [ ] Each run creates an isolated Git worktree at `runs/<run_id>/workspace/`
 - [ ] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
 - [ ] Workflow states are tracked via `bd` labels on the task
+- [ ] Each run has a shared `artifacts/` directory for shared data
 - [ ] Each step creates artifacts in `runs/<run_id>/steps/<n>-<role>/`
 - [ ] check produces `verdict.json` + `scorecard.md`
 - [ ] Successful runs extract changes from `workspace/` and apply them to the main repo

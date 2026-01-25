@@ -25,8 +25,9 @@ type Runner struct {
 	store        *Store
 	agents       map[string]agent.Runner
 	tracker      task.Tracker
-	issueID      string
+	taskID       string
 	workspaceDir string
+	artifactsDir string
 }
 
 // Result summarizes a completed run.
@@ -61,15 +62,15 @@ func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tr
 }
 
 // Run starts a new run with the given goal and acceptance criteria.
-func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCriterion, issueID string) (res Result, err error) {
-	r.issueID = issueID
+func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCriterion, taskID string) (res Result, err error) {
+	r.taskID = taskID
 	startedAt := time.Now().UTC()
 	defer func() {
 		if res.RunID == "" {
 			return
 		}
 		if r.workspaceDir != "" {
-			_ = cleanupWorkspace(ctx, r.repoRoot, r.workspaceDir, r.issueID)
+			_ = cleanupWorkspace(ctx, r.repoRoot, r.workspaceDir, r.taskID)
 		}
 		status := res.Status
 		if status == "" && err != nil {
@@ -124,8 +125,13 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		Int("ac_count", len(ac)).
 		Msg("run started")
 	runDir := filepath.Join(r.normaDir, "runs", runID)
-	
-	r.workspaceDir, err = createWorkspace(ctx, r.repoRoot, runDir, r.issueID)
+
+	r.artifactsDir = filepath.Join(runDir, "artifacts")
+	if err := os.MkdirAll(r.artifactsDir, 0o755); err != nil {
+		return Result{RunID: runID}, fmt.Errorf("create artifacts dir: %w", err)
+	}
+
+	r.workspaceDir, err = createWorkspace(ctx, r.repoRoot, runDir, r.taskID)
 	if err != nil {
 		return Result{RunID: runID}, fmt.Errorf("create workspace: %w", err)
 	}
@@ -154,15 +160,15 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		stepIndex++
-		if r.issueID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.issueID, "planning")
+		if r.taskID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.taskID, "planning")
 		}
 		log.Info().Str("role", "plan").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "plan", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		artifacts = append(artifacts, stepArtifacts(planRes)...)
+		artifacts = r.collectArtifacts()
 		if planRes.Response != nil {
 			nextActions = planRes.Response.NextActions
 		}
@@ -176,24 +182,24 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			return Result{RunID: runID, Status: "failed"}, nil
 		}
 
-		if r.issueID != "" && r.tracker != nil {
-			planPath := filepath.Join(planRes.FinalDir, "plan.md")
+		if r.taskID != "" && r.tracker != nil {
+			planPath := filepath.Join(r.artifactsDir, "plan.md")
 			if planData, err := os.ReadFile(planPath); err == nil {
-				_ = r.tracker.SetNotes(ctx, r.issueID, string(planData))
-				_ = r.tracker.AddLabel(ctx, r.issueID, "norma-planned")
+				_ = r.tracker.SetNotes(ctx, r.taskID, string(planData))
+				_ = r.tracker.AddLabel(ctx, r.taskID, "norma-planned")
 			}
 		}
 
 		stepIndex++
-		if r.issueID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.issueID, "doing")
+		if r.taskID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.taskID, "doing")
 		}
 		log.Info().Str("role", "do").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "do", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		artifacts = append(artifacts, stepArtifacts(doRes)...)
+		artifacts = r.collectArtifacts()
 		if doRes.Response != nil {
 			nextActions = doRes.Response.NextActions
 		}
@@ -213,15 +219,15 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
-		if r.issueID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.issueID, "checking")
+		if r.taskID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.taskID, "checking")
 		}
 		log.Info().Str("role", "check").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "check", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		artifacts = append(artifacts, stepArtifacts(checkRes)...)
+		artifacts = r.collectArtifacts()
 		if checkRes.Response != nil {
 			nextActions = checkRes.Response.NextActions
 		}
@@ -240,10 +246,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			}
 			if verdict == "PASS" {
 				// Apply changes from workspace branch to main repo when task is done
-				log.Info().Str("issue_id", r.issueID).Msg("task passed, applying changes to main repo")
-				
-				branchName := fmt.Sprintf("norma/task/%s", r.issueID)
-				
+				log.Info().Str("task_id", r.taskID).Msg("task passed, applying changes to main repo")
+
+				branchName := fmt.Sprintf("norma/task/%s", r.taskID)
+
 				// record git status/hash "before"
 				beforeHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
 				beforeStatus := runCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
@@ -259,7 +265,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				}
 
 				// commit using Conventional Commits
-				commitMsg := fmt.Sprintf("feat: %s\n\nRun: %s\nIssue: %s", goal, runID, r.issueID)
+				commitMsg := fmt.Sprintf("feat: %s\n\nRun: %s\nTask: %s", goal, runID, r.taskID)
 				err = runCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to commit merged changes")
@@ -296,15 +302,15 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
-		if r.issueID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.issueID, "acting")
+		if r.taskID != "" && r.tracker != nil {
+			_ = r.tracker.MarkStatus(ctx, r.taskID, "acting")
 		}
 		log.Info().Str("role", "act").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
 		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "act", artifacts, nextActions, runDir, stepsDir, budgets)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		artifacts = append(artifacts, stepArtifacts(actRes)...)
+		artifacts = r.collectArtifacts()
 		if actRes.Response != nil {
 			nextActions = actRes.Response.NextActions
 		}
@@ -372,14 +378,14 @@ func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.Acc
 			NextActions: nextActions,
 		},
 	}
-	if role == "plan" && r.issueID != "" {
+	if role == "plan" && r.taskID != "" {
 		req.Plan = &model.PlanContext{
-			Issue: model.IDInfo{ID: r.issueID},
+			Task: model.IDInfo{ID: r.taskID},
 		}
 	}
-	if role == "do" && r.issueID != "" {
+	if role == "do" && r.taskID != "" {
 		req.Do = &model.DoContext{
-			Issue: model.IDInfo{ID: r.issueID},
+			Task: model.IDInfo{ID: r.taskID},
 		}
 	}
 	return executeStep(ctx, r.agents[role], req, stepsDir)
@@ -494,43 +500,6 @@ func stepEventData(res stepResult) string {
 	return string(data)
 }
 
-func stepArtifacts(res stepResult) []string {
-	if res.FinalDir == "" {
-		return nil
-	}
-	artifacts := make([]string, 0, 4)
-	seen := map[string]struct{}{}
-	addIfExists := func(path string) {
-		if path == "" {
-			return
-		}
-		if _, ok := seen[path]; ok {
-			return
-		}
-		if _, err := os.Stat(path); err == nil {
-			artifacts = append(artifacts, path)
-			seen[path] = struct{}{}
-		}
-	}
-	if res.Response != nil {
-		for _, rel := range res.Response.Files {
-			if rel == "" {
-				continue
-			}
-			path := filepath.Join(res.FinalDir, filepath.Clean(rel))
-			addIfExists(path)
-		}
-	}
-	if res.Role == "plan" {
-		addIfExists(filepath.Join(res.FinalDir, "plan.md"))
-	}
-	if res.Role == "check" {
-		addIfExists(filepath.Join(res.FinalDir, "verdict.json"))
-		addIfExists(filepath.Join(res.FinalDir, "scorecard.md"))
-	}
-	return artifacts
-}
-
 func patchEventData(hashSnapshot, statusSnapshot string) string {
 	payload := map[string]string{
 		"hash":   hashSnapshot,
@@ -579,6 +548,24 @@ func writeNormaMD(runDir, goal string, ac []model.AcceptanceCriterion, budgets c
 		return fmt.Errorf("write norma.md: %w", err)
 	}
 	return nil
+}
+
+func (r *Runner) collectArtifacts() []string {
+	if r.artifactsDir == "" {
+		return nil
+	}
+	var artifacts []string
+	_ = filepath.Walk(r.artifactsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(r.artifactsDir, path)
+		if err == nil {
+			artifacts = append(artifacts, rel)
+		}
+		return nil
+	})
+	return artifacts
 }
 
 func newRunID() (string, error) {

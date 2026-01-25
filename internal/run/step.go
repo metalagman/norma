@@ -141,13 +141,13 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	if res.Status == "ok" {
 		switch res.Role {
 		case "plan":
-			if err := validatePlan(filepath.Join(finalDir, "plan.md")); err != nil {
+			if err := validatePlan(filepath.Join(req.Paths.ArtifactsDir, "plan.md")); err != nil {
 				res.Status = "fail"
 				res.Protocol = err.Error()
 				res.Summary = res.Protocol
 			}
 		case "check":
-			verdict, err := readVerdict(filepath.Join(finalDir, "verdict.json"))
+			verdict, err := readVerdict(filepath.Join(req.Paths.ArtifactsDir, "verdict.json"))
 			if err != nil {
 				res.Status = "fail"
 				res.Protocol = err.Error()
@@ -159,7 +159,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 			} else {
 				res.Verdict = verdict
 			}
-			if _, err := os.Stat(filepath.Join(finalDir, "scorecard.md")); err != nil {
+			if _, err := os.Stat(filepath.Join(req.Paths.ArtifactsDir, "scorecard.md")); err != nil {
 				res.Status = "fail"
 				res.Protocol = "missing scorecard.md"
 				res.Summary = res.Protocol
@@ -207,7 +207,7 @@ func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {
 	}
 	for _, f := range resp.Files {
 		if !validRelPath(f) {
-			return nil, "protocol_error: files must be relative paths under step_dir"
+			return nil, "protocol_error: files must be relative paths under artifacts_dir"
 		}
 	}
 	return &resp, ""

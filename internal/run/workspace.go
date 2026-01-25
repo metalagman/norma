@@ -10,14 +10,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func createWorkspace(ctx context.Context, repoRoot, runDir, issueID string) (string, error) {
+func createWorkspace(ctx context.Context, repoRoot, runDir, taskID string) (string, error) {
 	workspaceDir := filepath.Join(runDir, "workspace")
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return "", fmt.Errorf("create run dir: %w", err)
 	}
 
 	// We create a branch scoped to the task to allow restartable progress.
-	branchName := fmt.Sprintf("norma/task/%s", issueID)
+	branchName := fmt.Sprintf("norma/task/%s", taskID)
 	
 	log.Info().
 		Str("repo_root", repoRoot).
@@ -81,7 +81,7 @@ func forceCleanupStaleWorktree(ctx context.Context, repoRoot, branchName string)
 	}
 }
 
-func cleanupWorkspace(ctx context.Context, repoRoot, workspaceDir, issueID string) error {
+func cleanupWorkspace(ctx context.Context, repoRoot, workspaceDir, taskID string) error {
 	log.Info().
 		Str("workspace_dir", workspaceDir).
 		Msg("cleaning up git workspace (removing worktree only)")

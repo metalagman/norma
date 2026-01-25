@@ -29,12 +29,12 @@ type AgentRequest struct {
 
 // PlanContext provides role-specific context for the plan agent.
 type PlanContext struct {
-	Issue IDInfo `json:"issue"`
+	Task IDInfo `json:"task"`
 }
 
 // DoContext provides role-specific context for the do agent.
 type DoContext struct {
-	Issue IDInfo `json:"issue"`
+	Task IDInfo `json:"task"`
 }
 
 // IDInfo contains identification info for an issue.
@@ -57,9 +57,10 @@ type NormaInfo struct {
 
 // RequestPaths are absolute paths for agent execution.
 type RequestPaths struct {
-	RepoRoot string `json:"repo_root"`
-	RunDir   string `json:"run_dir"`
-	StepDir  string `json:"step_dir"`
+	RepoRoot     string `json:"repo_root"`
+	RunDir       string `json:"run_dir"`
+	StepDir      string `json:"step_dir"`
+	ArtifactsDir string `json:"artifacts_dir"`
 }
 
 // RequestContext supplies artifacts from previous steps and optional notes.
