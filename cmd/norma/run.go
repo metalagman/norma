@@ -15,6 +15,8 @@ import (
 func runCmd() *cobra.Command {
 	var runLeaves bool
 	var continueOnFail bool
+	var activeFeatureID string
+	var activeEpicID string
 	cmd := &cobra.Command{
 		Use:          "run [task-id]",
 		Short:        "Run a task by id or run leaf tasks",
@@ -59,7 +61,11 @@ func runCmd() *cobra.Command {
 			}
 
 			if runLeaves {
-				return runLeafTasks(cmd.Context(), tracker, runStore, runner, continueOnFail)
+				policy := task.SelectionPolicy{
+					ActiveFeatureID: activeFeatureID,
+					ActiveEpicID:    activeEpicID,
+				}
+				return runLeafTasks(cmd.Context(), tracker, runStore, runner, continueOnFail, policy)
 			}
 			id := args[0]
 			if err := runTaskByID(cmd.Context(), tracker, runStore, runner, id); err != nil {
@@ -74,6 +80,8 @@ func runCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&runLeaves, "leaf", false, "run all leaf tasks")
 	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running leaf tasks after a failure")
+	cmd.Flags().StringVar(&activeFeatureID, "active-feature", "", "prefer ready issues under this feature id")
+	cmd.Flags().StringVar(&activeEpicID, "active-epic", "", "prefer ready issues under this epic id")
 	return cmd
 }
 

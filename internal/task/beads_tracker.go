@@ -162,6 +162,31 @@ func (t *BeadsTracker) ListFeatures(ctx context.Context, epicID string) ([]Task,
 	return tasks, nil
 }
 
+// Children lists child issues for a given parent.
+func (t *BeadsTracker) Children(ctx context.Context, parentID string) ([]Task, error) {
+	if strings.TrimSpace(parentID) == "" {
+		return nil, fmt.Errorf("parent id is required")
+	}
+	args := []string{"list", "--parent", parentID, "--json", "--quiet", "--limit", "0", "--all"}
+	out, err := t.exec(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("bd list children: %w", err)
+	}
+
+	var issues []BeadsIssue
+	if len(out) > 0 {
+		if err := json.Unmarshal(out, &issues); err != nil {
+			return nil, fmt.Errorf("parse bd list children: %w", err)
+		}
+	}
+
+	var tasks []Task
+	for _, issue := range issues {
+		tasks = append(tasks, t.toTask(issue))
+	}
+	return tasks, nil
+}
+
 // Get fetches a task via bd show.
 func (t *BeadsTracker) Get(ctx context.Context, id string) (Task, error) {
 	args := []string{"show", id, "--json", "--quiet"}

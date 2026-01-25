@@ -29,6 +29,7 @@ type Tracker interface {
 	AddFeature(ctx context.Context, epicID, title string) (string, error)
 	List(ctx context.Context, status *string) ([]Task, error)
 	ListFeatures(ctx context.Context, epicID string) ([]Task, error)
+	Children(ctx context.Context, parentID string) ([]Task, error)
 	Get(ctx context.Context, id string) (Task, error)
 	MarkDone(ctx context.Context, id string) error
 	MarkStatus(ctx context.Context, id string, status string) error

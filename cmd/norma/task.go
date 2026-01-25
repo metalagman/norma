@@ -201,34 +201,29 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 	}
 }
 
-func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store, runner *run.Runner, continueOnFail bool) error {
+func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store, runner *run.Runner, continueOnFail bool, policy task.SelectionPolicy) error {
 	for {
-		leafTasks, err := tracker.LeafTasks(ctx)
+		readyTasks, err := tracker.LeafTasks(ctx)
 		if err != nil {
 			return err
 		}
-		if len(leafTasks) == 0 {
-			fmt.Println("no leaf tasks")
+		if len(readyTasks) == 0 {
+			fmt.Println("no ready tasks")
 			return nil
 		}
-		doneCount := 0
-		failCount := 0
-		for _, item := range leafTasks {
-			if err := runTaskByID(ctx, tracker, runStore, runner, item.ID); err != nil {
-				failCount++
-				if continueOnFail {
-					fmt.Printf("task %s failed: %v\n", item.ID, err)
-					continue
-				}
-				return err
-			}
-			doneCount++
+
+		selected, reason, err := task.SelectNextReady(ctx, tracker, readyTasks, policy)
+		if err != nil {
+			return err
 		}
-		if doneCount == 0 {
-			if !continueOnFail && failCount > 0 {
-				return fmt.Errorf("all leaf tasks failed")
+		fmt.Printf("selected %s (%s)\n", selected.ID, reason)
+
+		if err := runTaskByID(ctx, tracker, runStore, runner, selected.ID); err != nil {
+			if continueOnFail {
+				fmt.Printf("task %s failed: %v\n", selected.ID, err)
+				continue
 			}
-			return nil
+			return err
 		}
 	}
 }
