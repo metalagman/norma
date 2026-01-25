@@ -6,7 +6,7 @@ norma is a minimal agent workflow runner for Go projects. It orchestrates a fixe
 
 - **Single workflow.** Every run iterates over `plan`, `do`, `check`, and `act` steps until the acceptance criteria pass or a budget (such as `max_iterations`) is exhausted.
 - **Artifacts on disk.** Agents only write inside their step directory; logs, plans, evidence, verdicts, patches, and other files live under `.norma/runs/<run_id>/steps/<NNN-role>/`.
-- **SQLite state, no CGO.** Run metadata, timelines, and key/value state live in `.norma/norma.db`. Connections enforce `foreign_keys=ON`, `journal_mode=WAL`, and `busy_timeout=5000` for durability while keeping builds CGO-free.
+- **SQLite state, no CGO.** Run metadata, timelines, and key/value state live in `.norma/norma.db` (run/step state only; task state stays in Beads). Connections enforce `foreign_keys=ON`, `journal_mode=WAL`, and `busy_timeout=5000` for durability while keeping builds CGO-free.
 - **Pluggable agents.** Each role is backed by either an `exec` binary or a Codex CLI invocation. Agents speak a normalized JSON contract so you can mix and match implementations.
 - **Atomic commits & recovery.** Step artifacts are written to a temp dir, renamed atomically, and then committed inside a DB transaction. On startup norma cleans stray temp dirs and reconciles missing records.
 - **Task graph tooling.** The `norma task` subcommands let you capture goals, link dependencies, and trigger runs from the queue or its leaf nodes.
@@ -184,6 +184,7 @@ norma run             # run all leaf TODO tasks (ready in beads)
 
 - Tasks are stored in `.beads/` as JSONL files.
 - `norma` interacts with `beads` via the `bd` CLI.
+- Beads is the authoritative source of task status, priority, dependencies, and acceptance criteria; norma does not store task state in its DB.
 - Epics, Features, and Tasks are supported.
 - `run` (with no task id) pulls leaf tasks that are "ready" in beads.
 - To retry a failed/stopped task, run it explicitly by id (`norma run <task-id>`).

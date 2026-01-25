@@ -16,6 +16,8 @@ type Task struct {
 	Criteria  []model.AcceptanceCriterion
 	Status    string
 	RunID     *string
+	Priority  int
+	Assignee  string
 	CreatedAt string
 	UpdatedAt string
 }

@@ -1,6 +1,6 @@
 # norma — agents.md (MVP Spec, SQLite no-CGO)
 
-This document defines the **MVP agent interface** for `norma` (written in Go) and the **MVP storage model** using **SQLite without CGO** (pure-Go driver), while keeping **artifacts on disk** and **state/indexes in DB**.
+This document defines the **MVP agent interface** for `norma` (written in Go) and the **MVP storage model** using **SQLite without CGO** (pure-Go driver), while keeping **artifacts on disk** and **run/step state in DB**. **Task state and backlog are Beads-only** and must not be mirrored in Norma state.
 
 Single fixed workflow:
 > `plan → do → check → act` (loop until PASS or budgets exhausted)
@@ -12,6 +12,7 @@ Single fixed workflow:
 - **One workflow**; flexibility comes from swapping agents per role.
 - **Artifacts are files** (human-debuggable).
 - **Run/step state is in SQLite** (queryable, UI-friendly).
+- **Task state lives only in Beads** (no task/backlog state in Norma DB or kv).
 - **Atomic commits**: a step is committed by an atomic directory rename + a DB transaction.
 - **Any agent** is supported through a **normalized JSON contract**.
 
@@ -64,6 +65,7 @@ Everything lives under the project root:
   - current iteration/cursor
   - step records
   - timeline events
+- **No task state in Norma DB:** task status, priority, dependencies, and selection are managed in Beads only.
 - Files in `runs/<run_id>/steps/...` are authoritative artifacts.
 - Agents MUST only write inside their current `step_dir`.
 - Step directories appear only when complete (created under a temp name then renamed).
@@ -140,6 +142,8 @@ Columns:
 - `run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE`
 - `key TEXT NOT NULL`
 - `value_json TEXT NOT NULL`
+Notes:
+- `kv_run` is for run-scoped metadata only (e.g., active feature id for a run UI), not for task/backlog state.
 
 ---
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/metalagman/norma/internal/model"
 )
@@ -27,31 +28,31 @@ func NewBeadsTracker(binPath string) *BeadsTracker {
 
 // BeadsIssue represents the JSON structure of a beads issue.
 type BeadsIssue struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	ParentID    string `json:"parent,omitempty"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Status      string `json:"status"` // open, in_progress, closed, etc.
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-	ExternalRef string `json:"external_ref,omitempty"`
+	ID                 string `json:"id"`
+	Type               string `json:"type"`
+	IssueType          string `json:"issue_type"`
+	ParentID           string `json:"parent,omitempty"`
+	Title              string `json:"title"`
+	Description        string `json:"description"`
+	AcceptanceCriteria string `json:"acceptance_criteria"`
+	Status             string `json:"status"` // open, in_progress, closed, etc.
+	Priority           int    `json:"priority"`
+	Assignee           string `json:"assignee"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
+	ExternalRef        string `json:"external_ref,omitempty"`
 	// Additional fields we might parse if needed
 }
 
 // Add creates a task via bd create.
 func (t *BeadsTracker) Add(ctx context.Context, title, goal string, criteria []model.AcceptanceCriterion, runID *string) (string, error) {
-	description := goal
-	if len(criteria) > 0 {
-		description += "\n\n**Acceptance Criteria:**\n"
-		for _, ac := range criteria {
-			description += fmt.Sprintf("- %s\n", ac.Text)
-		}
-	}
-
+	description := strings.TrimSpace(goal)
 	args := []string{"create", "--title", title, "--description", description, "--type", "task", "--json", "--quiet"}
-	if runID != nil {
-		args = append(args, "--external-ref", *runID)
+	if len(criteria) > 0 {
+		args = append(args, "--acceptance", formatAcceptanceCriteria(criteria))
+	}
+	if runID != nil && strings.TrimSpace(*runID) != "" {
+		args = append(args, "--external-ref", strings.TrimSpace(*runID))
 	}
 
 	out, err := t.exec(ctx, args...)
@@ -204,7 +205,7 @@ func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string)
 	case "stopped":
 		beadsStatus = "deferred"
 	}
-	
+
 	// If mapping to same status, we use bd update --status
 	_, err := t.exec(ctx, "update", id, "--status", beadsStatus, "--json", "--quiet")
 	return err
@@ -212,7 +213,8 @@ func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string)
 
 // Update updates title and goal.
 func (t *BeadsTracker) Update(ctx context.Context, id string, title, goal string) error {
-	_, err := t.exec(ctx, "update", id, "--title", title, "--description", goal, "--json", "--quiet")
+	description := strings.TrimSpace(goal)
+	_, err := t.exec(ctx, "update", id, "--title", title, "--description", description, "--json", "--quiet")
 	return err
 }
 
@@ -224,7 +226,11 @@ func (t *BeadsTracker) Delete(ctx context.Context, id string) error {
 
 // SetRun sets the run ID (as external ref).
 func (t *BeadsTracker) SetRun(ctx context.Context, id string, runID string) error {
-	_, err := t.exec(ctx, "update", id, "--external-ref", runID, "--json", "--quiet")
+	trimmedRunID := strings.TrimSpace(runID)
+	if trimmedRunID == "" {
+		return fmt.Errorf("runID is required")
+	}
+	_, err := t.exec(ctx, "update", id, "--external-ref", trimmedRunID, "--json", "--quiet")
 	return err
 }
 
@@ -261,7 +267,7 @@ func (t *BeadsTracker) LeafTasks(ctx context.Context) ([]Task, error) {
 func (t *BeadsTracker) exec(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, t.BinPath, args...)
 	// beads relies on PWD for context
-	cmd.Dir = "." 
+	cmd.Dir = "."
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -286,25 +292,122 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 		status = "done"
 	case "deferred":
 		status = "stopped"
-	// default keeps "todo"
+		// default keeps "todo"
 	}
 
-	runID := (*string)(nil)
-	if issue.ExternalRef != "" {
-		r := issue.ExternalRef
+	goal := strings.TrimSpace(issue.Description)
+	goal, legacyAC := splitLegacyAC(goal)
+	criteria := parseAcceptanceCriteria(issue.AcceptanceCriteria)
+	if len(criteria) == 0 && legacyAC != "" {
+		criteria = parseAcceptanceCriteria(legacyAC)
+	}
+	var runID *string
+	if strings.TrimSpace(issue.ExternalRef) != "" {
+		r := strings.TrimSpace(issue.ExternalRef)
 		runID = &r
+	}
+	issueType := issue.IssueType
+	if issueType == "" {
+		issueType = issue.Type
 	}
 
 	return Task{
 		ID:        issue.ID,
-		Type:      issue.Type,
+		Type:      issueType,
 		ParentID:  issue.ParentID,
 		Title:     issue.Title,
-		Goal:      issue.Description, // We might want to parse AC out if needed, but for now full desc
+		Goal:      goal,
+		Criteria:  criteria,
 		Status:    status,
 		RunID:     runID,
+		Priority:  issue.Priority,
+		Assignee:  issue.Assignee,
 		CreatedAt: issue.CreatedAt,
 		UpdatedAt: issue.UpdatedAt,
-		// Criteria: parsed from description? For now empty or we assume description contains it.
 	}
+}
+
+func formatAcceptanceCriteria(criteria []model.AcceptanceCriterion) string {
+	lines := make([]string, 0, len(criteria))
+	for i, ac := range criteria {
+		text := strings.TrimSpace(ac.Text)
+		if text == "" {
+			continue
+		}
+		id := strings.TrimSpace(ac.ID)
+		if id == "" {
+			id = fmt.Sprintf("AC%d", i+1)
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", id, text))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseAcceptanceCriteria(raw string) []model.AcceptanceCriterion {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	lines := strings.Split(raw, "\n")
+	out := make([]model.AcceptanceCriterion, 0, len(lines))
+	fallback := 1
+	for _, line := range lines {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		id, text := parseACLine(line)
+		if id == "" {
+			id = fmt.Sprintf("AC%d", fallback)
+			fallback++
+			text = line
+		}
+		out = append(out, model.AcceptanceCriterion{ID: id, Text: text})
+	}
+	return out
+}
+
+func parseACLine(line string) (string, string) {
+	colon := strings.Index(line, ":")
+	if colon == -1 {
+		return "", ""
+	}
+	id := strings.TrimSpace(line[:colon])
+	if !isACID(id) {
+		return "", ""
+	}
+	text := strings.TrimSpace(line[colon+1:])
+	return id, text
+}
+
+func isACID(value string) bool {
+	if len(value) < 3 {
+		return false
+	}
+	if !strings.HasPrefix(value, "AC") {
+		return false
+	}
+	for _, r := range value[2:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func splitLegacyAC(description string) (string, string) {
+	const markerBold = "**Acceptance Criteria:**"
+	if idx := strings.Index(description, markerBold); idx != -1 {
+		goal := strings.TrimSpace(description[:idx])
+		ac := strings.TrimSpace(description[idx+len(markerBold):])
+		return goal, ac
+	}
+	const markerPlain = "Acceptance Criteria:"
+	if idx := strings.Index(description, markerPlain); idx != -1 {
+		goal := strings.TrimSpace(description[:idx])
+		ac := strings.TrimSpace(description[idx+len(markerPlain):])
+		return goal, ac
+	}
+	return strings.TrimSpace(description), ""
 }
