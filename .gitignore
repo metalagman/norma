@@ -17,6 +17,7 @@
 *.test
 *.out
 cmd/norma/norma
+/norma
 
 # Coverage / profiling output
 coverage/
