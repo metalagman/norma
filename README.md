@@ -179,7 +179,10 @@ norma task add "Tighten lint config" --ac "AC1: golangci-lint passes"
 norma task list --status todo
 norma task link 12 --depends-on 7 --depends-on 9
 norma run 12          # run a specific task
-norma run             # run all leaf TODO tasks (ready in beads)
+norma run             # run the next ready task (deterministic scheduler)
+norma run --leaf      # alias for scheduler-run of ready tasks
+norma run --active-feature bd-123  # prefer ready tasks under a feature
+norma run --active-epic bd-456      # prefer ready tasks under an epic
 ```
 
 - Tasks are stored in `.beads/` as JSONL files.
