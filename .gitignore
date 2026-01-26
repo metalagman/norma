@@ -31,7 +31,8 @@ coverage.*
 
 # Norma runtime data
 .norma/norma.db*
-.norma/runs/
+.norma/runs/*
+!.norma/runs/*/workspace/
 .norma/locks/
 .norma/**/*.log
 .norma/**/*.tmp

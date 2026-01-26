@@ -1,7 +1,8 @@
 # Exclude runtime state and generated artifacts from AI prompts
 .git/
 .norma/norma.db*
-.norma/runs/
+.norma/runs/*
+!.norma/runs/*/workspace/
 .norma/locks/
 .cache/
 .idea/
