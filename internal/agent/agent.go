@@ -481,8 +481,8 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	switch req.Step.Name {
 	case rolePlan:
 		b.WriteString("Role requirements: produce work_plan and publish acceptance_criteria.effective.\n")
-		b.WriteString("- Focus on creating a clear, actionable plan for the immediate iteration.\n")
-		b.WriteString("- Avoid exhaustive research of the entire codebase; only explore what is strictly necessary to define the next implementation steps.\n")
+		b.WriteString("- Focus on creating a clear, actionable plan for the immediate iteration. Think about HOW to achieve the goal through code changes.\n")
+		b.WriteString("- Limit observations and research to what is strictly necessary for planning value. Avoid making a lot of observations without producing actual changes in the subsequent 'do' step.\n")
 		b.WriteString("- Keep the work_plan focused and small. If the task is too large, use DECOMPOSE to create smaller sub-tasks.\n")
 	case roleDo:
 		b.WriteString("Role requirements: execute only plan.work_plan.do_steps[*] and record what was executed.\n")
