@@ -94,8 +94,9 @@ type RequestPaths struct {
 
 // RequestContext supplies artifacts from previous steps and optional notes.
 type RequestContext struct {
-	Facts map[string]any `json:"facts"`
-	Links []string       `json:"links"`
+	Facts   map[string]any `json:"facts"`
+	Links   []string       `json:"links"`
+	Journal []JournalEntry `json:"journal,omitempty"`
 }
 
 // Role-specific inputs

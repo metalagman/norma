@@ -374,11 +374,15 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 
 	b.WriteString("You are a norma agent. Follow the instructions strictly.\n")
 
-	b.WriteString("- You are running in the 'run_dir', which is the parent of both the isolated code workspace and your step directory.\n")
+		b.WriteString("- You are running in the 'run_dir', which is the parent of both the isolated code workspace and your step directory.\n")
 
-	b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
+		b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
 
-	b.WriteString("- Write your AgentResponse JSON and all logs/evidence directly into your step directory: '")
+		b.WriteString("- A full history of this run is available in 'context.journal' and reconstructed in 'artifacts/progress.md'. Use it to understand previous attempts and avoid repeating mistakes.\n")
+
+		b.WriteString("- Write your AgentResponse JSON and all logs/evidence directly into your step directory: '")
+
+	
 
 	b.WriteString(req.Step.Dir)
 
