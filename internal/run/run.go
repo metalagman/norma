@@ -309,6 +309,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 }
 
 func (r *Runner) baseRequest(runID string, iteration, index int, role, goal string, ac []model.AcceptanceCriterion) model.AgentRequest {
+	mode := "read_only"
+	if role == "do" || role == "act" {
+		mode = "read_write"
+	}
 	return model.AgentRequest{
 		Run: model.RunInfo{
 			ID:        runID,
@@ -324,8 +328,10 @@ func (r *Runner) baseRequest(runID string, iteration, index int, role, goal stri
 			Name:  role,
 		},
 		Paths: model.RequestPaths{
-			WorkspaceDir: r.workspaceDir,
-			WorkspaceMode: "read_only",
+			WorkspaceDir:  r.workspaceDir,
+			WorkspaceMode: mode,
+			RunDir:        filepath.Join(r.normaDir, "runs", runID),
+			CodeRoot:      r.repoRoot,
 		},
 		Budgets: model.Budgets{
 			MaxIterations: r.cfg.Budgets.MaxIterations,

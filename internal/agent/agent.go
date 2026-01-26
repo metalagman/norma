@@ -115,14 +115,7 @@ func (r *execRunner) Describe() RunnerInfo {
 }
 
 func (r *execRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir == "" {
-		return r.workDir
-	}
-	rel, err := filepath.Rel(r.repoRoot, r.workDir)
-	if err != nil {
-		return req.Paths.WorkspaceDir
-	}
-	return filepath.Join(req.Paths.WorkspaceDir, rel)
+	return req.Step.Dir
 }
 
 type codexRunner struct {
@@ -153,14 +146,7 @@ func (r *codexRunner) Describe() RunnerInfo {
 }
 
 func (r *codexRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir == "" {
-		return r.workDir
-	}
-	rel, err := filepath.Rel(r.repoRoot, r.workDir)
-	if err != nil {
-		return req.Paths.WorkspaceDir
-	}
-	return filepath.Join(req.Paths.WorkspaceDir, rel)
+	return req.Step.Dir
 }
 
 type opencodeRunner struct {
@@ -192,14 +178,7 @@ func (r *opencodeRunner) Describe() RunnerInfo {
 }
 
 func (r *opencodeRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir == "" {
-		return r.workDir
-	}
-	rel, err := filepath.Rel(r.repoRoot, r.workDir)
-	if err != nil {
-		return req.Paths.WorkspaceDir
-	}
-	return filepath.Join(req.Paths.WorkspaceDir, rel)
+	return req.Step.Dir
 }
 
 type geminiRunner struct {
@@ -231,14 +210,7 @@ func (r *geminiRunner) Describe() RunnerInfo {
 }
 
 func (r *geminiRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir == "" {
-		return r.workDir
-	}
-	rel, err := filepath.Rel(r.repoRoot, r.workDir)
-	if err != nil {
-		return req.Paths.WorkspaceDir
-	}
-	return filepath.Join(req.Paths.WorkspaceDir, rel)
+	return req.Step.Dir
 }
 
 func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink, stderrSink io.Writer) ([]byte, []byte, int, error) {
@@ -395,8 +367,9 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString("You are a norma agent. Follow the instructions strictly.\n")
-	b.WriteString("- Write required files for the role.\n")
-	b.WriteString("- Write only inside the provided step directory (except Do and Act may also modify files in workspace/ to implement or fix).\n")
+	b.WriteString("- Write required files for the role (verdict.json, scorecard.md, etc.) into the CURRENT working directory.\n")
+	b.WriteString("- All artifacts and logs MUST be written to the current directory (which is your assigned step directory).\n")
+	b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
 	b.WriteString("- Output ONLY valid JSON for AgentResponse on stdout.\n")
 	b.WriteString("- Follow the norma-loop: plan -> do -> check -> act.\n")
 	b.WriteString("- Workspace exists before any agent runs.\n")

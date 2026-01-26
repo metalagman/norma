@@ -35,33 +35,31 @@ Everything lives under the project root:
 .norma/
   norma.db                 # SQLite DB (source of truth for run/step state)
   locks/run.lock           # exclusive lock for "norma run"
-  runs/<run_id>/
-    norma.md               # goal + AC + budgets (human readable)
-    workspace/             # Git worktree (the active workspace for this run)
-    artifacts/             # Shared artifacts (produced and consumed by agents)
-      plan.md
-      verdict.json
-      scorecard.md
-      evidence/...
-    steps/
-      01-plan/
-        input.json
-        output.json
-        logs/stdout.txt
-        logs/stderr.txt
-      02-do/
-        input.json
-        output.json
-        logs/stdout.txt
-        logs/stderr.txt
-      03-check/
-        input.json
-        output.json
-        logs/...
-      04-act/
-        input.json
-        output.json
-        logs/...
+      runs/<run_id>/
+      norma.md               # goal + AC + budgets (human readable)
+      workspace/             # Git worktree (the active workspace for this run)
+      artifacts/             # Shared artifacts (reconstructed progress.md)
+        progress.md
+      steps/
+        01-plan/
+          input.json
+          output.json
+          logs/stdout.txt
+          logs/stderr.txt
+        02-do/
+          input.json
+          output.json
+          logs/stdout.txt
+          logs/stderr.txt
+        03-check/
+          input.json
+          output.json
+          logs/...
+        04-act/
+          input.json
+          output.json
+          logs/...
+  
 ```
 
 ### Invariants
@@ -799,10 +797,8 @@ Codex typically outputs free-form text. MVP requires deterministic output:
 
 ### Codex prompt policy (MUST)
 norma generates a role-specific prompt that instructs Codex to:
-- write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir` or `artifacts_dir` (or `workspace/` for `do`/`act`)
-- keep paths relative in `files[]`
+- write only inside the current step directory (or `workspace/` for `do`/`act`)
 
 ### Capturing
 - norma stores raw stdout/stderr to logs
@@ -815,10 +811,8 @@ OpenCode typically outputs free-form text. MVP requires deterministic output:
 
 ### OpenCode prompt policy (MUST)
 norma generates a role-specific prompt that instructs OpenCode to:
-- write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir` or `artifacts_dir` (or `workspace/` for `do`/`act`)
-- keep paths relative in `files[]`
+- write only inside the current step directory (or `workspace/` for `do`/`act`)
 
 ### Capturing
 - norma stores raw stdout/stderr to logs
@@ -833,10 +827,8 @@ Gemini CLI typically outputs free-form text. MVP requires deterministic output:
 
 ### Gemini prompt policy (MUST)
 norma generates a role-specific prompt that instructs Gemini to:
-- write required files for the role (check: verdict.json + scorecard.md)
 - output ONLY valid JSON for AgentResponse on stdout
-- write only inside `step_dir` or `artifacts_dir` (or `workspace/` for `do`/`act`)
-- keep paths relative in `files[]`
+- write only inside the current step directory (or `workspace/` for `do`/`act`)
 
 ### Capturing
 - norma stores raw stdout/stderr to logs
@@ -852,9 +844,8 @@ norma generates a role-specific prompt that instructs Gemini to:
 - [ ] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
 - [ ] Workflow states are tracked via `bd` labels on the task
 - [ ] Each run has a shared `artifacts/` directory for shared data
-- [ ] Each step creates artifacts in `runs/<run_id>/steps/<n>-<role>/`
-- [ ] check produces `verdict.json` + `scorecard.md`
-- [ ] Successful runs extract changes from `workspace/` and apply them to the main repo
+- [ ] each step creates artifacts in `runs/<run_id>/steps/<n>-<role>/`
+- [ ] successful runs extract changes from `workspace/` and apply them to the main repo
 - [ ] Crash recovery cleans tmp dirs and reconciles missing DB step records
 
 ## Landing the Plane (Session Completion)

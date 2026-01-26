@@ -1,6 +1,6 @@
 ---
 name: norma-loop
-description: Operational guide for running the Norma PDCA lifecycle (plan/do/check/act) with strict JSON input/output contracts, pre-created workspace, orchestrator-applied commits, budgets, plan→do→check→act obligations, per-step stdout/stderr logs, acceptance criteria extension in Plan, plan-vs-actual verification in Check, and a Ralph-style run journal in artifacts/progress.md.
+description: Operational guide for running the Norma PDCA lifecycle (plan/do/check/act) with strict JSON input/output contracts, pre-created workspace, orchestrator-applied commits, budgets, plan→do→check→act obligations, per-step stdout/stderr logs, acceptance criteria extension in Plan, plan-vs-actual verification in Check, and a Ralph-style run journal in task notes.
 ---
 
 # norma-loop
@@ -31,7 +31,7 @@ This document defines operational contracts. For the authoritative full spec, re
 runs/<run_id>/
   workspace/                          # created by orchestrator before any agent run
   artifacts/
-    progress.md                        # append-only journal (orchestrator-written)
+    progress.md                        # append-only journal (reconstructed from state)
   steps/
     01-plan/
       input.json

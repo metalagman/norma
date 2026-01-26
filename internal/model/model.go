@@ -77,10 +77,20 @@ type StepInfo struct {
 }
 
 // RequestPaths are absolute paths for agent execution.
+
 type RequestPaths struct {
-	WorkspaceDir string `json:"workspace_dir"`
+
+	WorkspaceDir  string `json:"workspace_dir"`
+
 	WorkspaceMode string `json:"workspace_mode"` // "read_only"
+
+	RunDir        string `json:"run_dir"`
+
+	CodeRoot      string `json:"code_root"`
+
 }
+
+
 
 // RequestContext supplies artifacts from previous steps and optional notes.
 type RequestContext struct {
@@ -294,24 +304,7 @@ type JournalEntry struct {
 	Status     string       `json:"status"`
 	StopReason string       `json:"stop_reason"`
 	Title      string       `json:"title"`
-	Details    []string     `json:"details"`
-	Logs       ResponseLogs `json:"logs"`
-}
-
-// Verdict legacy structure - keeping for compatibility during refactor if needed
-type VerdictLegacy struct {
-	Version        int               `json:"version"`
-	Verdict        string            `json:"verdict"`
-	Criteria       []VerdictCriteria `json:"criteria"`
-	Metrics        map[string]any    `json:"metrics"`
-	Blockers       []string          `json:"blockers"`
-	RecommendedFix []string          `json:"recommended_fix"`
-}
-
-// VerdictCriteria legacy structure
-type VerdictCriteria struct {
-	ID       string `json:"id"`
-	Text     string `json:"text"`
-	Pass     bool   `json:"pass"`
-	Evidence string `json:"evidence"`
-}
+		Details    []string     `json:"details"`
+		Logs       ResponseLogs `json:"logs"`
+	}
+	
