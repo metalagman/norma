@@ -2,6 +2,7 @@
 package logging
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -20,7 +21,7 @@ func Init(debug bool) {
 		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
 		FormatFieldValue: func(i any) string {
-			return i.(string)
+			return fmt.Sprintf("%v", i)
 		},
 	})
 }
