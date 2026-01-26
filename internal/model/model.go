@@ -2,13 +2,35 @@ package model
 
 // AcceptanceCriterion describes a single acceptance criterion for a run.
 type AcceptanceCriterion struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID          string   `json:"id"`
+	Text        string   `json:"text"`
+	VerifyHints []string `json:"verify_hints,omitempty"`
+}
+
+// EffectiveAcceptanceCriterion represents ACs refined by the Plan agent.
+type EffectiveAcceptanceCriterion struct {
+	ID      string   `json:"id"`
+	Origin  string   `json:"origin"` // "baseline" or "extended"
+	Refines []string `json:"refines,omitempty"`
+	Text    string   `json:"text"`
+	Checks  []Check  `json:"checks"`
+	Reason  string   `json:"reason,omitempty"`
+}
+
+// Check defines a specific verification command.
+type Check struct {
+	ID               string `json:"id"`
+	Cmd              string `json:"cmd"`
+	ExpectExitCodes []int  `json:"expect_exit_codes"`
 }
 
 // Budgets defines run budgets.
 type Budgets struct {
-	MaxIterations   int `json:"max_iterations"`
+	MaxIterations      int `json:"max_iterations"`
+	MaxWallTimeMinutes int `json:"max_wall_time_minutes,omitempty"`
+	MaxFailedChecks    int `json:"max_failed_checks,omitempty"`
+
+	// Legacy/extra budgets (keep for now if needed, but not in new spec input)
 	MaxPatchKB      int `json:"max_patch_kb,omitempty"`
 	MaxChangedFiles int `json:"max_changed_files,omitempty"`
 	MaxRiskyFiles   int `json:"max_risky_files,omitempty"`
@@ -16,72 +38,249 @@ type Budgets struct {
 
 // AgentRequest is the normalized request passed to agents.
 type AgentRequest struct {
-	Version int            `json:"version"`
-	RunID   string         `json:"run_id"`
+	Run     RunInfo        `json:"run"`
+	Task    TaskInfo       `json:"task"`
 	Step    StepInfo       `json:"step"`
-	Goal    string         `json:"goal"`
-	Norma   NormaInfo      `json:"norma"`
 	Paths   RequestPaths   `json:"paths"`
+	Budgets Budgets        `json:"budgets"`
 	Context RequestContext `json:"context"`
-	Plan    *PlanContext   `json:"plan,omitempty"`
-	Do      *DoContext     `json:"do,omitempty"`
+
+	StopReasonsAllowed []string `json:"stop_reasons_allowed"`
+
+	// Role-specific inputs
+	Plan *PlanInput `json:"plan,omitempty"`
+	Do   *DoInput   `json:"do,omitempty"`
+	Check *CheckInput `json:"check,omitempty"`
+	Act   *ActInput   `json:"act,omitempty"`
+
+	// Legacy fields (optional migration)
+	Version int `json:"version,omitempty"`
 }
 
-// PlanContext provides role-specific context for the plan agent.
-type PlanContext struct {
-	Task IDInfo `json:"task"`
+type RunInfo struct {
+	ID        string `json:"id"`
+	Iteration int    `json:"iteration"`
 }
 
-// DoContext provides role-specific context for the do agent.
-type DoContext struct {
-	Task IDInfo `json:"task"`
-}
-
-// IDInfo contains identification info for an issue.
-type IDInfo struct {
-	ID string `json:"id"`
+type TaskInfo struct {
+	ID                 string                `json:"id"`
+	Title              string                `json:"title"`
+	Description        string                `json:"description"`
+	AcceptanceCriteria []AcceptanceCriterion `json:"acceptance_criteria"`
 }
 
 // StepInfo identifies the step in the run.
 type StepInfo struct {
-	Index     int    `json:"index"`
-	Role      string `json:"role"`
-	Iteration int    `json:"iteration"`
-}
-
-// NormaInfo captures acceptance criteria and budgets for the run.
-type NormaInfo struct {
-	AcceptanceCriteria []AcceptanceCriterion `json:"acceptance_criteria"`
-	Budgets            Budgets               `json:"budgets"`
+	Index int    `json:"index"`
+	Name  string `json:"name"` // "plan", "do", "check", "act"
+	Dir   string `json:"dir"`
 }
 
 // RequestPaths are absolute paths for agent execution.
 type RequestPaths struct {
-	RepoRoot     string `json:"repo_root"`
-	RunDir       string `json:"run_dir"`
-	StepDir      string `json:"step_dir"`
-	ArtifactsDir string `json:"artifacts_dir"`
+	WorkspaceDir string `json:"workspace_dir"`
+	WorkspaceMode string `json:"workspace_mode"` // "read_only"
 }
 
 // RequestContext supplies artifacts from previous steps and optional notes.
 type RequestContext struct {
-	Artifacts   []string `json:"artifacts,omitempty"`
-	NextActions []string `json:"next_actions,omitempty"`
-	Notes       string   `json:"notes,omitempty"`
+	Facts map[string]any `json:"facts"`
+	Links []string       `json:"links"`
+}
+
+// Role-specific inputs
+
+type PlanInput struct {
+	Task IDInfo `json:"task"`
+}
+
+type DoInput struct {
+	WorkPlan           WorkPlan                       `json:"work_plan"`
+	EffectiveCriteria []EffectiveAcceptanceCriterion `json:"acceptance_criteria_effective"`
+}
+
+type CheckInput struct {
+	WorkPlan           WorkPlan                       `json:"work_plan"`
+	EffectiveCriteria []EffectiveAcceptanceCriterion `json:"acceptance_criteria_effective"`
+	DoExecution        DoExecution                    `json:"do_execution"`
+}
+
+type ActInput struct {
+	CheckVerdict CheckVerdict        `json:"check_verdict"`
+	AcceptanceResults []AcceptanceResult `json:"acceptance_results,omitempty"`
+}
+
+type IDInfo struct {
+	ID string `json:"id"`
 }
 
 // AgentResponse is the normalized stdout response from agents.
 type AgentResponse struct {
-	Version     int      `json:"version"`
-	Status      string   `json:"status"`
-	Summary     string   `json:"summary"`
-	Files       []string `json:"files"`
-	NextActions []string `json:"next_actions"`
-	Errors      []string `json:"errors"`
+	Status     string          `json:"status"` // "ok", "stop", "error"
+	StopReason string          `json:"stop_reason,omitempty"`
+	Summary    ResponseSummary `json:"summary"`
+	Logs       ResponseLogs    `json:"logs"`
+	Timing     ResponseTiming  `json:"timing"`
+	Progress   StepProgress    `json:"progress"`
+
+	// Role-specific outputs
+	Plan  *PlanOutput  `json:"plan,omitempty"`
+	Do    *DoOutput    `json:"do,omitempty"`
+	Check *CheckOutput `json:"check,omitempty"`
+	Act   *ActOutput   `json:"act,omitempty"`
+
+	// Legacy fields (optional migration)
+	Version int `json:"version,omitempty"`
 }
 
-// Verdict is the required output for the check role.
-type Verdict struct {
+type ResponseSummary struct {
+	Text     string   `json:"text"`
+	Warnings []string `json:"warnings"`
+	Errors   []string `json:"errors"`
+}
+
+type ResponseLogs struct {
+	StdoutPath string `json:"stdout_path"`
+	StderrPath string `json:"stderr_path"`
+}
+
+type ResponseTiming struct {
+	WallTimeMS int64 `json:"wall_time_ms"`
+}
+
+type StepProgress struct {
+	Title   string         `json:"title"`
+	Details []string       `json:"details"`
+	Links   map[string]string `json:"links"`
+}
+
+// PlanOutput
+
+type PlanOutput struct {
+	TaskID             string                 `json:"task_id"`
+	Goal               string                 `json:"goal"`
+	Constraints        []string               `json:"constraints"`
+	AcceptanceCriteria EffectiveCriteriaGroup `json:"acceptance_criteria"`
+	WorkPlan           WorkPlan               `json:"work_plan"`
+}
+
+type EffectiveCriteriaGroup struct {
+	Baseline  []AcceptanceCriterion          `json:"baseline"`
+	Effective []EffectiveAcceptanceCriterion `json:"effective"`
+}
+
+type WorkPlan struct {
+	TimeboxMinutes int         `json:"timebox_minutes"`
+	DoSteps        []DoStep    `json:"do_steps"`
+	CheckSteps     []CheckStep `json:"check_steps"`
+	StopTriggers   []string    `json:"stop_triggers"`
+}
+
+type DoStep struct {
+	ID           string    `json:"id"`
+	Text         string    `json:"text"`
+	Commands     []Command `json:"commands"`
+	TargetsACIDs []string  `json:"targets_ac_ids"`
+}
+
+type Command struct {
+	ID               string `json:"id"`
+	Cmd              string `json:"cmd"`
+	ExpectExitCodes []int  `json:"expect_exit_codes"`
+}
+
+type CheckStep struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	Mode string `json:"mode"` // "acceptance_criteria"
+}
+
+// DoOutput
+
+type DoOutput struct {
+	Execution DoExecution `json:"execution"`
+	Blockers  []Blocker   `json:"blockers"`
+}
+
+type DoExecution struct {
+	ExecutedStepIDs []string         `json:"executed_step_ids"`
+	SkippedStepIDs  []string         `json:"skipped_step_ids"`
+	Commands        []CommandResult `json:"commands"`
+}
+
+type CommandResult struct {
+	ID       string `json:"id"`
+	Cmd      string `json:"cmd"`
+	ExitCode int    `json:"exit_code"`
+}
+
+type Blocker struct {
+	Kind                string `json:"kind"` // "dependency", "env", "unknown"
+	Text                string `json:"text"`
+	SuggestedStopReason string `json:"suggested_stop_reason"`
+}
+
+// CheckOutput
+
+type CheckOutput struct {
+	PlanMatch         PlanMatch          `json:"plan_match"`
+	AcceptanceResults []AcceptanceResult `json:"acceptance_results"`
+	Verdict           CheckVerdict       `json:"verdict"`
+	ProcessNotes      []ProcessNote      `json:"process_notes"`
+}
+
+type PlanMatch struct {
+	DoSteps  MatchResult `json:"do_steps"`
+	Commands MatchResult `json:"commands"`
+}
+
+type MatchResult struct {
+	PlannedIDs    []string `json:"planned_ids"`
+	ExecutedIDs   []string `json:"executed_ids"`
+	MissingIDs    []string `json:"missing_ids"`
+	UnexpectedIDs []string `json:"unexpected_ids"`
+}
+
+type AcceptanceResult struct {
+	ACID    string `json:"ac_id"`
+	Result  string `json:"result"` // "PASS", "FAIL"
+	Notes   string `json:"notes"`
+	LogRef  string `json:"log_ref"`
+}
+
+type CheckVerdict struct {
+	Status         string `json:"status"`         // "PASS", "FAIL", "PARTIAL"
+	Recommendation string `json:"recommendation"` // "standardize", "replan", "rollback", "continue"
+	Basis          Basis  `json:"basis"`
+}
+
+type Basis struct {
+	PlanMatch           string `json:"plan_match"` // "MATCH", "MISMATCH"
+	AllAcceptancePassed bool   `json:"all_acceptance_passed"`
+}
+
+type ProcessNote struct {
+	Kind                string `json:"kind"` // "plan_mismatch", "missing_verification"
+	Severity            string `json:"severity"`
+	Text                string `json:"text"`
+	SuggestedStopReason string `json:"suggested_stop_reason"`
+}
+
+// ActOutput
+
+type ActOutput struct {
+	Decision  string      `json:"decision"` // "close", "replan", "rollback", "continue"
+	Rationale string      `json:"rationale"`
+	Next      NextAction `json:"next"`
+}
+
+type NextAction struct {
+	Recommended bool   `json:"recommended"`
+	Notes       string `json:"notes"`
+}
+
+// Verdict legacy structure - keeping for compatibility during refactor if needed
+type VerdictLegacy struct {
 	Version        int               `json:"version"`
 	Verdict        string            `json:"verdict"`
 	Criteria       []VerdictCriteria `json:"criteria"`
@@ -90,7 +289,7 @@ type Verdict struct {
 	RecommendedFix []string          `json:"recommended_fix"`
 }
 
-// VerdictCriteria captures pass/fail info for each criterion.
+// VerdictCriteria legacy structure
 type VerdictCriteria struct {
 	ID       string `json:"id"`
 	Text     string `json:"text"`

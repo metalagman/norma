@@ -43,21 +43,21 @@ Everything lives under the project root:
       scorecard.md
       evidence/...
     steps/
-      001-plan/
+      01-plan/
         input.json
         output.json
         logs/stdout.txt
         logs/stderr.txt
-      002-do/
+      02-do/
         input.json
         output.json
         logs/stdout.txt
         logs/stderr.txt
-      003-check/
+      03-check/
         input.json
         output.json
         logs/...
-      004-act/
+      04-act/
         input.json
         output.json
         logs/...
@@ -179,66 +179,41 @@ On `norma` start:
 
 ---
 
-## 5) Fixed workflow
+## 5) Fixed workflow (norma-loop)
 
-### Roles (fixed)
-- `plan`  : outline approach and intent
-- `do`    : generate evidence or execute work
-- `check` : evaluate evidence against acceptance criteria, produce verdict
-- `act`   : propose and implement fix
+Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until **PASS** or a **stop condition** triggers.
 
-### Sane Norma Loop (PDCA)
-State machine per iteration:
+### Core invariants
 
-**PLAN**
-- Inputs: current goal, backlog, latest observations (from last Check).
-- Outputs: updated ordered backlog, Next Slice (1 feature + 1–3 tasks), stop conditions, verification checklist.
+1. **One workflow only:** `plan -> do -> check -> act` (repeat).
+2. **Workspace exists before any agent runs:** the orchestrator creates `runs/<run_id>/workspace/` before Plan.
+3. **Agents never modify workspace or git:** all agents operate in **read-only** mode with respect to `workspace/`.
+4. **Commits/changes happen outside agents:** the orchestrator may apply patches and create commits **outside agent execution**.
+5. **Contracts are JSON only:** every step is `input.json → output.json`.
+6. **Every step captures logs:**
+    - `steps/<n>-<role>/logs/stdout.txt`
+    - `steps/<n>-<role>/logs/stderr.txt`
+7. **Run journal:** the orchestrator appends one entry after every step to:
+    - `artifacts/progress.md`
+8. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
+9. **Check compares plan vs actual and verifies job done:** Check must compare the Plan work plan to Do execution and evaluate all effective ACs.
+10. **Verdict goes to Act:** Act receives Check verdict and decides next.
 
-**DO**
-- Execute only the Next Slice and produce concrete artifacts.
-- If scope blows up or uncertainty appears: create a Spike or split tasks; do not expand scope inside Do.
+### Budgets and stop conditions
 
-**CHECK**
-- Run verification for the slice (tests/lint/build, AC checks, diff-based artifact review).
-- Classify: ✅ pass / ⚠️ partial / ❌ fail or wrong direction.
+The orchestrator must stop immediately when any applies:
+- budget exceeded (iterations / wall time / failed checks / retries)
+- dependency blocked
+- verify missing (verification cannot run as planned)
+- replan required (Plan cannot produce a safe/complete work plan)
 
-**ACT**
-- Update backlog (done/added/reprioritized), record decisions (light ADR if needed).
-- Decide next action: continue, re-plan, rollback, or ship.
+Stopping must be reflected in `output.json` with `status="stop"` and a concrete `stop_reason`.
 
-Invariants:
-- **Bounded work:** one loop executes max 1–3 tasks or one feature slice.
-- **Always verifiable:** every task includes a Verify step that Check can run.
-- **Backlog is the truth:** new work becomes tasks, not implicit context.
+### Task IDs
 
-Stop conditions (trigger immediate re-plan during Do/Check):
-- task size grows from S/M to L
-- missing requirement discovered
-- dependency blocks progress
-- tests reveal systemic (non-local) issues
-- more than N retries on the same task (default N=2)
-
-Minimal backlog item format (Norma-friendly):
-- Objective
-- Artifact
-- Verify
-- Optional: Deps, Size (S/M/L; L forbidden—must be split)
-
-Example:
-- [ ] T12 (S) Add /v1/devices GET filtering | Artifact: api/devices.go + openapi.yaml | Verify: unit + curl happy-path
-
-### Loop (MVP)
-- Start run with `iteration=1`
-- `plan` → `do` → `check`
-- If `verdict=PASS`: mark run `passed`, stop
-- Else `act`, `iteration++`, repeat
-
-### Budgets
-`norma` MUST stop when any budget is exceeded, with `status=stopped` and an event.
-
-MVP budgets:
-- `max_iterations` (required)
-- optional: `max_patch_kb`, `max_changed_files`, `max_risky_files`
+- `task.id` must match: `^norma-[a-z0-9]+$`
+    - examples: `norma-a3f2dd`, `norma-01`, `norma-fixlogin2`
+- Non-matching IDs → Plan must stop with `stop_reason="replan_required"` (reason in logs).
 
 ---
 
@@ -463,157 +438,298 @@ Notes:
 
 ---
 
-## 7) Agent contract (JSON)
+## 7) Agent contracts (JSON)
 
-### 7.1 Request: AgentRequest (written to `steps/<n>/input.json` and used as invocation input)
+Every step is an `input.json → output.json` transformation.
+
+### 7.1 Common input.json (all steps)
+
 ```json
 {
-  "version": 1,
-  "run_id": "20260123-145501-ab12cd",
-  "step": {
-    "index": 2,
-    "role": "check",
+  "run": {
+    "id": "r-...",
     "iteration": 1
   },
-  "goal": "Short human goal",
-  "norma": {
+  "task": {
+    "id": "norma-a3f2dd",
+    "title": "...",
+    "description": "...",
     "acceptance_criteria": [
-      { "id": "AC1", "text": "All unit tests pass" },
-      { "id": "AC2", "text": "No lint errors" }
-    ],
-    "budgets": {
-      "max_iterations": 5,
-      "max_patch_kb": 200
-    }
+      { "id": "AC-1", "text": "...", "verify_hints": ["..."] }
+    ]
+  },
+  "step": {
+    "index": 1,
+    "name": "plan|do|check|act",
+    "dir": "runs/<run_id>/steps/<n>-<role>"
   },
   "paths": {
-    "repo_root": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/workspace",
-    "run_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd",
-    "step_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/steps/003-check",
-    "artifacts_dir": "/abs/path/to/repo/.norma/runs/20260123-145501-ab12cd/artifacts"
+    "workspace_dir": "runs/<run_id>/workspace",
+    "workspace_mode": "read_only"
   },
+  "budgets": {
+    "max_iterations": 5,
+    "max_wall_time_minutes": 30,
+    "max_failed_checks": 2
+  },
+  "stop_reasons_allowed": [
+    "budget_exceeded",
+    "dependency_blocked",
+    "verify_missing",
+    "replan_required"
+  ],
   "context": {
-    "artifacts": [
-      "plan.md"
-    ],
-    "next_actions": [
-      "Implement feature X"
-    ],
-    "notes": "Optional free-form"
-  },
-  "plan": {
-    "task": { "id": "bd-1" }
-  },
-  "do": {
-    "task": { "id": "bd-1" }
+    "facts": {},
+    "links": []
   }
 }
 ```
 
-**Rules**
-- Agent MUST treat `step_dir` as the location for step-specific logs and metadata.
-- Agent MUST treat `artifacts_dir` as the primary location for producing evidence, plans, and other shared artifacts.
-- Agent MAY read existing artifacts from `artifacts_dir`.
-- Agent MUST NOT write outside `step_dir` or `artifacts_dir`, EXCEPT for `do` and `act` which modify the `workspace/`.
-- `paths.repo_root` points to the isolated Git worktree (`workspace/`).
-- `plan` and `do` blocks are role-specific and only present for their respective roles.
-- `context.next_actions` contains the `next_actions` suggested by the previous step in the same iteration.
+### 7.2 Common output.json (all steps)
 
-### 7.2 Response: AgentResponse (norma expects JSON on stdout; stored as `steps/<n>/output.json`)
 ```json
 {
-  "version": 1,
-  "status": "ok",
-  "summary": "What happened, 1-3 sentences",
-  "files": [
-    "evidence/test.log",
-    "scorecard.md"
-  ],
-  "next_actions": [
-    "Re-run tests",
-    "Re-check AC2 using golangci-lint"
-  ],
-  "errors": []
+  "status": "ok|stop|error",
+  "stop_reason": "none|budget_exceeded|dependency_blocked|verify_missing|replan_required",
+  "summary": {
+    "text": "short human summary",
+    "warnings": [],
+    "errors": []
+  },
+  "logs": {
+    "stdout_path": "steps/<n>-<role>/logs/stdout.txt",
+    "stderr_path": "steps/<n>-<role>/logs/stderr.txt"
+  },
+  "timing": {
+    "wall_time_ms": 0
+  },
+  "progress": {
+    "title": "short line for the run journal",
+    "details": [
+      "bullet 1",
+      "bullet 2"
+    ],
+    "links": {
+      "stdout": "steps/<n>-<role>/logs/stdout.txt",
+      "stderr": "steps/<n>-<role>/logs/stderr.txt"
+    }
+  }
 }
 ```
-
-**Rules**
-- `status` is `ok` or `fail`.
-- `files` MUST be relative paths under `artifacts_dir` (no `..`, no absolute paths).
-- If stdout is not valid JSON:
-  - norma MUST store raw stdout in logs and mark step failed (`protocol_error`).
 
 ---
 
-## 8) Role-specific requirements
+## 8) Role-specific requirements (Step Requirements)
 
-### 8.1 Role: plan
-Purpose: outline approach and intent.
+### 8.1 Role: 01-plan
 
-MUST:
-- Produce `output.json` (AgentResponse)
-- Write logs:
-  - `logs/stdout.txt`, `logs/stderr.txt` (norma captures these)
-SHOULD:
-- Write `plan.md` in `artifacts_dir` with ordered backlog, Next Slice, stop conditions, and verification checklist (validated by norma)
+Plan **must**:
+- produce `work_plan` (the iteration plan)
+- publish `acceptance_criteria.effective` (may extend baseline with traceability)
 
-### 8.2 Role: do
-Purpose: implement work in workspace.
+Plan `output.json` must include:
 
-MUST:
-- Produce `output.json` (AgentResponse)
-- Write logs:
-  - `logs/stdout.txt`, `logs/stderr.txt` (norma captures these)
-- Implement the selected task by modifying files in `workspace/`.
-SHOULD:
-- Write evidence under `artifacts_dir` (e.g. `evidence/run.log`, `evidence/commands.txt`)
-
-### 8.3 Role: check
-Purpose: evaluate workspace vs acceptance criteria.
-
-MUST:
-- Produce `verdict.json` in `artifacts_dir`
-- Produce `scorecard.md` in `artifacts_dir` (human-readable summary)
-- Produce `output.json`
-
-`verdict.json` schema:
 ```json
 {
-  "version": 1,
-  "verdict": "PASS",
-  "criteria": [
-    {
-      "id": "AC1",
-      "text": "All unit tests pass",
-      "pass": true,
-      "evidence": "evidence/test.log"
+  "plan": {
+    "task_id": "norma-a3f2dd",
+    "goal": "what success means for this iteration",
+    "constraints": ["..."],
+    "acceptance_criteria": {
+      "baseline": [
+        { "id": "AC-1", "text": "...", "verify_hints": ["..."] }
+      ],
+      "effective": [
+        {
+          "id": "AC-1",
+          "origin": "baseline",
+          "text": "Unit tests pass",
+          "checks": [
+            { "id": "CHK-AC-1-1", "cmd": "go test ./...", "expect_exit_codes": [0] }
+          ]
+        }
+      ]
+    },
+    "work_plan": {
+      "timebox_minutes": 30,
+      "do_steps": [
+        {
+          "id": "DO-1",
+          "text": "Run unit tests",
+          "commands": [
+            { "id": "CMD-1", "cmd": "go test ./...", "expect_exit_codes": [0] }
+          ],
+          "targets_ac_ids": ["AC-1"]
+        }
+      ],
+      "check_steps": [
+        {
+          "id": "VER-1",
+          "text": "Evaluate effective acceptance criteria",
+          "mode": "acceptance_criteria"
+        }
+      ],
+      "stop_triggers": [
+        "dependency_blocked",
+        "verify_missing",
+        "budget_exceeded",
+        "replan_required"
+      ]
     }
-  ],
-  "metrics": {
-    "tests_passed": 123,
-    "tests_failed": 0
-  },
-  "blockers": [],
-  "recommended_fix": []
+  }
 }
 ```
 
-Rules:
-- `verdict` MUST be `PASS` or `FAIL`.
-- If `verdict.json` missing or invalid → norma stops run as failed (`protocol_error`).
+### 8.2 Role: 02-do
 
-### 8.4 Role: act
-Purpose: propose and implement fix in workspace.
+Do **must**:
+- execute only `plan.work_plan.do_steps[*]`
+- record what was executed (actual work)
 
-MUST:
-- Produce `output.json`
-SHOULD:
-- Modify files in the `workspace/` to implement the proposed fix.
-- Explain in `summary` which ACs it targets and why
+Do `input.json` must include:
+- `plan.work_plan`
+- `plan.acceptance_criteria.effective`
 
-Rules:
-- Agent does not apply changes to the main repository.
-- The `workspace/` serves as the staging area.
+Do `output.json` must include:
+
+```json
+{
+  "do": {
+    "execution": {
+      "executed_step_ids": ["DO-1"],
+      "skipped_step_ids": [],
+      "commands": [
+        { "id": "CMD-1", "cmd": "go test ./...", "exit_code": 0 }
+      ]
+    },
+    "blockers": [
+      {
+        "kind": "dependency|env|unknown",
+        "text": "what blocked or surprised us",
+        "suggested_stop_reason": "dependency_blocked|replan_required"
+      }
+    ]
+  }
+}
+```
+
+### 8.3 Role: 03-check
+
+Check **must**:
+1) verify **plan match** (planned vs executed)
+2) verify **job done** (all effective ACs evaluated)
+3) emit a verdict used by Act
+
+Check `input.json` must include:
+- `plan.work_plan`
+- `plan.acceptance_criteria.effective`
+- `do.execution`
+
+Check `output.json` must include:
+
+```json
+{
+  "check": {
+    "plan_match": {
+      "do_steps": {
+        "planned_ids": ["DO-1"],
+        "executed_ids": ["DO-1"],
+        "missing_ids": [],
+        "unexpected_ids": []
+      },
+      "commands": {
+        "planned_ids": ["CMD-1"],
+        "executed_ids": ["CMD-1"],
+        "missing_ids": [],
+        "unexpected_ids": []
+      }
+    },
+    "acceptance_results": [
+      {
+        "ac_id": "AC-1",
+        "result": "PASS|FAIL",
+        "notes": "...",
+        "log_ref": "steps/03-check/logs/stdout.txt"
+      }
+    ],
+    "verdict": {
+      "status": "PASS|FAIL|PARTIAL",
+      "recommendation": "standardize|replan|rollback|continue",
+      "basis": {
+        "plan_match": "MATCH|MISMATCH",
+        "all_acceptance_passed": true
+      }
+    },
+    "process_notes": [
+      {
+        "kind": "plan_mismatch|missing_verification",
+        "severity": "warning|error",
+        "text": "...",
+        "suggested_stop_reason": "replan_required|none"
+      }
+    ]
+  }
+}
+```
+
+#### Verdict rules (enforceable)
+- If any `acceptance_results[*].result == "FAIL"` → `verdict.status = "FAIL"`.
+- Else if any `plan_match.*.missing_ids` or `plan_match.*.unexpected_ids` is non-empty → `verdict.status = "PARTIAL"`.
+- Else → `verdict.status = "PASS"`.
+
+### 8.4 Role: 04-act
+
+Act **must**:
+- consume Check verdict
+- decide what to do next
+
+Act `input.json` must include:
+- `check.verdict` (and optionally `check.acceptance_results`)
+
+Act `output.json` must include:
+
+```json
+{
+  "act": {
+    "decision": "close|replan|rollback|continue",
+    "rationale": "...",
+    "next": {
+      "recommended": true,
+      "notes": "what must change in the next Plan"
+    }
+  }
+}
+```
+
+---
+
+## 8.5 progress.md (Ralph-style run journal)
+
+The orchestrator must append one entry to `artifacts/progress.md` after **every** step, derived from the step `output.json.progress` plus status fields.
+
+### Append template
+
+```md
+## <UTC timestamp> — <step_index> <STEP_NAME> — <status>/<stop_reason>
+**Task:** <task.id>  
+**Run:** <run.id> · **Iteration:** <run.iteration>
+
+**Title:** <progress.title>
+
+**Details:**
+- <progress.details[0]>
+- <progress.details[1]>
+
+**Logs:**
+- stdout: <progress.links.stdout>
+- stderr: <progress.links.stderr>
+```
+
+### Step progress expectations (minimum)
+- **Plan:** include goal + counts (`AC effective`, `do_steps`, `check_steps`).
+- **Do:** include executed vs skipped steps + command exit summary.
+- **Check:** include plan_match summary + acceptance pass/fail counts + verdict.
+- **Act:** include decision + what changes are required next.
 
 ---
 

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/metalagman/norma/internal/agent"
@@ -28,11 +27,10 @@ type stepResult struct {
 	Summary   string
 	Response  *model.AgentResponse
 	Protocol  string
-	Verdict   *model.Verdict
 }
 
 func executeStep(ctx context.Context, runner agent.Runner, req model.AgentRequest, runStepsDir string) (stepResult, error) {
-	stepName := fmt.Sprintf("%03d-%s", req.Step.Index, req.Step.Role)
+	stepName := fmt.Sprintf("%02d-%s", req.Step.Index, req.Step.Name)
 	finalDir := filepath.Join(runStepsDir, stepName)
 
 	startedAt := time.Now().UTC()
@@ -43,7 +41,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		return stepResult{}, fmt.Errorf("create logs dir: %w", err)
 	}
 
-	req.Paths.StepDir = finalDir
+	req.Step.Dir = finalDir
 	if err := writeJSON(filepath.Join(finalDir, "input.json"), req); err != nil {
 		return stepResult{}, err
 	}
@@ -63,10 +61,10 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 
 	info := runner.Describe()
 	log.Info().
-		Str("role", req.Step.Role).
-		Str("run_id", req.RunID).
+		Str("role", req.Step.Name).
+		Str("run_id", req.Run.ID).
 		Int("step_index", req.Step.Index).
-		Int("iteration", req.Step.Iteration).
+		Int("iteration", req.Run.Iteration).
 		Str("agent_type", info.Type).
 		Strs("cmd", info.Cmd).
 		Str("model", info.Model).
@@ -75,30 +73,21 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		Msg("agent start")
 
 	agentStart := time.Now().UTC()
-	stdout, stderr, exitCode, runErr := runner.Run(ctx, req, stdoutFile, stderrFile)
+	stdout, _, exitCode, runErr := runner.Run(ctx, req, stdoutFile, stderrFile)
 	agentDuration := time.Since(agentStart)
 	log.Info().
-		Str("role", req.Step.Role).
-		Str("run_id", req.RunID).
+		Str("role", req.Step.Name).
+		Str("run_id", req.Run.ID).
 		Int("step_index", req.Step.Index).
-		Int("iteration", req.Step.Iteration).
+		Int("iteration", req.Run.Iteration).
 		Int("exit_code", exitCode).
 		Dur("duration", agentDuration).
 		Msg("agent finished")
-	log.Debug().
-		Str("role", req.Step.Role).
-		Int("step_index", req.Step.Index).
-		Int("exit_code", exitCode).
-		Int("stdout_bytes", len(stdout)).
-		Int("stderr_bytes", len(stderr)).
-		Str("stdout_excerpt", truncateLog(stdout, 800)).
-		Str("stderr_excerpt", truncateLog(stderr, 800)).
-		Msg("agent completed")
 
 	res := stepResult{
 		StepIndex: req.Step.Index,
-		Role:      req.Step.Role,
-		Iteration: req.Step.Iteration,
+		Role:      req.Step.Name,
+		Iteration: req.Run.Iteration,
 		FinalDir:  finalDir,
 		StartedAt: startedAt,
 		EndedAt:   time.Now().UTC(),
@@ -119,16 +108,14 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 			log.Debug().Str("role", res.Role).Int("step_index", res.StepIndex).Msg("protocol error")
 		} else {
 			res.Response = resp
-			res.Summary = resp.Summary
-			if resp.Status == "fail" {
-				res.Status = "fail"
+			res.Summary = resp.Summary.Text
+			if resp.Status != "ok" {
+				res.Status = resp.Status
 			}
 			log.Debug().
 				Str("role", res.Role).
 				Int("step_index", res.StepIndex).
 				Str("response_status", resp.Status).
-				Int("files_count", len(resp.Files)).
-				Int("next_actions_count", len(resp.NextActions)).
 				Msg("agent response parsed")
 			if err := writeJSON(filepath.Join(finalDir, "output.json"), resp); err != nil {
 				res.Status = "fail"
@@ -138,60 +125,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		}
 	}
 
-	if res.Status == "ok" {
-		switch res.Role {
-		case "plan":
-			if err := validatePlan(filepath.Join(req.Paths.ArtifactsDir, "plan.md")); err != nil {
-				res.Status = "fail"
-				res.Protocol = err.Error()
-				res.Summary = res.Protocol
-			}
-		case "check":
-			verdict, err := readVerdict(filepath.Join(req.Paths.ArtifactsDir, "verdict.json"))
-			if err != nil {
-				res.Status = "fail"
-				res.Protocol = err.Error()
-				res.Summary = res.Protocol
-			} else if verdict.Verdict != "PASS" && verdict.Verdict != "FAIL" {
-				res.Status = "fail"
-				res.Protocol = "invalid verdict.json: verdict must be PASS or FAIL"
-				res.Summary = res.Protocol
-			} else {
-				res.Verdict = verdict
-			}
-			if _, err := os.Stat(filepath.Join(req.Paths.ArtifactsDir, "scorecard.md")); err != nil {
-				res.Status = "fail"
-				res.Protocol = "missing scorecard.md"
-				res.Summary = res.Protocol
-			}
-		}
-	}
-
 	return res, nil
-}
-
-func validatePlan(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("missing plan.md")
-	}
-	text := strings.ToLower(string(data))
-	required := []string{
-		"backlog",
-		"next slice",
-		"stop condition",
-		"verification",
-	}
-	missing := make([]string, 0, len(required))
-	for _, key := range required {
-		if !strings.Contains(text, key) {
-			missing = append(missing, key)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("invalid plan.md: missing sections: %s", strings.Join(missing, ", "))
-	}
-	return nil
 }
 
 func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {
@@ -202,13 +136,8 @@ func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {
 			return nil, "protocol_error: stdout not valid JSON"
 		}
 	}
-	if resp.Status != "ok" && resp.Status != "fail" {
-		return nil, "protocol_error: status must be ok or fail"
-	}
-	for _, f := range resp.Files {
-		if !validRelPath(f) {
-			return nil, "protocol_error: files must be relative paths under artifacts_dir"
-		}
+	if resp.Status != "ok" && resp.Status != "fail" && resp.Status != "stop" && resp.Status != "error" {
+		return nil, "protocol_error: invalid status"
 	}
 	return &resp, ""
 }
@@ -222,35 +151,6 @@ func extractJSON(data []byte) ([]byte, bool) {
 	return data[start : end+1], true
 }
 
-func validRelPath(p string) bool {
-	if p == "" {
-		return false
-	}
-	if filepath.IsAbs(p) {
-		return false
-	}
-	clean := filepath.Clean(p)
-	if strings.HasPrefix(clean, "..") {
-		return false
-	}
-	if strings.Contains(clean, ".."+string(filepath.Separator)) {
-		return false
-	}
-	return true
-}
-
-func readVerdict(path string) (*model.Verdict, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("missing verdict.json")
-	}
-	var verdict model.Verdict
-	if err := json.Unmarshal(data, &verdict); err != nil {
-		return nil, fmt.Errorf("invalid verdict.json")
-	}
-	return &verdict, nil
-}
-
 func writeJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -262,25 +162,10 @@ func writeJSON(path string, value any) error {
 	return nil
 }
 
-func writeFile(path string, data []byte) {
-	_ = os.WriteFile(path, data, 0o644)
-}
-
 func randomHex(bytesLen int) (string, error) {
 	buf := make([]byte, bytesLen)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
-}
-
-func truncateLog(data []byte, limit int) string {
-	if len(data) == 0 {
-		return ""
-	}
-	text := strings.TrimSpace(string(data))
-	if len(text) <= limit {
-		return text
-	}
-	return text[:limit] + "...(truncated)"
 }

@@ -2,10 +2,10 @@ package run
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -61,8 +61,17 @@ func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tr
 	}, nil
 }
 
+func (r *Runner) validateTaskID(id string) bool {
+	matched, _ := regexp.MatchString(`^norma-[a-z0-9]+$`, id)
+	return matched
+}
+
 // Run starts a new run with the given goal and acceptance criteria.
 func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCriterion, taskID string) (res Result, err error) {
+	if !r.validateTaskID(taskID) {
+		return Result{}, fmt.Errorf("invalid task id: %s", taskID)
+	}
+
 	r.taskID = taskID
 	startedAt := time.Now().UTC()
 	defer func() {
@@ -85,6 +94,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 		event.Msg("run finished")
 	}()
+
 	lock, err := AcquireRunLock(r.normaDir)
 	if err != nil {
 		return Result{}, err
@@ -97,35 +107,13 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	if err := reconcile.Run(ctx, r.store.db, r.normaDir); err != nil {
 		return Result{}, err
 	}
-	if r.cfg.Retention.KeepLast > 0 || r.cfg.Retention.KeepDays > 0 {
-		policy := RetentionPolicy{KeepLast: r.cfg.Retention.KeepLast, KeepDays: r.cfg.Retention.KeepDays}
-		if res, err := PruneRuns(ctx, r.store.db, filepath.Join(r.normaDir, "runs"), policy, false); err != nil {
-			return Result{}, err
-		} else {
-			log.Info().
-				Str("operation", "auto-prune").
-				Int("keep_last", policy.KeepLast).
-				Int("keep_days", policy.KeepDays).
-				Int("considered", res.Considered).
-				Int("kept", res.Kept).
-				Int("deleted", res.Deleted).
-				Int("skipped", res.Skipped).
-				Msg("auto-prune runs")
-		}
-	}
 
 	runID, err := newRunID()
 	if err != nil {
 		return Result{}, err
 	}
-	log.Info().
-		Str("run_id", runID).
-		Str("goal", goal).
-		Int("max_iterations", r.cfg.Budgets.MaxIterations).
-		Int("ac_count", len(ac)).
-		Msg("run started")
-	runDir := filepath.Join(r.normaDir, "runs", runID)
 
+	runDir := filepath.Join(r.normaDir, "runs", runID)
 	r.artifactsDir = filepath.Join(runDir, "artifacts")
 	if err := os.MkdirAll(r.artifactsDir, 0o755); err != nil {
 		return Result{RunID: runID}, fmt.Errorf("create artifacts dir: %w", err)
@@ -140,302 +128,239 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		return Result{RunID: runID}, fmt.Errorf("create run steps: %w", err)
 	}
-	if err := writeNormaMD(runDir, goal, ac, r.cfg.Budgets); err != nil {
-		return Result{RunID: runID}, err
-	}
+
 	if err := r.store.CreateRun(ctx, runID, goal, runDir, 1); err != nil {
 		return Result{RunID: runID}, err
 	}
 
 	iteration := 1
 	stepIndex := 0
-	artifacts := []string{}
-	nextActions := []string{}
-	budgets := budgetsFromConfig(BudgetsConfig{
-		MaxIterations:   r.cfg.Budgets.MaxIterations,
-		MaxPatchKB:      r.cfg.Budgets.MaxPatchKB,
-		MaxChangedFiles: r.cfg.Budgets.MaxChangedFiles,
-		MaxRiskyFiles:   r.cfg.Budgets.MaxRiskyFiles,
-	})
+
+	var lastPlan *model.PlanOutput
+	var lastDo *model.DoOutput
+	var lastCheck *model.CheckOutput
 
 	for iteration <= r.cfg.Budgets.MaxIterations {
+		// 1. PLAN
 		stepIndex++
-		if r.taskID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.taskID, "planning")
-		}
-		log.Info().Str("role", "plan").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		planRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "plan", artifacts, nextActions, runDir, stepsDir, budgets)
+		r.tracker.MarkStatus(ctx, r.taskID, "planning")
+		planReq := r.baseRequest(runID, iteration, stepIndex, "plan", goal, ac)
+		planReq.Plan = &model.PlanInput{Task: model.IDInfo{ID: r.taskID}}
+
+		planRes, err := r.runAndCommitStep(ctx, planReq, stepsDir)
 		if err != nil {
-			return Result{RunID: runID}, err
-		}
-		artifacts = r.collectArtifacts()
-		if planRes.Response != nil {
-			nextActions = planRes.Response.NextActions
-		}
-		if err := r.commitStep(ctx, runID, planRes, "running", nil); err != nil {
 			return Result{RunID: runID}, err
 		}
 		if planRes.Status != "ok" {
-			if err := r.failRun(ctx, runID, iteration, stepIndex, "plan step failed"); err != nil {
-				return Result{RunID: runID}, err
-			}
-			return Result{RunID: runID, Status: "failed"}, nil
+			return r.handleStop(ctx, runID, iteration, stepIndex, planRes)
 		}
+		lastPlan = planRes.Response.Plan
 
-		if r.taskID != "" && r.tracker != nil {
-			planPath := filepath.Join(r.artifactsDir, "plan.md")
-			if planData, err := os.ReadFile(planPath); err == nil {
-				_ = r.tracker.SetNotes(ctx, r.taskID, string(planData))
-				_ = r.tracker.AddLabel(ctx, r.taskID, "norma-planned")
-			}
-		}
-
+		// 2. DO
 		stepIndex++
-		if r.taskID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.taskID, "doing")
+		r.tracker.MarkStatus(ctx, r.taskID, "doing")
+		doReq := r.baseRequest(runID, iteration, stepIndex, "do", goal, ac)
+		doReq.Do = &model.DoInput{
+			WorkPlan:          lastPlan.WorkPlan,
+			EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
 		}
-		log.Info().Str("role", "do").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		doRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "do", artifacts, nextActions, runDir, stepsDir, budgets)
+
+		doRes, err := r.runAndCommitStep(ctx, doReq, stepsDir)
 		if err != nil {
-			return Result{RunID: runID}, err
-		}
-		artifacts = r.collectArtifacts()
-		if doRes.Response != nil {
-			nextActions = doRes.Response.NextActions
-		}
-		if err := r.commitStep(ctx, runID, doRes, "running", nil); err != nil {
 			return Result{RunID: runID}, err
 		}
 		if doRes.Status != "ok" {
-			if err := r.failRun(ctx, runID, iteration, stepIndex, "do step failed"); err != nil {
-				return Result{RunID: runID}, err
-			}
-			return Result{RunID: runID, Status: "failed"}, nil
+			return r.handleStop(ctx, runID, iteration, stepIndex, doRes)
 		}
+		lastDo = doRes.Response.Do
 
-		// Commit changes in workspace
-		if r.workspaceDir != "" {
-			_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("do: iteration %d", iteration))
-		}
-
+		// 3. CHECK
 		stepIndex++
-		if r.taskID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.taskID, "checking")
+		r.tracker.MarkStatus(ctx, r.taskID, "checking")
+		checkReq := r.baseRequest(runID, iteration, stepIndex, "check", goal, ac)
+		checkReq.Check = &model.CheckInput{
+			WorkPlan:          lastPlan.WorkPlan,
+			EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
+			DoExecution:       lastDo.Execution,
 		}
-		log.Info().Str("role", "check").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		checkRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "check", artifacts, nextActions, runDir, stepsDir, budgets)
+
+		checkRes, err := r.runAndCommitStep(ctx, checkReq, stepsDir)
 		if err != nil {
 			return Result{RunID: runID}, err
-		}
-		artifacts = r.collectArtifacts()
-		if checkRes.Response != nil {
-			nextActions = checkRes.Response.NextActions
-		}
-		verdict := ""
-		if checkRes.Verdict != nil {
-			verdict = checkRes.Verdict.Verdict
-		}
-		if verdict != "" {
-			verdictCopy := verdict
-			status := "running"
-			if verdict == "PASS" {
-				status = "passed"
-			}
-			if err := r.commitStep(ctx, runID, checkRes, status, &verdictCopy); err != nil {
-				return Result{RunID: runID}, err
-			}
-			if verdict == "PASS" {
-				// Apply changes from workspace branch to main repo when task is done
-				log.Info().Str("task_id", r.taskID).Msg("task passed, applying changes to main repo")
-
-				branchName := fmt.Sprintf("norma/task/%s", r.taskID)
-
-				// record git status/hash "before"
-				beforeHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
-				beforeStatus := runCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
-
-				// merge --squash
-				err := runCmdErr(ctx, r.repoRoot, "git", "merge", "--squash", branchName)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to merge task branch")
-					if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to merge task branch: "+err.Error()); err != nil {
-						return Result{RunID: runID}, err
-					}
-					return Result{RunID: runID, Status: "failed"}, nil
-				}
-
-				// commit using Conventional Commits
-				commitMsg := fmt.Sprintf("feat: %s\n\nRun: %s\nTask: %s", goal, runID, r.taskID)
-				err = runCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to commit merged changes")
-					// rollback if possible
-					_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", "HEAD")
-					if err := r.failRun(ctx, runID, iteration, stepIndex, "failed to commit merged changes: "+err.Error()); err != nil {
-						return Result{RunID: runID}, err
-					}
-					return Result{RunID: runID, Status: "failed"}, nil
-				}
-
-				afterHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
-				afterStatus := runCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
-
-				log.Info().
-					Str("before_hash", beforeHash).
-					Str("after_hash", afterHash).
-					Str("before_status", beforeStatus).
-					Str("after_status", afterStatus).
-					Msg("changes applied and committed successfully")
-
-				return Result{RunID: runID, Status: "passed", Verdict: &verdictCopy}, nil
-			}
-		} else {
-			if err := r.commitStep(ctx, runID, checkRes, "running", nil); err != nil {
-				return Result{RunID: runID}, err
-			}
 		}
 		if checkRes.Status != "ok" {
-			if err := r.failRun(ctx, runID, iteration, stepIndex, "check step failed"); err != nil {
-				return Result{RunID: runID}, err
-			}
-			return Result{RunID: runID, Status: "failed"}, nil
+			return r.handleStop(ctx, runID, iteration, stepIndex, checkRes)
+		}
+		lastCheck = checkRes.Response.Check
+
+		// 4. ACT
+		stepIndex++
+		r.tracker.MarkStatus(ctx, r.taskID, "acting")
+		actReq := r.baseRequest(runID, iteration, stepIndex, "act", goal, ac)
+		actReq.Act = &model.ActInput{
+			CheckVerdict:      lastCheck.Verdict,
+			AcceptanceResults: lastCheck.AcceptanceResults,
 		}
 
-		stepIndex++
-		if r.taskID != "" && r.tracker != nil {
-			_ = r.tracker.MarkStatus(ctx, r.taskID, "acting")
-		}
-		log.Info().Str("role", "act").Str("run_id", runID).Int("iteration", iteration).Int("step_index", stepIndex).Msg("step start")
-		actRes, err := r.runStepWithRetries(ctx, runID, goal, ac, iteration, &stepIndex, "act", artifacts, nextActions, runDir, stepsDir, budgets)
+		actRes, err := r.runAndCommitStep(ctx, actReq, stepsDir)
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		artifacts = r.collectArtifacts()
-		if actRes.Response != nil {
-			nextActions = actRes.Response.NextActions
-		}
 
-		runStatus := "running"
-		if actRes.Protocol == "budget_exceeded" {
-			runStatus = "stopped"
-		}
-		if err := r.commitStep(ctx, runID, actRes, runStatus, nil); err != nil {
-			return Result{RunID: runID}, err
-		}
-		if actRes.Protocol == "budget_exceeded" {
-			if err := r.stopRun(ctx, runID, iteration, stepIndex, actRes.Summary); err != nil {
+		if lastCheck.Verdict.Status == "PASS" {
+			err = r.applyChanges(ctx, runID, goal)
+			if err != nil {
 				return Result{RunID: runID}, err
 			}
-			return Result{RunID: runID, Status: "stopped"}, nil
-		}
-		if actRes.Status != "ok" {
-			if err := r.failRun(ctx, runID, iteration, stepIndex, "act step failed"); err != nil {
-				return Result{RunID: runID}, err
-			}
-			return Result{RunID: runID, Status: "failed"}, nil
+			return Result{RunID: runID, Status: "passed"}, nil
 		}
 
-		// Commit changes in workspace
-		if r.workspaceDir != "" {
-			_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("act: iteration %d", iteration))
+		if actRes.Status != "ok" || actRes.Response.Act.Decision == "close" {
+			return r.handleStop(ctx, runID, iteration, stepIndex, actRes)
 		}
 
 		iteration++
 	}
 
-	if err := r.stopRun(ctx, runID, iteration-1, stepIndex, "max_iterations exceeded"); err != nil {
-		return Result{RunID: runID}, err
-	}
 	return Result{RunID: runID, Status: "stopped"}, nil
 }
 
-func (r *Runner) runStep(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration, stepIndex int, role string, artifacts []string, nextActions []string, runDir, stepsDir string) (stepResult, error) {
-	req := model.AgentRequest{
-		Version: 1,
-		RunID:   runID,
-		Step: model.StepInfo{
-			Index:     stepIndex,
-			Role:      role,
+func (r *Runner) baseRequest(runID string, iteration, index int, role, goal string, ac []model.AcceptanceCriterion) model.AgentRequest {
+	return model.AgentRequest{
+		Run: model.RunInfo{
+			ID:        runID,
 			Iteration: iteration,
 		},
-		Goal: goal,
-		Norma: model.NormaInfo{
+		Task: model.TaskInfo{
+			ID:                 r.taskID,
+			Title:              goal,
 			AcceptanceCriteria: ac,
-			Budgets: model.Budgets{
-				MaxIterations:   r.cfg.Budgets.MaxIterations,
-				MaxPatchKB:      r.cfg.Budgets.MaxPatchKB,
-				MaxChangedFiles: r.cfg.Budgets.MaxChangedFiles,
-				MaxRiskyFiles:   r.cfg.Budgets.MaxRiskyFiles,
-			},
+		},
+		Step: model.StepInfo{
+			Index: index,
+			Name:  role,
 		},
 		Paths: model.RequestPaths{
-			RepoRoot: r.workspaceDir,
-			RunDir:   runDir,
-			StepDir:  "",
+			WorkspaceDir: r.workspaceDir,
+			WorkspaceMode: "read_only",
+		},
+		Budgets: model.Budgets{
+			MaxIterations: r.cfg.Budgets.MaxIterations,
+		},
+		StopReasonsAllowed: []string{
+			"budget_exceeded",
+			"dependency_blocked",
+			"verify_missing",
+			"replan_required",
 		},
 		Context: model.RequestContext{
-			Artifacts:   artifacts,
-			NextActions: nextActions,
+			Facts: make(map[string]any),
 		},
 	}
-	if role == "plan" && r.taskID != "" {
-		req.Plan = &model.PlanContext{
-			Task: model.IDInfo{ID: r.taskID},
-		}
-	}
-	if role == "do" && r.taskID != "" {
-		req.Do = &model.DoContext{
-			Task: model.IDInfo{ID: r.taskID},
-		}
-	}
-	return executeStep(ctx, r.agents[role], req, stepsDir)
 }
 
-const maxAgentRetries = 2
-
-func (r *Runner) runStepWithRetries(ctx context.Context, runID, goal string, ac []model.AcceptanceCriterion, iteration int, stepIndex *int, role string, artifacts []string, nextActions []string, runDir, stepsDir string, budgets Budgets) (stepResult, error) {
-	attempts := maxAgentRetries + 1
-	for attempt := 1; attempt <= attempts; attempt++ {
-		currentIndex := *stepIndex
-		if attempt > 1 {
-			log.Info().Str("role", role).Str("run_id", runID).Int("iteration", iteration).Int("step_index", currentIndex).Int("attempt", attempt).Msg("step retry start")
-		}
-		res, err := r.runStep(ctx, runID, goal, ac, iteration, currentIndex, role, artifacts, nextActions, runDir, stepsDir)
-		if err != nil {
-			return res, err
-		}
-		retryable := res.Status != "ok" && res.Protocol != ""
-		if res.Protocol == "budget_exceeded" {
-			retryable = false
-		}
-		lastAttempt := attempt == attempts
-		if !retryable || lastAttempt || res.Status == "ok" {
-			return res, nil
-		}
-		if err := r.commitStep(ctx, runID, res, "running", nil); err != nil {
-			return res, err
-		}
-		nextIndex := *stepIndex + 1
-		log.Debug().Str("role", role).Str("run_id", runID).Int("step_index", currentIndex).Int("next_step_index", nextIndex).Int("attempt", attempt).Msg("retrying step")
-		*stepIndex = nextIndex
+func (r *Runner) runAndCommitStep(ctx context.Context, req model.AgentRequest, stepsDir string) (stepResult, error) {
+	res, err := executeStep(ctx, r.agents[req.Step.Name], req, stepsDir)
+	if err != nil {
+		return res, err
 	}
-	return stepResult{}, fmt.Errorf("exhausted retries")
+
+	err = r.commitStep(ctx, req.Run.ID, res, "running", nil)
+	if err != nil {
+		return res, err
+	}
+
+	if res.Response != nil {
+		r.appendToProgress(res)
+	}
+
+	return res, nil
+}
+
+func (r *Runner) handleStop(ctx context.Context, runID string, iteration, index int, res stepResult) (Result, error) {
+	status := "failed"
+	if res.Status == "stop" {
+		status = "stopped"
+	}
+	r.store.UpdateRun(ctx, runID, RunUpdate{
+		Status:           status,
+		Iteration:        iteration,
+		CurrentStepIndex: index,
+	}, nil)
+	return Result{RunID: runID, Status: status}, nil
+}
+
+func (r *Runner) appendToProgress(res stepResult) {
+	path := filepath.Join(r.artifactsDir, "progress.md")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to open progress.md")
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	stopReason := res.Protocol
+	if res.Response != nil && res.Response.StopReason != "" {
+		stopReason = res.Response.StopReason
+	}
+	if stopReason == "" {
+		stopReason = "none"
+	}
+
+	entry := fmt.Sprintf("## %s — %d %s — %s/%s\n", timestamp, res.StepIndex, strings.ToUpper(res.Role), res.Status, stopReason)
+	entry += fmt.Sprintf("**Task:** %s  \n", r.taskID)
+	entry += fmt.Sprintf("**Run:** %s · **Iteration:** %d\n\n", res.FinalDir, res.Iteration)
+	entry += fmt.Sprintf("**Title:** %s\n\n", res.Response.Progress.Title)
+	entry += "**Details:**\n"
+	for _, detail := range res.Response.Progress.Details {
+		entry += fmt.Sprintf("- %s\n", detail)
+	}
+	entry += "\n**Logs:**\n"
+	entry += fmt.Sprintf("- stdout: %s\n", res.Response.Logs.StdoutPath)
+	entry += fmt.Sprintf("- stderr: %s\n\n", res.Response.Logs.StderrPath)
+
+	_, _ = f.WriteString(entry)
+}
+
+func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
+	branchName := fmt.Sprintf("norma/task/%s", r.taskID)
+	commitMsg := fmt.Sprintf("feat: %s\n\nRun: %s\nTask: %s", goal, runID, r.taskID)
+
+	log.Info().Str("branch", branchName).Msg("applying changes from workspace")
+
+	// record git status/hash "before"
+	beforeHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
+
+	// merge --squash
+	if err := runCmdErr(ctx, r.repoRoot, "git", "merge", "--squash", branchName); err != nil {
+		return fmt.Errorf("git merge --squash: %w", err)
+	}
+
+	// check if there are changes to commit
+	status := runCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
+	if strings.TrimSpace(status) == "" {
+		log.Info().Msg("nothing to commit after merge")
+		return nil
+	}
+
+	// commit using Conventional Commits
+	if err := runCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg); err != nil {
+		log.Error().Err(err).Msg("failed to commit merged changes, rolling back")
+		_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+		return fmt.Errorf("git commit: %w", err)
+	}
+
+	afterHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
+	log.Info().
+		Str("before_hash", beforeHash).
+		Str("after_hash", afterHash).
+		Msg("changes applied and committed successfully")
+
+	return nil
 }
 
 func (r *Runner) commitStep(ctx context.Context, runID string, res stepResult, runStatus string, verdict *string) error {
-	dataJSON := stepEventData(res)
-	events := []Event{{
-		Type:     "step_committed",
-		Message:  fmt.Sprintf("step %03d-%s committed", res.StepIndex, res.Role),
-		DataJSON: dataJSON,
-	}}
-	if res.Role == "check" && res.Verdict != nil {
-		verdictData, _ := json.Marshal(map[string]any{"verdict": res.Verdict.Verdict})
-		events = append(events, Event{Type: "verdict", Message: "verdict recorded", DataJSON: string(verdictData)})
-	}
-	if res.Protocol != "" {
-		events = append(events, Event{Type: "protocol_error", Message: res.Protocol, DataJSON: ""})
-	}
 	step := StepRecord{
 		RunID:     runID,
 		StepIndex: res.StepIndex,
@@ -453,119 +378,7 @@ func (r *Runner) commitStep(ctx context.Context, runID string, res stepResult, r
 		Status:           runStatus,
 		Verdict:          verdict,
 	}
-	return r.store.CommitStep(ctx, step, events, update)
-}
-
-func (r *Runner) stopRun(ctx context.Context, runID string, iteration, stepIndex int, reason string) error {
-	update := RunUpdate{
-		CurrentStepIndex: stepIndex,
-		Iteration:        iteration,
-		Status:           "stopped",
-		Verdict:          nil,
-	}
-	event := Event{Type: "run_stopped", Message: reason, DataJSON: ""}
-	if err := r.store.UpdateRun(ctx, runID, update, &event); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *Runner) failRun(ctx context.Context, runID string, iteration, stepIndex int, reason string) error {
-	update := RunUpdate{
-		CurrentStepIndex: stepIndex,
-		Iteration:        iteration,
-		Status:           "failed",
-		Verdict:          nil,
-	}
-	event := Event{Type: "run_failed", Message: reason, DataJSON: ""}
-	if err := r.store.UpdateRun(ctx, runID, update, &event); err != nil {
-		return err
-	}
-	return nil
-}
-
-func stepEventData(res stepResult) string {
-	payload := map[string]any{
-		"role":   res.Role,
-		"status": res.Status,
-		"dir":    res.FinalDir,
-	}
-	if res.Protocol != "" {
-		payload["protocol_error"] = res.Protocol
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-func patchEventData(hashSnapshot, statusSnapshot string) string {
-	payload := map[string]string{
-		"hash":   hashSnapshot,
-		"status": statusSnapshot,
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-func writeNormaMD(runDir, goal string, ac []model.AcceptanceCriterion, budgets config.Budgets) error {
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return fmt.Errorf("create run dir: %w", err)
-	}
-	var b strings.Builder
-	b.WriteString("# norma run\n\n")
-	b.WriteString("Goal: ")
-	b.WriteString(goal)
-	b.WriteString("\n\n")
-	b.WriteString("Acceptance Criteria:\n")
-	if len(ac) == 0 {
-		b.WriteString("- (none)\n")
-	}
-	for _, c := range ac {
-		b.WriteString("- [")
-		b.WriteString(c.ID)
-		b.WriteString("] ")
-		b.WriteString(c.Text)
-		b.WriteString("\n")
-	}
-	b.WriteString("\nBudgets:\n")
-	b.WriteString(fmt.Sprintf("- max_iterations: %d\n", budgets.MaxIterations))
-	if budgets.MaxPatchKB > 0 {
-		b.WriteString(fmt.Sprintf("- max_patch_kb: %d\n", budgets.MaxPatchKB))
-	}
-	if budgets.MaxChangedFiles > 0 {
-		b.WriteString(fmt.Sprintf("- max_changed_files: %d\n", budgets.MaxChangedFiles))
-	}
-	if budgets.MaxRiskyFiles > 0 {
-		b.WriteString(fmt.Sprintf("- max_risky_files: %d\n", budgets.MaxRiskyFiles))
-	}
-	path := filepath.Join(runDir, "norma.md")
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
-		return fmt.Errorf("write norma.md: %w", err)
-	}
-	return nil
-}
-
-func (r *Runner) collectArtifacts() []string {
-	if r.artifactsDir == "" {
-		return nil
-	}
-	var artifacts []string
-	_ = filepath.Walk(r.artifactsDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(r.artifactsDir, path)
-		if err == nil {
-			artifacts = append(artifacts, rel)
-		}
-		return nil
-	})
-	return artifacts
+	return r.store.CommitStep(ctx, step, nil, update)
 }
 
 func newRunID() (string, error) {

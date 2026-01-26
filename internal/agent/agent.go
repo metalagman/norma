@@ -344,28 +344,28 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	var b strings.Builder
 	b.WriteString("You are a norma agent. Follow the instructions strictly.\n")
 	b.WriteString("- Write required files for the role.\n")
-	b.WriteString("- Write only inside the provided step_dir or artifacts_dir (except Do and Act may also modify files in workspace/ to implement or fix).\n")
+	b.WriteString("- Write only inside the provided step directory (except Do and Act may also modify files in workspace/ to implement or fix).\n")
 	b.WriteString("- Output ONLY valid JSON for AgentResponse on stdout.\n")
-	b.WriteString("- The files[] entries must be relative to artifacts_dir.\n")
-	b.WriteString("- You only know what is in context.artifacts; do not assume other prior step context.\n")
-	b.WriteString("- Follow the Sane Norma Loop: bounded work (1–3 tasks), always verifiable, backlog is the truth.\n")
+	b.WriteString("- Follow the norma-loop: plan -> do -> check -> act.\n")
+	b.WriteString("- Workspace exists before any agent runs.\n")
+	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
+	b.WriteString("- All agents operate in read-only mode with respect to workspace/ (except Do and Act).\n")
+
 	if modelName != "" {
 		b.WriteString("- Use model hint: ")
 		b.WriteString(modelName)
 		b.WriteString(" (if relevant).\n")
 	}
-	switch req.Step.Role {
-	case "check":
-		b.WriteString("Role requirements: write verdict.json and scorecard.md in artifacts_dir.\n")
-		b.WriteString("Check must record evidence and classify: pass/partial/fail (put this in scorecard.md).\n")
-	case "act":
-		b.WriteString("Role requirements: implement the fix in workspace/.\n")
-		b.WriteString("Act must update backlog state and record decisions (lightweight ADR if needed).\n")
-	case "do":
-		b.WriteString("Role guidance: execute only the locked slice; implement the selected task in workspace/ and produce evidence under artifacts_dir.\n")
-		b.WriteString("If scope blows up, create a Spike or split tasks; do not expand scope in Do.\n")
+
+	switch req.Step.Name {
 	case "plan":
-		b.WriteString("Role guidance: write plan.md in artifacts_dir with ordered backlog, Next Slice (1 feature + 1–3 tasks), stop conditions, and verification checklist.\n")
+		b.WriteString("Role requirements: produce work_plan and publish acceptance_criteria.effective.\n")
+	case "do":
+		b.WriteString("Role requirements: execute only plan.work_plan.do_steps[*] and record what was executed.\n")
+	case "check":
+		b.WriteString("Role requirements: verify plan match (planned vs executed), verify job done (all effective ACs evaluated), and emit a verdict.\n")
+	case "act":
+		b.WriteString("Role requirements: consume Check verdict and decide what to do next.\n")
 	}
 	b.WriteString("\nAgentRequest:\n")
 	b.Write(data)
