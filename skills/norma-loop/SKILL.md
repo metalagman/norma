@@ -76,6 +76,10 @@ runs/<run_id>/
     - examples: `norma-a3f2dd`, `norma-01`, `norma-fixlogin2`
 - Non-matching IDs → Plan must stop with `stop_reason="replan_required"` (reason in logs).
 
+## Labels
+
+- `norma-planned`: If present and task notes contain a serialized JSON plan, the orchestrator skips the initial Plan step and reuses the existing work plan.
+
 ## Budgets and stop conditions
 
 The orchestrator must stop immediately when any applies:

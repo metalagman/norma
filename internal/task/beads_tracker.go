@@ -35,12 +35,14 @@ type BeadsIssue struct {
 	Title              string `json:"title"`
 	Description        string `json:"description"`
 	AcceptanceCriteria string `json:"acceptance_criteria"`
-	Status             string `json:"status"` // open, in_progress, closed, etc.
-	Priority           int    `json:"priority"`
-	Assignee           string `json:"assignee"`
-	CreatedAt          string `json:"created_at"`
-	UpdatedAt          string `json:"updated_at"`
-	ExternalRef        string `json:"external_ref,omitempty"`
+	Status             string   `json:"status"` // open, in_progress, closed, etc.
+	Priority           int      `json:"priority"`
+	Assignee           string   `json:"assignee"`
+	Labels             []string `json:"labels"`
+	Notes              string   `json:"notes"`
+	CreatedAt          string   `json:"created_at"`
+	UpdatedAt          string   `json:"updated_at"`
+	ExternalRef        string   `json:"external_ref,omitempty"`
 	// Additional fields we might parse if needed
 }
 
@@ -379,6 +381,8 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 		RunID:     runID,
 		Priority:  issue.Priority,
 		Assignee:  issue.Assignee,
+		Labels:    issue.Labels,
+		Notes:     issue.Notes,
 		CreatedAt: issue.CreatedAt,
 		UpdatedAt: issue.UpdatedAt,
 	}

@@ -57,6 +57,7 @@ func (a *fakeAgent) Describe() agent.RunnerInfo {
 type fakeTracker struct {
 	task.Tracker
 	statuses map[string]string
+	tasks    map[string]task.Task
 }
 
 func (t *fakeTracker) MarkStatus(ctx context.Context, id, status string) error {
@@ -64,6 +65,29 @@ func (t *fakeTracker) MarkStatus(ctx context.Context, id, status string) error {
 		t.statuses = make(map[string]string)
 	}
 	t.statuses[id] = status
+	return nil
+}
+
+func (t *fakeTracker) Get(ctx context.Context, id string) (task.Task, error) {
+	if tk, ok := t.tasks[id]; ok {
+		return tk, nil
+	}
+	return task.Task{ID: id}, nil
+}
+
+func (t *fakeTracker) SetNotes(ctx context.Context, id string, notes string) error {
+	if tk, ok := t.tasks[id]; ok {
+		tk.Notes = notes
+		t.tasks[id] = tk
+	}
+	return nil
+}
+
+func (t *fakeTracker) AddLabel(ctx context.Context, id string, label string) error {
+	if tk, ok := t.tasks[id]; ok {
+		tk.Labels = append(tk.Labels, label)
+		t.tasks[id] = tk
+	}
 	return nil
 }
 
@@ -124,7 +148,9 @@ func TestRunner_Run_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	store := NewStore(db)
-	tracker := &fakeTracker{}
+	tracker := &fakeTracker{
+		tasks: make(map[string]task.Task),
+	}
 	
 	fAgent := &fakeAgent{
 		responses: map[string]model.AgentResponse{
@@ -201,10 +227,188 @@ func TestRunner_Run_Success(t *testing.T) {
 	assert.Equal(t, "check", fAgent.requests[2].Step.Name)
 	assert.Equal(t, "act", fAgent.requests[3].Step.Name)
 
-		// Verify tracker status
+			// Verify tracker status
 
-		assert.Equal(t, "acting", tracker.statuses["norma-123"])
+			assert.Equal(t, "acting", tracker.statuses["norma-123"])
 
-	}
+		}
+
+		
+
+		func TestRunner_Run_ReusePlan(t *testing.T) {
+
+			repoRoot := setupTestRepo(t)
+
+			defer os.RemoveAll(repoRoot)
+
+		
+
+			db, err := sql.Open("sqlite", ":memory:")
+
+			require.NoError(t, err)
+
+			defer db.Close()
+
+		
+
+			// Initialize schema (reused from above, but for brevity in this specific test)
+
+			_, err = db.Exec(`
+
+				CREATE TABLE runs (run_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL, iteration INTEGER NOT NULL, current_step_index INTEGER NOT NULL, verdict TEXT, run_dir TEXT NOT NULL);
+
+				CREATE TABLE steps (run_id TEXT NOT NULL, step_index INTEGER NOT NULL, role TEXT NOT NULL, iteration INTEGER NOT NULL, status TEXT NOT NULL, step_dir TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, summary TEXT, PRIMARY KEY (run_id, step_index));
+
+				CREATE TABLE events (run_id TEXT NOT NULL, seq INTEGER NOT NULL, ts TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, data_json TEXT, PRIMARY KEY (run_id, seq));
+
+			`)
+
+			require.NoError(t, err)
+
+		
+
+			store := NewStore(db)
+
+			
+
+			planJSON, _ := json.Marshal(model.PlanOutput{
+
+				WorkPlan: model.WorkPlan{
+
+					DoSteps: []model.DoStep{{ID: "DO-EXISTING"}},
+
+				},
+
+			})
+
+		
+
+			tracker := &fakeTracker{
+
+				tasks: map[string]task.Task{
+
+					"norma-preplanned": {
+
+						ID:     "norma-preplanned",
+
+						Labels: []string{"norma-planned"},
+
+						Notes:  string(planJSON),
+
+					},
+
+				},
+
+			}
+
+			
+
+			fAgent := &fakeAgent{
+
+				responses: map[string]model.AgentResponse{
+
+					"do": {
+
+						Status: "ok",
+
+						Summary: model.ResponseSummary{Text: "Did it"},
+
+						Progress: model.StepProgress{Title: "Doing done"},
+
+						Do: &model.DoOutput{
+
+							Execution: model.DoExecution{ExecutedStepIDs: []string{"DO-EXISTING"}},
+
+						},
+
+					},
+
+					"check": {
+
+						Status: "ok",
+
+						Summary: model.ResponseSummary{Text: "Checked"},
+
+						Progress: model.StepProgress{Title: "Checking done"},
+
+						Check: &model.CheckOutput{
+
+							Verdict: model.CheckVerdict{Status: "PASS"},
+
+						},
+
+					},
+
+					"act": {
+
+						Status: "ok",
+
+						Summary: model.ResponseSummary{Text: "Acted"},
+
+						Progress: model.StepProgress{Title: "Acting done"},
+
+						Act: &model.ActOutput{Decision: "close"},
+
+					},
+
+				},
+
+			}
+
+		
+
+			runner := &Runner{
+
+				repoRoot: repoRoot,
+
+				normaDir: filepath.Join(repoRoot, ".norma"),
+
+				cfg: config.Config{
+
+					Budgets: config.Budgets{MaxIterations: 1},
+
+				},
+
+				store:   store,
+
+				agents:  map[string]agent.Runner{
+
+					"do":    fAgent,
+
+					"check": fAgent,
+
+					"act":   fAgent,
+
+				},
+
+				tracker: tracker,
+
+			}
+
+		
+
+			ctx := context.Background()
+
+			res, err := runner.Run(ctx, "Test goal", nil, "norma-preplanned")
+
+			require.NoError(t, err)
+
+			assert.Equal(t, "passed", res.Status)
+
+		
+
+			// Verify sequence: plan should NOT be in requests
+
+			for _, req := range fAgent.requests {
+
+				assert.NotEqual(t, "plan", req.Step.Name)
+
+			}
+
+			assert.Equal(t, "do", fAgent.requests[0].Step.Name)
+
+		}
+
+		
 
 	

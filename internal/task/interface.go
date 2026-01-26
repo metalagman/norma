@@ -18,6 +18,8 @@ type Task struct {
 	RunID     *string
 	Priority  int
 	Assignee  string
+	Labels    []string
+	Notes     string
 	CreatedAt string
 	UpdatedAt string
 }

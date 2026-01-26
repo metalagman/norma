@@ -5,8 +5,8 @@
       "model": "gpt-5.2-codex"
     },
     "do": {
-      "type": "opencode",
-      "model": "opencode/big-pickle"
+      "type": "gemini",
+      "model": "gemini-2.5-flash-lite"
     },
     "check": {
       "type": "codex",

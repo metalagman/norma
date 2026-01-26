@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -133,6 +134,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		return Result{RunID: runID}, err
 	}
 
+	taskItem, err := r.tracker.Get(ctx, r.taskID)
+	if err != nil {
+		return Result{RunID: runID}, fmt.Errorf("get task: %w", err)
+	}
+
 	iteration := 1
 	stepIndex := 0
 
@@ -140,21 +146,51 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	var lastDo *model.DoOutput
 	var lastCheck *model.CheckOutput
 
+	// Check if plan already exists
+	hasPlan := false
+	for _, label := range taskItem.Labels {
+		if label == "norma-planned" {
+			hasPlan = true
+			break
+		}
+	}
+
+	if hasPlan && taskItem.Notes != "" {
+		var existingPlan model.PlanOutput
+		if err := json.Unmarshal([]byte(taskItem.Notes), &existingPlan); err == nil {
+			log.Info().Str("task_id", r.taskID).Msg("reusing existing plan from task notes")
+			lastPlan = &existingPlan
+		} else {
+			log.Warn().Err(err).Str("task_id", r.taskID).Msg("failed to unmarshal existing plan from notes, will re-plan")
+		}
+	}
+
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		// 1. PLAN
-		stepIndex++
-		r.tracker.MarkStatus(ctx, r.taskID, "planning")
-		planReq := r.baseRequest(runID, iteration, stepIndex, "plan", goal, ac)
-		planReq.Plan = &model.PlanInput{Task: model.IDInfo{ID: r.taskID}}
+		if iteration == 1 && lastPlan != nil {
+			log.Info().Str("task_id", r.taskID).Msg("skipping plan step in iteration 1")
+		} else {
+			stepIndex++
+			r.tracker.MarkStatus(ctx, r.taskID, "planning")
+			planReq := r.baseRequest(runID, iteration, stepIndex, "plan", goal, ac)
+			planReq.Plan = &model.PlanInput{Task: model.IDInfo{ID: r.taskID}}
 
-		planRes, err := r.runAndCommitStep(ctx, planReq, stepsDir)
-		if err != nil {
-			return Result{RunID: runID}, err
+			planRes, err := r.runAndCommitStep(ctx, planReq, stepsDir)
+			if err != nil {
+				return Result{RunID: runID}, err
+			}
+			if planRes.Status != "ok" && (planRes.Response == nil || planRes.Response.Plan == nil) {
+				return r.handleStop(ctx, runID, iteration, stepIndex, planRes)
+			}
+			lastPlan = planRes.Response.Plan
+
+			// Save plan to task notes and add label
+			if lastPlan != nil {
+				planJSON, _ := json.Marshal(lastPlan)
+				_ = r.tracker.SetNotes(ctx, r.taskID, string(planJSON))
+				_ = r.tracker.AddLabel(ctx, r.taskID, "norma-planned")
+			}
 		}
-		if planRes.Status != "ok" && (planRes.Response == nil || planRes.Response.Plan == nil) {
-			return r.handleStop(ctx, runID, iteration, stepIndex, planRes)
-		}
-		lastPlan = planRes.Response.Plan
 
 		// 2. DO
 		stepIndex++
