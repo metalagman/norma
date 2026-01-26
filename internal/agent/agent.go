@@ -471,6 +471,17 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- IMPORTANT: Do NOT scan or index the entire 'run_dir'. Focus only on the 'workspace_dir' for code context.\n")
 	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
 	b.WriteString("- Use status='stop' or 'error' only for technical failures or when budgets are exceeded.\n")
+	b.WriteString("- You MUST output a JSON object matching this schema:\n")
+	b.WriteString("{\n")
+	b.WriteString("  \"status\": \"ok|stop|error\",\n")
+	b.WriteString("  \"stop_reason\": \"none|budget_exceeded|dependency_blocked|verify_missing|replan_required\",\n")
+	b.WriteString("  \"summary\": { \"text\": \"...\", \"warnings\": [], \"errors\": [] },\n")
+	b.WriteString("  \"progress\": { \"title\": \"...\", \"details\": [] },\n")
+	b.WriteString("  \"plan\": { \"task_id\": \"...\", \"goal\": \"...\", \"constraints\": [], \"acceptance_criteria\": { \"baseline\": [], \"effective\": [] }, \"work_plan\": { \"timebox_minutes\": 30, \"do_steps\": [], \"check_steps\": [], \"stop_triggers\": [] } },\n")
+	b.WriteString("  \"do\": { \"execution\": { \"executed_step_ids\": [], \"skipped_step_ids\": [], \"commands\": [] }, \"blockers\": [] },\n")
+	b.WriteString("  \"check\": { \"plan_match\": { \"do_steps\": {}, \"commands\": {} }, \"acceptance_results\": [], \"verdict\": { \"status\": \"PASS|FAIL|PARTIAL\", \"recommendation\": \"...\", \"basis\": {} } },\n")
+	b.WriteString("  \"act\": { \"decision\": \"close|replan|rollback|continue\", \"rationale\": \"...\", \"next\": { \"recommended\": true, \"notes\": \"...\" } }\n")
+	b.WriteString("}\n")
 
 	if modelName != "" {
 		b.WriteString("- Use model hint: ")
