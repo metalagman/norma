@@ -146,6 +146,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	var lastPlan *model.PlanOutput
 	var lastDo *model.DoOutput
 	var lastCheck *model.CheckOutput
+	var lastAct *model.ActOutput
 
 	// Load existing state
 	if taskItem.Notes != "" {
@@ -154,6 +155,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			lastPlan = r.state.Plan
 			lastDo = r.state.Do
 			lastCheck = r.state.Check
+			if len(r.state.Journal) > 0 {
+				// We don't strictly load lastAct from journal for iteration 1 skip logic yet, 
+				// but the norma-has-* labels handle iteration 1 skips.
+			}
 
 			// Reconstruct progress.md from journal
 			if len(r.state.Journal) > 0 {
@@ -190,9 +195,16 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		log.Info().Int("iteration", iteration).Msg("starting iteration")
 		// 1. PLAN
+		skipPlan := false
 		if iteration == 1 && hasLabel("norma-has-plan") && lastPlan != nil {
 			log.Info().Str("task_id", r.taskID).Msg("skipping plan: norma-has-plan label present")
-		} else {
+			skipPlan = true
+		} else if iteration > 1 && lastAct != nil && lastAct.Decision == "continue" && lastPlan != nil {
+			log.Info().Str("task_id", r.taskID).Msg("skipping plan: Act decision was 'continue'")
+			skipPlan = true
+		}
+
+		if !skipPlan {
 			log.Info().Msg("executing plan step")
 			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-plan")
 			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-do")
@@ -313,6 +325,20 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if err != nil {
 			log.Error().Err(err).Msg("act step execution failed with error")
 			return Result{RunID: runID}, err
+		}
+
+		if actRes.Response != nil && actRes.Response.Act != nil {
+			lastAct = actRes.Response.Act
+			r.state.Act = lastAct
+			if lastAct.Decision == "replan" {
+				log.Info().Msg("act decision is replan, clearing has-plan label")
+				_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-plan")
+				_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-do")
+				_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+				lastPlan = nil
+				r.state.Plan = nil
+				r.persistState(ctx)
+			}
 		}
 
 		log.Info().Str("verdict", lastCheck.Verdict.Status).Msg("evaluating verdict")

@@ -2,19 +2,19 @@
   "agents": {
     "plan": {
       "type": "gemini",
-      "model": "gemini-3-flash-preview"
+      "model": "gemini-2.5-flash-lite"
     },
     "do": {
       "type": "gemini",
-      "model": "gemini-3-flash-preview"
+      "model": "gemini-2.5-flash-lite"
     },
     "check": {
       "type": "gemini",
-      "model": "gemini-3-flash-preview"
+      "model": "gemini-2.5-flash-lite"
     },
     "act": {
       "type": "gemini",
-      "model": "gemini-3-flash-preview"
+      "model": "gemini-2.5-flash-lite"
     }
   },
   "budgets": {

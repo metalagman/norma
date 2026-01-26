@@ -295,6 +295,7 @@ type TaskState struct {
 	Plan    *PlanOutput    `json:"plan,omitempty"`
 	Do      *DoOutput      `json:"do,omitempty"`
 	Check   *CheckOutput   `json:"check,omitempty"`
+	Act     *ActOutput     `json:"act,omitempty"`
 	Journal []JournalEntry `json:"journal,omitempty"`
 }
 
