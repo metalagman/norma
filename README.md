@@ -1,212 +1,102 @@
-# norma
+# norma 🧭
 
-norma is a minimal agent workflow runner for Go projects. It orchestrates a fixed `plan → do → check → act` loop, persists authoritative run state in SQLite (via the pure-Go `modernc.org/sqlite` driver), and writes every artifact to disk so humans can inspect and debug runs.
+**norma** is a robust, autonomous agent workflow orchestrator for Go projects. It bridges the gap between high-level task management and low-level code execution by enforcing a strict **Plan → Do → Check → Act (PDCA)** cycle.
 
-## Highlights
+Built for transparency and reliability, norma ensures every agent action is logged, every change is isolated in a Git worktree, and the entire run state is persisted directly within your backlog.
 
-- **Single workflow.** Every run iterates over `plan`, `do`, `check`, and `act` steps until the acceptance criteria pass or a budget (such as `max_iterations`) is exhausted.
-- **Artifacts on disk.** Agents only write inside their step directory; logs, plans, evidence, verdicts, patches, and other files live under `.norma/runs/<run_id>/steps/<NNN-role>/`.
-- **SQLite state, no CGO.** Run metadata, timelines, and key/value state live in `.norma/norma.db` (run/step state only; task state stays in Beads). Connections enforce `foreign_keys=ON`, `journal_mode=WAL`, and `busy_timeout=5000` for durability while keeping builds CGO-free.
-- **Pluggable agents.** Each role is backed by either an `exec` binary or a Codex CLI invocation. Agents speak a normalized JSON contract so you can mix and match implementations.
-- **Atomic commits & recovery.** Step artifacts are written to a temp dir, renamed atomically, and then committed inside a DB transaction. On startup norma cleans stray temp dirs and reconciles missing records.
-- **Task graph tooling.** The `norma task` subcommands let you capture goals, link dependencies, and trigger runs from the queue or its leaf nodes.
+---
 
-## Getting Started
+## 🚀 Key Highlights
 
-1. **Requirements.** Go 1.22 or newer, `bd` (beads CLI) executable in PATH, and a writable working tree (norma only needs filesystem + SQLite).
-2. **Build/install.**
+- **Fixed PDCA Workflow:** A single, battle-tested loop: `Plan` the work, `Do` the implementation, `Check` the results, and `Act` on the verdict.
+- **Isolated Git Workspaces:** Every run operates in a dedicated Git worktree on a task-scoped branch (`norma/task/<id>`). No more messy working trees or accidental commits.
+- **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/metalagman/beads). Task state, structured work plans, and full run journals are persisted in Beads `notes`, synchronized via Git.
+- **Intelligent Resumption:** Using granular labels like `norma-has-plan` and `norma-has-do`, norma can resume interrupted runs or skip already completed steps across different machines.
+- **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
+- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `exec` binaries or dedicated wrappers for `codex`, `opencode`, and `gemini` CLIs.
+- **Ralph-Style Run Journal:** Automatically reconstructs and maintains `artifacts/progress.md`, providing a human-readable timeline of every step taken.
 
-   ```bash
-   go install ./cmd/norma
-   # or run in-place
-   go run ./cmd/norma --help
-   ```
+---
 
-3. **Create `.norma/config.json`.** See the configuration section below for an example that wires up agents and budgets.
-4. **Add a task and run it.**
+## 🛠️ The Norma Loop
 
-   ```bash
-   norma task add "ship initial README" \
-     --ac "AC1: README explains workflow" \
-     --ac "AC2: Document config format"
-   # suppose it prints "task 12 added"
-   norma run 12
-   ```
+1.  **PLAN:** Refine the goal into a concrete `work_plan` and effective acceptance criteria.
+2.  **DO:** Execute the plan. Agents modify code within the isolated workspace.
+3.  **CHECK:** Evaluate the workspace against acceptance criteria and produce a `PASS/FAIL` verdict.
+4.  **ACT:** If `PASS`, norma automatically merges and commits the changes to your main branch using **Conventional Commits**. If `FAIL`, the loop continues or prepares for a re-plan.
 
-   norma creates `.norma/runs/<run_id>/`, spawns the configured agents in order, and stops when the check step returns `PASS`, an agent fails, or a budget stops the run.
+---
 
-## Configuration & Agents
+## 🚦 Supported Agents
 
-Configuration lives in `.norma/config.json` (overridable via `--config`). It declares one agent per role plus global budgets:
+Norma speaks a normalized JSON contract, allowing you to use any tool as an agent:
+
+| Agent | Type | Description |
+| :--- | :--- | :--- |
+| **Exec** | `exec` | Run any local binary or script that handles JSON on stdin/stdout. |
+| **Gemini** | `gemini` | Native support for the Gemini CLI with tool-calling and code-reading capabilities. |
+| **OpenCode** | `opencode` | Deep integration with OpenCode for high-performance coding tasks. |
+| **Codex** | `codex` | Optimized wrapper for OpenAI Codex-style CLI tools. |
+
+---
+
+## 🏁 Getting Started
+
+### 1. Requirements
+- **Go 1.25+**
+- **bd** ([Beads CLI](https://github.com/metalagman/beads)) installed in your PATH.
+- **Git**
+
+### 2. Install
+```bash
+go install github.com/metalagman/norma/cmd/norma@latest
+```
+
+### 3. Initialize & Configure
+Run any `norma` command to automatically initialize `.beads` if it's missing. Then, create a `.norma/config.json`:
 
 ```json
 {
   "agents": {
-    "plan":  { "type": "exec",  "cmd": ["./bin/norma-agent-plan"] },
-    "do":    { "type": "exec",  "cmd": ["./bin/norma-agent-do"] },
-    "check": { "type": "exec",  "cmd": ["./bin/norma-agent-check"] },
-    "act":   { "type": "codex", "model": "gpt-5-codex" }
+    "plan":  { "type": "gemini", "model": "gemini-2.0-flash" },
+    "do":    { "type": "opencode", "model": "big-pickle" },
+    "check": { "type": "exec", "cmd": ["./scripts/verify.sh"] },
+    "act":   { "type": "gemini", "model": "gemini-2.0-flash" }
   },
   "budgets": {
-    "max_iterations": 5,
-    "max_patch_kb": 200,
-    "max_changed_files": 20,
-    "max_risky_files": 5
-  },
-  "retention": {
-    "keep_last": 50,
-    "keep_days": 30
+    "max_iterations": 5
   }
 }
 ```
 
-- `exec` agents receive `AgentRequest` JSON on stdin and must emit `AgentResponse` JSON on stdout.
-- `codex`, `opencode`, and `gemini` agents wrap their respective CLIs. norma uses the fixed tool binary name (no `cmd` override) and constrains their working directory (`path`) while enforcing JSON-only stdout.
-- Budgets cap iterations and patch size/width (`max_patch_kb`, `max_changed_files`). `max_risky_files` is reserved for future heuristics. `max_iterations` is required.
-- Retention prunes old runs on every `norma run`. Set `keep_last`, `keep_days`, or both.
-
-## Agent Contract
-
-Each step receives a normalized request (paths are absolute, but the agent may only write inside `step_dir`):
-
-```json
-{
-  "version": 1,
-  "run_id": "20260123-145501-ab12cd",
-  "step": { "index": 2, "role": "check", "iteration": 1 },
-  "goal": "Short human goal",
-  "norma": {
-    "acceptance_criteria": [{ "id": "AC1", "text": "All unit tests pass" }],
-    "budgets": { "max_iterations": 5, "max_patch_kb": 200 }
-  },
-  "paths": {
-    "repo_root": "/abs/path/to/repo",
-    "run_dir": "/abs/path/.norma/runs/20260123-145501-ab12cd",
-    "step_dir": "/abs/path/.../steps/003-check"
-  },
-  "context": { "artifacts": ["/abs/path/.../steps/001-plan/plan.md"], "notes": "Optional" }
-}
-```
-
-Agents reply with:
-
-```json
-{
-  "version": 1,
-  "status": "ok",
-  "summary": "One-line outcome",
-  "files": ["files/test.log"],
-  "next_actions": ["Re-run golangci-lint"],
-  "errors": []
-}
-```
-
-- `status` is `ok` or `fail`. On `fail`, norma stops the run and records the summary.
-- Paths in `files[]` are relative to the step directory.
-- Role-specific expectations:
-  - `plan`: optional `plan.md` outline.
-  - `do`: evidence under `files/`.
-  - `check`: **must** write `verdict.json` (`PASS` or `FAIL`) and `scorecard.md`.
-  - `act`: should write `patch.diff` describing the proposed fix; norma is responsible for applying it.
-
-## Workflow & Artifacts
-
-Every step is materialized under `.norma/runs/<run_id>/steps/` using the `NNN-role` naming scheme. A typical layout:
-
-```
-.norma/
-  norma.db
-  runs/20260123-145501-ab12cd/
-    norma.md                # Goal, acceptance criteria, and budgets
-    steps/
-      001-plan/
-        input.json
-        output.json
-        logs/stdout.txt
-        logs/stderr.txt
-        plan.md
-
-## Sane Norma Loop (PDCA)
-
-- **PLAN:** update ordered backlog, pick a Next Slice (1 feature + 1–3 tasks), define stop conditions and what Check must verify.
-- **DO:** execute only the slice and produce artifacts. If scope grows or uncertainty appears, create a Spike or split tasks—don’t expand scope inside Do.
-- **CHECK:** run verifications for the slice (tests/lint/build/AC checks/diff review) and classify pass/partial/fail.
-- **ACT:** update backlog and decisions, then choose continue, re-plan, rollback, or ship.
-
-Invariants: bounded work, always verifiable tasks, backlog as the source of truth. Stop conditions include scope growth to L, missing requirements, blockers, systemic test issues, or repeated retries.
-      002-do/
-        input.json
-        output.json
-        logs/
-        files/commands.txt
-      003-check/
-        input.json
-        output.json
-        verdict.json
-        scorecard.md
-        logs/
-      004-act/
-        input.json
-        output.json
-        patch.diff
-        logs/
-```
-
-Key rules:
-
-- Step directories are first created with a `.tmp-<rand>` suffix. Once the agent finishes, norma renames the directory atomically and then records the step in the database.
-- Agents must never write outside `step_dir`; repo files remain read-only except for norma applying an `act` patch.
-- `norma.md` captures the run goal/budgets for quick human reference.
-
-## SQLite Storage
-
-- Database path: `.norma/norma.db`.
-- Opened with `SetMaxOpenConns(1)` and `SetMaxIdleConns(1)` to serialize writes.
-- Required PRAGMAs: `foreign_keys=ON`, `journal_mode=WAL` (logged if unavailable), `busy_timeout=5000` ms.
-- Schema overview (managed by `pressly/goose` migrations):
-  - `schema_migrations`: simple version tracker.
-  - `runs`: run metadata, status, iteration counters, and run directory.
-  - `steps`: one row per committed step (primary key `(run_id, step_index)`).
-  - `events`: append-only timeline for UI/debugging.
-  - `kv_run`: optional JSON blobs per run.
-
-## Task Graph Workflow (Beads)
-
-norma uses the `beads` tool for task management. Typical flow:
-
+### 4. Create a Task & Run
 ```bash
-norma task add "Tighten lint config" --ac "AC1: golangci-lint passes"
-norma task list --status todo
-norma task link 12 --depends-on 7 --depends-on 9
-norma run 12          # run a specific task
-norma run             # run the next ready task (deterministic scheduler)
-norma run --active-feature bd-123  # prefer ready tasks under a feature
-norma run --active-epic bd-456      # prefer ready tasks under an epic
+# Add a task to Beads
+norma task add "implement user logout" --ac "AC1: /logout returns 200"
+
+# Orchestrate the fix
+norma run norma-a3f2dd
 ```
 
-- Tasks are stored in `.beads/` as JSONL files.
-- `norma` interacts with `beads` via the `bd` CLI.
-- Beads is the authoritative source of task status, priority, dependencies, and acceptance criteria; norma does not store task state in its DB.
-- Epics, Features, and Tasks are supported.
-- `run` (with no task id) pulls leaf tasks that are "ready" in beads.
-- To retry a failed/stopped task, run it explicitly by id (`norma run <task-id>`).
-- On startup, norma recovers `doing` tasks whose runs are not active, marking them `failed` so you can retry.
+---
 
-Manual run pruning:
+## 📊 State & Persistence
 
-```bash
-norma runs prune --keep-last 20
-norma runs prune --keep-days 14
-norma runs prune --keep-last 50 --keep-days 30 --dry-run
-```
+Norma ensures **Zero Data Loss**:
+- **authoritative run state**: Stored in `.norma/norma.db` (SQLite).
+- **Authoritative task state**: Serialized as a `TaskState` JSON object in Beads `notes`.
+- **Artifacts**: Every step's `input.json`, `output.json`, and `logs/` are saved to disk under `.norma/runs/<run_id>/`.
 
-## Development Tips
+---
 
-- Run tests before shipping changes:
+## 🤝 Contributing
 
-  ```bash
-  go test ./...
-  ```
+We welcome contributions! Whether it's adding new agent wrappers, improving the scheduler, or refining the PDCA logic, please feel free to open an issue or submit a PR.
 
-- Use `norma run --debug 12` (or `norma run --debug` for leaf runs) to enable zerolog debug output during a run.
-- Keep agents deterministic: emit only JSON to stdout and store any prose or evidence in files under `step_dir` so norma can parse responses reliably.
+*Note: norma follows the [Conventional Commits](https://www.conventionalcommits.org/) specification.*
+
+---
+
+## 📜 License
+
+MIT License. See [LICENSE](LICENSE) for details.
