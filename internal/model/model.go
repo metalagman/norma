@@ -279,11 +279,23 @@ type NextAction struct {
 	Notes       string `json:"notes"`
 }
 
-// TaskState is stored in task notes to persist step outputs across runs.
+// TaskState is stored in task notes to persist step outputs and journal across runs.
 type TaskState struct {
-	Plan  *PlanOutput  `json:"plan,omitempty"`
-	Do    *DoOutput    `json:"do,omitempty"`
-	Check *CheckOutput `json:"check,omitempty"`
+	Plan    *PlanOutput    `json:"plan,omitempty"`
+	Do      *DoOutput      `json:"do,omitempty"`
+	Check   *CheckOutput   `json:"check,omitempty"`
+	Journal []JournalEntry `json:"journal,omitempty"`
+}
+
+type JournalEntry struct {
+	Timestamp  string       `json:"timestamp"`
+	StepIndex  int          `json:"step_index"`
+	Role       string       `json:"role"`
+	Status     string       `json:"status"`
+	StopReason string       `json:"stop_reason"`
+	Title      string       `json:"title"`
+	Details    []string     `json:"details"`
+	Logs       ResponseLogs `json:"logs"`
 }
 
 // Verdict legacy structure - keeping for compatibility during refactor if needed

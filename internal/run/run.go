@@ -29,6 +29,7 @@ type Runner struct {
 	taskID       string
 	workspaceDir string
 	artifactsDir string
+	state        model.TaskState
 }
 
 // Result summarizes a completed run.
@@ -146,14 +147,34 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	var lastDo *model.DoOutput
 	var lastCheck *model.CheckOutput
 
-	// Check for existing state in task notes
-	var state model.TaskState
+	// Load existing state
 	if taskItem.Notes != "" {
-		if err := json.Unmarshal([]byte(taskItem.Notes), &state); err == nil {
-			log.Info().Str("task_id", r.taskID).Msg("found existing state in task notes")
-			lastPlan = state.Plan
-			lastDo = state.Do
-			lastCheck = state.Check
+		if err := json.Unmarshal([]byte(taskItem.Notes), &r.state); err == nil {
+			log.Info().Str("task_id", r.taskID).Msg("loaded existing state from task notes")
+			lastPlan = r.state.Plan
+			lastDo = r.state.Do
+			lastCheck = r.state.Check
+
+			// Reconstruct progress.md from journal
+			if len(r.state.Journal) > 0 {
+				path := filepath.Join(r.artifactsDir, "progress.md")
+				var b strings.Builder
+				for _, entry := range r.state.Journal {
+					b.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason))
+					b.WriteString(fmt.Sprintf("**Task:** %s  \n", r.taskID))
+					b.WriteString(fmt.Sprintf("**Title:** %s\n\n", entry.Title))
+					if len(entry.Details) > 0 {
+						b.WriteString("**Details:**\n")
+						for _, detail := range entry.Details {
+							b.WriteString(fmt.Sprintf("- %s\n", detail))
+						}
+					}
+					b.WriteString("\n**Logs:**\n")
+					b.WriteString(fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath))
+					b.WriteString(fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath))
+				}
+				_ = os.WriteFile(path, []byte(b.String()), 0o644)
+			}
 		}
 	}
 
@@ -186,9 +207,8 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			lastPlan = planRes.Response.Plan
 
 			// Persist plan
-			state.Plan = lastPlan
-			stateJSON, _ := json.Marshal(state)
-			_ = r.tracker.SetNotes(ctx, r.taskID, string(stateJSON))
+			r.state.Plan = lastPlan
+			r.persistState(ctx)
 			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-plan")
 		}
 
@@ -214,9 +234,8 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			lastDo = doRes.Response.Do
 
 			// Persist do
-			state.Do = lastDo
-			stateJSON, _ := json.Marshal(state)
-			_ = r.tracker.SetNotes(ctx, r.taskID, string(stateJSON))
+			r.state.Do = lastDo
+			r.persistState(ctx)
 			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-do")
 		}
 
@@ -243,9 +262,8 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			lastCheck = checkRes.Response.Check
 
 			// Persist check
-			state.Check = lastCheck
-			stateJSON, _ := json.Marshal(state)
-			_ = r.tracker.SetNotes(ctx, r.taskID, string(stateJSON))
+			r.state.Check = lastCheck
+			r.persistState(ctx)
 			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-check")
 		}
 
@@ -326,9 +344,7 @@ func (r *Runner) runAndCommitStep(ctx context.Context, req model.AgentRequest, s
 		return res, err
 	}
 
-	if res.Response != nil {
-		r.appendToProgress(res)
-	}
+	r.appendToProgress(res)
 
 	return res, nil
 }
@@ -346,15 +362,16 @@ func (r *Runner) handleStop(ctx context.Context, runID string, iteration, index 
 	return Result{RunID: runID, Status: status}, nil
 }
 
-func (r *Runner) appendToProgress(res stepResult) {
-	path := filepath.Join(r.artifactsDir, "progress.md")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+func (r *Runner) persistState(ctx context.Context) {
+	data, err := json.MarshalIndent(r.state, "", "  ")
 	if err != nil {
-		log.Error().Err(err).Msg("failed to open progress.md")
+		log.Error().Err(err).Msg("failed to marshal task state")
 		return
 	}
-	defer f.Close()
+	_ = r.tracker.SetNotes(ctx, r.taskID, string(data))
+}
 
+func (r *Runner) appendToProgress(res stepResult) {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 	stopReason := res.Protocol
 	if res.Response != nil && res.Response.StopReason != "" {
@@ -364,30 +381,50 @@ func (r *Runner) appendToProgress(res stepResult) {
 		stopReason = "none"
 	}
 
-	entry := fmt.Sprintf("## %s — %d %s — %s/%s\n", timestamp, res.StepIndex, strings.ToUpper(res.Role), res.Status, stopReason)
-	entry += fmt.Sprintf("**Task:** %s  \n", r.taskID)
-	entry += fmt.Sprintf("**Run:** %s · **Iteration:** %d\n\n", res.FinalDir, res.Iteration)
-
-	if res.Response != nil {
-		title := res.Response.Progress.Title
-		if title == "" {
-			title = fmt.Sprintf("%s step completed", res.Role)
-		}
-		entry += fmt.Sprintf("**Title:** %s\n\n", title)
-		if len(res.Response.Progress.Details) > 0 {
-			entry += "**Details:**\n"
-			for _, detail := range res.Response.Progress.Details {
-				entry += fmt.Sprintf("- %s\n", detail)
-			}
-		}
-		entry += "\n**Logs:**\n"
-		entry += fmt.Sprintf("- stdout: %s\n", res.Response.Logs.StdoutPath)
-		entry += fmt.Sprintf("- stderr: %s\n\n", res.Response.Logs.StderrPath)
-	} else {
-		entry += "**Warning:** Step finished without AgentResponse data.\n\n"
+	entry := model.JournalEntry{
+		Timestamp:  timestamp,
+		StepIndex:  res.StepIndex,
+		Role:       res.Role,
+		Status:     res.Status,
+		StopReason: stopReason,
 	}
 
-	_, _ = f.WriteString(entry)
+	if res.Response != nil {
+		entry.Title = res.Response.Progress.Title
+		entry.Details = res.Response.Progress.Details
+		entry.Logs = res.Response.Logs
+	}
+
+	if entry.Title == "" {
+		entry.Title = fmt.Sprintf("%s step completed", res.Role)
+	}
+
+	r.state.Journal = append(r.state.Journal, entry)
+
+	// Update artifacts/progress.md
+	path := filepath.Join(r.artifactsDir, "progress.md")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to open progress.md")
+		return
+	}
+	defer f.Close()
+
+	md := fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason)
+	md += fmt.Sprintf("**Task:** %s  \n", r.taskID)
+	md += fmt.Sprintf("**Run:** %s · **Iteration:** %d\n\n", res.FinalDir, res.Iteration)
+	md += fmt.Sprintf("**Title:** %s\n\n", entry.Title)
+	if len(entry.Details) > 0 {
+		md += "**Details:**\n"
+		for _, detail := range entry.Details {
+			md += fmt.Sprintf("- %s\n", detail)
+		}
+	}
+	md += "\n**Logs:**\n"
+	md += fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath)
+	md += fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath)
+
+	_, _ = f.WriteString(md)
 }
 
 func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
