@@ -298,23 +298,18 @@ Input:
 - `bd show <selected_task_id>`
 - parent chain (optional): epic/feature context
 - current `progress.md` (optional)
-Output: one of three results
+Output: one of two results
 
 **A. READY**
 - The selected task becomes executable (Ready Contract complete).
 - Return: `next_task_id = selected_task_id`.
 
-**B. DECOMPOSE**
-- If selected task is epic/feature or “too big”, create child issues (parent-child).
-- Ensure at least 1–3 children are Ready.
-- Return: `next_task_id = <one Ready child leaf task>`.
-
-**C. BLOCKED**
+**B. BLOCKED**
 - If selected task is missing a prerequisite, create prerequisite issue and add `blocks`.
 - Return: `next_task_id = <prerequisite issue>` (must be Ready or made Ready).
 
 Plan agent allowed mutations:
-- Create/update issues in the selected subtree (selected task + descendants)
+- Update the selected task subtree (selected task + descendants)
 - Add/remove **blocks** edges involving the selected subtree
 - Create new issues marked as discovered work under the same parent feature
 Plan agent forbidden:
@@ -322,7 +317,7 @@ Plan agent forbidden:
 - Editing unrelated issues
 
 Stop condition inside Plan:
-- If no Ready leaf can be produced, return BLOCKED with explicit prerequisite.
+- If no Ready task can be produced, return BLOCKED with explicit prerequisite.
 
 ### 2) DO (Do Agent)
 Input:
