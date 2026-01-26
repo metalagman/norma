@@ -151,7 +151,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		if planRes.Status != "ok" {
+		if planRes.Status != "ok" && (planRes.Response == nil || planRes.Response.Plan == nil) {
 			return r.handleStop(ctx, runID, iteration, stepIndex, planRes)
 		}
 		lastPlan = planRes.Response.Plan
@@ -169,7 +169,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		if doRes.Status != "ok" {
+		if doRes.Status != "ok" && (doRes.Response == nil || doRes.Response.Do == nil) {
 			return r.handleStop(ctx, runID, iteration, stepIndex, doRes)
 		}
 		lastDo = doRes.Response.Do
@@ -188,7 +188,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if err != nil {
 			return Result{RunID: runID}, err
 		}
-		if checkRes.Status != "ok" {
+		if checkRes.Status != "ok" && (checkRes.Response == nil || checkRes.Response.Check == nil) {
 			return r.handleStop(ctx, runID, iteration, stepIndex, checkRes)
 		}
 		lastCheck = checkRes.Response.Check
@@ -215,7 +215,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			return Result{RunID: runID, Status: "passed"}, nil
 		}
 
-		if actRes.Status != "ok" || actRes.Response.Act.Decision == "close" {
+		if actRes.Status == "stop" || actRes.Status == "error" || (actRes.Response != nil && actRes.Response.Act != nil && actRes.Response.Act.Decision == "close") {
 			return r.handleStop(ctx, runID, iteration, stepIndex, actRes)
 		}
 
@@ -311,14 +311,25 @@ func (r *Runner) appendToProgress(res stepResult) {
 	entry := fmt.Sprintf("## %s — %d %s — %s/%s\n", timestamp, res.StepIndex, strings.ToUpper(res.Role), res.Status, stopReason)
 	entry += fmt.Sprintf("**Task:** %s  \n", r.taskID)
 	entry += fmt.Sprintf("**Run:** %s · **Iteration:** %d\n\n", res.FinalDir, res.Iteration)
-	entry += fmt.Sprintf("**Title:** %s\n\n", res.Response.Progress.Title)
-	entry += "**Details:**\n"
-	for _, detail := range res.Response.Progress.Details {
-		entry += fmt.Sprintf("- %s\n", detail)
+
+	if res.Response != nil {
+		title := res.Response.Progress.Title
+		if title == "" {
+			title = fmt.Sprintf("%s step completed", res.Role)
+		}
+		entry += fmt.Sprintf("**Title:** %s\n\n", title)
+		if len(res.Response.Progress.Details) > 0 {
+			entry += "**Details:**\n"
+			for _, detail := range res.Response.Progress.Details {
+				entry += fmt.Sprintf("- %s\n", detail)
+			}
+		}
+		entry += "\n**Logs:**\n"
+		entry += fmt.Sprintf("- stdout: %s\n", res.Response.Logs.StdoutPath)
+		entry += fmt.Sprintf("- stderr: %s\n\n", res.Response.Logs.StderrPath)
+	} else {
+		entry += "**Warning:** Step finished without AgentResponse data.\n\n"
 	}
-	entry += "\n**Logs:**\n"
-	entry += fmt.Sprintf("- stdout: %s\n", res.Response.Logs.StdoutPath)
-	entry += fmt.Sprintf("- stderr: %s\n\n", res.Response.Logs.StderrPath)
 
 	_, _ = f.WriteString(entry)
 }

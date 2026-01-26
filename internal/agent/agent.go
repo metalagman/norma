@@ -350,6 +350,8 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- Workspace exists before any agent runs.\n")
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
 	b.WriteString("- All agents operate in read-only mode with respect to workspace/ (except Do and Act).\n")
+	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
+	b.WriteString("- Use status='stop' or 'error' only for technical failures or when budgets are exceeded.\n")
 
 	if modelName != "" {
 		b.WriteString("- Use model hint: ")
