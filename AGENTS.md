@@ -410,6 +410,7 @@ An epic is complete when:
 - `codex` : run Codex CLI oneshot using a generated prompt (norma enforces JSON output)
 - `opencode` : run OpenCode CLI oneshot using a generated prompt (norma enforces JSON output)
 - `gemini` : run Gemini CLI oneshot using a generated prompt (norma enforces JSON output)
+- `claude` : run Claude CLI oneshot using a generated prompt (norma enforces JSON output)
 
 ### 6.2 Agent configuration (MVP)
 Stored in `.norma/config.json` (or repo `.norma.json` — your choice later).
@@ -436,8 +437,8 @@ Example:
 
 Notes:
 - `cmd` is an argv array for safety.
-- For `codex`, `opencode`, and `gemini`, `cmd` is not supported; the tool binary is fixed.
-- `codex.path`, `opencode.path`, and `gemini.path` should constrain context (repo root or subdir).
+- For `codex`, `opencode`, `gemini`, and `claude`, `cmd` is not supported; the tool binary is fixed.
+- `codex.path`, `opencode.path`, `gemini.path`, and `claude.path` should constrain context (repo root or subdir).
 - `retention.keep_last` and `retention.keep_days` control auto-pruning on each run (optional).
 
 ---
@@ -805,6 +806,8 @@ norma generates a role-specific prompt that instructs Codex to:
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
 
+---
+
 ## 13) OpenCode oneshot backend (MVP)
 
 OpenCode typically outputs free-form text. MVP requires deterministic output:
@@ -837,7 +840,23 @@ norma generates a role-specific prompt that instructs Gemini to:
 
 ---
 
-## 15) Acceptance checklist (MVP)
+## 15) Claude oneshot backend (MVP)
+
+Claude CLI typically outputs free-form text. MVP requires deterministic output:
+
+### Claude prompt policy (MUST)
+norma generates a role-specific prompt that instructs Claude to:
+- output ONLY valid JSON for AgentResponse on stdout
+- write only inside the current step directory (or `workspace/` for `do`/`act`)
+
+### Capturing
+- norma stores raw stdout/stderr to logs
+- norma parses stdout as AgentResponse JSON
+- if parse fails → protocol error
+
+---
+
+## 16) Acceptance checklist (MVP)
 
 - [x] `norma init` initializes .beads, .norma directory and default config.json
 - [ ] `norma run <task-id>` creates a run and DB entry in `.norma/norma.db`

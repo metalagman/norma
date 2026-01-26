@@ -41,6 +41,7 @@ Norma speaks a normalized JSON contract, allowing you to use any tool as an agen
 | :--- | :--- | :--- |
 | **Exec** | `exec` | Run any local binary or script that handles JSON on stdin/stdout. |
 | **Gemini** | `gemini` | Native support for the Gemini CLI with tool-calling and code-reading capabilities. |
+| **Claude** | `claude` | Native support for the Claude CLI (Claude Code) for advanced reasoning and coding. |
 | **OpenCode** | `opencode` | Deep integration with OpenCode for high-performance coding tasks. |
 | **Codex** | `codex` | Optimized wrapper for OpenAI Codex-style CLI tools. |
 

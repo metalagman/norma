@@ -99,6 +99,23 @@ func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
 			useTTY = *cfg.UseTTY
 		}
 		return &geminiRunner{repoRoot: repoRoot, cmd: []string{"gemini"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+	case "claude":
+		if len(cfg.Cmd) > 0 {
+			return nil, fmt.Errorf("claude agent does not support cmd configuration")
+		}
+		workDir := repoRoot
+		if cfg.Path != "" {
+			if filepath.IsAbs(cfg.Path) {
+				workDir = cfg.Path
+			} else {
+				workDir = filepath.Join(repoRoot, cfg.Path)
+			}
+		}
+		useTTY := false
+		if cfg.UseTTY != nil {
+			useTTY = *cfg.UseTTY
+		}
+		return &claudeRunner{repoRoot: repoRoot, cmd: []string{"claude"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 	}
@@ -221,6 +238,38 @@ func (r *geminiRunner) effectiveWorkDir(req model.AgentRequest) string {
 	return req.Paths.RunDir
 }
 
+type claudeRunner struct {
+	repoRoot string
+	cmd      []string
+	model    string
+	workDir  string
+	useTTY   bool
+}
+
+func (r *claudeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+	prompt, err := agentPrompt(req, r.model)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	argv := appendClaudeFlags(r.cmd, r.model)
+	argv = append(argv, prompt)
+	workDir := r.effectiveWorkDir(req)
+	if r.useTTY {
+		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run claude agent")
+		return runCommandWithTTY(ctx, argv, workDir, nil, stdout)
+	}
+	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run claude agent")
+	return runCommand(ctx, argv, workDir, nil, stdout, stderr)
+}
+
+func (r *claudeRunner) Describe() RunnerInfo {
+	return RunnerInfo{Type: "claude", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
+}
+
+func (r *claudeRunner) effectiveWorkDir(req model.AgentRequest) string {
+	return req.Paths.RunDir
+}
+
 func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink, stderrSink io.Writer) ([]byte, []byte, int, error) {
 	if len(argv) == 0 {
 		return nil, nil, 0, fmt.Errorf("agent command is empty")
@@ -335,6 +384,24 @@ func appendGeminiFlags(argv []string, model string) []string {
 	}
 	if !hasFlag(out, "--approval-mode") && !hasFlag(out, "--yolo") {
 		out = append(out, "--approval-mode", "yolo")
+	}
+	return out
+}
+
+func appendClaudeFlags(argv []string, model string) []string {
+	out := make([]string, 0, len(argv)+4)
+	out = append(out, argv...)
+	if model != "" && !hasFlag(out, "--model") && !hasFlag(out, "-m") {
+		out = append(out, "--model", model)
+	}
+	if !hasFlag(out, "--output-format") {
+		out = append(out, "--output-format", "text")
+	}
+	if !hasFlag(out, "--print") && !hasFlag(out, "-p") {
+		out = append(out, "--print")
+	}
+	if !hasFlag(out, "--dangerously-skip-permissions") {
+		out = append(out, "--dangerously-skip-permissions")
 	}
 	return out
 }
