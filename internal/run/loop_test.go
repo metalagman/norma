@@ -91,6 +91,20 @@ func (t *fakeTracker) AddLabel(ctx context.Context, id string, label string) err
 	return nil
 }
 
+func (t *fakeTracker) RemoveLabel(ctx context.Context, id string, label string) error {
+	if tk, ok := t.tasks[id]; ok {
+		var newLabels []string
+		for _, l := range tk.Labels {
+			if l != label {
+				newLabels = append(newLabels, l)
+			}
+		}
+		tk.Labels = newLabels
+		t.tasks[id] = tk
+	}
+	return nil
+}
+
 func setupTestRepo(t *testing.T) string {
 	dir, err := os.MkdirTemp("", "norma-test-*")
 	require.NoError(t, err)

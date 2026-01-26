@@ -192,6 +192,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if iteration == 1 && hasLabel("norma-has-plan") && lastPlan != nil {
 			log.Info().Str("task_id", r.taskID).Msg("skipping plan: norma-has-plan label present")
 		} else {
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-plan")
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-do")
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+
 			stepIndex++
 			r.tracker.MarkStatus(ctx, r.taskID, "planning")
 			planReq := r.baseRequest(runID, iteration, stepIndex, "plan", goal, ac)
@@ -216,6 +220,9 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if iteration == 1 && hasLabel("norma-has-do") && lastDo != nil {
 			log.Info().Str("task_id", r.taskID).Msg("skipping do: norma-has-do label present")
 		} else {
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-do")
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+
 			stepIndex++
 			r.tracker.MarkStatus(ctx, r.taskID, "doing")
 			doReq := r.baseRequest(runID, iteration, stepIndex, "do", goal, ac)
@@ -243,6 +250,8 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if iteration == 1 && hasLabel("norma-has-check") && lastCheck != nil {
 			log.Info().Str("task_id", r.taskID).Msg("skipping check: norma-has-check label present")
 		} else {
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+
 			stepIndex++
 			r.tracker.MarkStatus(ctx, r.taskID, "checking")
 			checkReq := r.baseRequest(runID, iteration, stepIndex, "check", goal, ac)

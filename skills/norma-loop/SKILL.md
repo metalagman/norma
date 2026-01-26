@@ -19,11 +19,11 @@ This document defines operational contracts. For the authoritative full spec, re
 6. **Every step captures logs:**
     - `steps/<n>-<role>/logs/stdout.txt`
     - `steps/<n>-<role>/logs/stderr.txt`
-7. **Run journal:** the orchestrator appends one entry after every step to:
-    - `artifacts/progress.md`
+7. **Run journal:** the orchestrator appends one entry after every step to the task's `Journal` state and `artifacts/progress.md`.
 8. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
 9. **Check compares plan vs actual and verifies job done:** Check must compare the Plan work plan to Do execution and evaluate all effective ACs.
 10. **Verdict goes to Act:** Act receives Check verdict and decides next.
+11. **State Persistence:** The task's `notes` field stores a structured JSON `TaskState`. `artifacts/progress.md` is reconstructed from this state on run start.
 
 ## Directory layout (must exist)
 

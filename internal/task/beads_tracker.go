@@ -265,6 +265,11 @@ func (t *BeadsTracker) AddLabel(ctx context.Context, id string, label string) er
 	return err
 }
 
+func (t *BeadsTracker) RemoveLabel(ctx context.Context, id string, label string) error {
+	_, err := t.exec(ctx, "update", id, "--remove-label", label, "--json", "--quiet")
+	return err
+}
+
 func (t *BeadsTracker) SetNotes(ctx context.Context, id string, notes string) error {
 	_, err := t.exec(ctx, "update", id, "--notes", notes, "--json", "--quiet")
 	return err

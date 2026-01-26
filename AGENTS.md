@@ -12,12 +12,13 @@ Single fixed workflow:
 - **One workflow**; flexibility comes from swapping agents per role.
 - **Artifacts are files** (human-debuggable).
 - **Run/step state is in SQLite** (queryable, UI-friendly).
-- **Task state lives only in Beads** (no task/backlog state in Norma DB or kv).
+- **Task state lives in Beads** (source of truth for progress and resumption).
+- **Task Notes as State Object:** The Beads `notes` field stores a comprehensive JSON object (`TaskState`) containing step outputs and a full run journal. This allows full state recovery and resumption across different environments.
 - **Workspaces (Git Worktrees):** Every run MUST operate in a dedicated Git worktree located inside the run directory. Agents perform all work within this isolated workspace.
-- **Shared Artifacts:** Every run has a shared `artifacts/` directory where agents produce evidence and consume data from previous steps. This replaces step-local artifact storage.
+- **Shared Artifacts:** Every run has a shared `artifacts/` directory. `artifacts/progress.md` is reconstructed from the task's `Journal` state on run start.
 - **Task-scoped Branches:** Workspaces use Git branches scoped to the task: `norma/task/<task_id>`. This allows progress to be restartable across multiple runs.
-- **Workflow State in Labels:** Granular workflow states (`planning`, `doing`, `checking`, `acting`) are tracked using `bd` labels on the task.
-- **Git History as Source of Truth:** Agents communicate changes by modifying the workspace directly. The orchestrator extracts changes using Git history (e.g., `git diff HEAD`).
+- **Workflow State in Labels:** Granular states (`norma-has-plan`, `norma-has-do`, `norma-has-check`) are used to track completed steps and skip them during resumption.
+- **Git History as Source of Truth:** The orchestrator extracts changes from the workspace using Git (e.g., `git merge --squash`).
 - **Any agent** is supported through a **normalized JSON contract**.
 
 ---
@@ -346,16 +347,16 @@ Output:
 - Evidence (test output summary, commands run, links to artifacts)
 
 ### 4) ACT (Orchestrator)
+The orchestrator persists the entire `TaskState` (Plan, Do, Check outputs + Journal) to the Beads `notes` field after every step.
+
 If PASS:
-- Close `next_task_id`
-- Extract changes from `workspace/` and apply to main repository
-- Append a short entry to `progress.md` (what worked, what to repeat)
+- Close `next_task_id`.
+- Extract changes from `workspace/` and apply to main repository using `git merge --squash`.
+- Create a Conventional Commit.
 
 If FAIL or PARTIAL:
-- Keep task open (or reopen)
-- Optionally create “Fix …” child task(s) and/or spike(s)
-- Update deps if a prerequisite was discovered
-- Append learnings to `progress.md`
+- Keep task open (or reopen).
+- The PDCA loop continues to the next iteration or stops based on the `act` agent decision.
 
 Then loop.
 
@@ -710,7 +711,9 @@ Act `output.json` must include:
 
 ## 8.5 progress.md (Ralph-style run journal)
 
-The orchestrator must append one entry to `artifacts/progress.md` after **every** step, derived from the step `output.json.progress` plus status fields.
+The orchestrator maintains a `Journal` in the task's `TaskState`. After every step, a new entry is appended to this journal and the `artifacts/progress.md` file.
+
+On run start, `artifacts/progress.md` is reconstructed from the existing `Journal` in the task's notes.
 
 ### Append template
 
