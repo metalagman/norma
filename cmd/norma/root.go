@@ -40,6 +40,7 @@ func Execute() error {
 	rootCmd.AddCommand(runsCmd())
 	rootCmd.AddCommand(taskCmd())
 	rootCmd.AddCommand(uiCmd())
+	rootCmd.AddCommand(initCmd())
 	return rootCmd.Execute()
 }
 
