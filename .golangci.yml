@@ -5,7 +5,25 @@ run:
   tests: true
 
 linters:
-  disable-all: true
+  default: fast
+  disable:
+    - wsl
+    - wsl_v5
+    - depguard
+    - nlreturn
+    - lll
+    - mnd
+    - funlen
+    - gocognit
+    - cyclop
+    - nestif
+    - godoclint
+    - testpackage
+    - interfacebloat
+    - gocyclo
+    - maintidx
+    - embeddedstructfieldcheck
+    - funcorder
   enable:
     - errcheck
     - govet
@@ -19,14 +37,12 @@ linters:
     - gocritic
     - whitespace
     - nolintlint
-
-linters-settings:
-  revive:
-    rules:
-      - name: exported
-        disabled: true
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
