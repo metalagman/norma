@@ -55,21 +55,13 @@ go install github.com/metalagman/norma/cmd/norma@latest
 ```
 
 ### 3. Initialize & Configure
-Run any `norma` command to automatically initialize `.beads` if it's missing. Then, create a `.norma/config.json`:
+Run `norma init` to automatically initialize `.beads` and create a default `.norma/config.json`:
 
-```json
-{
-  "agents": {
-    "plan":  { "type": "gemini", "model": "gemini-2.0-flash" },
-    "do":    { "type": "opencode", "model": "big-pickle" },
-    "check": { "type": "exec", "cmd": ["./scripts/verify.sh"] },
-    "act":   { "type": "gemini", "model": "gemini-2.0-flash" }
-  },
-  "budgets": {
-    "max_iterations": 5
-  }
-}
+```bash
+norma init
 ```
+
+The default configuration uses the `codex` agent with the `gpt-5.2-codex` model. You can customize it in `.norma/config.json`:
 
 ### 4. Create a Task & Run
 ```bash

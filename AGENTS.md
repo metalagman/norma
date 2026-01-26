@@ -839,6 +839,7 @@ norma generates a role-specific prompt that instructs Gemini to:
 
 ## 15) Acceptance checklist (MVP)
 
+- [x] `norma init` initializes .beads, .norma directory and default config.json
 - [ ] `norma run <task-id>` creates a run and DB entry in `.norma/norma.db`
 - [ ] Each run creates an isolated Git worktree at `runs/<run_id>/workspace/`
 - [ ] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
