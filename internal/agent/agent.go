@@ -115,7 +115,7 @@ func (r *execRunner) Describe() RunnerInfo {
 }
 
 func (r *execRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Step.Dir
+	return req.Paths.RunDir
 }
 
 type codexRunner struct {
@@ -146,7 +146,7 @@ func (r *codexRunner) Describe() RunnerInfo {
 }
 
 func (r *codexRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Step.Dir
+	return req.Paths.RunDir
 }
 
 type opencodeRunner struct {
@@ -178,7 +178,7 @@ func (r *opencodeRunner) Describe() RunnerInfo {
 }
 
 func (r *opencodeRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Step.Dir
+	return req.Paths.RunDir
 }
 
 type geminiRunner struct {
@@ -210,7 +210,7 @@ func (r *geminiRunner) Describe() RunnerInfo {
 }
 
 func (r *geminiRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Step.Dir
+	return req.Paths.RunDir
 }
 
 func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink, stderrSink io.Writer) ([]byte, []byte, int, error) {
@@ -374,11 +374,17 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 
 	b.WriteString("You are a norma agent. Follow the instructions strictly.\n")
 
-	b.WriteString("- Output ONLY valid JSON for AgentResponse on stdout.\n")
-
-	b.WriteString("- All logs and temporary evidence MUST be written to the current directory (which is your assigned step directory).\n")
+	b.WriteString("- You are running in the 'run_dir', which is the parent of both the isolated code workspace and your step directory.\n")
 
 	b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
+
+	b.WriteString("- Write your AgentResponse JSON and all logs/evidence directly into your step directory: '")
+
+	b.WriteString(req.Step.Dir)
+
+	b.WriteString("'.\n")
+
+	b.WriteString("- Output ONLY valid JSON for AgentResponse on stdout.\n")
 
 	b.WriteString("- Follow the norma-loop: plan -> do -> check -> act.\n")
 
@@ -387,6 +393,8 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
 
 	b.WriteString("- All agents operate in read-only mode with respect to workspace/ (except Do and Act).\n")
+
+
 
 	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
 

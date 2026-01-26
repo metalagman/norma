@@ -69,7 +69,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		Strs("cmd", info.Cmd).
 		Str("model", info.Model).
 		Bool("tty", info.UseTTY).
-		Str("work_dir", finalDir).
+		Str("work_dir", req.Paths.RunDir).
 		Msg("agent start")
 
 	agentStart := time.Now().UTC()
