@@ -60,6 +60,16 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	defer stderrFile.Close()
 
 	info := runner.Describe()
+	workDir := info.WorkDir
+	if req.Paths.WorkspaceDir != "" {
+		rel, err := filepath.Rel(info.RepoRoot, info.WorkDir)
+		if err == nil {
+			workDir = filepath.Join(req.Paths.WorkspaceDir, rel)
+		} else {
+			workDir = req.Paths.WorkspaceDir
+		}
+	}
+
 	log.Info().
 		Str("role", req.Step.Name).
 		Str("run_id", req.Run.ID).
@@ -69,7 +79,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		Strs("cmd", info.Cmd).
 		Str("model", info.Model).
 		Bool("tty", info.UseTTY).
-		Str("work_dir", info.WorkDir).
+		Str("work_dir", workDir).
 		Msg("agent start")
 
 	agentStart := time.Now().UTC()

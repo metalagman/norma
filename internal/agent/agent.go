@@ -24,11 +24,12 @@ type Runner interface {
 
 // RunnerInfo describes how an agent is invoked.
 type RunnerInfo struct {
-	Type    string
-	Cmd     []string
-	Model   string
-	WorkDir string
-	UseTTY  bool
+	Type     string
+	Cmd      []string
+	Model    string
+	WorkDir  string
+	RepoRoot string
+	UseTTY   bool
 }
 
 // NewRunner constructs a runner for the given agent config.
@@ -38,7 +39,7 @@ func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
 		if len(cfg.Cmd) == 0 {
 			return nil, fmt.Errorf("exec agent requires cmd")
 		}
-		return &execRunner{cmd: cfg.Cmd, workDir: repoRoot}, nil
+		return &execRunner{repoRoot: repoRoot, cmd: cfg.Cmd, workDir: repoRoot}, nil
 	case "codex":
 		if len(cfg.Cmd) > 0 {
 			return nil, fmt.Errorf("codex agent does not support cmd configuration")
@@ -55,7 +56,7 @@ func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
 		if cfg.UseTTY != nil {
 			useTTY = *cfg.UseTTY
 		}
-		return &codexRunner{cmd: []string{"codex"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+		return &codexRunner{repoRoot: repoRoot, cmd: []string{"codex"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
 	case "opencode":
 		if len(cfg.Cmd) > 0 {
 			return nil, fmt.Errorf("opencode agent does not support cmd configuration")
@@ -72,7 +73,7 @@ func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
 		if cfg.UseTTY != nil {
 			useTTY = *cfg.UseTTY
 		}
-		return &opencodeRunner{cmd: []string{"opencode"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+		return &opencodeRunner{repoRoot: repoRoot, cmd: []string{"opencode"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
 	case "gemini":
 		if len(cfg.Cmd) > 0 {
 			return nil, fmt.Errorf("gemini agent does not support cmd configuration")
@@ -89,15 +90,16 @@ func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
 		if cfg.UseTTY != nil {
 			useTTY = *cfg.UseTTY
 		}
-		return &geminiRunner{cmd: []string{"gemini"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+		return &geminiRunner{repoRoot: repoRoot, cmd: []string{"gemini"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 	}
 }
 
 type execRunner struct {
-	cmd     []string
-	workDir string
+	repoRoot string
+	cmd      []string
+	workDir  string
 }
 
 func (r *execRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
@@ -105,18 +107,30 @@ func (r *execRunner) Run(ctx context.Context, req model.AgentRequest, stdout, st
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("marshal request: %w", err)
 	}
-	return runCommand(ctx, r.cmd, r.workDir, data, stdout, stderr)
+	return runCommand(ctx, r.cmd, r.effectiveWorkDir(req), data, stdout, stderr)
 }
 
 func (r *execRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "exec", Cmd: r.cmd, WorkDir: r.workDir}
+	return RunnerInfo{Type: "exec", Cmd: r.cmd, WorkDir: r.workDir, RepoRoot: r.repoRoot}
+}
+
+func (r *execRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir == "" {
+		return r.workDir
+	}
+	rel, err := filepath.Rel(r.repoRoot, r.workDir)
+	if err != nil {
+		return req.Paths.WorkspaceDir
+	}
+	return filepath.Join(req.Paths.WorkspaceDir, rel)
 }
 
 type codexRunner struct {
-	cmd     []string
-	model   string
-	workDir string
-	useTTY  bool
+	repoRoot string
+	cmd      []string
+	model    string
+	workDir  string
+	useTTY   bool
 }
 
 func (r *codexRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
@@ -125,23 +139,36 @@ func (r *codexRunner) Run(ctx context.Context, req model.AgentRequest, stdout, s
 		return nil, nil, 0, err
 	}
 	argv := appendCodexFlags(r.cmd, r.model)
+	workDir := r.effectiveWorkDir(req)
 	if r.useTTY {
-		log.Debug().Strs("cmd", argv).Bool("tty", true).Msg("run codex agent")
-		return runCommandWithTTY(ctx, argv, r.workDir, []byte(prompt), stdout)
+		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run codex agent")
+		return runCommandWithTTY(ctx, argv, workDir, []byte(prompt), stdout)
 	}
-	log.Debug().Strs("cmd", argv).Bool("tty", false).Msg("run codex agent")
-	return runCommand(ctx, argv, r.workDir, []byte(prompt), stdout, stderr)
+	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run codex agent")
+	return runCommand(ctx, argv, workDir, []byte(prompt), stdout, stderr)
 }
 
 func (r *codexRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "codex", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, UseTTY: r.useTTY}
+	return RunnerInfo{Type: "codex", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
+}
+
+func (r *codexRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir == "" {
+		return r.workDir
+	}
+	rel, err := filepath.Rel(r.repoRoot, r.workDir)
+	if err != nil {
+		return req.Paths.WorkspaceDir
+	}
+	return filepath.Join(req.Paths.WorkspaceDir, rel)
 }
 
 type opencodeRunner struct {
-	cmd     []string
-	model   string
-	workDir string
-	useTTY  bool
+	repoRoot string
+	cmd      []string
+	model    string
+	workDir  string
+	useTTY   bool
 }
 
 func (r *opencodeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
@@ -151,23 +178,36 @@ func (r *opencodeRunner) Run(ctx context.Context, req model.AgentRequest, stdout
 	}
 	argv := appendOpenCodeFlags(r.cmd, r.model)
 	argv = append(argv, prompt)
+	workDir := r.effectiveWorkDir(req)
 	if r.useTTY {
-		log.Debug().Strs("cmd", argv).Bool("tty", true).Msg("run opencode agent")
-		return runCommandWithTTY(ctx, argv, r.workDir, nil, stdout)
+		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run opencode agent")
+		return runCommandWithTTY(ctx, argv, workDir, nil, stdout)
 	}
-	log.Debug().Strs("cmd", argv).Bool("tty", false).Msg("run opencode agent")
-	return runCommand(ctx, argv, r.workDir, nil, stdout, stderr)
+	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run opencode agent")
+	return runCommand(ctx, argv, workDir, nil, stdout, stderr)
 }
 
 func (r *opencodeRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "opencode", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, UseTTY: r.useTTY}
+	return RunnerInfo{Type: "opencode", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
+}
+
+func (r *opencodeRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir == "" {
+		return r.workDir
+	}
+	rel, err := filepath.Rel(r.repoRoot, r.workDir)
+	if err != nil {
+		return req.Paths.WorkspaceDir
+	}
+	return filepath.Join(req.Paths.WorkspaceDir, rel)
 }
 
 type geminiRunner struct {
-	cmd     []string
-	model   string
-	workDir string
-	useTTY  bool
+	repoRoot string
+	cmd      []string
+	model    string
+	workDir  string
+	useTTY   bool
 }
 
 func (r *geminiRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
@@ -177,16 +217,28 @@ func (r *geminiRunner) Run(ctx context.Context, req model.AgentRequest, stdout, 
 	}
 	argv := appendGeminiFlags(r.cmd, r.model)
 	argv = append(argv, prompt)
+	workDir := r.effectiveWorkDir(req)
 	if r.useTTY {
-		log.Debug().Strs("cmd", argv).Bool("tty", true).Msg("run gemini agent")
-		return runCommandWithTTY(ctx, argv, r.workDir, nil, stdout)
+		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run gemini agent")
+		return runCommandWithTTY(ctx, argv, workDir, nil, stdout)
 	}
-	log.Debug().Strs("cmd", argv).Bool("tty", false).Msg("run gemini agent")
-	return runCommand(ctx, argv, r.workDir, nil, stdout, stderr)
+	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run gemini agent")
+	return runCommand(ctx, argv, workDir, nil, stdout, stderr)
 }
 
 func (r *geminiRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "gemini", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, UseTTY: r.useTTY}
+	return RunnerInfo{Type: "gemini", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
+}
+
+func (r *geminiRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir == "" {
+		return r.workDir
+	}
+	rel, err := filepath.Rel(r.repoRoot, r.workDir)
+	if err != nil {
+		return req.Paths.WorkspaceDir
+	}
+	return filepath.Join(req.Paths.WorkspaceDir, rel)
 }
 
 func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink, stderrSink io.Writer) ([]byte, []byte, int, error) {
