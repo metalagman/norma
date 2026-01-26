@@ -445,7 +445,7 @@ Notes:
 
 ## 7) Agent contracts (JSON)
 
-Every step is an `input.json → output.json` transformation. The agent MUST produce an `output.json` file in the assigned step directory containing the valid AgentResponse JSON. For `exec` agents, this JSON should also be written to `stdout`.
+Every step is an `input.json → output.json` transformation. The agent MUST produce an `output.json` file in the assigned step directory containing the valid AgentResponse JSON.
 
 ### 7.1 Common input.json (all steps)
 

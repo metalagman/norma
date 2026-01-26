@@ -463,7 +463,6 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- Write your AgentResponse JSON into '")
 	b.WriteString(filepath.Join(req.Step.Dir, "output.json"))
 	b.WriteString("' and all other logs/evidence into the same directory.\n")
-	b.WriteString("- Output ONLY valid JSON for AgentResponse on stdout.\n")
 	b.WriteString("- Follow the norma-loop: plan -> do -> check -> act.\n")
 	b.WriteString("- Workspace exists before any agent runs.\n")
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
