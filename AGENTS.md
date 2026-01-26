@@ -308,14 +308,6 @@ Output: one of two results
 - If selected task is missing a prerequisite, create prerequisite issue and add `blocks`.
 - Return: `next_task_id = <prerequisite issue>` (must be Ready or made Ready).
 
-Plan agent allowed mutations:
-- Update the selected task subtree (selected task + descendants)
-- Add/remove **blocks** edges involving the selected subtree
-- Create new issues marked as discovered work under the same parent feature
-Plan agent forbidden:
-- Reprioritizing unrelated features/epics
-- Editing unrelated issues
-
 Stop condition inside Plan:
 - If no Ready task can be produced, return BLOCKED with explicit prerequisite.
 
