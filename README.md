@@ -1,10 +1,12 @@
 # norma
 
 <p align="center">
-  <img src="docs/assets/norma_logo_200.png" alt="norma logo">
+  <img src="docs/assets/norma_logo_300.png" alt="norma logo">
 </p>
 
-**norma** is a robust, autonomous agent workflow orchestrator for Go projects. It bridges the gap between high-level task management and low-level code execution by enforcing a strict **Plan → Do → Check → Act (PDCA)** cycle.
+**norma** is a robust, autonomous agent workflow orchestrator written in Go. While built with Go's performance and reliability, it is designed to orchestrate development tasks for **any project**, regardless of the language or stack. 
+
+norma bridges the gap between high-level task management and low-level code execution by enforcing a strict **Plan → Do → Check → Act (PDCA)** cycle.
 
 Built for transparency and reliability, norma ensures every agent action is logged, every change is isolated in a Git worktree, and the entire run state is persisted directly within your backlog.
 
