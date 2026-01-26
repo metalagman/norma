@@ -17,6 +17,9 @@ func createWorkspace(ctx context.Context, repoRoot, runDir, taskID string) (stri
 		return "", fmt.Errorf("create run dir: %w", err)
 	}
 
+	// Ensure we prune any stale worktrees before adding a new one.
+	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
+
 	// We create a branch scoped to the task to allow restartable progress.
 	branchName := fmt.Sprintf("norma/task/%s", taskID)
 

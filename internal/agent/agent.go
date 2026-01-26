@@ -140,6 +140,9 @@ func (r *execRunner) Describe() RunnerInfo {
 }
 
 func (r *execRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir != "" {
+		return req.Paths.WorkspaceDir
+	}
 	return req.Paths.RunDir
 }
 
@@ -171,6 +174,9 @@ func (r *codexRunner) Describe() RunnerInfo {
 }
 
 func (r *codexRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir != "" {
+		return req.Paths.WorkspaceDir
+	}
 	return req.Paths.RunDir
 }
 
@@ -203,6 +209,9 @@ func (r *opencodeRunner) Describe() RunnerInfo {
 }
 
 func (r *opencodeRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir != "" {
+		return req.Paths.WorkspaceDir
+	}
 	return req.Paths.RunDir
 }
 
@@ -235,6 +244,9 @@ func (r *geminiRunner) Describe() RunnerInfo {
 }
 
 func (r *geminiRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir != "" {
+		return req.Paths.WorkspaceDir
+	}
 	return req.Paths.RunDir
 }
 
@@ -267,6 +279,9 @@ func (r *claudeRunner) Describe() RunnerInfo {
 }
 
 func (r *claudeRunner) effectiveWorkDir(req model.AgentRequest) string {
+	if req.Paths.WorkspaceDir != "" {
+		return req.Paths.WorkspaceDir
+	}
 	return req.Paths.RunDir
 }
 
@@ -453,6 +468,7 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- Workspace exists before any agent runs.\n")
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
 	b.WriteString("- All agents operate in read-only mode with respect to workspace/ (except Do and Act).\n")
+	b.WriteString("- IMPORTANT: Do NOT scan or index the entire 'run_dir'. Focus only on the 'workspace_dir' for code context.\n")
 	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
 	b.WriteString("- Use status='stop' or 'error' only for technical failures or when budgets are exceeded.\n")
 
@@ -465,6 +481,9 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	switch req.Step.Name {
 	case rolePlan:
 		b.WriteString("Role requirements: produce work_plan and publish acceptance_criteria.effective.\n")
+		b.WriteString("- Focus on creating a clear, actionable plan for the immediate iteration.\n")
+		b.WriteString("- Avoid exhaustive research of the entire codebase; only explore what is strictly necessary to define the next implementation steps.\n")
+		b.WriteString("- Keep the work_plan focused and small. If the task is too large, use DECOMPOSE to create smaller sub-tasks.\n")
 	case roleDo:
 		b.WriteString("Role requirements: execute only plan.work_plan.do_steps[*] and record what was executed.\n")
 	case roleCheck:
