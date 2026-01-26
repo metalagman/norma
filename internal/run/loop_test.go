@@ -267,39 +267,83 @@ func TestRunner_Run_Success(t *testing.T) {
 
 		
 
-			store := NewStore(db)
-
-			
-
-			planJSON, _ := json.Marshal(model.PlanOutput{
-
-				WorkPlan: model.WorkPlan{
-
-					DoSteps: []model.DoStep{{ID: "DO-EXISTING"}},
-
-				},
-
-			})
+				store := NewStore(db)
 
 		
 
-			tracker := &fakeTracker{
+				
 
-				tasks: map[string]task.Task{
+		
 
-					"norma-preplanned": {
+				stateJSON, _ := json.Marshal(model.TaskState{
 
-						ID:     "norma-preplanned",
+		
 
-						Labels: []string{"norma-planned"},
+					Plan: &model.PlanOutput{
 
-						Notes:  string(planJSON),
+		
+
+						WorkPlan: model.WorkPlan{
+
+		
+
+							DoSteps: []model.DoStep{{ID: "DO-EXISTING"}},
+
+		
+
+						},
+
+		
 
 					},
 
-				},
+		
 
-			}
+				})
+
+		
+
+			
+
+		
+
+				tracker := &fakeTracker{
+
+		
+
+					tasks: map[string]task.Task{
+
+		
+
+						"norma-preplanned": {
+
+		
+
+							ID:     "norma-preplanned",
+
+		
+
+							Labels: []string{"norma-has-plan"},
+
+		
+
+							Notes:  string(stateJSON),
+
+		
+
+						},
+
+		
+
+					},
+
+		
+
+				}
+
+		
+
+			
 
 			
 

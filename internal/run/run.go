@@ -146,29 +146,30 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	var lastDo *model.DoOutput
 	var lastCheck *model.CheckOutput
 
-	// Check if plan already exists
-	hasPlan := false
-	for _, label := range taskItem.Labels {
-		if label == "norma-planned" {
-			hasPlan = true
-			break
+	// Check for existing state in task notes
+	var state model.TaskState
+	if taskItem.Notes != "" {
+		if err := json.Unmarshal([]byte(taskItem.Notes), &state); err == nil {
+			log.Info().Str("task_id", r.taskID).Msg("found existing state in task notes")
+			lastPlan = state.Plan
+			lastDo = state.Do
+			lastCheck = state.Check
 		}
 	}
 
-	if hasPlan && taskItem.Notes != "" {
-		var existingPlan model.PlanOutput
-		if err := json.Unmarshal([]byte(taskItem.Notes), &existingPlan); err == nil {
-			log.Info().Str("task_id", r.taskID).Msg("reusing existing plan from task notes")
-			lastPlan = &existingPlan
-		} else {
-			log.Warn().Err(err).Str("task_id", r.taskID).Msg("failed to unmarshal existing plan from notes, will re-plan")
+	hasLabel := func(name string) bool {
+		for _, l := range taskItem.Labels {
+			if l == name {
+				return true
+			}
 		}
+		return false
 	}
 
 	for iteration <= r.cfg.Budgets.MaxIterations {
 		// 1. PLAN
-		if iteration == 1 && lastPlan != nil {
-			log.Info().Str("task_id", r.taskID).Msg("skipping plan step in iteration 1")
+		if iteration == 1 && hasLabel("norma-has-plan") && lastPlan != nil {
+			log.Info().Str("task_id", r.taskID).Msg("skipping plan: norma-has-plan label present")
 		} else {
 			stepIndex++
 			r.tracker.MarkStatus(ctx, r.taskID, "planning")
@@ -184,50 +185,69 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			}
 			lastPlan = planRes.Response.Plan
 
-			// Save plan to task notes and add label
-			if lastPlan != nil {
-				planJSON, _ := json.Marshal(lastPlan)
-				_ = r.tracker.SetNotes(ctx, r.taskID, string(planJSON))
-				_ = r.tracker.AddLabel(ctx, r.taskID, "norma-planned")
-			}
+			// Persist plan
+			state.Plan = lastPlan
+			stateJSON, _ := json.Marshal(state)
+			_ = r.tracker.SetNotes(ctx, r.taskID, string(stateJSON))
+			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-plan")
 		}
 
 		// 2. DO
-		stepIndex++
-		r.tracker.MarkStatus(ctx, r.taskID, "doing")
-		doReq := r.baseRequest(runID, iteration, stepIndex, "do", goal, ac)
-		doReq.Do = &model.DoInput{
-			WorkPlan:          lastPlan.WorkPlan,
-			EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
-		}
+		if iteration == 1 && hasLabel("norma-has-do") && lastDo != nil {
+			log.Info().Str("task_id", r.taskID).Msg("skipping do: norma-has-do label present")
+		} else {
+			stepIndex++
+			r.tracker.MarkStatus(ctx, r.taskID, "doing")
+			doReq := r.baseRequest(runID, iteration, stepIndex, "do", goal, ac)
+			doReq.Do = &model.DoInput{
+				WorkPlan:          lastPlan.WorkPlan,
+				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
+			}
 
-		doRes, err := r.runAndCommitStep(ctx, doReq, stepsDir)
-		if err != nil {
-			return Result{RunID: runID}, err
+			doRes, err := r.runAndCommitStep(ctx, doReq, stepsDir)
+			if err != nil {
+				return Result{RunID: runID}, err
+			}
+			if doRes.Status != "ok" && (doRes.Response == nil || doRes.Response.Do == nil) {
+				return r.handleStop(ctx, runID, iteration, stepIndex, doRes)
+			}
+			lastDo = doRes.Response.Do
+
+			// Persist do
+			state.Do = lastDo
+			stateJSON, _ := json.Marshal(state)
+			_ = r.tracker.SetNotes(ctx, r.taskID, string(stateJSON))
+			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-do")
 		}
-		if doRes.Status != "ok" && (doRes.Response == nil || doRes.Response.Do == nil) {
-			return r.handleStop(ctx, runID, iteration, stepIndex, doRes)
-		}
-		lastDo = doRes.Response.Do
 
 		// 3. CHECK
-		stepIndex++
-		r.tracker.MarkStatus(ctx, r.taskID, "checking")
-		checkReq := r.baseRequest(runID, iteration, stepIndex, "check", goal, ac)
-		checkReq.Check = &model.CheckInput{
-			WorkPlan:          lastPlan.WorkPlan,
-			EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
-			DoExecution:       lastDo.Execution,
-		}
+		if iteration == 1 && hasLabel("norma-has-check") && lastCheck != nil {
+			log.Info().Str("task_id", r.taskID).Msg("skipping check: norma-has-check label present")
+		} else {
+			stepIndex++
+			r.tracker.MarkStatus(ctx, r.taskID, "checking")
+			checkReq := r.baseRequest(runID, iteration, stepIndex, "check", goal, ac)
+			checkReq.Check = &model.CheckInput{
+				WorkPlan:          lastPlan.WorkPlan,
+				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
+				DoExecution:       lastDo.Execution,
+			}
 
-		checkRes, err := r.runAndCommitStep(ctx, checkReq, stepsDir)
-		if err != nil {
-			return Result{RunID: runID}, err
+			checkRes, err := r.runAndCommitStep(ctx, checkReq, stepsDir)
+			if err != nil {
+				return Result{RunID: runID}, err
+			}
+			if checkRes.Status != "ok" && (checkRes.Response == nil || checkRes.Response.Check == nil) {
+				return r.handleStop(ctx, runID, iteration, stepIndex, checkRes)
+			}
+			lastCheck = checkRes.Response.Check
+
+			// Persist check
+			state.Check = lastCheck
+			stateJSON, _ := json.Marshal(state)
+			_ = r.tracker.SetNotes(ctx, r.taskID, string(stateJSON))
+			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-check")
 		}
-		if checkRes.Status != "ok" && (checkRes.Response == nil || checkRes.Response.Check == nil) {
-			return r.handleStop(ctx, runID, iteration, stepIndex, checkRes)
-		}
-		lastCheck = checkRes.Response.Check
 
 		// 4. ACT
 		stepIndex++

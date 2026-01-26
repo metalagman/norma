@@ -249,7 +249,9 @@ An issue is **Ready** if:
 (Spikes can use Verify = “unknown resolved + notes captured”.)
 
 **Workflow State in Labels:** Granular workflow states (`planning`, `doing`, `checking`, `acting`) are tracked using `bd` labels on the task.
-- `norma-planned`: If this label is present and task notes contain a serialized JSON plan, the orchestrator skips the initial Plan step and reuses the existing work plan.
+- `norma-has-plan`: Present if a valid work plan exists in task notes. Skips Plan step.
+- `norma-has-do`: Present if work has been implemented in the workspace. Skips Do step.
+- `norma-has-check`: Present if a verdict has been produced. Skips Check step.
 
 ---
 
