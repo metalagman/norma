@@ -241,11 +241,13 @@ func TestRunner_Run_Success(t *testing.T) {
 	assert.Equal(t, "check", fAgent.requests[2].Step.Name)
 	assert.Equal(t, "act", fAgent.requests[3].Step.Name)
 
-			// Verify tracker status
+				// Verify tracker status
 
-			assert.Equal(t, "acting", tracker.statuses["norma-123"])
+				assert.Equal(t, "done", tracker.statuses["norma-123"])
 
-		}
+			}
+
+			
 
 		
 

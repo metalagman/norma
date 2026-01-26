@@ -349,6 +349,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Error().Err(err).Msg("failed to apply changes")
 				return Result{RunID: runID}, err
 			}
+			// Close task in Beads as per spec
+			if err := r.tracker.MarkStatus(ctx, r.taskID, "done"); err != nil {
+				log.Warn().Err(err).Msg("failed to mark task as done in beads")
+			}
 			return Result{RunID: runID, Status: "passed"}, nil
 		}
 
@@ -432,6 +436,12 @@ func (r *Runner) handleStop(ctx context.Context, runID string, iteration, index 
 		Iteration:        iteration,
 		CurrentStepIndex: index,
 	}, nil)
+
+	// Update task status in Beads
+	if err := r.tracker.MarkStatus(ctx, r.taskID, status); err != nil {
+		log.Warn().Err(err).Msg("failed to update task status in beads")
+	}
+
 	return Result{RunID: runID, Status: status}, nil
 }
 
@@ -446,6 +456,12 @@ func (r *Runner) failRun(ctx context.Context, runID string, iteration, stepIndex
 	if err := r.store.UpdateRun(ctx, runID, update, &event); err != nil {
 		return Result{RunID: runID}, err
 	}
+
+	// Update task status in Beads
+	if err := r.tracker.MarkStatus(ctx, r.taskID, "failed"); err != nil {
+		log.Warn().Err(err).Msg("failed to update task status in beads")
+	}
+
 	return Result{RunID: runID, Status: "failed"}, nil
 }
 

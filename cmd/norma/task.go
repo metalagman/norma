@@ -178,25 +178,13 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 	}
 	switch result.Status {
 	case "passed":
-		if err := tracker.MarkStatus(ctx, id, "done"); err != nil {
-			return err
-		}
 		fmt.Printf("task %s passed (run %s)\n", id, result.RunID)
 		return nil
 	case "failed":
-		if err := tracker.MarkStatus(ctx, id, "failed"); err != nil {
-			return err
-		}
 		return fmt.Errorf("task %s failed (run %s)", id, result.RunID)
 	case "stopped":
-		if err := tracker.MarkStatus(ctx, id, "stopped"); err != nil {
-			return err
-		}
 		return fmt.Errorf("task %s stopped (run %s)", id, result.RunID)
 	default:
-		if err := tracker.MarkStatus(ctx, id, "failed"); err != nil {
-			return err
-		}
 		return fmt.Errorf("task %s failed (run %s)", id, result.RunID)
 	}
 }
