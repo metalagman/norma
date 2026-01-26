@@ -92,6 +92,7 @@ type RequestContext struct {
 	Facts   map[string]any `json:"facts"`
 	Links   []string       `json:"links"`
 	Journal []JournalEntry `json:"journal,omitempty"`
+	Attempt int            `json:"attempt,omitempty"`
 }
 
 // PlanInput provides role-specific context for the plan agent.

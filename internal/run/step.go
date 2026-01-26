@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,11 @@ import (
 	"github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/model"
 	"github.com/rs/zerolog/log"
+)
+
+var (
+	// ErrRetryable indicates that the step failed in a way that might succeed if retried.
+	ErrRetryable = errors.New("retryable agent failure")
 )
 
 const (
@@ -32,10 +38,14 @@ type stepResult struct {
 	Summary   string
 	Response  *model.AgentResponse
 	Protocol  string
+	Retries   int
 }
 
 func executeStep(ctx context.Context, runner agent.Runner, req model.AgentRequest, runStepsDir string) (stepResult, error) {
 	stepName := fmt.Sprintf("%02d-%s", req.Step.Index, req.Step.Name)
+	if req.Context.Attempt > 0 {
+		stepName = fmt.Sprintf("%02d-%s-retry-%d", req.Step.Index, req.Step.Name, req.Context.Attempt)
+	}
 	finalDir := filepath.Join(runStepsDir, stepName)
 
 	startedAt := time.Now().UTC()
@@ -78,6 +88,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		Str("run_id", req.Run.ID).
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Run.Iteration).
+		Int("attempt", req.Context.Attempt).
 		Str("agent_type", info.Type).
 		Strs("cmd", info.Cmd).
 		Str("model", info.Model).
@@ -93,6 +104,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		Str("run_id", req.Run.ID).
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Run.Iteration).
+		Int("attempt", req.Context.Attempt).
 		Int("exit_code", exitCode).
 		Dur("duration", agentDuration).
 		Msg("agent finished")
@@ -105,6 +117,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		StartedAt: startedAt,
 		EndedAt:   time.Now().UTC(),
 		Status:    statusOK,
+		Retries:   req.Context.Attempt,
 	}
 
 	if runErr != nil || exitCode != 0 {
@@ -112,6 +125,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		res.Protocol = "agent_failed"
 		res.Summary = fmt.Sprintf("agent failed: %v", runErr)
 		log.Warn().Str("role", res.Role).Int("step_index", res.StepIndex).Int("exit_code", exitCode).Msg("agent execution failed")
+		return res, ErrRetryable
 	} else {
 		resp, protoErr := parseAgentResponse(stdout)
 		if protoErr != "" {
@@ -119,6 +133,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 			res.Protocol = protoErr
 			res.Summary = protoErr
 			log.Debug().Str("role", res.Role).Int("step_index", res.StepIndex).Msg("protocol error")
+			return res, ErrRetryable
 		} else {
 			res.Response = resp
 			res.Summary = resp.Summary.Text

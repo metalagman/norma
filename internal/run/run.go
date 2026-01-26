@@ -4,6 +4,7 @@ package run
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -445,19 +446,51 @@ func (r *Runner) baseRequest(runID string, iteration, index int, role, goal stri
 }
 
 func (r *Runner) runAndCommitStep(ctx context.Context, req model.AgentRequest, stepsDir string) (stepResult, error) {
-	res, err := executeStep(ctx, r.agents[req.Step.Name], req, stepsDir)
-	if err != nil {
-		return res, err
+	maxAttempts := 3
+	var lastRes stepResult
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		req.Context.Attempt = attempt
+		res, err := executeStep(ctx, r.agents[req.Step.Name], req, stepsDir)
+		lastRes = res
+		lastErr = err
+
+		if err == nil {
+			err = r.commitStep(ctx, req.Run.ID, res, statusRunning, nil)
+			if err != nil {
+				return res, err
+			}
+			r.appendToProgress(res)
+			return res, nil
+		}
+
+		if !errors.Is(err, ErrRetryable) {
+			break
+		}
+
+		log.Warn().
+			Str("role", req.Step.Name).
+			Int("attempt", attempt).
+			Err(err).
+			Msg("step failed with retryable error, retrying...")
+
+		// Optional: add a small delay between retries
+		select {
+		case <-ctx.Done():
+			return res, ctx.Err()
+		case <-time.After(time.Second * time.Duration(attempt+1)):
+		}
 	}
 
-	err = r.commitStep(ctx, req.Run.ID, res, statusRunning, nil)
-	if err != nil {
-		return res, err
+	// If we reach here, it means all attempts failed or a non-retryable error occurred
+	// We still commit the last failed attempt if it was retryable
+	if errors.Is(lastErr, ErrRetryable) {
+		_ = r.commitStep(ctx, req.Run.ID, lastRes, statusRunning, nil)
+		r.appendToProgress(lastRes)
 	}
 
-	r.appendToProgress(res)
-
-	return res, nil
+	return lastRes, lastErr
 }
 
 func (r *Runner) handleStop(ctx context.Context, runID string, iteration, index int, res stepResult) (Result, error) {

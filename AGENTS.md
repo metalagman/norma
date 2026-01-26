@@ -485,7 +485,8 @@ Every step is an `input.json → output.json` transformation.
   ],
   "context": {
     "facts": {},
-    "links": []
+    "links": [],
+    "attempt": 0
   }
 }
 ```
