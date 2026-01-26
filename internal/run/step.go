@@ -126,31 +126,48 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		res.Summary = fmt.Sprintf("agent failed: %v", runErr)
 		log.Warn().Str("role", res.Role).Int("step_index", res.StepIndex).Int("exit_code", exitCode).Msg("agent execution failed")
 		return res, ErrRetryable
-	} else {
-		resp, protoErr := parseAgentResponse(stdout)
-		if protoErr != "" {
-			res.Status = statusFail
-			res.Protocol = protoErr
-			res.Summary = protoErr
-			log.Debug().Str("role", res.Role).Int("step_index", res.StepIndex).Msg("protocol error")
-			return res, ErrRetryable
-		} else {
-			res.Response = resp
-			res.Summary = resp.Summary.Text
-			if resp.Status != statusOK {
-				res.Status = resp.Status
-			}
-			log.Debug().
-				Str("role", res.Role).
-				Int("step_index", res.StepIndex).
-				Str("response_status", resp.Status).
-				Msg("agent response parsed")
-			if err := writeJSON(filepath.Join(finalDir, "output.json"), resp); err != nil {
-				res.Status = statusFail
-				res.Protocol = fmt.Errorf("write output.json: %v", err).Error()
-				res.Summary = res.Protocol
-			}
+	}
+
+	// Try reading output.json from step dir first
+	var resp *model.AgentResponse
+	var protoErr string
+	outputPath := filepath.Join(finalDir, "output.json")
+	if data, err := os.ReadFile(outputPath); err == nil {
+		resp, protoErr = parseAgentResponse(data)
+		if protoErr == "" {
+			log.Debug().Str("role", res.Role).Msg("using output.json from step directory")
 		}
+	}
+
+	// Fallback to stdout if output.json is missing or invalid
+	if resp == nil {
+		resp, protoErr = parseAgentResponse(stdout)
+	}
+
+	if protoErr != "" {
+		res.Status = statusFail
+		res.Protocol = protoErr
+		res.Summary = protoErr
+		log.Debug().Str("role", res.Role).Int("step_index", res.StepIndex).Msg("protocol error")
+		return res, ErrRetryable
+	}
+
+	res.Response = resp
+	res.Summary = resp.Summary.Text
+	if resp.Status != statusOK {
+		res.Status = resp.Status
+	}
+	log.Debug().
+		Str("role", res.Role).
+		Int("step_index", res.StepIndex).
+		Str("response_status", resp.Status).
+		Msg("agent response parsed")
+
+	// Ensure output.json exists and is fresh
+	if err := writeJSON(outputPath, resp); err != nil {
+		res.Status = statusFail
+		res.Protocol = fmt.Errorf("write output.json: %v", err).Error()
+		res.Summary = res.Protocol
 	}
 
 	return res, nil
