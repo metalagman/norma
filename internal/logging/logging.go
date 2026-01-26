@@ -2,7 +2,6 @@
 package logging
 
 import (
-	"fmt"
 	"os"
 	"time"
 
@@ -20,8 +19,5 @@ func Init(debug bool) {
 	log.Logger = log.Output(zerolog.ConsoleWriter{
 		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
-		FormatFieldValue: func(i any) string {
-			return fmt.Sprintf("%v", i)
-		},
 	})
 }
