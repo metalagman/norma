@@ -1,56 +1,32 @@
+// Package config provides configuration loading and management for norma.
 package config
 
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-)
-
-// Config holds agent configuration and run budgets.
+// Config is the root configuration.
 type Config struct {
-	Agents    map[string]AgentConfig `json:"agents" mapstructure:"agents"`
-	Budgets   Budgets                `json:"budgets" mapstructure:"budgets"`
-	Retention Retention              `json:"retention,omitempty" mapstructure:"retention"`
+	Agents    map[string]AgentConfig `json:"agents"`
+	Budgets   Budgets                `json:"budgets"`
+	Retention RetentionPolicy        `json:"retention"`
 }
 
-// AgentConfig describes how to invoke an agent.
+// AgentConfig describes how to run an agent.
 type AgentConfig struct {
-	Type   string   `json:"type" mapstructure:"type"`
-	Cmd    []string `json:"cmd" mapstructure:"cmd"`
-	Model  string   `json:"model" mapstructure:"model"`
-	Path   string   `json:"path" mapstructure:"path"`
-	UseTTY *bool    `json:"tty,omitempty" mapstructure:"tty"`
+	Type   string   `json:"type"`
+	Cmd    []string `json:"cmd,omitempty"`
+	Model  string   `json:"model,omitempty"`
+	Path   string   `json:"path,omitempty"`
+	UseTTY *bool    `json:"use_tty,omitempty"`
 }
 
-// Budgets mirror model budgets for config loading.
+// Budgets defines run limits.
 type Budgets struct {
-	MaxIterations   int `json:"max_iterations" mapstructure:"max_iterations"`
-	MaxPatchKB      int `json:"max_patch_kb,omitempty" mapstructure:"max_patch_kb"`
-	MaxChangedFiles int `json:"max_changed_files,omitempty" mapstructure:"max_changed_files"`
-	MaxRiskyFiles   int `json:"max_risky_files,omitempty" mapstructure:"max_risky_files"`
+	MaxIterations   int `json:"max_iterations"`
+	MaxPatchKB      int `json:"max_patch_kb,omitempty"`
+	MaxChangedFiles int `json:"max_changed_files,omitempty"`
+	MaxRiskyFiles   int `json:"max_risky_files,omitempty"`
 }
 
-// Retention controls auto-pruning of runs.
-type Retention struct {
-	KeepLast int `json:"keep_last,omitempty" mapstructure:"keep_last"`
-	KeepDays int `json:"keep_days,omitempty" mapstructure:"keep_days"`
-}
-
-// Load reads config from the given path.
-func Load(path string) (Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("read config: %w", err)
-	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
-	}
-	if cfg.Budgets.MaxIterations <= 0 {
-		return Config{}, fmt.Errorf("budgets.max_iterations must be > 0")
-	}
-	if cfg.Retention.KeepLast < 0 || cfg.Retention.KeepDays < 0 {
-		return Config{}, fmt.Errorf("retention.keep_last and retention.keep_days must be >= 0")
-	}
-	return cfg, nil
+// RetentionPolicy defines how many old runs to keep.
+type RetentionPolicy struct {
+	KeepLast int `json:"keep_last,omitempty"`
+	KeepDays int `json:"keep_days,omitempty"`
 }

@@ -1,3 +1,4 @@
+// Package run implements the orchestrator for the norma development lifecycle.
 package run
 
 import (
@@ -7,55 +8,41 @@ import (
 	"syscall"
 )
 
-// RunLock provides an exclusive lock for norma run.
-type RunLock struct {
-	file *os.File
+// Lock handles exclusive access to norma run.
+type Lock struct {
+	f *os.File
 }
 
-// AcquireRunLock creates and locks .norma/locks/run.lock.
-func AcquireRunLock(normaDir string) (*RunLock, error) {
-	locksDir := filepath.Join(normaDir, "locks")
-	if err := os.MkdirAll(locksDir, 0o755); err != nil {
+// AcquireRunLock tries to acquire the run lock.
+func AcquireRunLock(normaDir string) (*Lock, error) {
+	if err := os.MkdirAll(filepath.Join(normaDir, "locks"), 0o755); err != nil {
 		return nil, fmt.Errorf("create locks dir: %w", err)
 	}
-	lockPath := filepath.Join(locksDir, "run.lock")
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(filepath.Join(normaDir, "locks", "run.lock"), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("lock run.lock: %w", err)
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("acquire flock: %w", err)
 	}
-	return &RunLock{file: file}, nil
+	return &Lock{f: f}, nil
 }
 
-// TryAcquireRunLock attempts to acquire the run lock without blocking.
-func TryAcquireRunLock(normaDir string) (*RunLock, bool, error) {
-	locksDir := filepath.Join(normaDir, "locks")
-	if err := os.MkdirAll(locksDir, 0o755); err != nil {
-		return nil, false, fmt.Errorf("create locks dir: %w", err)
-	}
-	lockPath := filepath.Join(locksDir, "run.lock")
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+// TryAcquireRunLock tries to acquire the run lock without blocking.
+func TryAcquireRunLock(normaDir string) (*Lock, bool, error) {
+	l, err := AcquireRunLock(normaDir)
 	if err != nil {
-		return nil, false, fmt.Errorf("open lock file: %w", err)
-	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = file.Close()
 		return nil, false, nil
 	}
-	return &RunLock{file: file}, true, nil
+	return l, true, nil
 }
 
-// Release releases the lock.
-func (l *RunLock) Release() error {
-	if l == nil || l.file == nil {
+// Release releases the run lock.
+func (l *Lock) Release() error {
+	if l.f == nil {
 		return nil
 	}
-	if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
-		_ = l.file.Close()
-		return err
-	}
-	return l.file.Close()
+	defer func() { _ = l.f.Close() }()
+	return syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
 }

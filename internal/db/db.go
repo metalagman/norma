@@ -1,3 +1,4 @@
+// Package db provides database connectivity and migration logic for norma.
 package db
 
 import (
@@ -8,7 +9,7 @@ import (
 	"log"
 
 	"github.com/pressly/goose/v3"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver
 )
 
 // Open opens the SQLite database with required pragmas and migrations.

@@ -14,7 +14,7 @@ func uiCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ui",
 		Short: "Start the web UI",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			_, _, closeFn, err := openDB()
 			if err != nil {
 				return err

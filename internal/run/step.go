@@ -1,3 +1,4 @@
+// Package run implements the orchestrator for the norma development lifecycle.
 package run
 
 import (
@@ -14,6 +15,10 @@ import (
 	"github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/model"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	statusFail = "fail"
 )
 
 type stepResult struct {
@@ -52,12 +57,20 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	if err != nil {
 		return stepResult{}, fmt.Errorf("create stdout log: %w", err)
 	}
-	defer stdoutFile.Close()
+	defer func() {
+		if cErr := stdoutFile.Close(); cErr != nil {
+			log.Warn().Err(cErr).Msg("failed to close stdout log")
+		}
+	}()
 	stderrFile, err := os.Create(stderrPath)
 	if err != nil {
 		return stepResult{}, fmt.Errorf("create stderr log: %w", err)
 	}
-	defer stderrFile.Close()
+	defer func() {
+		if cErr := stderrFile.Close(); cErr != nil {
+			log.Warn().Err(cErr).Msg("failed to close stderr log")
+		}
+	}()
 
 	info := runner.Describe()
 	log.Info().
@@ -91,25 +104,25 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		FinalDir:  finalDir,
 		StartedAt: startedAt,
 		EndedAt:   time.Now().UTC(),
-		Status:    "ok",
+		Status:    statusOK,
 	}
 
 	if runErr != nil || exitCode != 0 {
-		res.Status = "fail"
+		res.Status = statusFail
 		res.Protocol = "agent_failed"
 		res.Summary = fmt.Sprintf("agent failed: %v", runErr)
 		log.Warn().Str("role", res.Role).Int("step_index", res.StepIndex).Int("exit_code", exitCode).Msg("agent execution failed")
 	} else {
 		resp, protoErr := parseAgentResponse(stdout)
 		if protoErr != "" {
-			res.Status = "fail"
+			res.Status = statusFail
 			res.Protocol = protoErr
 			res.Summary = protoErr
 			log.Debug().Str("role", res.Role).Int("step_index", res.StepIndex).Msg("protocol error")
 		} else {
 			res.Response = resp
 			res.Summary = resp.Summary.Text
-			if resp.Status != "ok" {
+			if resp.Status != statusOK {
 				res.Status = resp.Status
 			}
 			log.Debug().
@@ -118,7 +131,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 				Str("response_status", resp.Status).
 				Msg("agent response parsed")
 			if err := writeJSON(filepath.Join(finalDir, "output.json"), resp); err != nil {
-				res.Status = "fail"
+				res.Status = statusFail
 				res.Protocol = fmt.Errorf("write output.json: %v", err).Error()
 				res.Summary = res.Protocol
 			}
@@ -136,7 +149,7 @@ func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {
 			return nil, "protocol_error: stdout not valid JSON"
 		}
 	}
-	if resp.Status != "ok" && resp.Status != "fail" && resp.Status != "stop" && resp.Status != "error" {
+	if resp.Status != statusOK && resp.Status != statusFail && resp.Status != statusStop && resp.Status != statusError {
 		return nil, "protocol_error: invalid status"
 	}
 	return &resp, ""

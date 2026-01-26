@@ -1,3 +1,4 @@
+// Package main provides the entry point for the norma CLI.
 package main
 
 import (
@@ -29,7 +30,7 @@ func Execute() error {
 	if err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config")); err != nil {
 		return fmt.Errorf("bind config flag: %w", err)
 	}
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+	rootCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		logging.Init(debug)
 		if err := initBeads(); err != nil {
 			log.Warn().Err(err).Msg("failed to initialize beads")

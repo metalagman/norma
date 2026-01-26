@@ -21,7 +21,7 @@ func runCmd() *cobra.Command {
 		Short:        "Run a task by id or run the next ready task",
 		Long:         "Run a task by id. If no task id is provided, run the next ready task chosen by the scheduler.",
 		SilenceUsage: true,
-		Args: func(cmd *cobra.Command, args []string) error {
+		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return nil
 			}

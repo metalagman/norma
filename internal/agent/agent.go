@@ -1,3 +1,4 @@
+// Package agent provides implementations for running different types of agents.
 package agent
 
 import (
@@ -14,6 +15,13 @@ import (
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	rolePlan  = "plan"
+	roleDo    = "do"
+	roleCheck = "check"
+	roleAct   = "act"
 )
 
 // Runner executes an agent with a normalized request.
@@ -361,89 +369,44 @@ func isOpenCodeSubcommand(arg string) bool {
 }
 
 func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
-
 	data, err := json.MarshalIndent(req, "", "  ")
-
 	if err != nil {
-
 		return "", fmt.Errorf("marshal request: %w", err)
-
 	}
-
 	var b strings.Builder
-
 	b.WriteString("You are a norma agent. Follow the instructions strictly.\n")
-
-		b.WriteString("- You are running in the 'run_dir', which is the parent of both the isolated code workspace and your step directory.\n")
-
-		b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
-
-		b.WriteString("- A full history of this run is available in 'context.journal' and reconstructed in 'artifacts/progress.md'. Use it to understand previous attempts and avoid repeating mistakes.\n")
-
-		b.WriteString("- Write your AgentResponse JSON and all logs/evidence directly into your step directory: '")
-
-	
-
+	b.WriteString("- You are running in the 'run_dir', which is the parent of both the isolated code workspace and your step directory.\n")
+	b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
+	b.WriteString("- A full history of this run is available in 'context.journal' and reconstructed in 'artifacts/progress.md'. Use it to understand previous attempts and avoid repeating mistakes.\n")
+	b.WriteString("- Write your AgentResponse JSON and all logs/evidence directly into your step directory: '")
 	b.WriteString(req.Step.Dir)
-
 	b.WriteString("'.\n")
-
 	b.WriteString("- Output ONLY valid JSON for AgentResponse on stdout.\n")
-
 	b.WriteString("- Follow the norma-loop: plan -> do -> check -> act.\n")
-
 	b.WriteString("- Workspace exists before any agent runs.\n")
-
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
-
 	b.WriteString("- All agents operate in read-only mode with respect to workspace/ (except Do and Act).\n")
-
-
-
 	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
-
 	b.WriteString("- Use status='stop' or 'error' only for technical failures or when budgets are exceeded.\n")
 
-
-
 	if modelName != "" {
-
 		b.WriteString("- Use model hint: ")
-
 		b.WriteString(modelName)
-
 		b.WriteString(" (if relevant).\n")
-
 	}
-
-
 
 	switch req.Step.Name {
-
-	case "plan":
-
+	case rolePlan:
 		b.WriteString("Role requirements: produce work_plan and publish acceptance_criteria.effective.\n")
-
-	case "do":
-
+	case roleDo:
 		b.WriteString("Role requirements: execute only plan.work_plan.do_steps[*] and record what was executed.\n")
-
-	case "check":
-
+	case roleCheck:
 		b.WriteString("Role requirements: verify plan match (planned vs executed), verify job done (all effective ACs evaluated), and emit a verdict in the 'check' field of the JSON output.\n")
-
-	case "act":
-
+	case roleAct:
 		b.WriteString("Role requirements: consume Check verdict and decide what to do next.\n")
-
 	}
-
 	b.WriteString("\nAgentRequest:\n")
-
 	b.Write(data)
-
 	b.WriteString("\n")
-
 	return b.String(), nil
-
 }

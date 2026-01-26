@@ -1,7 +1,7 @@
+// Package main provides the entry point for the norma CLI.
 package main
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
@@ -25,7 +25,7 @@ func runsPruneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Prune old runs from disk and database",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			storeDB, repoRoot, closeFn, err := openDB()
 			if err != nil {
 				return err
@@ -53,9 +53,13 @@ func runsPruneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer lock.Release()
+			defer func() {
+				if lErr := lock.Release(); lErr != nil {
+					fatal(fmt.Errorf("failed to release run lock: %w", lErr))
+				}
+			}()
 
-			res, err := run.PruneRuns(context.Background(), storeDB, filepath.Join(normaDir, "runs"), policy, dryRun)
+			res, err := run.PruneRuns(cmd.Context(), storeDB, filepath.Join(normaDir, "runs"), policy, dryRun)
 			if err != nil {
 				return err
 			}

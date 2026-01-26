@@ -1,3 +1,4 @@
+// Package run implements the orchestrator for the norma development lifecycle.
 package run
 
 import (
@@ -36,7 +37,7 @@ func PruneRuns(ctx context.Context, db *sql.DB, runsDir string, policy Retention
 	if err != nil {
 		return PruneResult{}, fmt.Errorf("list runs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type runRow struct {
 		id        string

@@ -1,3 +1,4 @@
+// Package task provides task management via Beads.
 package task
 
 import (
@@ -10,6 +11,22 @@ import (
 	"strings"
 
 	"github.com/metalagman/norma/internal/model"
+)
+
+const (
+	statusOpen       = "open"
+	statusInProgress = "in_progress"
+	statusClosed     = "closed"
+	statusDeferred   = "deferred"
+
+	normaStatusTodo     = "todo"
+	normaStatusDoing    = "doing"
+	normaStatusDone     = "done"
+	normaStatusFailed   = "failed"
+	normaStatusStopped  = "stopped"
+	normaStatusPlanning = "planning"
+	normaStatusChecking = "checking"
+	normaStatusActing   = "acting"
 )
 
 // BeadsTracker implements Tracker using the beads CLI tool.
@@ -28,13 +45,13 @@ func NewBeadsTracker(binPath string) *BeadsTracker {
 
 // BeadsIssue represents the JSON structure of a beads issue.
 type BeadsIssue struct {
-	ID                 string `json:"id"`
-	Type               string `json:"type"`
-	IssueType          string `json:"issue_type"`
-	ParentID           string `json:"parent,omitempty"`
-	Title              string `json:"title"`
-	Description        string `json:"description"`
-	AcceptanceCriteria string `json:"acceptance_criteria"`
+	ID                 string   `json:"id"`
+	Type               string   `json:"type"`
+	IssueType          string   `json:"issue_type"`
+	ParentID           string   `json:"parent,omitempty"`
+	Title              string   `json:"title"`
+	Description        string   `json:"description"`
+	AcceptanceCriteria string   `json:"acceptance_criteria"`
 	Status             string   `json:"status"` // open, in_progress, closed, etc.
 	Priority           int      `json:"priority"`
 	Assignee           string   `json:"assignee"`
@@ -105,17 +122,17 @@ func (t *BeadsTracker) List(ctx context.Context, status *string) ([]Task, error)
 		// Map norma status to beads status
 		beadsStatus := *status
 		switch *status {
-		case "todo":
-			beadsStatus = "open"
-		case "planning", "doing", "checking", "acting":
-			beadsStatus = "in_progress"
-		case "done":
-			beadsStatus = "closed"
-		case "failed":
+		case normaStatusTodo:
+			beadsStatus = statusOpen
+		case normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing:
+			beadsStatus = statusInProgress
+		case normaStatusDone:
+			beadsStatus = statusClosed
+		case normaStatusFailed:
 			// Beads doesn't have failed. Map to open for now.
-			beadsStatus = "open"
-		case "stopped":
-			beadsStatus = "deferred"
+			beadsStatus = statusOpen
+		case normaStatusStopped:
+			beadsStatus = statusDeferred
 		}
 		args = append(args, "--status", beadsStatus)
 	} else {
@@ -172,6 +189,7 @@ func (t *BeadsTracker) Children(ctx context.Context, parentID string) ([]Task, e
 	args := []string{"list", "--parent", parentID, "--json", "--quiet", "--limit", "0", "--all"}
 	out, err := t.exec(ctx, args...)
 	if err != nil {
+		// bd show returns error if not found?
 		return nil, fmt.Errorf("bd list children: %w", err)
 	}
 
@@ -218,20 +236,19 @@ func (t *BeadsTracker) MarkDone(ctx context.Context, id string) error {
 // MarkStatus updates task status.
 func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string) error {
 	beadsStatus := status
-	removeLabels := []string{"planning", "doing", "checking", "acting"}
+	removeLabels := []string{normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing}
 	switch status {
-	case "todo":
-		beadsStatus = "open"
-	case "planning", "doing", "checking", "acting":
-		beadsStatus = "in_progress"
+	case normaStatusTodo:
+		beadsStatus = statusOpen
+	case normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing:
 		// When using these granular statuses, we also update labels
 		return t.UpdateWorkflowState(ctx, id, status)
-	case "done":
-		beadsStatus = "closed"
-	case "failed":
-		beadsStatus = "open"
-	case "stopped":
-		beadsStatus = "deferred"
+	case normaStatusDone:
+		beadsStatus = statusClosed
+	case normaStatusFailed:
+		beadsStatus = statusOpen
+	case normaStatusStopped:
+		beadsStatus = statusDeferred
 	}
 
 	args := []string{"update", id, "--status", beadsStatus, "--json", "--quiet"}
@@ -245,9 +262,9 @@ func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string)
 
 // UpdateWorkflowState updates the granular workflow state using labels.
 func (t *BeadsTracker) UpdateWorkflowState(ctx context.Context, id string, state string) error {
-	allStates := []string{"planning", "doing", "checking", "acting"}
-	args := []string{"update", id, "--status", "in_progress", "--json", "--quiet"}
-	
+	allStates := []string{normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing}
+	args := []string{"update", id, "--status", statusInProgress, "--json", "--quiet"}
+
 	for _, s := range allStates {
 		if s == state {
 			args = append(args, "--add-label", s)
@@ -260,16 +277,19 @@ func (t *BeadsTracker) UpdateWorkflowState(ctx context.Context, id string, state
 	return err
 }
 
+// AddLabel adds a label to a task.
 func (t *BeadsTracker) AddLabel(ctx context.Context, id string, label string) error {
 	_, err := t.exec(ctx, "update", id, "--add-label", label, "--json", "--quiet")
 	return err
 }
 
+// RemoveLabel removes a label from a task.
 func (t *BeadsTracker) RemoveLabel(ctx context.Context, id string, label string) error {
 	_, err := t.exec(ctx, "update", id, "--remove-label", label, "--json", "--quiet")
 	return err
 }
 
+// SetNotes updates the notes field of a task.
 func (t *BeadsTracker) SetNotes(ctx context.Context, id string, notes string) error {
 	_, err := t.exec(ctx, "update", id, "--notes", notes, "--json", "--quiet")
 	return err
@@ -346,16 +366,16 @@ func (t *BeadsTracker) exec(ctx context.Context, args ...string) ([]byte, error)
 }
 
 func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
-	status := "todo"
+	status := normaStatusTodo
 	switch issue.Status {
-	case "open":
-		status = "todo"
-	case "in_progress", "planning", "doing", "checking", "acting":
-		status = "doing"
-	case "closed":
-		status = "done"
-	case "deferred":
-		status = "stopped"
+	case statusOpen:
+		status = normaStatusTodo
+	case statusInProgress, normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing:
+		status = normaStatusDoing
+	case statusClosed:
+		status = normaStatusDone
+	case statusDeferred:
+		status = normaStatusStopped
 		// default keeps "todo"
 	}
 

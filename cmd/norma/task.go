@@ -1,3 +1,4 @@
+// Package main provides the entry point for the norma CLI.
 package main
 
 import (
@@ -7,7 +8,16 @@ import (
 
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+)
+
+const (
+	statusFailed  = "failed"
+	statusStopped = "stopped"
+	statusPassed  = "passed"
+	statusDoing   = "doing"
+	statusTodo    = "todo"
 )
 
 func taskCmd() *cobra.Command {
@@ -62,7 +72,7 @@ func taskListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List tasks",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			tracker := task.NewBeadsTracker("")
 			var statusPtr *string
 			if status != "" {
@@ -70,7 +80,7 @@ func taskListCmd() *cobra.Command {
 			} else {
 				statusPtr = nil
 			}
-			items, err := tracker.List(context.Background(), statusPtr)
+			items, err := tracker.List(cmd.Context(), statusPtr)
 			if err != nil {
 				return err
 			}
@@ -79,15 +89,15 @@ func taskListCmd() *cobra.Command {
 				return nil
 			}
 			for _, item := range items {
-				run := "-"
+				runID := "-"
 				if item.RunID != nil {
-					run = *item.RunID
+					runID = *item.RunID
 				}
 				title := item.Title
 				if title == "" {
 					title = item.Goal
 				}
-				fmt.Printf("%s\t%s\t%s\t%s\n", item.ID, item.Status, run, title)
+				fmt.Printf("%s\t%s\t%s\t%s\n", item.ID, item.Status, runID, title)
 			}
 			return nil
 		},
@@ -104,7 +114,7 @@ func taskDoneCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			tracker := task.NewBeadsTracker("")
-			if err := tracker.MarkDone(context.Background(), id); err != nil {
+			if err := tracker.MarkDone(cmd.Context(), id); err != nil {
 				return err
 			}
 			fmt.Printf("task %s done\n", id)
@@ -130,7 +140,7 @@ func taskLinkCmd() *cobra.Command {
 				if dep == taskID {
 					return fmt.Errorf("task cannot depend on itself")
 				}
-				if err := tracker.AddDependency(context.Background(), taskID, dep); err != nil {
+				if err := tracker.AddDependency(cmd.Context(), taskID, dep); err != nil {
 					return err
 				}
 			}
@@ -148,8 +158,8 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 		return err
 	}
 	switch item.Status {
-	case "todo", "failed", "stopped":
-	case "doing":
+	case statusTodo, statusFailed, statusStopped:
+	case statusDoing:
 		if item.RunID != nil {
 			status, err := runStore.GetRunStatus(ctx, *item.RunID)
 			if err != nil {
@@ -159,7 +169,7 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 				return fmt.Errorf("task %s already running", id)
 			}
 		}
-		if err := tracker.MarkStatus(ctx, id, "failed"); err != nil {
+		if err := tracker.MarkStatus(ctx, id, statusFailed); err != nil {
 			return err
 		}
 	default:
@@ -170,19 +180,19 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 	}
 	result, err := runner.Run(ctx, item.Goal, item.Criteria, id)
 	if err != nil {
-		_ = tracker.MarkStatus(ctx, id, "failed")
+		_ = tracker.MarkStatus(ctx, id, statusFailed)
 		return err
 	}
 	if result.RunID != "" {
 		_ = tracker.SetRun(ctx, id, result.RunID)
 	}
 	switch result.Status {
-	case "passed":
+	case statusPassed:
 		fmt.Printf("task %s passed (run %s)\n", id, result.RunID)
 		return nil
-	case "failed":
+	case statusFailed:
 		return fmt.Errorf("task %s failed (run %s)", id, result.RunID)
-	case "stopped":
+	case statusStopped:
 		return fmt.Errorf("task %s stopped (run %s)", id, result.RunID)
 	default:
 		return fmt.Errorf("task %s failed (run %s)", id, result.RunID)
@@ -222,16 +232,20 @@ func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *run.
 		return err
 	}
 	if ok {
-		defer lock.Release()
+		defer func() {
+			if lErr := lock.Release(); lErr != nil {
+				log.Warn().Err(lErr).Msg("failed to release run lock")
+			}
+		}()
 	}
-	status := "doing"
+	status := statusDoing
 	items, err := tracker.List(ctx, &status)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
 		if item.RunID == nil {
-			if err := tracker.MarkStatus(ctx, item.ID, "failed"); err != nil {
+			if err := tracker.MarkStatus(ctx, item.ID, statusFailed); err != nil {
 				return err
 			}
 			continue
@@ -241,7 +255,7 @@ func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *run.
 			return err
 		}
 		if runStatus != "running" || ok {
-			if err := tracker.MarkStatus(ctx, item.ID, "failed"); err != nil {
+			if err := tracker.MarkStatus(ctx, item.ID, statusFailed); err != nil {
 				return err
 			}
 		}

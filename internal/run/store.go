@@ -1,3 +1,4 @@
+// Package run implements the orchestrator for the norma development lifecycle.
 package run
 
 import (
@@ -7,6 +8,7 @@ import (
 	"time"
 )
 
+// Store provides persistence for runs and steps.
 type Store struct {
 	db *sql.DB
 }
@@ -39,6 +41,7 @@ func (s *Store) CreateRun(ctx context.Context, runID, goal, runDir string, itera
 	return nil
 }
 
+// StepRecord represents a committed step in the database.
 type StepRecord struct {
 	RunID     string
 	StepIndex int
@@ -51,13 +54,15 @@ type StepRecord struct {
 	Summary   string
 }
 
-type RunUpdate struct {
+// Update contains updates for a run record.
+type Update struct {
 	CurrentStepIndex int
 	Iteration        int
 	Status           string
 	Verdict          *string
 }
 
+// Event represents a timeline event for a run.
 type Event struct {
 	Type     string
 	Message  string
@@ -65,7 +70,7 @@ type Event struct {
 }
 
 // UpdateRun applies a run update and optional event without inserting a step.
-func (s *Store) UpdateRun(ctx context.Context, runID string, update RunUpdate, event *Event) error {
+func (s *Store) UpdateRun(ctx context.Context, runID string, update Update, event *Event) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin update run: %w", err)
@@ -88,7 +93,7 @@ func (s *Store) UpdateRun(ctx context.Context, runID string, update RunUpdate, e
 }
 
 // CommitStep inserts the step record, events, and updates the run in one transaction.
-func (s *Store) CommitStep(ctx context.Context, step StepRecord, events []Event, update RunUpdate) error {
+func (s *Store) CommitStep(ctx context.Context, step StepRecord, events []Event, update Update) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin commit step: %w", err)

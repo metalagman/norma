@@ -1,3 +1,4 @@
+// Package run implements the orchestrator for the norma development lifecycle.
 package run
 
 import (
@@ -18,7 +19,7 @@ func createWorkspace(ctx context.Context, repoRoot, runDir, taskID string) (stri
 
 	// We create a branch scoped to the task to allow restartable progress.
 	branchName := fmt.Sprintf("norma/task/%s", taskID)
-	
+
 	log.Info().
 		Str("repo_root", repoRoot).
 		Str("workspace_dir", workspaceDir).
@@ -41,13 +42,9 @@ func createWorkspace(ctx context.Context, repoRoot, runDir, taskID string) (stri
 		forceCleanupStaleWorktree(ctx, repoRoot, branchName)
 	}
 
-	args := []string{"worktree", "add"}
-	if !branchExists {
-		args = append(args, "-b", branchName)
-	}
-	args = append(args, workspaceDir)
+	args := []string{"worktree", "add", "-b", branchName, workspaceDir}
 	if branchExists {
-		args = append(args, branchName)
+		args = []string{"worktree", "add", workspaceDir, branchName}
 	}
 
 	// Create worktree
@@ -81,7 +78,7 @@ func forceCleanupStaleWorktree(ctx context.Context, repoRoot, branchName string)
 	}
 }
 
-func cleanupWorkspace(ctx context.Context, repoRoot, workspaceDir, taskID string) error {
+func cleanupWorkspace(ctx context.Context, repoRoot, workspaceDir, _ string) error {
 	log.Info().
 		Str("workspace_dir", workspaceDir).
 		Msg("cleaning up git workspace (removing worktree only)")
@@ -91,52 +88,6 @@ func cleanupWorkspace(ctx context.Context, repoRoot, workspaceDir, taskID string
 	if err != nil {
 		log.Warn().Err(err).Str("workspace_dir", workspaceDir).Msg("failed to remove git worktree")
 	}
-	
-	return nil
-}
 
-func getWorkspacePatch(ctx context.Context, workspaceDir string) (string, error) {
-	log.Debug().Str("workspace_dir", workspaceDir).Msg("extracting patch from workspace")
-
-	// Generate diff between current state and HEAD
-	diff := runCmd(ctx, workspaceDir, "git", "diff", "HEAD")
-	
-	// Also check for untracked files
-	untracked := runCmd(ctx, workspaceDir, "git", "ls-files", "--others", "--exclude-standard")
-	if strings.TrimSpace(untracked) != "" {
-		log.Debug().Str("workspace_dir", workspaceDir).Msg("including untracked files in patch")
-		// If there are untracked files, we need to add them to the index to include them in the diff
-		err := runCmdErr(ctx, workspaceDir, "git", "add", "-N", ".")
-		if err != nil {
-			return "", fmt.Errorf("git add -N: %w", err)
-		}
-		diff = runCmd(ctx, workspaceDir, "git", "diff", "HEAD")
-	}
-	
-	return diff, nil
-}
-
-func commitWorkspace(ctx context.Context, workspaceDir, message string) error {
-	log.Debug().Str("workspace_dir", workspaceDir).Str("message", message).Msg("committing changes in workspace")
-	
-	// Add all changes
-	err := runCmdErr(ctx, workspaceDir, "git", "add", ".")
-	if err != nil {
-		return fmt.Errorf("git add: %w", err)
-	}
-	
-	// Check if there are changes to commit
-	status := runCmd(ctx, workspaceDir, "git", "status", "--porcelain")
-	if strings.TrimSpace(status) == "" {
-		log.Debug().Str("workspace_dir", workspaceDir).Msg("no changes to commit in workspace")
-		return nil
-	}
-	
-	// Commit
-	err = runCmdErr(ctx, workspaceDir, "git", "commit", "-m", message)
-	if err != nil {
-		return fmt.Errorf("git commit: %w", err)
-	}
-	
 	return nil
 }

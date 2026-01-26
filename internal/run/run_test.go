@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestNextActionsPropagation(t *testing.T) {
+func TestNextActionsPropagation(_ *testing.T) {
 	// This is a placeholder for a more complex test.
 	// Since Runner depends on many things (DB, Agents),
 	// a full integration test might be hard without mocks.

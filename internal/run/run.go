@@ -1,3 +1,4 @@
+// Package run implements the orchestrator for the norma development lifecycle.
 package run
 
 import (
@@ -16,6 +17,25 @@ import (
 	"github.com/metalagman/norma/internal/reconcile"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	statusError   = "error"
+	statusFailed  = "failed"
+	statusPassed  = "passed"
+	statusRunning = "running"
+	statusStopped = "stopped"
+	statusStop    = "stop"
+	statusOK      = "ok"
+
+	rolePlan  = "plan"
+	roleDo    = "do"
+	roleCheck = "check"
+	roleAct   = "act"
+
+	labelHasPlan  = "norma-has-plan"
+	labelHasDo    = "norma-has-do"
+	labelHasCheck = "norma-has-check"
 )
 
 // Runner executes the norma workflow for a run.
@@ -42,7 +62,7 @@ type Result struct {
 // NewRunner constructs a Runner with agent implementations.
 func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tracker) (*Runner, error) {
 	agents := make(map[string]agent.Runner)
-	for _, role := range []string{"plan", "do", "check", "act"} {
+	for _, role := range []string{rolePlan, roleDo, roleCheck, roleAct} {
 		agentCfg, ok := cfg.Agents[role]
 		if !ok {
 			return nil, fmt.Errorf("missing agent config for role %q", role)
@@ -85,7 +105,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 		status := res.Status
 		if status == "" && err != nil {
-			status = "error"
+			status = statusError
 		}
 		event := log.Info().
 			Str("run_id", res.RunID).
@@ -101,7 +121,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	if err != nil {
 		return Result{}, err
 	}
-	defer lock.Release()
+	defer func() {
+		if lErr := lock.Release(); lErr != nil {
+			log.Warn().Err(lErr).Msg("failed to release run lock")
+		}
+	}()
 
 	if err := os.MkdirAll(r.normaDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("create .norma: %w", err)
@@ -155,10 +179,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			lastPlan = r.state.Plan
 			lastDo = r.state.Do
 			lastCheck = r.state.Check
-			if len(r.state.Journal) > 0 {
-				// We don't strictly load lastAct from journal for iteration 1 skip logic yet, 
-				// but the norma-has-* labels handle iteration 1 skips.
-			}
 
 			// Reconstruct progress.md from journal
 			if len(r.state.Journal) > 0 {
@@ -196,7 +216,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		log.Info().Int("iteration", iteration).Msg("starting iteration")
 		// 1. PLAN
 		skipPlan := false
-		if iteration == 1 && hasLabel("norma-has-plan") && lastPlan != nil {
+		if iteration == 1 && hasLabel(labelHasPlan) && lastPlan != nil {
 			log.Info().Str("task_id", r.taskID).Msg("skipping plan: norma-has-plan label present")
 			skipPlan = true
 		} else if iteration > 1 && lastAct != nil && lastAct.Decision == "continue" && lastPlan != nil {
@@ -206,13 +226,15 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 		if !skipPlan {
 			log.Info().Msg("executing plan step")
-			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-plan")
-			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-do")
-			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasPlan)
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasDo)
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasCheck)
 
 			stepIndex++
-			r.tracker.MarkStatus(ctx, r.taskID, "planning")
-			planReq := r.baseRequest(runID, iteration, stepIndex, "plan", goal, ac)
+			if err := r.tracker.MarkStatus(ctx, r.taskID, "planning"); err != nil {
+				log.Warn().Err(err).Msg("failed to update task status to planning")
+			}
+			planReq := r.baseRequest(runID, iteration, stepIndex, rolePlan, goal, ac)
 			planReq.Plan = &model.PlanInput{Task: model.IDInfo{ID: r.taskID}}
 
 			planRes, err := r.runAndCommitStep(ctx, planReq, stepsDir)
@@ -220,7 +242,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Error().Err(err).Msg("plan step execution failed with error")
 				return Result{RunID: runID}, err
 			}
-			if planRes.Status != "ok" && (planRes.Response == nil || planRes.Response.Plan == nil) {
+			if planRes.Status != statusOK && (planRes.Response == nil || planRes.Response.Plan == nil) {
 				log.Warn().Str("status", planRes.Status).Msg("plan step failed without required data, stopping")
 				return r.handleStop(ctx, runID, iteration, stepIndex, planRes)
 			}
@@ -228,21 +250,25 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 			// Persist plan
 			r.state.Plan = lastPlan
-			r.persistState(ctx)
-			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-plan")
+			if err := r.persistState(ctx); err != nil {
+				log.Warn().Err(err).Msg("failed to persist state after plan")
+			}
+			_ = r.tracker.AddLabel(ctx, r.taskID, labelHasPlan)
 		}
 
 		// 2. DO
-		if iteration == 1 && hasLabel("norma-has-do") && lastDo != nil {
+		if iteration == 1 && hasLabel(labelHasDo) && lastDo != nil {
 			log.Info().Str("task_id", r.taskID).Msg("skipping do: norma-has-do label present")
 		} else {
 			log.Info().Msg("executing do step")
-			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-do")
-			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasDo)
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasCheck)
 
 			stepIndex++
-			r.tracker.MarkStatus(ctx, r.taskID, "doing")
-			doReq := r.baseRequest(runID, iteration, stepIndex, "do", goal, ac)
+			if err := r.tracker.MarkStatus(ctx, r.taskID, "doing"); err != nil {
+				log.Warn().Err(err).Msg("failed to update task status to doing")
+			}
+			doReq := r.baseRequest(runID, iteration, stepIndex, roleDo, goal, ac)
 			doReq.Do = &model.DoInput{
 				WorkPlan:          lastPlan.WorkPlan,
 				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
@@ -253,7 +279,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Error().Err(err).Msg("do step execution failed with error")
 				return Result{RunID: runID}, err
 			}
-			if doRes.Status != "ok" && (doRes.Response == nil || doRes.Response.Do == nil) {
+			if doRes.Status != statusOK && (doRes.Response == nil || doRes.Response.Do == nil) {
 				log.Warn().Str("status", doRes.Status).Msg("do step failed without required data, stopping")
 				return r.handleStop(ctx, runID, iteration, stepIndex, doRes)
 			}
@@ -261,20 +287,24 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 			// Persist do
 			r.state.Do = lastDo
-			r.persistState(ctx)
-			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-do")
+			if err := r.persistState(ctx); err != nil {
+				log.Warn().Err(err).Msg("failed to persist state after do")
+			}
+			_ = r.tracker.AddLabel(ctx, r.taskID, labelHasDo)
 		}
 
 		// 3. CHECK
-		if iteration == 1 && hasLabel("norma-has-check") && lastCheck != nil {
+		if iteration == 1 && hasLabel(labelHasCheck) && lastCheck != nil {
 			log.Info().Str("task_id", r.taskID).Msg("skipping check: norma-has-check label present")
 		} else {
 			log.Info().Msg("executing check step")
-			_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+			_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasCheck)
 
 			stepIndex++
-			r.tracker.MarkStatus(ctx, r.taskID, "checking")
-			checkReq := r.baseRequest(runID, iteration, stepIndex, "check", goal, ac)
+			if err := r.tracker.MarkStatus(ctx, r.taskID, "checking"); err != nil {
+				log.Warn().Err(err).Msg("failed to update task status to checking")
+			}
+			checkReq := r.baseRequest(runID, iteration, stepIndex, roleCheck, goal, ac)
 			checkReq.Check = &model.CheckInput{
 				WorkPlan:          lastPlan.WorkPlan,
 				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
@@ -286,7 +316,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Error().Err(err).Msg("check step execution failed with error")
 				return Result{RunID: runID}, err
 			}
-			if checkRes.Status != "ok" && (checkRes.Response == nil || checkRes.Response.Check == nil) {
+			if checkRes.Status != statusOK && (checkRes.Response == nil || checkRes.Response.Check == nil) {
 				log.Warn().Str("status", checkRes.Status).Msg("check step failed without required data, stopping")
 				return r.handleStop(ctx, runID, iteration, stepIndex, checkRes)
 			}
@@ -303,7 +333,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			if err := r.persistState(ctx); err != nil {
 				log.Warn().Err(err).Msg("failed to persist state after check")
 			}
-			_ = r.tracker.AddLabel(ctx, r.taskID, "norma-has-check")
+			_ = r.tracker.AddLabel(ctx, r.taskID, labelHasCheck)
 		}
 
 		// 4. ACT
@@ -314,8 +344,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		}
 
 		stepIndex++
-		r.tracker.MarkStatus(ctx, r.taskID, "acting")
-		actReq := r.baseRequest(runID, iteration, stepIndex, "act", goal, ac)
+		if err := r.tracker.MarkStatus(ctx, r.taskID, "acting"); err != nil {
+			log.Warn().Err(err).Msg("failed to update task status to acting")
+		}
+		actReq := r.baseRequest(runID, iteration, stepIndex, roleAct, goal, ac)
 		actReq.Act = &model.ActInput{
 			CheckVerdict:      lastCheck.Verdict,
 			AcceptanceResults: lastCheck.AcceptanceResults,
@@ -332,12 +364,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			r.state.Act = lastAct
 			if lastAct.Decision == "replan" {
 				log.Info().Msg("act decision is replan, clearing has-plan label")
-				_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-plan")
-				_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-do")
-				_ = r.tracker.RemoveLabel(ctx, r.taskID, "norma-has-check")
+				_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasPlan)
+				_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasDo)
+				_ = r.tracker.RemoveLabel(ctx, r.taskID, labelHasCheck)
 				lastPlan = nil
 				r.state.Plan = nil
-				r.persistState(ctx)
+				if err := r.persistState(ctx); err != nil {
+					log.Warn().Err(err).Msg("failed to persist state after act")
+				}
 			}
 		}
 
@@ -353,11 +387,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			if err := r.tracker.MarkStatus(ctx, r.taskID, "done"); err != nil {
 				log.Warn().Err(err).Msg("failed to mark task as done in beads")
 			}
-			return Result{RunID: runID, Status: "passed"}, nil
+			return Result{RunID: runID, Status: statusPassed}, nil
 		}
 
 		log.Info().Str("act_status", actRes.Status).Msg("evaluating act decision")
-		if actRes.Status == "stop" || actRes.Status == "error" || (actRes.Response != nil && actRes.Response.Act != nil && actRes.Response.Act.Decision == "close") {
+		if actRes.Status == statusStop || actRes.Status == statusError || (actRes.Response != nil && actRes.Response.Act != nil && actRes.Response.Act.Decision == "close") {
 			log.Info().Msg("act decision is stop or close, stopping run")
 			return r.handleStop(ctx, runID, iteration, stepIndex, actRes)
 		}
@@ -366,12 +400,12 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		iteration++
 	}
 
-	return Result{RunID: runID, Status: "stopped"}, nil
+	return Result{RunID: runID, Status: statusStopped}, nil
 }
 
 func (r *Runner) baseRequest(runID string, iteration, index int, role, goal string, ac []model.AcceptanceCriterion) model.AgentRequest {
 	mode := "read_only"
-	if role == "do" || role == "act" {
+	if role == roleDo || role == roleAct {
 		mode = "read_write"
 	}
 	return model.AgentRequest{
@@ -416,7 +450,7 @@ func (r *Runner) runAndCommitStep(ctx context.Context, req model.AgentRequest, s
 		return res, err
 	}
 
-	err = r.commitStep(ctx, req.Run.ID, res, "running", nil)
+	err = r.commitStep(ctx, req.Run.ID, res, statusRunning, nil)
 	if err != nil {
 		return res, err
 	}
@@ -427,15 +461,17 @@ func (r *Runner) runAndCommitStep(ctx context.Context, req model.AgentRequest, s
 }
 
 func (r *Runner) handleStop(ctx context.Context, runID string, iteration, index int, res stepResult) (Result, error) {
-	status := "failed"
-	if res.Status == "stop" {
-		status = "stopped"
+	status := statusFailed
+	if res.Status == statusStop {
+		status = statusStopped
 	}
-	r.store.UpdateRun(ctx, runID, RunUpdate{
+	if err := r.store.UpdateRun(ctx, runID, Update{
 		Status:           status,
 		Iteration:        iteration,
 		CurrentStepIndex: index,
-	}, nil)
+	}, nil); err != nil {
+		log.Warn().Err(err).Msg("failed to update run status")
+	}
 
 	// Update task status in Beads
 	if err := r.tracker.MarkStatus(ctx, r.taskID, status); err != nil {
@@ -446,10 +482,10 @@ func (r *Runner) handleStop(ctx context.Context, runID string, iteration, index 
 }
 
 func (r *Runner) failRun(ctx context.Context, runID string, iteration, stepIndex int, reason string) (Result, error) {
-	update := RunUpdate{
+	update := Update{
 		CurrentStepIndex: stepIndex,
 		Iteration:        iteration,
-		Status:           "failed",
+		Status:           statusFailed,
 		Verdict:          nil,
 	}
 	event := Event{Type: "run_failed", Message: reason, DataJSON: ""}
@@ -458,11 +494,11 @@ func (r *Runner) failRun(ctx context.Context, runID string, iteration, stepIndex
 	}
 
 	// Update task status in Beads
-	if err := r.tracker.MarkStatus(ctx, r.taskID, "failed"); err != nil {
+	if err := r.tracker.MarkStatus(ctx, r.taskID, statusFailed); err != nil {
 		log.Warn().Err(err).Msg("failed to update task status in beads")
 	}
 
-	return Result{RunID: runID, Status: "failed"}, nil
+	return Result{RunID: runID, Status: statusFailed}, nil
 }
 
 func (r *Runner) persistState(ctx context.Context) error {
@@ -510,7 +546,11 @@ func (r *Runner) appendToProgress(res stepResult) {
 		log.Error().Err(err).Msg("failed to open progress.md")
 		return
 	}
-	defer f.Close()
+	defer func() {
+		if cErr := f.Close(); cErr != nil {
+			log.Warn().Err(cErr).Msg("failed to close progress.md")
+		}
+	}()
 
 	md := fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason)
 	md += fmt.Sprintf("**Task:** %s  \n", r.taskID)
@@ -545,6 +585,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
 
 	// check if there are changes to commit
 	status := runCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
+	log.Debug().Str("git_status", status).Msg("git status after merge")
 	if strings.TrimSpace(status) == "" {
 		log.Info().Msg("nothing to commit after merge")
 		return nil
@@ -578,7 +619,7 @@ func (r *Runner) commitStep(ctx context.Context, runID string, res stepResult, r
 		EndedAt:   res.EndedAt.UTC().Format(time.RFC3339),
 		Summary:   res.Summary,
 	}
-	update := RunUpdate{
+	update := Update{
 		CurrentStepIndex: res.StepIndex,
 		Iteration:        res.Iteration,
 		Status:           runStatus,
