@@ -1,6 +1,8 @@
 # norma
 
-![norma logo](./docs/assets/norma_logo.png)
+<p align="center">
+  <img src="docs/assets/norma_logo_200.png" alt="norma logo">
+</p>
 
 **norma** is a robust, autonomous agent workflow orchestrator for Go projects. It bridges the gap between high-level task management and low-level code execution by enforcing a strict **Plan → Do → Check → Act (PDCA)** cycle.
 
