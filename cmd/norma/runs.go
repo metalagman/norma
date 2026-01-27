@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/metalagman/norma/internal/run"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -63,7 +64,7 @@ func runsPruneCmd() *cobra.Command {
 			if dryRun {
 				mode = "would delete"
 			}
-			fmt.Printf("%s %d runs (kept %d, skipped %d)\n", mode, res.Deleted, res.Kept, res.Skipped)
+			log.Info().Msgf("%s %d runs (kept %d, skipped %d)", mode, res.Deleted, res.Kept, res.Skipped)
 			return nil
 		},
 	}

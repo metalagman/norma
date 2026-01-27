@@ -8,6 +8,7 @@ import (
 	"github.com/metalagman/norma/internal/model"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -62,7 +63,7 @@ func runCmd() *cobra.Command {
 			id := args[0]
 			if err := runTaskByID(cmd.Context(), tracker, runStore, runner, id); err != nil {
 				if continueOnFail {
-					fmt.Println(err)
+					log.Error().Err(err).Msg("task failed")
 					return nil
 				}
 				return err

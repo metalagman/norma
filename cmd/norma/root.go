@@ -62,7 +62,3 @@ func initConfig() {
 	viper.SetConfigFile(path)
 	viper.SetConfigType("json")
 }
-
-func fatal(err error) {
-	fmt.Fprintln(os.Stderr, err)
-}

@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +51,7 @@ func taskAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("task %s added\n", id)
+			log.Info().Msgf("task %s added", id)
 			return nil
 		},
 	}
@@ -75,7 +78,7 @@ func taskListCmd() *cobra.Command {
 				return err
 			}
 			if len(items) == 0 {
-				fmt.Println("no tasks")
+				log.Info().Msg("no tasks")
 				return nil
 			}
 			for _, item := range items {
@@ -87,7 +90,7 @@ func taskListCmd() *cobra.Command {
 				if title == "" {
 					title = item.Goal
 				}
-				fmt.Printf("%s\t%s\t%s\t%s\n", item.ID, item.Status, run, title)
+				_, _ = io.WriteString(os.Stdout, fmt.Sprintf("%s\t%s\t%s\t%s\n", item.ID, item.Status, run, title))
 			}
 			return nil
 		},
@@ -107,7 +110,7 @@ func taskDoneCmd() *cobra.Command {
 			if err := tracker.MarkDone(context.Background(), id); err != nil {
 				return err
 			}
-			fmt.Printf("task %s done\n", id)
+			log.Info().Msgf("task %s done", id)
 			return nil
 		},
 	}
@@ -134,7 +137,7 @@ func taskLinkCmd() *cobra.Command {
 					return err
 				}
 			}
-			fmt.Printf("task %s linked\n", taskID)
+			log.Info().Msgf("task %s linked", taskID)
 			return nil
 		},
 	}
@@ -181,7 +184,7 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 		if err := tracker.MarkStatus(ctx, id, "done"); err != nil {
 			return err
 		}
-		fmt.Printf("task %s passed (run %s)\n", id, result.RunID)
+		log.Info().Str("task_id", id).Str("run_id", result.RunID).Msg("task passed")
 		return nil
 	case "failed":
 		if err := tracker.MarkStatus(ctx, id, "failed"); err != nil {
@@ -208,7 +211,7 @@ func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store
 			return err
 		}
 		if len(readyTasks) == 0 {
-			fmt.Println("no ready tasks")
+			log.Info().Msg("no ready tasks")
 			return nil
 		}
 
@@ -216,11 +219,11 @@ func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store
 		if err != nil {
 			return err
 		}
-		fmt.Printf("selected %s (%s)\n", selected.ID, reason)
+		log.Info().Str("task_id", selected.ID).Str("reason", reason).Msg("task selected")
 
 		if err := runTaskByID(ctx, tracker, runStore, runner, selected.ID); err != nil {
 			if continueOnFail {
-				fmt.Printf("task %s failed: %v\n", selected.ID, err)
+				log.Error().Err(err).Str("task_id", selected.ID).Msg("task failed")
 				continue
 			}
 			return err
