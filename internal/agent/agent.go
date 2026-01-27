@@ -35,24 +35,51 @@ type RunnerInfo struct {
 	UseTTY   bool
 }
 
+type agentSpec struct {
+	defaultSubcommand string
+	subcommands       map[string]bool
+	extraFlags        []string
+}
+
+var agentSpecs = map[string]agentSpec{
+	"codex": {
+		defaultSubcommand: "exec",
+		subcommands: map[string]bool{
+			"exec": true, "review": true, "login": true, "logout": true, "mcp": true,
+			"mcp-server": true, "app-server": true, "completion": true, "sandbox": true,
+			"apply": true, "resume": true, "fork": true, "cloud": true, "features": true, "help": true,
+		},
+		extraFlags: []string{"--full-auto", "--skip-git-repo-check"},
+	},
+	"opencode": {
+		defaultSubcommand: "run",
+		subcommands: map[string]bool{
+			"agent": true, "attach": true, "auth": true, "github": true, "mcp": true,
+			"models": true, "run": true, "serve": true, "session": true, "stats": true,
+			"export": true, "import": true, "web": true, "acp": true, "uninstall": true, "upgrade": true, "help": true,
+		},
+	},
+	"gemini": {
+		extraFlags: []string{"--output-format", "text", "--approval-mode", "yolo"},
+	},
+	"claude": {
+		extraFlags: []string{"--output-format", "text", "--print", "--dangerously-skip-permissions"},
+	},
+}
+
 // NewRunner constructs a runner for the given agent config.
 func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
+	spec, isKnownType := agentSpecs[cfg.Type]
 	var cmd []string
-	switch cfg.Type {
-	case "exec":
+
+	if cfg.Type == "exec" {
 		if len(cfg.Cmd) == 0 {
 			return nil, fmt.Errorf("exec agent requires cmd")
 		}
 		cmd = cfg.Cmd
-	case "codex":
-		cmd = appendCodexFlags([]string{"codex"}, cfg.Model)
-	case "opencode":
-		cmd = appendOpenCodeFlags([]string{"opencode"}, cfg.Model)
-	case "gemini":
-		cmd = appendGeminiFlags([]string{"gemini"}, cfg.Model)
-	case "claude":
-		cmd = appendClaudeFlags([]string{"claude"}, cfg.Model)
-	default:
+	} else if isKnownType {
+		cmd = prepareCmd(cfg.Type, spec, cfg.Model)
+	} else {
 		return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 	}
 
@@ -81,6 +108,25 @@ func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
 			UseTTY:   useTTY,
 		},
 	}, nil
+}
+
+func prepareCmd(baseCmd string, spec agentSpec, model string) []string {
+	out := []string{baseCmd}
+
+	// Handle subcommand if applicable
+	if spec.defaultSubcommand != "" {
+		out = append(out, spec.defaultSubcommand)
+	}
+
+	// Add model flag if specified
+	if model != "" {
+		out = append(out, "--model", model)
+	}
+
+	// Add extra flags
+	out = append(out, spec.extraFlags...)
+
+	return out
 }
 
 type ainvokeRunner struct {
@@ -124,103 +170,6 @@ func stderrFile(w io.Writer) io.Writer {
 		return io.Discard
 	}
 	return w
-}
-
-func appendCodexFlags(argv []string, model string) []string {
-	out := make([]string, 0, len(argv)+4)
-	out = append(out, argv...)
-	if len(out) > 0 && out[0] == "codex" {
-		if len(out) == 1 || !isCodexSubcommand(out[1]) {
-			out = append(out[:1], append([]string{"exec"}, out[1:]...)...)
-		}
-	}
-	if model != "" && !hasFlag(out, "--model") && !hasFlag(out, "-m") {
-		out = append(out, "--model", model)
-	}
-	if !hasFlag(out, "--full-auto") {
-		out = append(out, "--full-auto")
-	}
-	if !hasFlag(out, "--skip-git-repo-check") {
-		out = append(out, "--skip-git-repo-check")
-	}
-
-	return out
-}
-
-func appendOpenCodeFlags(argv []string, model string) []string {
-	out := make([]string, 0, len(argv)+4)
-	out = append(out, argv...)
-	if len(out) > 0 && out[0] == "opencode" {
-		if len(out) == 1 || out[1] == "" || strings.HasPrefix(out[1], "-") || !isOpenCodeSubcommand(out[1]) {
-			out = append(out[:1], append([]string{"run"}, out[1:]...)...)
-		}
-	}
-	if model != "" && !hasFlag(out, "--model") && !hasFlag(out, "-m") {
-		out = append(out, "--model", model)
-	}
-	return out
-}
-
-func appendGeminiFlags(argv []string, model string) []string {
-	out := make([]string, 0, len(argv)+4)
-	out = append(out, argv...)
-	if model != "" && !hasFlag(out, "--model") && !hasFlag(out, "-m") {
-		out = append(out, "--model", model)
-	}
-	if !hasFlag(out, "--output-format") {
-		out = append(out, "--output-format", "text")
-	}
-	if !hasFlag(out, "--approval-mode") && !hasFlag(out, "--yolo") {
-		out = append(out, "--approval-mode", "yolo")
-	}
-	return out
-}
-
-func appendClaudeFlags(argv []string, model string) []string {
-	out := make([]string, 0, len(argv)+4)
-	out = append(out, argv...)
-	if model != "" && !hasFlag(out, "--model") && !hasFlag(out, "-m") {
-		out = append(out, "--model", model)
-	}
-	if !hasFlag(out, "--output-format") {
-		out = append(out, "--output-format", "text")
-	}
-	if !hasFlag(out, "--print") && !hasFlag(out, "-p") {
-		out = append(out, "--print")
-	}
-	if !hasFlag(out, "--dangerously-skip-permissions") {
-		out = append(out, "--dangerously-skip-permissions")
-	}
-	return out
-}
-
-func hasFlag(argv []string, name string) bool {
-	for _, arg := range argv {
-		if arg == name {
-			return true
-		}
-	}
-	return false
-}
-
-func isCodexSubcommand(arg string) bool {
-	switch arg {
-	case "exec", "review", "login", "logout", "mcp", "mcp-server", "app-server",
-		"completion", "sandbox", "apply", "resume", "fork", "cloud", "features", "help":
-		return true
-	default:
-		return false
-	}
-}
-
-func isOpenCodeSubcommand(arg string) bool {
-	switch arg {
-	case "agent", "attach", "auth", "github", "mcp", "models", "run", "serve",
-		"session", "stats", "export", "import", "web", "acp", "uninstall", "upgrade", "help":
-		return true
-	default:
-		return false
-	}
 }
 
 func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
