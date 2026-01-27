@@ -16,7 +16,7 @@ import (
 func TestNewRunner(t *testing.T) {
 	repoRoot, err := os.MkdirTemp("", "norma-agent-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(repoRoot)
+	defer func() { _ = os.RemoveAll(repoRoot) }()
 
 	cfg := config.AgentConfig{
 		Type: "exec",
@@ -35,13 +35,13 @@ func TestNewRunner(t *testing.T) {
 func TestAinvokeRunner_Run(t *testing.T) {
 	repoRoot, err := os.MkdirTemp("", "norma-agent-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(repoRoot)
+	defer func() { _ = os.RemoveAll(repoRoot) }()
 
 	// Create a dummy agent that just writes a valid AgentResponse to output.json
 	agentScript := filepath.Join(repoRoot, "my-agent.sh")
 	scriptContent := `#!/bin/sh
 cat > /dev/null # consume stdin
-RESP='{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]}}'
+RESP='{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]},"plan":{"task_id":"task-1","goal":"goal","acceptance_criteria":{"baseline":[],"effective":[]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[],"stop_triggers":[]}}}'
 echo "$RESP" > output.json
 echo "$RESP"
 `

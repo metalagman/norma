@@ -38,21 +38,43 @@ type RunnerInfo struct {
 // NewRunner constructs a runner for the given agent config.
 func NewRunner(cfg config.AgentConfig, _ string) (Runner, error) {
 	cmd := cfg.Cmd
+	useTTY := false
+
 	if len(cmd) == 0 {
 		switch cfg.Type {
 		case "exec":
 			return nil, fmt.Errorf("exec agent requires cmd")
-		case "claude", "codex", "gemini", "opencode":
-			cmd = []string{"ainvoke", cfg.Type}
+		case "claude":
+			cmd = []string{"claude"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
+			useTTY = true
+		case "codex":
+			cmd = []string{"codex", "exec"}
+			if cfg.Model != "" {
+				cmd = append(cmd, "--model", cfg.Model)
+			}
+			cmd = append(cmd, "--sandbox", "workspace-write")
+			useTTY = true
+		case "gemini":
+			cmd = []string{"gemini"}
+			if cfg.Model != "" {
+				cmd = append(cmd, "--model", cfg.Model)
+			}
+			cmd = append(cmd, "--output-format", "text")
+			useTTY = true
+		case "opencode":
+			cmd = []string{"opencode", "run"}
+			if cfg.Model != "" {
+				cmd = append(cmd, "--model", cfg.Model)
+			}
+			useTTY = true
 		default:
 			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}
 	}
 
-	useTTY := false
 	if cfg.UseTTY != nil {
 		useTTY = *cfg.UseTTY
 	}
@@ -88,8 +110,8 @@ func (r *ainvokeRunner) Run(ctx context.Context, req model.AgentRequest, stdout,
 		RunDir:       req.Step.Dir,
 		SystemPrompt: prompt,
 		Input:        req,
-		InputSchema:  inputSchema,
-		OutputSchema: outputSchema,
+		InputSchema:  getInputSchema(req.Step.Name),
+		OutputSchema: getOutputSchema(req.Step.Name),
 	}
 
 	if stdout == nil {
