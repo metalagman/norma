@@ -1,20 +1,20 @@
 {
   "agents": {
     "plan": {
-      "type": "gemini",
-      "model": "gemini-2.5-flash-lite"
+      "type": "codex",
+      "model": "gpt-5.2-codex"
     },
     "do": {
       "type": "gemini",
-      "model": "gemini-2.5-flash-lite"
+      "model": "gemini-3-flash-preview"
     },
     "check": {
       "type": "gemini",
-      "model": "gemini-2.5-flash-lite"
+      "model": "gemini-3-flash-preview"
     },
     "act": {
       "type": "gemini",
-      "model": "gemini-2.5-flash-lite"
+      "model": "gemini-3-flash-preview"
     }
   },
   "budgets": {

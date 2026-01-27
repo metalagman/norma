@@ -6,6 +6,7 @@ import (
 
 	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/web"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +29,7 @@ func uiCmd() *cobra.Command {
 			}
 
 			addr := fmt.Sprintf(":%d", port)
-			fmt.Printf("Starting UI on http://localhost%s\n", addr)
+			log.Info().Msgf("Starting UI on http://localhost%s", addr)
 			return http.ListenAndServe(addr, server.Routes())
 		},
 	}

@@ -5,10 +5,9 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"io"
-	"log"
 
 	"github.com/pressly/goose/v3"
+	"github.com/rs/zerolog/log"
 	_ "modernc.org/sqlite" // pure-Go SQLite driver
 )
 
@@ -41,7 +40,7 @@ func applyPragmas(db *sql.DB) error {
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
 			if stmt == "PRAGMA journal_mode=WAL;" {
-				log.Printf("sqlite: WAL mode not enabled: %v", err)
+				log.Warn().Err(err).Msg("sqlite: WAL mode not enabled")
 				continue
 			}
 			return fmt.Errorf("apply pragma %q: %w", stmt, err)
@@ -55,7 +54,7 @@ var migrationsFS embed.FS
 
 func migrate(db *sql.DB) error {
 	goose.SetBaseFS(migrationsFS)
-	goose.SetLogger(log.New(io.Discard, "", 0))
+	goose.SetLogger(goose.NopLogger())
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return fmt.Errorf("set goose dialect: %w", err)
 	}

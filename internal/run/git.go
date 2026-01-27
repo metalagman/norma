@@ -2,7 +2,6 @@
 package run
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -32,10 +31,9 @@ func runCmdErr(ctx context.Context, dir string, name string, args ...string) err
 	log.Debug().Str("dir", dir).Str("cmd", name).Strs("args", args).Msg("running git command (err return)")
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

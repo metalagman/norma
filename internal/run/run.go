@@ -615,6 +615,11 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
 
 	log.Info().Str("branch", branchName).Msg("applying changes from workspace")
 
+	// stage current changes (like Beads updates) to avoid merge conflicts
+	if err := runCmdErr(ctx, r.repoRoot, "git", "add", "."); err != nil {
+		log.Warn().Err(err).Msg("failed to stage current changes before merge")
+	}
+
 	// record git status/hash "before"
 	beforeHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
 

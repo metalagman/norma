@@ -58,7 +58,7 @@ func taskAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("task %s added\n", id)
+			log.Info().Msgf("task %s added", id)
 			return nil
 		},
 	}
@@ -85,7 +85,7 @@ func taskListCmd() *cobra.Command {
 				return err
 			}
 			if len(items) == 0 {
-				fmt.Println("no tasks")
+				log.Info().Msg("no tasks")
 				return nil
 			}
 			for _, item := range items {
@@ -117,7 +117,7 @@ func taskDoneCmd() *cobra.Command {
 			if err := tracker.MarkDone(cmd.Context(), id); err != nil {
 				return err
 			}
-			fmt.Printf("task %s done\n", id)
+			log.Info().Msgf("task %s done", id)
 			return nil
 		},
 	}
@@ -144,7 +144,7 @@ func taskLinkCmd() *cobra.Command {
 					return err
 				}
 			}
-			fmt.Printf("task %s linked\n", taskID)
+			log.Info().Msgf("task %s linked", taskID)
 			return nil
 		},
 	}
@@ -206,7 +206,7 @@ func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store
 			return err
 		}
 		if len(readyTasks) == 0 {
-			fmt.Println("no ready tasks")
+			log.Info().Msg("no ready tasks")
 			return nil
 		}
 
@@ -214,11 +214,11 @@ func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store
 		if err != nil {
 			return err
 		}
-		fmt.Printf("selected %s (%s)\n", selected.ID, reason)
+		log.Info().Str("task_id", selected.ID).Str("reason", reason).Msg("task selected")
 
 		if err := runTaskByID(ctx, tracker, runStore, runner, selected.ID); err != nil {
 			if continueOnFail {
-				fmt.Printf("task %s failed: %v\n", selected.ID, err)
+				log.Error().Err(err).Str("task_id", selected.ID).Msg("task failed")
 				continue
 			}
 			return err
