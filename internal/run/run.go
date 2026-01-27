@@ -284,6 +284,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Warn().Str("status", doRes.Status).Msg("do step failed without required data, stopping")
 				return r.handleStop(ctx, runID, iteration, stepIndex, doRes)
 			}
+
+			// Commit changes in workspace
+			_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("do: step %d", stepIndex))
+
 			lastDo = doRes.Response.Do
 
 			// Persist do
@@ -359,6 +363,9 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			log.Error().Err(err).Msg("act step execution failed with error")
 			return Result{RunID: runID}, err
 		}
+
+		// Commit changes in workspace
+		_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("act: step %d", stepIndex))
 
 		if actRes.Response != nil && actRes.Response.Act != nil {
 			lastAct = actRes.Response.Act
@@ -625,7 +632,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
 	}
 
 	// commit using Conventional Commits
-	if err := runCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg); err != nil {
+	if err := runCmdErr(ctx, r.repoRoot, "git", "commit", "-am", commitMsg); err != nil {
 		log.Error().Err(err).Msg("failed to commit merged changes, rolling back")
 		_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
 		return fmt.Errorf("git commit: %w", err)
