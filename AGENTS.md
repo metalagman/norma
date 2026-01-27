@@ -21,6 +21,13 @@ Single fixed workflow:
 - **Git History as Source of Truth:** The orchestrator extracts changes from the workspace using Git (e.g., `git merge --squash`).
 - **Any agent** is supported through a **normalized JSON contract**.
 
+## 0.1) Agent guidelines (for Norma development)
+
+When working ON the `norma` project itself, agents MUST:
+- **Follow Google Go Best Practices**: Adhere strictly to the principles and idioms defined in the Google Go Style Guide and Best Practices.
+- **Use project-local tools**: Always prefer project-local tools via `go tool` (e.g., `go tool golangci-lint run`).
+- **Always verify changes**: MUST run tests using `go test ./...` and linters (`go tool golangci-lint run`) before submitting code changes. Never assume code is correct without passing local quality gates.
+
 ---
 
 ## 1) Directory layout
