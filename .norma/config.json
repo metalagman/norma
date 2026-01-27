@@ -9,12 +9,12 @@
       "model": "gemini-3-flash-preview"
     },
     "check": {
-      "type": "gemini",
-      "model": "gemini-3-flash-preview"
+      "type": "codex",
+      "model": "gpt-5.2-codex"
     },
     "act": {
-      "type": "gemini",
-      "model": "gemini-3-flash-preview"
+      "type": "codex",
+      "model": "gpt-5.2-codex"
     }
   },
   "budgets": {

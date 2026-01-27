@@ -615,9 +615,15 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
 
 	log.Info().Str("branch", branchName).Msg("applying changes from workspace")
 
-	// stage current changes (like Beads updates) to avoid merge conflicts
-	if err := runCmdErr(ctx, r.repoRoot, "git", "add", "."); err != nil {
-		log.Warn().Err(err).Msg("failed to stage current changes before merge")
+	// Ensure a clean working tree before merge to avoid clobbering local changes.
+	dirty := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "status", "--porcelain"))
+	stashed := false
+	if dirty != "" {
+		log.Info().Msg("stashing local changes before merge")
+		if err := runCmdErr(ctx, r.repoRoot, "git", "stash", "push", "-u", "-m", fmt.Sprintf("norma pre-apply %s", runID)); err != nil {
+			return fmt.Errorf("git stash push: %w", err)
+		}
+		stashed = true
 	}
 
 	// record git status/hash "before"
@@ -625,7 +631,26 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
 
 	// merge --squash
 	if err := runCmdErr(ctx, r.repoRoot, "git", "merge", "--squash", branchName); err != nil {
+		if stashed {
+			_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+			_ = runCmdErr(ctx, r.repoRoot, "git", "stash", "pop")
+		}
 		return fmt.Errorf("git merge --squash: %w", err)
+	}
+
+	if stashed {
+		if err := runCmdErr(ctx, r.repoRoot, "git", "stash", "apply"); err != nil {
+			_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+			return fmt.Errorf("git stash apply: %w", err)
+		}
+	}
+
+	if err := runCmdErr(ctx, r.repoRoot, "git", "add", "-A"); err != nil {
+		_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+		if stashed {
+			_ = runCmdErr(ctx, r.repoRoot, "git", "stash", "pop")
+		}
+		return fmt.Errorf("git add -A: %w", err)
 	}
 
 	// check if there are changes to commit
@@ -637,10 +662,19 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
 	}
 
 	// commit using Conventional Commits
-	if err := runCmdErr(ctx, r.repoRoot, "git", "commit", "-am", commitMsg); err != nil {
+	if err := runCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg); err != nil {
 		log.Error().Err(err).Msg("failed to commit merged changes, rolling back")
 		_ = runCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+		if stashed {
+			_ = runCmdErr(ctx, r.repoRoot, "git", "stash", "pop")
+		}
 		return fmt.Errorf("git commit: %w", err)
+	}
+
+	if stashed {
+		if err := runCmdErr(ctx, r.repoRoot, "git", "stash", "drop"); err != nil {
+			log.Warn().Err(err).Msg("failed to drop applied stash")
+		}
 	}
 
 	afterHash := strings.TrimSpace(runCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
