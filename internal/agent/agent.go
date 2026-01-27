@@ -35,52 +35,21 @@ type RunnerInfo struct {
 	UseTTY   bool
 }
 
-type agentSpec struct {
-	defaultSubcommand string
-	subcommands       map[string]bool
-	extraFlags        []string
-}
-
-var agentSpecs = map[string]agentSpec{
-	"codex": {
-		defaultSubcommand: "exec",
-		subcommands: map[string]bool{
-			"exec": true, "review": true, "login": true, "logout": true, "mcp": true,
-			"mcp-server": true, "app-server": true, "completion": true, "sandbox": true,
-			"apply": true, "resume": true, "fork": true, "cloud": true, "features": true, "help": true,
-		},
-		extraFlags: []string{"--full-auto", "--skip-git-repo-check"},
-	},
-	"opencode": {
-		defaultSubcommand: "run",
-		subcommands: map[string]bool{
-			"agent": true, "attach": true, "auth": true, "github": true, "mcp": true,
-			"models": true, "run": true, "serve": true, "session": true, "stats": true,
-			"export": true, "import": true, "web": true, "acp": true, "uninstall": true, "upgrade": true, "help": true,
-		},
-	},
-	"gemini": {
-		extraFlags: []string{"--output-format", "text", "--approval-mode", "yolo"},
-	},
-	"claude": {
-		extraFlags: []string{"--output-format", "text", "--print", "--dangerously-skip-permissions"},
-	},
-}
-
 // NewRunner constructs a runner for the given agent config.
-func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
-	spec, isKnownType := agentSpecs[cfg.Type]
-	var cmd []string
-
-	if cfg.Type == "exec" {
-		if len(cfg.Cmd) == 0 {
+func NewRunner(cfg config.AgentConfig, _ string) (Runner, error) {
+	cmd := cfg.Cmd
+	if len(cmd) == 0 {
+		switch cfg.Type {
+		case "exec":
 			return nil, fmt.Errorf("exec agent requires cmd")
+		case "claude", "codex", "gemini", "opencode":
+			cmd = []string{"ainvoke", cfg.Type}
+			if cfg.Model != "" {
+				cmd = append(cmd, "--model", cfg.Model)
+			}
+		default:
+			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}
-		cmd = cfg.Cmd
-	} else if isKnownType {
-		cmd = prepareCmd(cfg.Type, spec, cfg.Model)
-	} else {
-		return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 	}
 
 	useTTY := false
@@ -97,43 +66,16 @@ func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
 	}
 
 	return &ainvokeRunner{
-		repoRoot: repoRoot,
-		cfg:      cfg,
-		runner:   ar,
-		info: RunnerInfo{
-			Type:     cfg.Type,
-			Cmd:      cmd,
-			Model:    cfg.Model,
-			RepoRoot: repoRoot,
-			UseTTY:   useTTY,
-		},
+		cfg:    cfg,
+		runner: ar,
+		cmd:    cmd,
 	}, nil
 }
 
-func prepareCmd(baseCmd string, spec agentSpec, model string) []string {
-	out := []string{baseCmd}
-
-	// Handle subcommand if applicable
-	if spec.defaultSubcommand != "" {
-		out = append(out, spec.defaultSubcommand)
-	}
-
-	// Add model flag if specified
-	if model != "" {
-		out = append(out, "--model", model)
-	}
-
-	// Add extra flags
-	out = append(out, spec.extraFlags...)
-
-	return out
-}
-
 type ainvokeRunner struct {
-	repoRoot string
-	cfg      config.AgentConfig
-	runner   ainvoke.Runner
-	info     RunnerInfo
+	cfg    config.AgentConfig
+	runner ainvoke.Runner
+	cmd    []string
 }
 
 func (r *ainvokeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
@@ -150,26 +92,28 @@ func (r *ainvokeRunner) Run(ctx context.Context, req model.AgentRequest, stdout,
 		OutputSchema: outputSchema,
 	}
 
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+
 	// ainvoke handles writing input.json, validating schemas, and running the command.
-	return r.runner.Run(ctx, inv, ainvoke.WithStdout(stdoutFile(stdout)), ainvoke.WithStderr(stderrFile(stderr)))
+	return r.runner.Run(ctx, inv, ainvoke.WithStdout(stdout), ainvoke.WithStderr(stderr))
 }
 
 func (r *ainvokeRunner) Describe() RunnerInfo {
-	return r.info
-}
-
-func stdoutFile(w io.Writer) io.Writer {
-	if w == nil {
-		return io.Discard
+	useTTY := false
+	if r.cfg.UseTTY != nil {
+		useTTY = *r.cfg.UseTTY
 	}
-	return w
-}
-
-func stderrFile(w io.Writer) io.Writer {
-	if w == nil {
-		return io.Discard
+	return RunnerInfo{
+		Type:   r.cfg.Type,
+		Cmd:    r.cmd,
+		Model:  r.cfg.Model,
+		UseTTY: useTTY,
 	}
-	return w
 }
 
 func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
