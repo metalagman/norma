@@ -2,19 +2,14 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
-	"github.com/creack/pty"
+	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
-	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -42,300 +37,93 @@ type RunnerInfo struct {
 
 // NewRunner constructs a runner for the given agent config.
 func NewRunner(cfg config.AgentConfig, repoRoot string) (Runner, error) {
+	var cmd []string
 	switch cfg.Type {
 	case "exec":
 		if len(cfg.Cmd) == 0 {
 			return nil, fmt.Errorf("exec agent requires cmd")
 		}
-		return &execRunner{repoRoot: repoRoot, cmd: cfg.Cmd, workDir: repoRoot}, nil
+		cmd = cfg.Cmd
 	case "codex":
-		if len(cfg.Cmd) > 0 {
-			return nil, fmt.Errorf("codex agent does not support cmd configuration")
-		}
-		workDir := repoRoot
-		if cfg.Path != "" {
-			if filepath.IsAbs(cfg.Path) {
-				workDir = cfg.Path
-			} else {
-				workDir = filepath.Join(repoRoot, cfg.Path)
-			}
-		}
-		useTTY := false
-		if cfg.UseTTY != nil {
-			useTTY = *cfg.UseTTY
-		}
-		return &codexRunner{repoRoot: repoRoot, cmd: []string{"codex"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+		cmd = appendCodexFlags([]string{"codex"}, cfg.Model)
 	case "opencode":
-		if len(cfg.Cmd) > 0 {
-			return nil, fmt.Errorf("opencode agent does not support cmd configuration")
-		}
-		workDir := repoRoot
-		if cfg.Path != "" {
-			if filepath.IsAbs(cfg.Path) {
-				workDir = cfg.Path
-			} else {
-				workDir = filepath.Join(repoRoot, cfg.Path)
-			}
-		}
-		useTTY := false
-		if cfg.UseTTY != nil {
-			useTTY = *cfg.UseTTY
-		}
-		return &opencodeRunner{repoRoot: repoRoot, cmd: []string{"opencode"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+		cmd = appendOpenCodeFlags([]string{"opencode"}, cfg.Model)
 	case "gemini":
-		if len(cfg.Cmd) > 0 {
-			return nil, fmt.Errorf("gemini agent does not support cmd configuration")
-		}
-		workDir := repoRoot
-		if cfg.Path != "" {
-			if filepath.IsAbs(cfg.Path) {
-				workDir = cfg.Path
-			} else {
-				workDir = filepath.Join(repoRoot, cfg.Path)
-			}
-		}
-		useTTY := false
-		if cfg.UseTTY != nil {
-			useTTY = *cfg.UseTTY
-		}
-		return &geminiRunner{repoRoot: repoRoot, cmd: []string{"gemini"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+		cmd = appendGeminiFlags([]string{"gemini"}, cfg.Model)
 	case "claude":
-		if len(cfg.Cmd) > 0 {
-			return nil, fmt.Errorf("claude agent does not support cmd configuration")
-		}
-		workDir := repoRoot
-		if cfg.Path != "" {
-			if filepath.IsAbs(cfg.Path) {
-				workDir = cfg.Path
-			} else {
-				workDir = filepath.Join(repoRoot, cfg.Path)
-			}
-		}
-		useTTY := false
-		if cfg.UseTTY != nil {
-			useTTY = *cfg.UseTTY
-		}
-		return &claudeRunner{repoRoot: repoRoot, cmd: []string{"claude"}, model: cfg.Model, workDir: workDir, useTTY: useTTY}, nil
+		cmd = appendClaudeFlags([]string{"claude"}, cfg.Model)
 	default:
 		return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 	}
-}
 
-type execRunner struct {
-	repoRoot string
-	cmd      []string
-	workDir  string
-}
-
-func (r *execRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("marshal request: %w", err)
+	useTTY := false
+	if cfg.UseTTY != nil {
+		useTTY = *cfg.UseTTY
 	}
-	return runCommand(ctx, r.cmd, r.effectiveWorkDir(req), data, stdout, stderr)
+
+	ar, err := ainvoke.NewRunner(ainvoke.AgentConfig{
+		Cmd:    cmd,
+		UseTTY: useTTY,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ainvokeRunner{
+		repoRoot: repoRoot,
+		cfg:      cfg,
+		runner:   ar,
+		info: RunnerInfo{
+			Type:     cfg.Type,
+			Cmd:      cmd,
+			Model:    cfg.Model,
+			RepoRoot: repoRoot,
+			UseTTY:   useTTY,
+		},
+	}, nil
 }
 
-func (r *execRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "exec", Cmd: r.cmd, WorkDir: r.workDir, RepoRoot: r.repoRoot}
-}
-
-func (r *execRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Paths.RunDir
-}
-
-type codexRunner struct {
+type ainvokeRunner struct {
 	repoRoot string
-	cmd      []string
-	model    string
-	workDir  string
-	useTTY   bool
+	cfg      config.AgentConfig
+	runner   ainvoke.Runner
+	info     RunnerInfo
 }
 
-func (r *codexRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	prompt, err := agentPrompt(req, r.model)
+func (r *ainvokeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+	prompt, err := agentPrompt(req, r.cfg.Model)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	argv := appendCodexFlags(r.cmd, r.model)
-	workDir := r.effectiveWorkDir(req)
-	if r.useTTY {
-		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run codex agent")
-		return runCommandWithTTY(ctx, argv, workDir, []byte(prompt), stdout)
+
+	inv := ainvoke.Invocation{
+		RunDir:       req.Step.Dir,
+		SystemPrompt: prompt,
+		Input:        req,
+		InputSchema:  inputSchema,
+		OutputSchema: outputSchema,
 	}
-	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run codex agent")
-	return runCommand(ctx, argv, workDir, []byte(prompt), stdout, stderr)
+
+	// ainvoke handles writing input.json, validating schemas, and running the command.
+	return r.runner.Run(ctx, inv, ainvoke.WithStdout(stdoutFile(stdout)), ainvoke.WithStderr(stderrFile(stderr)))
 }
 
-func (r *codexRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "codex", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
+func (r *ainvokeRunner) Describe() RunnerInfo {
+	return r.info
 }
 
-func (r *codexRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Paths.RunDir
+func stdoutFile(w io.Writer) io.Writer {
+	if w == nil {
+		return io.Discard
+	}
+	return w
 }
 
-type opencodeRunner struct {
-	repoRoot string
-	cmd      []string
-	model    string
-	workDir  string
-	useTTY   bool
-}
-
-func (r *opencodeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	prompt, err := agentPrompt(req, r.model)
-	if err != nil {
-		return nil, nil, 0, err
+func stderrFile(w io.Writer) io.Writer {
+	if w == nil {
+		return io.Discard
 	}
-	argv := appendOpenCodeFlags(r.cmd, r.model)
-	argv = append(argv, prompt)
-	workDir := r.effectiveWorkDir(req)
-	if r.useTTY {
-		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run opencode agent")
-		return runCommandWithTTY(ctx, argv, workDir, nil, stdout)
-	}
-	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run opencode agent")
-	return runCommand(ctx, argv, workDir, nil, stdout, stderr)
-}
-
-func (r *opencodeRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "opencode", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
-}
-
-func (r *opencodeRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Paths.RunDir
-}
-
-type geminiRunner struct {
-	repoRoot string
-	cmd      []string
-	model    string
-	workDir  string
-	useTTY   bool
-}
-
-func (r *geminiRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	prompt, err := agentPrompt(req, r.model)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	argv := appendGeminiFlags(r.cmd, r.model)
-	argv = append(argv, prompt)
-	workDir := r.effectiveWorkDir(req)
-	if r.useTTY {
-		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run gemini agent")
-		return runCommandWithTTY(ctx, argv, workDir, nil, stdout)
-	}
-	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run gemini agent")
-	return runCommand(ctx, argv, workDir, nil, stdout, stderr)
-}
-
-func (r *geminiRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "gemini", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
-}
-
-func (r *geminiRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Paths.RunDir
-}
-
-type claudeRunner struct {
-	repoRoot string
-	cmd      []string
-	model    string
-	workDir  string
-	useTTY   bool
-}
-
-func (r *claudeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	prompt, err := agentPrompt(req, r.model)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	argv := appendClaudeFlags(r.cmd, r.model)
-	argv = append(argv, prompt)
-	workDir := r.effectiveWorkDir(req)
-	if r.useTTY {
-		log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", true).Msg("run claude agent")
-		return runCommandWithTTY(ctx, argv, workDir, nil, stdout)
-	}
-	log.Debug().Strs("cmd", argv).Str("work_dir", workDir).Bool("tty", false).Msg("run claude agent")
-	return runCommand(ctx, argv, workDir, nil, stdout, stderr)
-}
-
-func (r *claudeRunner) Describe() RunnerInfo {
-	return RunnerInfo{Type: "claude", Cmd: r.cmd, Model: r.model, WorkDir: r.workDir, RepoRoot: r.repoRoot, UseTTY: r.useTTY}
-}
-
-func (r *claudeRunner) effectiveWorkDir(req model.AgentRequest) string {
-	return req.Paths.RunDir
-}
-
-func runCommand(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink, stderrSink io.Writer) ([]byte, []byte, int, error) {
-	if len(argv) == 0 {
-		return nil, nil, 0, fmt.Errorf("agent command is empty")
-	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = workDir
-	cmd.Stdin = bytes.NewReader(stdin)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if stdoutSink != nil {
-		cmd.Stdout = io.MultiWriter(&stdout, stdoutSink)
-	} else {
-		cmd.Stdout = &stdout
-	}
-	if stderrSink != nil {
-		cmd.Stderr = io.MultiWriter(&stderr, stderrSink)
-	} else {
-		cmd.Stderr = &stderr
-	}
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return stdout.Bytes(), stderr.Bytes(), exitErr.ExitCode(), err
-		}
-		return stdout.Bytes(), stderr.Bytes(), 0, err
-	}
-	return stdout.Bytes(), stderr.Bytes(), 0, nil
-}
-
-func runCommandWithTTY(ctx context.Context, argv []string, workDir string, stdin []byte, stdoutSink io.Writer) ([]byte, []byte, int, error) {
-	if len(argv) == 0 {
-		return nil, nil, 0, fmt.Errorf("agent command is empty")
-	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = workDir
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("start pty: %w", err)
-	}
-	var out bytes.Buffer
-	var outWriter io.Writer = &out
-	if stdoutSink != nil {
-		outWriter = io.MultiWriter(&out, stdoutSink)
-	}
-	done := make(chan error, 1)
-	go func() {
-		_, err := io.Copy(outWriter, ptmx)
-		done <- err
-	}()
-	if len(stdin) > 0 {
-		if _, err := ptmx.Write(stdin); err != nil {
-			_ = ptmx.Close()
-			_ = cmd.Wait()
-			return out.Bytes(), nil, 0, fmt.Errorf("write stdin: %w", err)
-		}
-	}
-	_, _ = ptmx.Write([]byte{4})
-	err = cmd.Wait()
-	_ = ptmx.Close()
-	<-done
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return out.Bytes(), nil, exitErr.ExitCode(), err
-		}
-		return out.Bytes(), nil, 0, err
-	}
-	return out.Bytes(), nil, 0, nil
+	return w
 }
 
 func appendCodexFlags(argv []string, model string) []string {
@@ -436,20 +224,13 @@ func isOpenCodeSubcommand(arg string) bool {
 }
 
 func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
-	data, err := json.MarshalIndent(req, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
-	}
 	var b strings.Builder
 	b.WriteString("You are a norma agent. Follow the instructions strictly.\n")
-	b.WriteString("- You are running in the 'run_dir', which is the parent of both the isolated code workspace and your step directory.\n")
+	b.WriteString("- You are running in your step directory.\n")
 	b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
 	b.WriteString("- IMPORTANT: Do NOT attempt to read or index the entire codebase. Only examine files relevant to the current task.\n")
 	b.WriteString("- IMPORTANT: Do NOT use recursive listing tools (like 'ls -R', 'find', or 'grep -r') on the root directory. Explore the codebase incrementally and specifically.\n")
 	b.WriteString("- A full history of this run is available in 'context.journal' and reconstructed in 'artifacts/progress.md'. Use it to understand previous attempts and avoid repeating mistakes.\n")
-	b.WriteString("- Write your AgentResponse JSON into '")
-	b.WriteString(filepath.Join(req.Step.Dir, "output.json"))
-	b.WriteString("' and all other logs/evidence into the same directory.\n")
 	b.WriteString("- Follow the norma-loop: plan -> do -> check -> act.\n")
 	b.WriteString("- Workspace exists before any agent runs.\n")
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
@@ -459,17 +240,6 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- IMPORTANT: Do NOT scan or index the entire 'run_dir'. Focus only on the 'workspace_dir' for code context.\n")
 	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
 	b.WriteString("- Use status='stop' or 'error' only for technical failures or when budgets are exceeded.\n")
-	b.WriteString("- You MUST output a JSON object matching this schema:\n")
-	b.WriteString("{\n")
-	b.WriteString("  \"status\": \"ok|stop|error\",\n")
-	b.WriteString("  \"stop_reason\": \"none|budget_exceeded|dependency_blocked|verify_missing|replan_required\",\n")
-	b.WriteString("  \"summary\": { \"text\": \"...\", \"warnings\": [], \"errors\": [] },\n")
-	b.WriteString("  \"progress\": { \"title\": \"...\", \"details\": [] },\n")
-	b.WriteString("  \"plan\": { \"task_id\": \"...\", \"goal\": \"...\", \"constraints\": [], \"acceptance_criteria\": { \"baseline\": [], \"effective\": [] }, \"work_plan\": { \"timebox_minutes\": 30, \"do_steps\": [], \"check_steps\": [], \"stop_triggers\": [] } },\n")
-	b.WriteString("  \"do\": { \"execution\": { \"executed_step_ids\": [], \"skipped_step_ids\": [], \"commands\": [] }, \"blockers\": [] },\n")
-	b.WriteString("  \"check\": { \"plan_match\": { \"do_steps\": {}, \"commands\": {} }, \"acceptance_results\": [], \"verdict\": { \"status\": \"PASS|FAIL|PARTIAL\", \"recommendation\": \"...\", \"basis\": {} } },\n")
-	b.WriteString("  \"act\": { \"decision\": \"close|replan|rollback|continue\", \"rationale\": \"...\", \"next\": { \"recommended\": true, \"notes\": \"...\" } }\n")
-	b.WriteString("}\n")
 
 	if modelName != "" {
 		b.WriteString("- Use model hint: ")
@@ -490,8 +260,6 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	case roleAct:
 		b.WriteString("Role requirements: consume Check verdict and decide what to do next.\n")
 	}
-	b.WriteString("\nAgentRequest:\n")
-	b.Write(data)
-	b.WriteString("\n")
+
 	return b.String(), nil
 }
