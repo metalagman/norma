@@ -140,9 +140,6 @@ func (r *execRunner) Describe() RunnerInfo {
 }
 
 func (r *execRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir != "" {
-		return req.Paths.WorkspaceDir
-	}
 	return req.Paths.RunDir
 }
 
@@ -174,9 +171,6 @@ func (r *codexRunner) Describe() RunnerInfo {
 }
 
 func (r *codexRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir != "" {
-		return req.Paths.WorkspaceDir
-	}
 	return req.Paths.RunDir
 }
 
@@ -209,9 +203,6 @@ func (r *opencodeRunner) Describe() RunnerInfo {
 }
 
 func (r *opencodeRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir != "" {
-		return req.Paths.WorkspaceDir
-	}
 	return req.Paths.RunDir
 }
 
@@ -244,9 +235,6 @@ func (r *geminiRunner) Describe() RunnerInfo {
 }
 
 func (r *geminiRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir != "" {
-		return req.Paths.WorkspaceDir
-	}
 	return req.Paths.RunDir
 }
 
@@ -279,9 +267,6 @@ func (r *claudeRunner) Describe() RunnerInfo {
 }
 
 func (r *claudeRunner) effectiveWorkDir(req model.AgentRequest) string {
-	if req.Paths.WorkspaceDir != "" {
-		return req.Paths.WorkspaceDir
-	}
 	return req.Paths.RunDir
 }
 
@@ -459,6 +444,8 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("You are a norma agent. Follow the instructions strictly.\n")
 	b.WriteString("- You are running in the 'run_dir', which is the parent of both the isolated code workspace and your step directory.\n")
 	b.WriteString("- Use 'paths.workspace_dir' as the root for all code reading and writing tasks.\n")
+	b.WriteString("- IMPORTANT: Do NOT attempt to read or index the entire codebase. Only examine files relevant to the current task.\n")
+	b.WriteString("- IMPORTANT: Do NOT use recursive listing tools (like 'ls -R', 'find', or 'grep -r') on the root directory. Explore the codebase incrementally and specifically.\n")
 	b.WriteString("- A full history of this run is available in 'context.journal' and reconstructed in 'artifacts/progress.md'. Use it to understand previous attempts and avoid repeating mistakes.\n")
 	b.WriteString("- Write your AgentResponse JSON into '")
 	b.WriteString(filepath.Join(req.Step.Dir, "output.json"))
@@ -467,7 +454,7 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- Workspace exists before any agent runs.\n")
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
 	b.WriteString("- Agents never modify task state, labels, or metadata directly; this is handled by the orchestrator.\n")
-	b.WriteString("- All agents operate in read-only mode with respect to workspace/ (except Do and Act).\n")
+	b.WriteString("- All agents operate in read-only mode with respect to the codebase (except Do and Act).\n")
 	b.WriteString("- IMPORTANT: Do NOT scan or index the entire 'run_dir'. Focus only on the 'workspace_dir' for code context.\n")
 	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
 	b.WriteString("- Use status='stop' or 'error' only for technical failures or when budgets are exceeded.\n")
