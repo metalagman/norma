@@ -28,6 +28,14 @@ When working ON the `norma` project itself, agents MUST:
 - **Use project-local tools**: Always prefer project-local tools via `go tool` (e.g., `go tool golangci-lint run`).
 - **Always verify changes**: MUST run tests using `go test ./...` and linters (`go tool golangci-lint run`) before submitting code changes. Never assume code is correct without passing local quality gates.
 
+## 0.2) Contributing requirements
+
+All contributors MUST:
+- **Start with a tracked issue**: File or reference a Beads issue before opening a PR.
+- **Follow Conventional Commits**: Use Conventional Commits for all new commits.
+- **Pass quality gates**: `go test ./...` and `go tool golangci-lint run` must pass before submission.
+- **Sync via merge (no rebase)**: Use merge-based pulls when updating from origin (`git pull --no-rebase` or `git pull --merge`). Do not rebase shared branches.
+
 ---
 
 ## 1) Directory layout
@@ -876,7 +884,7 @@ norma generates a role-specific prompt that instructs Claude to:
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
-   git pull --rebase
+   git pull --no-rebase
    bd sync
    git push
    git status  # MUST show "up to date with origin"
