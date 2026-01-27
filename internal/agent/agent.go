@@ -455,6 +455,7 @@ func agentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	b.WriteString("- Agents never modify workspace or git directly (except for Do and Act).\n")
 	b.WriteString("- Agents never modify task state, labels, or metadata directly; this is handled by the orchestrator.\n")
 	b.WriteString("- All agents operate in read-only mode with respect to the codebase (except Do and Act).\n")
+	b.WriteString("- IMPORTANT: In 'do' and 'act' steps, you MUST commit your changes in the 'workspace_dir' using 'git add' and 'git commit'.\n")
 	b.WriteString("- IMPORTANT: Do NOT scan or index the entire 'run_dir'. Focus only on the 'workspace_dir' for code context.\n")
 	b.WriteString("- Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.\n")
 	b.WriteString("- Use status='stop' or 'error' only for technical failures or when budgets are exceeded.\n")

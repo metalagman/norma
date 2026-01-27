@@ -193,17 +193,19 @@ Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until
 
 1. **One workflow only:** `plan -> do -> check -> act` (repeat).
 2. **Workspace exists before any agent runs:** the orchestrator creates `runs/<run_id>/workspace/` before Plan.
-3. **Agents never modify workspace or git:** all agents operate in **read-only** mode with respect to `workspace/`.
-4. **Commits/changes happen outside agents:** the orchestrator may apply patches and create commits **outside agent execution**.
-5. **Contracts are JSON only:** every step is `input.json → output.json`.
-6. **Every step captures logs:**
+3. **Agents never modify workspace or git directly except for Do and Act:** all agents operate in **read-only** mode with respect to `workspace/` by default.
+4. **Agents MUST commit changes in Do and Act:** The agent is responsible for staging and committing its changes in the `workspace/` Git repository.
+5. **Commits/changes in main repo happen outside agents:** the orchestrator extracts changes from the task branch and applies them to the main repository.
+6. **Contracts are JSON only:** every step is `input.json → output.json`.
+7. **Every step MUST produce output.json:** The agent MUST write its AgentResponse JSON to `output.json` in the step directory.
+8. **Every step captures logs:**
     - `steps/<n>-<role>/logs/stdout.txt`
     - `steps/<n>-<role>/logs/stderr.txt`
-7. **Run journal:** the orchestrator appends one entry after every step to:
+9. **Run journal:** the orchestrator appends one entry after every step to:
     - `artifacts/progress.md`
-8. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
-9. **Check compares plan vs actual and verifies job done:** Check must compare the Plan work plan to Do execution and evaluate all effective ACs.
-10. **Verdict goes to Act:** Act receives Check verdict and decides next.
+10. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
+11. **Check compares plan vs actual and verifies job done:** Check must compare the Plan work plan to Do execution and evaluate all effective ACs.
+12. **Verdict goes to Act:** Act receives Check verdict and decides next.
 
 ### Budgets and stop conditions
 
