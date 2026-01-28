@@ -52,7 +52,7 @@ func GetOutputSchema(role string) string {
 }
 
 // AgentPrompt returns the system prompt for a given request and model.
-func AgentPrompt(req model.AgentRequest, modelName string) (string, error) {
+func AgentPrompt(req model.AgentRequest, _ string) (string, error) {
 	var tmplStr string
 	switch req.Step.Name {
 	case RolePlan:
@@ -73,12 +73,11 @@ func AgentPrompt(req model.AgentRequest, modelName string) (string, error) {
 	}
 
 	data := struct {
-		Request   model.AgentRequest
-		ModelName string
+		Request model.AgentRequest
 	}{
-		Request:   req,
-		ModelName: modelName,
+		Request: req,
 	}
+
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
