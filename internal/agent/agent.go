@@ -43,9 +43,9 @@ func NewRunner(cfg config.AgentConfig, role normaloop.Role) (Runner, error) {
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-			cmd = append(cmd, "--output-format", "text")
+			cmd = append(cmd, "--output-format", "json")
 			// Force one-shot mode (non-interactive) and allow file writes without prompts.
-			cmd = append(cmd, "--prompt", "", "--approval-mode", "auto_edit")
+			cmd = append(cmd, "--approval-mode", "auto")
 		case "opencode":
 			cmd = []string{"opencode", "run"}
 			if cfg.Model != "" {
