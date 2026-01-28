@@ -123,6 +123,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	if err := os.MkdirAll(r.normaDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("create .norma: %w", err)
 	}
+
+	// Prune stalled worktrees
+	_ = runCmdErr(ctx, r.repoRoot, "git", "worktree", "prune")
+
 	if err := reconcile.Run(ctx, r.store.db, r.normaDir); err != nil {
 		return Result{}, err
 	}

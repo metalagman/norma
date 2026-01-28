@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // RetentionPolicy controls run cleanup.
@@ -97,4 +100,47 @@ func PruneRuns(ctx context.Context, db *sql.DB, runsDir string, policy Retention
 		res.Deleted++
 	}
 	return res, nil
+}
+
+// Purge removes all runs, their directories, and any associated git worktrees.
+func Purge(ctx context.Context, db *sql.DB, repoRoot string) error {
+	// 1. Git worktree prune
+	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
+
+	// 2. Identify and remove all worktrees that are inside .norma/runs
+	out := runCmd(ctx, repoRoot, "git", "worktree", "list", "--porcelain")
+	lines := strings.Split(out, "\n")
+	var currentWorktree string
+	normaRunsPrefix := filepath.Join(repoRoot, ".norma", "runs")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "worktree ") {
+			currentWorktree = strings.TrimPrefix(line, "worktree ")
+			if strings.HasPrefix(currentWorktree, normaRunsPrefix) {
+				log.Info().Str("worktree", currentWorktree).Msg("purging worktree")
+				_ = runCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", currentWorktree)
+			}
+		}
+	}
+
+	// 3. Delete all run directories
+	if err := os.RemoveAll(normaRunsPrefix); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove runs dir: %w", err)
+	}
+
+	// 4. Clear database tables
+	if _, err := db.ExecContext(ctx, "DELETE FROM steps"); err != nil {
+		return fmt.Errorf("clear steps table: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "DELETE FROM events"); err != nil {
+		return fmt.Errorf("clear events table: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "DELETE FROM runs"); err != nil {
+		return fmt.Errorf("clear runs table: %w", err)
+	}
+
+	return nil
 }
