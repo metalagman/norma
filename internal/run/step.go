@@ -77,17 +77,26 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 		_ = removeWorktree(ctx, r.repoRoot, workspaceDir)
 	}()
 
-	// Symlink progress.md into step directory if it exists
-	progressPath := filepath.Join(r.runDir, "progress.md")
-	if _, err := os.Stat(progressPath); err == nil {
-		_ = os.Symlink(progressPath, filepath.Join(finalDir, "progress.md"))
+	// Reconstruct progress.md into step artifacts directory
+	artifactsDir := filepath.Join(finalDir, "artifacts")
+	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+		return stepResult{}, fmt.Errorf("create step artifacts: %w", err)
+	}
+	if err := r.reconstructProgress(artifactsDir); err != nil {
+		log.Warn().Err(err).Msg("failed to reconstruct progress in step artifacts")
 	}
 
-	req.Paths.WorkspaceDir = workspaceDir
-	req.Paths.RunDir = finalDir
+	req.Paths.WorkspaceDir = "workspace"
+	req.Paths.RunDir = "./"
+	req.Paths.Progress = "artifacts/progress.md"
 	if err := writeJSON(filepath.Join(finalDir, "input.json"), req); err != nil {
 		return stepResult{}, err
 	}
+
+	// Use absolute paths for the actual agent execution context
+	req.Paths.WorkspaceDir = workspaceDir
+	req.Paths.RunDir = finalDir
+	req.Paths.Progress = filepath.Join(artifactsDir, "progress.md")
 
 	stdoutPath := filepath.Join(finalDir, "logs", "stdout.txt")
 	stderrPath := filepath.Join(finalDir, "logs", "stderr.txt")

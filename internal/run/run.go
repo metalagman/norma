@@ -386,9 +386,7 @@ func (r *Runner) baseRequest(runID string, iteration, index int, role, goal stri
 			Index: index,
 			Name:  role,
 		},
-		Paths: normaloop.RequestPaths{
-			Progress: filepath.Join(r.runDir, "progress.md"),
-		},
+		Paths: normaloop.RequestPaths{},
 		Budgets: normaloop.Budgets{
 			MaxIterations: r.cfg.Budgets.MaxIterations,
 		},
@@ -530,9 +528,10 @@ func (r *Runner) appendToProgress(res stepResult) {
 	}
 
 	r.state.Journal = append(r.state.Journal, entry)
+}
 
-	// Reconstruct progress.md in run directory
-	path := filepath.Join(r.runDir, "progress.md")
+func (r *Runner) reconstructProgress(dir string) error {
+	path := filepath.Join(dir, "progress.md")
 	var b strings.Builder
 	for _, entry := range r.state.Journal {
 		b.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason))
@@ -548,7 +547,7 @@ func (r *Runner) appendToProgress(res stepResult) {
 		b.WriteString(fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath))
 		b.WriteString(fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath))
 	}
-	_ = os.WriteFile(path, []byte(b.String()), 0o644)
+	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {

@@ -14,8 +14,8 @@ Single fixed workflow:
 - **Run/step state is in SQLite** (queryable, UI-friendly).
 - **Task state lives in Beads** (source of truth for progress and resumption).
 - **Task Notes as State Object:** The Beads `notes` field stores a comprehensive JSON object (`TaskState`) containing step outputs and a full run journal. This allows full state recovery and resumption across different environments.
-- **Workspaces (Git Worktrees):** Every run MUST operate in a dedicated Git worktree located inside the run directory. Agents perform all work within this isolated workspace.
-- **Shared Artifacts:** Every run has a shared `artifacts/` directory. `artifacts/progress.md` is reconstructed from the task's `Journal` state on run start.
+- **Workspaces (Git Worktrees):** Every role agent step run MUST operate in a dedicated Git worktree located inside its step directory (`<step_dir>/workspace`). Agents perform all work within this isolated workspace.
+- **Run Journal:** Every agent step has an `artifacts/progress.md` file. It is reconstructed from the task's `Journal` state by the orchestrator before the agent is invoked.
 - **Task-scoped Branches:** Workspaces use Git branches scoped to the task: `norma/task/<task_id>`. This allows progress to be restartable across multiple runs.
 - **Workflow State in Labels:** Granular states (`norma-has-plan`, `norma-has-do`, `norma-has-check`) are used to track completed steps and skip them during resumption.
 - **Git History as Source of Truth:** The orchestrator extracts changes from the workspace using Git (e.g., `git merge --squash`).
@@ -52,28 +52,25 @@ Everything lives under the project root:
   locks/run.lock           # exclusive lock for "norma run"
       runs/<run_id>/
       norma.md               # goal + AC + budgets (human readable)
-      workspace/             # Git worktree (the active workspace for this run)
-      artifacts/             # Shared artifacts (reconstructed progress.md)
-        progress.md
       steps/
         01-plan/
           input.json
           output.json
-          logs/stdout.txt
-          logs/stderr.txt
+          workspace/         # Git worktree for this specific step
+          artifacts/
+            progress.md      # Run journal (always reconstructed)
+          logs/
+            stdout.txt
+            stderr.txt
         02-do/
           input.json
           output.json
-          logs/stdout.txt
-          logs/stderr.txt
-        03-check/
-          input.json
-          output.json
-          logs/...
-        04-act/
-          input.json
-          output.json
-          logs/...
+          workspace/         # Git worktree for this specific step
+          artifacts/
+            progress.md
+          logs/
+            stdout.txt
+            stderr.txt
   
 ```
 
@@ -84,10 +81,10 @@ Everything lives under the project root:
   - current iteration/cursor
   - step records
   - timeline events
-- **Workspaces:** The `workspace/` directory is a Git worktree. Agents perform all work within this isolated workspace. The orchestrator tracks changes by inspecting the Git history/diff of the workspace.
+- **Workspaces:** Every role agent step run gets its own Git worktree in the `<step_dir>/workspace`. Agents perform all work within this isolated workspace. The orchestrator tracks changes by inspecting the Git history/diff of the workspace (primarily in Do and Act).
 - **No task state in Norma DB:** task status, priority, dependencies, and selection are managed in Beads only.
 - **Artifacts:** The `artifacts/` directory contains all artifacts produced during the run. Agents MUST write their artifacts here and MAY read existing artifacts from here.
-- Agents MUST only write inside their current `step_dir` (for logs/metadata) and the shared `artifacts/` directory, except for **Do** and **Act** which modify files in the `workspace/` to implement the selected issue or fix.
+- Agents MUST only write inside their current `step_dir` (for logs/metadata, and the `workspace/` subdir) and the shared `artifacts/` directory.
 
 ---
 
@@ -200,9 +197,9 @@ Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until
 ### Core invariants
 
 1. **One workflow only:** `plan -> do -> check -> act` (repeat).
-2. **Workspace exists before any agent runs:** the orchestrator creates `runs/<run_id>/workspace/` before Plan.
-3. **Agents never modify workspace or git directly except for Do and Act:** all agents operate in **read-only** mode with respect to `workspace/` by default.
-4. **Agents MUST commit changes in Do and Act:** The agent is responsible for staging and committing its changes in the `workspace/` Git repository.
+2. **Workspace exists before any agent runs:** the orchestrator creates `<step_dir>/workspace/` before each step. This workspace is a dedicated Git worktree.
+3. **Agents never modify workspace or git directly except for Do:** all agents operate in **read-only** mode with respect to `workspace/` by default.
+4. **Agents MUST commit changes in Do:** The agent is responsible for staging and committing its changes in the `workspace/` Git repository.
 5. **Commits/changes in main repo happen outside agents:** the orchestrator extracts changes from the task branch and applies them to the main repository.
 6. **Contracts are JSON only:** every step is `input.json → output.json`.
 7. **Every step MUST produce output.json:** The agent MUST write its AgentResponse JSON to `output.json` in the step directory.
@@ -214,6 +211,7 @@ Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until
 10. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
 11. **Check compares plan vs actual and verifies job done:** Check must compare the Plan work plan to Do execution and evaluate all effective ACs.
 12. **Verdict goes to Act:** Act receives Check verdict and decides next.
+13. **Agents are invoked with `<step_dir>` as their current working directory.**
 
 ### Budgets and stop conditions
 
@@ -451,7 +449,11 @@ Notes:
 
 Every step is an `input.json → output.json` transformation. The agent MUST produce an `output.json` file in the assigned step directory containing the valid AgentResponse JSON.
 
+Contracts are formally defined by JSON schemas located in `internal/workflows/normaloop/<role>/*.schema.json`.
+
 ### 7.1 Common input.json (all steps)
+
+All agent inputs share a common structure, extended with role-specific fields.
 
 ```json
 {
@@ -469,12 +471,12 @@ Every step is an `input.json → output.json` transformation. The agent MUST pro
   },
   "step": {
     "index": 1,
-    "name": "plan|do|check|act",
-    "dir": "runs/<run_id>/steps/<n>-<role>"
+    "name": "plan|do|check|act"
   },
   "paths": {
-    "workspace_dir": "runs/<run_id>/workspace",
-    "workspace_mode": "read_only"
+    "workspace_dir": "workspace",
+    "run_dir": "./",
+    "progress": "artifacts/progress.md"
   },
   "budgets": {
     "max_iterations": 5,
@@ -497,6 +499,8 @@ Every step is an `input.json → output.json` transformation. The agent MUST pro
 
 ### 7.2 Common output.json (all steps)
 
+All agent outputs share a common structure, extended with role-specific fields.
+
 ```json
 {
   "status": "ok|stop|error",
@@ -506,23 +510,19 @@ Every step is an `input.json → output.json` transformation. The agent MUST pro
     "warnings": [],
     "errors": []
   },
+  "progress": {
+    "title": "short line for the run journal",
+    "details": [
+      "bullet 1",
+      "bullet 2"
+    ]
+  },
   "logs": {
     "stdout_path": "steps/<n>-<role>/logs/stdout.txt",
     "stderr_path": "steps/<n>-<role>/logs/stderr.txt"
   },
   "timing": {
     "wall_time_ms": 0
-  },
-  "progress": {
-    "title": "short line for the run journal",
-    "details": [
-      "bullet 1",
-      "bullet 2"
-    ],
-    "links": {
-      "stdout": "steps/<n>-<role>/logs/stdout.txt",
-      "stderr": "steps/<n>-<role>/logs/stderr.txt"
-    }
   }
 }
 ```
@@ -541,7 +541,7 @@ Plan `output.json` must include:
 
 ```json
 {
-  "plan": {
+  "plan_output": {
     "task_id": "norma-a3f2dd",
     "goal": "what success means for this iteration",
     "constraints": ["..."],
@@ -593,18 +593,18 @@ Plan `output.json` must include:
 ### 8.2 Role: 02-do
 
 Do **must**:
-- execute only `plan.work_plan.do_steps[*]`
+- execute only `plan_output.work_plan.do_steps[*]`
 - record what was executed (actual work)
 
 Do `input.json` must include:
-- `plan.work_plan`
-- `plan.acceptance_criteria.effective`
+- `do_input.work_plan`
+- `do_input.acceptance_criteria_effective`
 
 Do `output.json` must include:
 
 ```json
 {
-  "do": {
+  "do_output": {
     "execution": {
       "executed_step_ids": ["DO-1"],
       "skipped_step_ids": [],
@@ -631,15 +631,15 @@ Check **must**:
 3) emit a verdict used by Act
 
 Check `input.json` must include:
-- `plan.work_plan`
-- `plan.acceptance_criteria.effective`
-- `do.execution`
+- `check_input.work_plan`
+- `check_input.acceptance_criteria_effective`
+- `check_input.do_execution`
 
 Check `output.json` must include:
 
 ```json
 {
-  "check": {
+  "check_output": {
     "plan_match": {
       "do_steps": {
         "planned_ids": ["DO-1"],
@@ -694,13 +694,13 @@ Act **must**:
 - decide what to do next
 
 Act `input.json` must include:
-- `check.verdict` (and optionally `check.acceptance_results`)
+- `act_input.check_verdict` (and optionally `act_input.acceptance_results`)
 
 Act `output.json` must include:
 
 ```json
 {
-  "act": {
+  "act_output": {
     "decision": "close|replan|rollback|continue",
     "rationale": "...",
     "next": {
@@ -715,9 +715,7 @@ Act `output.json` must include:
 
 ## 8.5 progress.md (Ralph-style run journal)
 
-The orchestrator maintains a `Journal` in the task's `TaskState`. After every step, a new entry is appended to this journal and the `artifacts/progress.md` file.
-
-On run start, `artifacts/progress.md` is reconstructed from the existing `Journal` in the task's notes.
+The orchestrator maintains a `Journal` in the task's `TaskState`. Before every step, the `artifacts/progress.md` file is reconstructed in the step directory from the existing `Journal`.
 
 ### Append template
 

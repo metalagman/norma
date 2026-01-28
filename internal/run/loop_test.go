@@ -231,9 +231,9 @@ func TestRunner_Run_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "passed", res.Status)
 
-	// Verify progress.md
-	progressPath := filepath.Join(runner.runDir, "progress.md")
-	_, err = os.Stat(progressPath)
+	// Verify progress.md in the last step's artifacts directory
+	lastStepDir := filepath.Join(runner.runDir, "steps", "04-act", "artifacts", "progress.md")
+	_, err = os.Stat(lastStepDir)
 	assert.NoError(t, err)
 
 	// Verify sequence
