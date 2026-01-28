@@ -45,7 +45,7 @@ type stepResult struct {
 
 func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req normaloop.AgentRequest, runStepsDir string) (stepResult, error) {
 	stepName := fmt.Sprintf("%02d-%s", req.Step.Index, req.Step.Name)
-	if req.Context.Attempt > 0 {
+	if req.Context.Attempt > 1 {
 		stepName = fmt.Sprintf("%02d-%s-retry-%d", req.Step.Index, req.Step.Name, req.Context.Attempt)
 	}
 	finalDir := filepath.Join(runStepsDir, stepName)
@@ -56,6 +56,11 @@ func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req norma
 	}
 	if err := os.MkdirAll(filepath.Join(finalDir, "logs"), 0o755); err != nil {
 		return stepResult{}, fmt.Errorf("create logs dir: %w", err)
+	}
+	// Create artifacts directory inside step dir
+	r.artifactsDir = filepath.Join(finalDir, "artifacts")
+	if err := os.MkdirAll(r.artifactsDir, 0o755); err != nil {
+		return stepResult{}, fmt.Errorf("create artifacts dir: %w", err)
 	}
 
 	// Mount workspace in step directory

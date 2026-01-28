@@ -132,10 +132,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	}
 
 	runDir := filepath.Join(r.normaDir, "runs", runID)
-	r.artifactsDir = filepath.Join(runDir, "artifacts")
-	if err := os.MkdirAll(r.artifactsDir, 0o755); err != nil {
-		return Result{RunID: runID}, fmt.Errorf("create artifacts dir: %w", err)
-	}
 
 	stepsDir := filepath.Join(runDir, "steps")
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
@@ -166,27 +162,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 			lastPlan = r.state.Plan
 			lastDo = r.state.Do
 			lastCheck = r.state.Check
-
-			// Reconstruct progress.md from journal
-			if len(r.state.Journal) > 0 {
-				path := filepath.Join(r.artifactsDir, "progress.md")
-				var b strings.Builder
-				for _, entry := range r.state.Journal {
-					b.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason))
-					b.WriteString(fmt.Sprintf("**Task:** %s  \n", r.taskID))
-					b.WriteString(fmt.Sprintf("**Title:** %s\n\n", entry.Title))
-					if len(entry.Details) > 0 {
-						b.WriteString("**Details:**\n")
-						for _, detail := range entry.Details {
-							b.WriteString(fmt.Sprintf("- %s\n", detail))
-						}
-					}
-					b.WriteString("\n**Logs:**\n")
-					b.WriteString(fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath))
-					b.WriteString(fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath))
-				}
-				_ = os.WriteFile(path, []byte(b.String()), 0o644)
-			}
 		}
 	}
 
@@ -429,7 +404,7 @@ func (r *Runner) runAndCommitStep(ctx context.Context, req normaloop.AgentReques
 	var lastRes stepResult
 	var lastErr error
 
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		req.Context.Attempt = attempt
 		res, err := r.executeStep(ctx, r.agents[req.Step.Name], req, stepsDir)
 		lastRes = res
@@ -551,34 +526,24 @@ func (r *Runner) appendToProgress(res stepResult) {
 
 	r.state.Journal = append(r.state.Journal, entry)
 
-	// Update artifacts/progress.md
+	// Reconstruct progress.md in current step's artifacts directory
 	path := filepath.Join(r.artifactsDir, "progress.md")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to open progress.md")
-		return
-	}
-	defer func() {
-		if cErr := f.Close(); cErr != nil {
-			log.Warn().Err(cErr).Msg("failed to close progress.md")
+	var b strings.Builder
+	for _, entry := range r.state.Journal {
+		b.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason))
+		b.WriteString(fmt.Sprintf("**Task:** %s  \n", r.taskID))
+		b.WriteString(fmt.Sprintf("**Title:** %s\n\n", entry.Title))
+		if len(entry.Details) > 0 {
+			b.WriteString("**Details:**\n")
+			for _, detail := range entry.Details {
+				b.WriteString(fmt.Sprintf("- %s\n", detail))
+			}
 		}
-	}()
-
-	md := fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason)
-	md += fmt.Sprintf("**Task:** %s  \n", r.taskID)
-	md += fmt.Sprintf("**Run:** %s · **Iteration:** %d\n\n", res.FinalDir, res.Iteration)
-	md += fmt.Sprintf("**Title:** %s\n\n", entry.Title)
-	if len(entry.Details) > 0 {
-		md += "**Details:**\n"
-		for _, detail := range entry.Details {
-			md += fmt.Sprintf("- %s\n", detail)
-		}
+		b.WriteString("\n**Logs:**\n")
+		b.WriteString(fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath))
+		b.WriteString(fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath))
 	}
-	md += "\n**Logs:**\n"
-	md += fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath)
-	md += fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath)
-
-	_, _ = f.WriteString(md)
+	_ = os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 func (r *Runner) applyChanges(ctx context.Context, runID, goal string) error {
