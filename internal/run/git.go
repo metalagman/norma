@@ -10,7 +10,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func gitAvailable(ctx context.Context, repoRoot string) bool {
+// GitAvailable checks if the given directory is inside a git work tree.
+func GitAvailable(ctx context.Context, repoRoot string) bool {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = repoRoot
 	return cmd.Run() == nil

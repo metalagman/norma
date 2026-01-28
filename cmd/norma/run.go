@@ -36,6 +36,11 @@ func runCmd() *cobra.Command {
 				return err
 			}
 			defer closeFn()
+
+			if !run.GitAvailable(cmd.Context(), repoRoot) {
+				return fmt.Errorf("current directory is not a git repository")
+			}
+
 			cfg, err := loadConfig(repoRoot)
 			if err != nil {
 				return err

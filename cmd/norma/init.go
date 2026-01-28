@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/metalagman/norma/internal/run"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -20,6 +21,10 @@ func initCmd() *cobra.Command {
 			repoRoot, err := os.Getwd()
 			if err != nil {
 				return err
+			}
+
+			if !run.GitAvailable(cmd.Context(), repoRoot) {
+				return fmt.Errorf("current directory is not a git repository")
 			}
 
 			normaDir := filepath.Join(repoRoot, ".norma")

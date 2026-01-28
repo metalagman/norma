@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/metalagman/norma/internal/logging"
+	"github.com/metalagman/norma/internal/run"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -35,10 +36,17 @@ func Execute() error {
 	if err := viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile")); err != nil {
 		return fmt.Errorf("bind profile flag: %w", err)
 	}
-	rootCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
 		logging.Init(debug)
-		if err := initBeads(); err != nil {
-			log.Warn().Err(err).Msg("failed to initialize beads")
+		repoRoot, err := os.Getwd()
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to get current working directory")
+			return
+		}
+		if run.GitAvailable(cmd.Context(), repoRoot) {
+			if err := initBeads(); err != nil {
+				log.Warn().Err(err).Msg("failed to initialize beads")
+			}
 		}
 	}
 	rootCmd.AddCommand(runCmd())

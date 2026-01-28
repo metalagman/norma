@@ -18,6 +18,10 @@ func pruneCmd() *cobra.Command {
 			}
 			defer closeFn()
 
+			if !run.GitAvailable(cmd.Context(), repoRoot) {
+				return fmt.Errorf("current directory is not a git repository")
+			}
+
 			if err := run.Prune(cmd.Context(), storeDB, repoRoot); err != nil {
 				return fmt.Errorf("prune failed: %w", err)
 			}

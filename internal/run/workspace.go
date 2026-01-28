@@ -14,7 +14,7 @@ func mountWorktree(ctx context.Context, repoRoot, workspaceDir, branchName strin
 	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
 
 	// Check if we are in a git repo
-	if !gitAvailable(ctx, repoRoot) {
+	if !GitAvailable(ctx, repoRoot) {
 		return "", fmt.Errorf("not a git repository: %s", repoRoot)
 	}
 
