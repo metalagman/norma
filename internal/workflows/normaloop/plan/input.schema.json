@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "title": "PlanRequest",
   "properties": {
     "run": {
       "type": "object",
@@ -50,9 +51,19 @@
       },
       "required": ["workspace_dir", "workspace_mode", "run_dir", "code_root"]
     },
-    "plan": { "type": "object" },
-    "do": { "type": "object" },
-    "check": { "type": "object" }
+    "plan_input": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" }
+          },
+          "required": ["id"]
+        }
+      },
+      "required": ["task"]
+    }
   },
-  "required": ["run", "task", "step", "paths"]
+  "required": ["run", "task", "step", "paths", "plan_input"]
 }

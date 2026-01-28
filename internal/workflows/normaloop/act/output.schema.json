@@ -1,13 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "title": "ActResponse",
   "properties": {
     "status": { "type": "string", "enum": ["ok", "stop", "error"] },
     "stop_reason": { "type": "string" },
     "summary": {
       "type": "object",
       "properties": {
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["text"]
     },
@@ -19,7 +22,20 @@
       },
       "required": ["title", "details"]
     },
-    "act": {
+    "logs": {
+      "type": "object",
+      "properties": {
+        "stdout_path": { "type": "string" },
+        "stderr_path": { "type": "string" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "properties": {
+        "wall_time_ms": { "type": "integer" }
+      }
+    },
+    "act_output": {
       "type": "object",
       "properties": {
         "decision": { "type": "string", "enum": ["close", "replan", "rollback", "continue"] },
@@ -29,5 +45,5 @@
       "required": ["decision", "rationale"]
     }
   },
-  "required": ["status", "summary", "progress", "act"]
+  "required": ["status", "summary", "progress", "act_output"]
 }

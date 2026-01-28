@@ -1,13 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "title": "PlanResponse",
   "properties": {
     "status": { "type": "string", "enum": ["ok", "stop", "error"] },
     "stop_reason": { "type": "string" },
     "summary": {
       "type": "object",
       "properties": {
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["text"]
     },
@@ -19,7 +22,20 @@
       },
       "required": ["title", "details"]
     },
-    "plan": {
+    "logs": {
+      "type": "object",
+      "properties": {
+        "stdout_path": { "type": "string" },
+        "stderr_path": { "type": "string" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "properties": {
+        "wall_time_ms": { "type": "integer" }
+      }
+    },
+    "plan_output": {
       "type": "object",
       "properties": {
         "task_id": { "type": "string" },
@@ -47,5 +63,5 @@
       "required": ["task_id", "goal", "acceptance_criteria", "work_plan"]
     }
   },
-  "required": ["status", "summary", "progress", "plan"]
+  "required": ["status", "summary", "progress", "plan_output"]
 }

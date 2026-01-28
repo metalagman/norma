@@ -3,24 +3,40 @@
 package check
 
 import (
-    "errors"
     "bytes"
+    "errors"
     "encoding/json"
 )
 
-// AcceptanceCriteriaItems 
-type AcceptanceCriteriaItems struct {
-  Id string `json:"id"`
-  Text string `json:"text"`
-  VerifyHints []string `json:"verify_hints,omitempty"`
+// Budgets 
+type Budgets struct {
 }
 
-// Check 
-type Check struct {
+// CheckInput 
+type CheckInput struct {
+  AcceptanceCriteriaEffective []interface{} `json:"acceptance_criteria_effective"`
+  DoExecution *DoExecution `json:"do_execution"`
+  WorkPlan *WorkPlan `json:"work_plan"`
 }
 
-// Do 
-type Do struct {
+// CheckRequest 
+type CheckRequest struct {
+  Budgets *Budgets `json:"budgets,omitempty"`
+  CheckInput *CheckInput `json:"check_input"`
+  Context *Context `json:"context,omitempty"`
+  Paths *Paths `json:"paths"`
+  Run *Run `json:"run"`
+  Step *Step `json:"step"`
+  StopReasonsAllowed []string `json:"stop_reasons_allowed,omitempty"`
+  Task *Task `json:"task"`
+}
+
+// Context 
+type Context struct {
+}
+
+// DoExecution 
+type DoExecution struct {
 }
 
 // Paths 
@@ -29,21 +45,6 @@ type Paths struct {
   RunDir string `json:"run_dir"`
   WorkspaceDir string `json:"workspace_dir"`
   WorkspaceMode string `json:"workspace_mode"`
-}
-
-// Plan 
-type Plan struct {
-}
-
-// Root 
-type Root struct {
-  Check *Check `json:"check,omitempty"`
-  Do *Do `json:"do,omitempty"`
-  Paths *Paths `json:"paths"`
-  Plan *Plan `json:"plan,omitempty"`
-  Run *Run `json:"run"`
-  Step *Step `json:"step"`
-  Task *Task `json:"task"`
 }
 
 // Run 
@@ -61,48 +62,58 @@ type Step struct {
 
 // Task 
 type Task struct {
-  AcceptanceCriteria []AcceptanceCriteriaItems `json:"acceptance_criteria"`
+  AcceptanceCriteria []interface{} `json:"acceptance_criteria"`
   Description string `json:"description"`
   Id string `json:"id"`
   Title string `json:"title"`
 }
 
-func (strct *AcceptanceCriteriaItems) MarshalJSON() ([]byte, error) {
+// WorkPlan 
+type WorkPlan struct {
+}
+
+func (strct *CheckInput) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
     comma := false
-    // "Id" field is required
+    // "AcceptanceCriteriaEffective" field is required
     // only required object types supported for marshal checking (for now)
-    // Marshal the "id" field
+    // Marshal the "acceptance_criteria_effective" field
     if comma {
         buf.WriteString(",")
     }
-    buf.WriteString("\"id\": ")
-	if tmp, err := json.Marshal(strct.Id); err != nil {
+    buf.WriteString("\"acceptance_criteria_effective\": ")
+	if tmp, err := json.Marshal(strct.AcceptanceCriteriaEffective); err != nil {
 		return nil, err
  	} else {
  		buf.Write(tmp)
 	}
 	comma = true
-    // "Text" field is required
-    // only required object types supported for marshal checking (for now)
-    // Marshal the "text" field
+    // "DoExecution" field is required
+    if strct.DoExecution == nil {
+        return nil, errors.New("do_execution is a required field")
+    }
+    // Marshal the "do_execution" field
     if comma {
         buf.WriteString(",")
     }
-    buf.WriteString("\"text\": ")
-	if tmp, err := json.Marshal(strct.Text); err != nil {
+    buf.WriteString("\"do_execution\": ")
+	if tmp, err := json.Marshal(strct.DoExecution); err != nil {
 		return nil, err
  	} else {
  		buf.Write(tmp)
 	}
 	comma = true
-    // Marshal the "verify_hints" field
+    // "WorkPlan" field is required
+    if strct.WorkPlan == nil {
+        return nil, errors.New("work_plan is a required field")
+    }
+    // Marshal the "work_plan" field
     if comma {
         buf.WriteString(",")
     }
-    buf.WriteString("\"verify_hints\": ")
-	if tmp, err := json.Marshal(strct.VerifyHints); err != nil {
+    buf.WriteString("\"work_plan\": ")
+	if tmp, err := json.Marshal(strct.WorkPlan); err != nil {
 		return nil, err
  	} else {
  		buf.Write(tmp)
@@ -114,9 +125,10 @@ func (strct *AcceptanceCriteriaItems) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *AcceptanceCriteriaItems) UnmarshalJSON(b []byte) error {
-    idReceived := false
-    textReceived := false
+func (strct *CheckInput) UnmarshalJSON(b []byte) error {
+    acceptance_criteria_effectiveReceived := false
+    do_executionReceived := false
+    work_planReceived := false
     var jsonMap map[string]json.RawMessage
     if err := json.Unmarshal(b, &jsonMap); err != nil {
         return err
@@ -124,29 +136,227 @@ func (strct *AcceptanceCriteriaItems) UnmarshalJSON(b []byte) error {
     // parse all the defined properties
     for k, v := range jsonMap {
         switch k {
-        case "id":
-            if err := json.Unmarshal([]byte(v), &strct.Id); err != nil {
+        case "acceptance_criteria_effective":
+            if err := json.Unmarshal([]byte(v), &strct.AcceptanceCriteriaEffective); err != nil {
                 return err
              }
-            idReceived = true
-        case "text":
-            if err := json.Unmarshal([]byte(v), &strct.Text); err != nil {
+            acceptance_criteria_effectiveReceived = true
+        case "do_execution":
+            if err := json.Unmarshal([]byte(v), &strct.DoExecution); err != nil {
                 return err
              }
-            textReceived = true
-        case "verify_hints":
-            if err := json.Unmarshal([]byte(v), &strct.VerifyHints); err != nil {
+            do_executionReceived = true
+        case "work_plan":
+            if err := json.Unmarshal([]byte(v), &strct.WorkPlan); err != nil {
                 return err
              }
+            work_planReceived = true
         }
     }
-    // check if id (a required property) was received
-    if !idReceived {
-        return errors.New("\"id\" is required but was not present")
+    // check if acceptance_criteria_effective (a required property) was received
+    if !acceptance_criteria_effectiveReceived {
+        return errors.New("\"acceptance_criteria_effective\" is required but was not present")
     }
-    // check if text (a required property) was received
-    if !textReceived {
-        return errors.New("\"text\" is required but was not present")
+    // check if do_execution (a required property) was received
+    if !do_executionReceived {
+        return errors.New("\"do_execution\" is required but was not present")
+    }
+    // check if work_plan (a required property) was received
+    if !work_planReceived {
+        return errors.New("\"work_plan\" is required but was not present")
+    }
+    return nil
+}
+
+func (strct *CheckRequest) MarshalJSON() ([]byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0))
+	buf.WriteString("{")
+    comma := false
+    // Marshal the "budgets" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"budgets\": ")
+	if tmp, err := json.Marshal(strct.Budgets); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // "CheckInput" field is required
+    if strct.CheckInput == nil {
+        return nil, errors.New("check_input is a required field")
+    }
+    // Marshal the "check_input" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"check_input\": ")
+	if tmp, err := json.Marshal(strct.CheckInput); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // Marshal the "context" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"context\": ")
+	if tmp, err := json.Marshal(strct.Context); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // "Paths" field is required
+    if strct.Paths == nil {
+        return nil, errors.New("paths is a required field")
+    }
+    // Marshal the "paths" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"paths\": ")
+	if tmp, err := json.Marshal(strct.Paths); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // "Run" field is required
+    if strct.Run == nil {
+        return nil, errors.New("run is a required field")
+    }
+    // Marshal the "run" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"run\": ")
+	if tmp, err := json.Marshal(strct.Run); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // "Step" field is required
+    if strct.Step == nil {
+        return nil, errors.New("step is a required field")
+    }
+    // Marshal the "step" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"step\": ")
+	if tmp, err := json.Marshal(strct.Step); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // Marshal the "stop_reasons_allowed" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"stop_reasons_allowed\": ")
+	if tmp, err := json.Marshal(strct.StopReasonsAllowed); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // "Task" field is required
+    if strct.Task == nil {
+        return nil, errors.New("task is a required field")
+    }
+    // Marshal the "task" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"task\": ")
+	if tmp, err := json.Marshal(strct.Task); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+
+	buf.WriteString("}")
+	rv := buf.Bytes()
+	return rv, nil
+}
+
+func (strct *CheckRequest) UnmarshalJSON(b []byte) error {
+    check_inputReceived := false
+    pathsReceived := false
+    runReceived := false
+    stepReceived := false
+    taskReceived := false
+    var jsonMap map[string]json.RawMessage
+    if err := json.Unmarshal(b, &jsonMap); err != nil {
+        return err
+    }
+    // parse all the defined properties
+    for k, v := range jsonMap {
+        switch k {
+        case "budgets":
+            if err := json.Unmarshal([]byte(v), &strct.Budgets); err != nil {
+                return err
+             }
+        case "check_input":
+            if err := json.Unmarshal([]byte(v), &strct.CheckInput); err != nil {
+                return err
+             }
+            check_inputReceived = true
+        case "context":
+            if err := json.Unmarshal([]byte(v), &strct.Context); err != nil {
+                return err
+             }
+        case "paths":
+            if err := json.Unmarshal([]byte(v), &strct.Paths); err != nil {
+                return err
+             }
+            pathsReceived = true
+        case "run":
+            if err := json.Unmarshal([]byte(v), &strct.Run); err != nil {
+                return err
+             }
+            runReceived = true
+        case "step":
+            if err := json.Unmarshal([]byte(v), &strct.Step); err != nil {
+                return err
+             }
+            stepReceived = true
+        case "stop_reasons_allowed":
+            if err := json.Unmarshal([]byte(v), &strct.StopReasonsAllowed); err != nil {
+                return err
+             }
+        case "task":
+            if err := json.Unmarshal([]byte(v), &strct.Task); err != nil {
+                return err
+             }
+            taskReceived = true
+        }
+    }
+    // check if check_input (a required property) was received
+    if !check_inputReceived {
+        return errors.New("\"check_input\" is required but was not present")
+    }
+    // check if paths (a required property) was received
+    if !pathsReceived {
+        return errors.New("\"paths\" is required but was not present")
+    }
+    // check if run (a required property) was received
+    if !runReceived {
+        return errors.New("\"run\" is required but was not present")
+    }
+    // check if step (a required property) was received
+    if !stepReceived {
+        return errors.New("\"step\" is required but was not present")
+    }
+    // check if task (a required property) was received
+    if !taskReceived {
+        return errors.New("\"task\" is required but was not present")
     }
     return nil
 }
@@ -262,174 +472,6 @@ func (strct *Paths) UnmarshalJSON(b []byte) error {
     // check if workspace_mode (a required property) was received
     if !workspace_modeReceived {
         return errors.New("\"workspace_mode\" is required but was not present")
-    }
-    return nil
-}
-
-func (strct *Root) MarshalJSON() ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0))
-	buf.WriteString("{")
-    comma := false
-    // Marshal the "check" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"check\": ")
-	if tmp, err := json.Marshal(strct.Check); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // Marshal the "do" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"do\": ")
-	if tmp, err := json.Marshal(strct.Do); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // "Paths" field is required
-    if strct.Paths == nil {
-        return nil, errors.New("paths is a required field")
-    }
-    // Marshal the "paths" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"paths\": ")
-	if tmp, err := json.Marshal(strct.Paths); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // Marshal the "plan" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"plan\": ")
-	if tmp, err := json.Marshal(strct.Plan); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // "Run" field is required
-    if strct.Run == nil {
-        return nil, errors.New("run is a required field")
-    }
-    // Marshal the "run" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"run\": ")
-	if tmp, err := json.Marshal(strct.Run); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // "Step" field is required
-    if strct.Step == nil {
-        return nil, errors.New("step is a required field")
-    }
-    // Marshal the "step" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"step\": ")
-	if tmp, err := json.Marshal(strct.Step); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // "Task" field is required
-    if strct.Task == nil {
-        return nil, errors.New("task is a required field")
-    }
-    // Marshal the "task" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"task\": ")
-	if tmp, err := json.Marshal(strct.Task); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-
-	buf.WriteString("}")
-	rv := buf.Bytes()
-	return rv, nil
-}
-
-func (strct *Root) UnmarshalJSON(b []byte) error {
-    pathsReceived := false
-    runReceived := false
-    stepReceived := false
-    taskReceived := false
-    var jsonMap map[string]json.RawMessage
-    if err := json.Unmarshal(b, &jsonMap); err != nil {
-        return err
-    }
-    // parse all the defined properties
-    for k, v := range jsonMap {
-        switch k {
-        case "check":
-            if err := json.Unmarshal([]byte(v), &strct.Check); err != nil {
-                return err
-             }
-        case "do":
-            if err := json.Unmarshal([]byte(v), &strct.Do); err != nil {
-                return err
-             }
-        case "paths":
-            if err := json.Unmarshal([]byte(v), &strct.Paths); err != nil {
-                return err
-             }
-            pathsReceived = true
-        case "plan":
-            if err := json.Unmarshal([]byte(v), &strct.Plan); err != nil {
-                return err
-             }
-        case "run":
-            if err := json.Unmarshal([]byte(v), &strct.Run); err != nil {
-                return err
-             }
-            runReceived = true
-        case "step":
-            if err := json.Unmarshal([]byte(v), &strct.Step); err != nil {
-                return err
-             }
-            stepReceived = true
-        case "task":
-            if err := json.Unmarshal([]byte(v), &strct.Task); err != nil {
-                return err
-             }
-            taskReceived = true
-        }
-    }
-    // check if paths (a required property) was received
-    if !pathsReceived {
-        return errors.New("\"paths\" is required but was not present")
-    }
-    // check if run (a required property) was received
-    if !runReceived {
-        return errors.New("\"run\" is required but was not present")
-    }
-    // check if step (a required property) was received
-    if !stepReceived {
-        return errors.New("\"step\" is required but was not present")
-    }
-    // check if task (a required property) was received
-    if !taskReceived {
-        return errors.New("\"task\" is required but was not present")
     }
     return nil
 }

@@ -49,10 +49,10 @@ type AgentRequest struct {
 	StopReasonsAllowed []string `json:"stop_reasons_allowed"`
 
 	// Role-specific inputs
-	Plan  *PlanInput  `json:"plan,omitempty"`
-	Do    *DoInput    `json:"do,omitempty"`
-	Check *CheckInput `json:"check,omitempty"`
-	Act   *ActInput   `json:"act,omitempty"`
+	Plan  *PlanInput  `json:"plan_input,omitempty"`
+	Do    *DoInput    `json:"do_input,omitempty"`
+	Check *CheckInput `json:"check_input,omitempty"`
+	Act   *ActInput   `json:"act_input,omitempty"`
 
 	// Legacy fields (optional migration)
 	Version int `json:"version,omitempty"`
@@ -134,10 +134,10 @@ type AgentResponse struct {
 	Progress   StepProgress    `json:"progress"`
 
 	// Role-specific outputs
-	Plan  *PlanOutput  `json:"plan,omitempty"`
-	Do    *DoOutput    `json:"do,omitempty"`
-	Check *CheckOutput `json:"check,omitempty"`
-	Act   *ActOutput   `json:"act,omitempty"`
+	Plan  *PlanOutput  `json:"plan_output,omitempty"`
+	Do    *DoOutput    `json:"do_output,omitempty"`
+	Check *CheckOutput `json:"check_output,omitempty"`
+	Act   *ActOutput   `json:"act_output,omitempty"`
 
 	// Legacy fields (optional migration)
 	Version int `json:"version,omitempty"`

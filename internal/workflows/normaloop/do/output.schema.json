@@ -1,13 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "title": "DoResponse",
   "properties": {
     "status": { "type": "string", "enum": ["ok", "stop", "error"] },
     "stop_reason": { "type": "string" },
     "summary": {
       "type": "object",
       "properties": {
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["text"]
     },
@@ -19,7 +22,20 @@
       },
       "required": ["title", "details"]
     },
-    "do": {
+    "logs": {
+      "type": "object",
+      "properties": {
+        "stdout_path": { "type": "string" },
+        "stderr_path": { "type": "string" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "properties": {
+        "wall_time_ms": { "type": "integer" }
+      }
+    },
+    "do_output": {
       "type": "object",
       "properties": {
         "execution": {
@@ -36,5 +52,5 @@
       "required": ["execution"]
     }
   },
-  "required": ["status", "summary", "progress", "do"]
+  "required": ["status", "summary", "progress", "do_output"]
 }

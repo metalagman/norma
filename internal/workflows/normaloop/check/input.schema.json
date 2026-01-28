@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "title": "CheckRequest",
   "properties": {
     "run": {
       "type": "object",
@@ -16,18 +17,7 @@
         "id": { "type": "string" },
         "title": { "type": "string" },
         "description": { "type": "string" },
-        "acceptance_criteria": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": { "type": "string" },
-              "text": { "type": "string" },
-              "verify_hints": { "type": "array", "items": { "type": "string" } }
-            },
-            "required": ["id", "text"]
-          }
-        }
+        "acceptance_criteria": { "type": "array" }
       },
       "required": ["id", "title", "description", "acceptance_criteria"]
     },
@@ -50,9 +40,18 @@
       },
       "required": ["workspace_dir", "workspace_mode", "run_dir", "code_root"]
     },
-    "plan": { "type": "object" },
-    "do": { "type": "object" },
-    "check": { "type": "object" }
+    "budgets": { "type": "object" },
+    "context": { "type": "object" },
+    "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
+    "check_input": {
+      "type": "object",
+      "properties": {
+        "work_plan": { "type": "object" },
+        "acceptance_criteria_effective": { "type": "array" },
+        "do_execution": { "type": "object" }
+      },
+      "required": ["work_plan", "acceptance_criteria_effective", "do_execution"]
+    }
   },
-  "required": ["run", "task", "step", "paths"]
+  "required": ["run", "task", "step", "paths", "check_input"]
 }

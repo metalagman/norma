@@ -42,7 +42,7 @@ func TestAinvokeRunner_Run(t *testing.T) {
 	agentScript := filepath.Join(repoRoot, "my-agent.sh")
 	scriptContent := `#!/bin/sh
 cat > /dev/null # consume stdin
-RESP='{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]},"plan":{"task_id":"task-1","goal":"goal","acceptance_criteria":{"baseline":[],"effective":[]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[],"stop_triggers":[]}}}'
+RESP='{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","details":[]},"plan_output":{"task_id":"task-1","goal":"goal","acceptance_criteria":{"baseline":[],"effective":[]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[],"stop_triggers":[]}}}'
 echo "$RESP" > output.json
 echo "$RESP"
 `
@@ -67,6 +67,7 @@ echo "$RESP"
 			RunDir: repoRoot,
 			CodeRoot: repoRoot,
 		},
+		Plan: &model.PlanInput{Task: model.IDInfo{ID: "task-1"}},
 	}
 
 	ctx := context.Background()

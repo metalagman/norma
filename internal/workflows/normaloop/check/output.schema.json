@@ -1,13 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "title": "CheckResponse",
   "properties": {
     "status": { "type": "string", "enum": ["ok", "stop", "error"] },
     "stop_reason": { "type": "string" },
     "summary": {
       "type": "object",
       "properties": {
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["text"]
     },
@@ -19,7 +22,20 @@
       },
       "required": ["title", "details"]
     },
-    "check": {
+    "logs": {
+      "type": "object",
+      "properties": {
+        "stdout_path": { "type": "string" },
+        "stderr_path": { "type": "string" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "properties": {
+        "wall_time_ms": { "type": "integer" }
+      }
+    },
+    "check_output": {
       "type": "object",
       "properties": {
         "plan_match": { "type": "object" },
@@ -37,5 +53,5 @@
       "required": ["plan_match", "acceptance_results", "verdict"]
     }
   },
-  "required": ["status", "summary", "progress", "check"]
+  "required": ["status", "summary", "progress", "check_output"]
 }
