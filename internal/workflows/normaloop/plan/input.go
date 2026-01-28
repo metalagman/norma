@@ -3,9 +3,9 @@
 package plan
 
 import (
-    "errors"
     "bytes"
     "encoding/json"
+    "errors"
 )
 
 // AcceptanceCriteriaItems 
@@ -13,6 +13,24 @@ type AcceptanceCriteriaItems struct {
   Id string `json:"id"`
   Text string `json:"text"`
   VerifyHints []string `json:"verify_hints,omitempty"`
+}
+
+// Budgets 
+type Budgets struct {
+  MaxFailedChecks int64 `json:"max_failed_checks,omitempty"`
+  MaxIterations int64 `json:"max_iterations"`
+  MaxWallTimeMinutes int64 `json:"max_wall_time_minutes,omitempty"`
+}
+
+// Context 
+type Context struct {
+  Attempt int64 `json:"attempt,omitempty"`
+  Facts *Facts `json:"facts,omitempty"`
+  Links []string `json:"links,omitempty"`
+}
+
+// Facts 
+type Facts struct {
 }
 
 // Paths 
@@ -30,10 +48,13 @@ type PlanInput struct {
 
 // PlanRequest 
 type PlanRequest struct {
+  Budgets *Budgets `json:"budgets,omitempty"`
+  Context *Context `json:"context,omitempty"`
   Paths *Paths `json:"paths"`
   PlanInput *PlanInput `json:"plan_input"`
   Run *Run `json:"run"`
   Step *Step `json:"step"`
+  StopReasonsAllowed []string `json:"stop_reasons_allowed,omitempty"`
   Task *Task `json:"task"`
 }
 
@@ -135,6 +156,82 @@ func (strct *AcceptanceCriteriaItems) UnmarshalJSON(b []byte) error {
     // check if text (a required property) was received
     if !textReceived {
         return errors.New("\"text\" is required but was not present")
+    }
+    return nil
+}
+
+func (strct *Budgets) MarshalJSON() ([]byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0))
+	buf.WriteString("{")
+    comma := false
+    // Marshal the "max_failed_checks" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"max_failed_checks\": ")
+	if tmp, err := json.Marshal(strct.MaxFailedChecks); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // "MaxIterations" field is required
+    // only required object types supported for marshal checking (for now)
+    // Marshal the "max_iterations" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"max_iterations\": ")
+	if tmp, err := json.Marshal(strct.MaxIterations); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // Marshal the "max_wall_time_minutes" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"max_wall_time_minutes\": ")
+	if tmp, err := json.Marshal(strct.MaxWallTimeMinutes); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+
+	buf.WriteString("}")
+	rv := buf.Bytes()
+	return rv, nil
+}
+
+func (strct *Budgets) UnmarshalJSON(b []byte) error {
+    max_iterationsReceived := false
+    var jsonMap map[string]json.RawMessage
+    if err := json.Unmarshal(b, &jsonMap); err != nil {
+        return err
+    }
+    // parse all the defined properties
+    for k, v := range jsonMap {
+        switch k {
+        case "max_failed_checks":
+            if err := json.Unmarshal([]byte(v), &strct.MaxFailedChecks); err != nil {
+                return err
+             }
+        case "max_iterations":
+            if err := json.Unmarshal([]byte(v), &strct.MaxIterations); err != nil {
+                return err
+             }
+            max_iterationsReceived = true
+        case "max_wall_time_minutes":
+            if err := json.Unmarshal([]byte(v), &strct.MaxWallTimeMinutes); err != nil {
+                return err
+             }
+        }
+    }
+    // check if max_iterations (a required property) was received
+    if !max_iterationsReceived {
+        return errors.New("\"max_iterations\" is required but was not present")
     }
     return nil
 }
@@ -306,6 +403,28 @@ func (strct *PlanRequest) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
     comma := false
+    // Marshal the "budgets" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"budgets\": ")
+	if tmp, err := json.Marshal(strct.Budgets); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // Marshal the "context" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"context\": ")
+	if tmp, err := json.Marshal(strct.Context); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
     // "Paths" field is required
     if strct.Paths == nil {
         return nil, errors.New("paths is a required field")
@@ -366,6 +485,17 @@ func (strct *PlanRequest) MarshalJSON() ([]byte, error) {
  		buf.Write(tmp)
 	}
 	comma = true
+    // Marshal the "stop_reasons_allowed" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"stop_reasons_allowed\": ")
+	if tmp, err := json.Marshal(strct.StopReasonsAllowed); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
     // "Task" field is required
     if strct.Task == nil {
         return nil, errors.New("task is a required field")
@@ -400,6 +530,14 @@ func (strct *PlanRequest) UnmarshalJSON(b []byte) error {
     // parse all the defined properties
     for k, v := range jsonMap {
         switch k {
+        case "budgets":
+            if err := json.Unmarshal([]byte(v), &strct.Budgets); err != nil {
+                return err
+             }
+        case "context":
+            if err := json.Unmarshal([]byte(v), &strct.Context); err != nil {
+                return err
+             }
         case "paths":
             if err := json.Unmarshal([]byte(v), &strct.Paths); err != nil {
                 return err
@@ -420,6 +558,10 @@ func (strct *PlanRequest) UnmarshalJSON(b []byte) error {
                 return err
              }
             stepReceived = true
+        case "stop_reasons_allowed":
+            if err := json.Unmarshal([]byte(v), &strct.StopReasonsAllowed); err != nil {
+                return err
+             }
         case "task":
             if err := json.Unmarshal([]byte(v), &strct.Task); err != nil {
                 return err

@@ -3,9 +3,9 @@
 package check
 
 import (
+    "encoding/json"
     "bytes"
     "errors"
-    "encoding/json"
 )
 
 // Basis 

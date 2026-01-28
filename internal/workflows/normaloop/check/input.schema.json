@@ -40,8 +40,23 @@
       },
       "required": ["workspace_dir", "workspace_mode", "run_dir", "code_root"]
     },
-    "budgets": { "type": "object" },
-    "context": { "type": "object" },
+    "budgets": {
+      "type": "object",
+      "properties": {
+        "max_iterations": { "type": "integer" },
+        "max_wall_time_minutes": { "type": "integer" },
+        "max_failed_checks": { "type": "integer" }
+      },
+      "required": ["max_iterations"]
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "facts": { "type": "object" },
+        "links": { "type": "array", "items": { "type": "string" } },
+        "attempt": { "type": "integer" }
+      }
+    },
     "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
     "check_input": {
       "type": "object",

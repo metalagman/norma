@@ -442,8 +442,7 @@ func (r *Runner) baseRequest(runID string, iteration, index int, role, goal stri
 			"replan_required",
 		},
 		Context: model.RequestContext{
-			Facts:   make(map[string]any),
-			Journal: r.state.Journal,
+			Facts: make(map[string]any),
 		},
 	}
 }

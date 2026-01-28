@@ -67,6 +67,14 @@ echo "$RESP"
 			RunDir: repoRoot,
 			CodeRoot: repoRoot,
 		},
+		Budgets: model.Budgets{
+			MaxIterations: 1,
+		},
+		Context: model.RequestContext{
+			Facts: make(map[string]any),
+			Links: []string{},
+		},
+		StopReasonsAllowed: []string{"budget_exceeded"},
 		Plan: &model.PlanInput{Task: model.IDInfo{ID: "task-1"}},
 	}
 

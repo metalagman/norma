@@ -4,16 +4,22 @@ package do
 
 import (
     "bytes"
-    "errors"
     "encoding/json"
+    "errors"
 )
 
 // Budgets 
 type Budgets struct {
+  MaxFailedChecks int64 `json:"max_failed_checks,omitempty"`
+  MaxIterations int64 `json:"max_iterations"`
+  MaxWallTimeMinutes int64 `json:"max_wall_time_minutes,omitempty"`
 }
 
 // Context 
 type Context struct {
+  Attempt int64 `json:"attempt,omitempty"`
+  Facts *Facts `json:"facts,omitempty"`
+  Links []string `json:"links,omitempty"`
 }
 
 // DoInput 
@@ -32,6 +38,10 @@ type DoRequest struct {
   Step *Step `json:"step"`
   StopReasonsAllowed []string `json:"stop_reasons_allowed,omitempty"`
   Task *Task `json:"task"`
+}
+
+// Facts 
+type Facts struct {
 }
 
 // Paths 
@@ -69,6 +79,82 @@ type WorkPlan struct {
   DoSteps []interface{} `json:"do_steps"`
   StopTriggers []interface{} `json:"stop_triggers"`
   TimeboxMinutes int64 `json:"timebox_minutes"`
+}
+
+func (strct *Budgets) MarshalJSON() ([]byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0))
+	buf.WriteString("{")
+    comma := false
+    // Marshal the "max_failed_checks" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"max_failed_checks\": ")
+	if tmp, err := json.Marshal(strct.MaxFailedChecks); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // "MaxIterations" field is required
+    // only required object types supported for marshal checking (for now)
+    // Marshal the "max_iterations" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"max_iterations\": ")
+	if tmp, err := json.Marshal(strct.MaxIterations); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+    // Marshal the "max_wall_time_minutes" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"max_wall_time_minutes\": ")
+	if tmp, err := json.Marshal(strct.MaxWallTimeMinutes); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
+
+	buf.WriteString("}")
+	rv := buf.Bytes()
+	return rv, nil
+}
+
+func (strct *Budgets) UnmarshalJSON(b []byte) error {
+    max_iterationsReceived := false
+    var jsonMap map[string]json.RawMessage
+    if err := json.Unmarshal(b, &jsonMap); err != nil {
+        return err
+    }
+    // parse all the defined properties
+    for k, v := range jsonMap {
+        switch k {
+        case "max_failed_checks":
+            if err := json.Unmarshal([]byte(v), &strct.MaxFailedChecks); err != nil {
+                return err
+             }
+        case "max_iterations":
+            if err := json.Unmarshal([]byte(v), &strct.MaxIterations); err != nil {
+                return err
+             }
+            max_iterationsReceived = true
+        case "max_wall_time_minutes":
+            if err := json.Unmarshal([]byte(v), &strct.MaxWallTimeMinutes); err != nil {
+                return err
+             }
+        }
+    }
+    // check if max_iterations (a required property) was received
+    if !max_iterationsReceived {
+        return errors.New("\"max_iterations\" is required but was not present")
+    }
+    return nil
 }
 
 func (strct *DoInput) MarshalJSON() ([]byte, error) {
