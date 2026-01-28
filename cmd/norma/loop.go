@@ -12,12 +12,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-func runCmd() *cobra.Command {
+func loopCmd() *cobra.Command {
 	var continueOnFail bool
 	var activeFeatureID string
 	var activeEpicID string
 	cmd := &cobra.Command{
-		Use:          "run [task-id]",
+		Use:          "loop [task-id]",
 		Short:        "Run a task by id or run the next ready task",
 		Long:         "Run a task by id. If no task id is provided, run the next ready task chosen by the scheduler.",
 		SilenceUsage: true,

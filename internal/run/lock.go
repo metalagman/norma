@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-// Lock handles exclusive access to norma run.
+// Lock handles exclusive access to norma loop.
 type Lock struct {
 	f *os.File
 }
