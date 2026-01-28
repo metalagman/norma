@@ -46,7 +46,7 @@ func Execute() error {
 	rootCmd.AddCommand(taskCmd())
 	rootCmd.AddCommand(uiCmd())
 	rootCmd.AddCommand(initCmd())
-	rootCmd.AddCommand(purgeCmd())
+	rootCmd.AddCommand(pruneCmd())
 	return rootCmd.Execute()
 }
 

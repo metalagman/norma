@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func purgeCmd() *cobra.Command {
+func pruneCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "purge",
-		Short: "Purge all runs, their directories, and associated git worktrees",
+		Use:   "prune",
+		Short: "Prune all runs, their directories, and associated git worktrees",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			storeDB, repoRoot, closeFn, err := openDB()
 			if err != nil {
@@ -18,11 +18,11 @@ func purgeCmd() *cobra.Command {
 			}
 			defer closeFn()
 
-			if err := run.Purge(cmd.Context(), storeDB, repoRoot); err != nil {
-				return fmt.Errorf("purge failed: %w", err)
+			if err := run.Prune(cmd.Context(), storeDB, repoRoot); err != nil {
+				return fmt.Errorf("prune failed: %w", err)
 			}
 
-			fmt.Println("Successfully purged all runs and worktrees.")
+			fmt.Println("Successfully pruned all runs and worktrees.")
 			return nil
 		},
 	}

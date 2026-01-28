@@ -102,8 +102,8 @@ func PruneRuns(ctx context.Context, db *sql.DB, runsDir string, policy Retention
 	return res, nil
 }
 
-// Purge removes all runs, their directories, and any associated git worktrees.
-func Purge(ctx context.Context, db *sql.DB, repoRoot string) error {
+// Prune removes all runs, their directories, and any associated git worktrees.
+func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
 	// 1. Git worktree prune
 	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
 
@@ -120,7 +120,7 @@ func Purge(ctx context.Context, db *sql.DB, repoRoot string) error {
 		if strings.HasPrefix(line, "worktree ") {
 			currentWorktree = strings.TrimPrefix(line, "worktree ")
 			if strings.HasPrefix(currentWorktree, normaRunsPrefix) {
-				log.Info().Str("worktree", currentWorktree).Msg("purging worktree")
+				log.Info().Str("worktree", currentWorktree).Msg("pruning worktree")
 				_ = runCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", currentWorktree)
 			}
 		}
