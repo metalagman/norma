@@ -42,11 +42,16 @@ func initCmd() *cobra.Command {
 			} else {
 				log.Info().Str("path", configPath).Msg("installing default config")
 				defaultConfig := map[string]any{
-					"agents": map[string]any{
-						"plan":  map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
-						"do":    map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
-						"check": map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
-						"act":   map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
+					"profile": "default",
+					"profiles": map[string]any{
+						"default": map[string]any{
+							"agents": map[string]any{
+								"plan":  map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
+								"do":    map[string]any{"type": "codex", "model": "gpt-5.1-codex-mini"},
+								"check": map[string]any{"type": "codex", "model": "gpt-5.1-codex-mini"},
+								"act":   map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
+							},
+						},
 					},
 					"budgets": map[string]any{
 						"max_iterations": 5,

@@ -7,6 +7,7 @@
     "stop_reason": { "type": "string" },
     "summary": {
       "type": "object",
+      "title": "DoSummary",
       "properties": {
         "text": { "type": "string" },
         "warnings": { "type": "array", "items": { "type": "string" } },
@@ -16,6 +17,7 @@
     },
     "progress": {
       "type": "object",
+      "title": "DoProgress",
       "properties": {
         "title": { "type": "string" },
         "details": { "type": "array", "items": { "type": "string" } }
@@ -24,6 +26,7 @@
     },
     "logs": {
       "type": "object",
+      "title": "DoLogs",
       "properties": {
         "stdout_path": { "type": "string" },
         "stderr_path": { "type": "string" }
@@ -31,23 +34,50 @@
     },
     "timing": {
       "type": "object",
+      "title": "DoTiming",
       "properties": {
         "wall_time_ms": { "type": "integer" }
       }
     },
     "do_output": {
       "type": "object",
+      "title": "DoOutput",
       "properties": {
         "execution": {
           "type": "object",
+          "title": "DoExecution",
           "properties": {
             "executed_step_ids": { "type": "array", "items": { "type": "string" } },
             "skipped_step_ids": { "type": "array", "items": { "type": "string" } },
-            "commands": { "type": "array" }
+            "commands": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "title": "DoCommandResult",
+                "properties": {
+                  "id": { "type": "string" },
+                  "cmd": { "type": "string" },
+                  "exit_code": { "type": "integer" }
+                },
+                "required": ["id", "cmd", "exit_code"]
+              }
+            }
           },
           "required": ["executed_step_ids", "skipped_step_ids", "commands"]
         },
-        "blockers": { "type": "array" }
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "title": "DoBlocker",
+            "properties": {
+              "kind": { "type": "string" },
+              "text": { "type": "string" },
+              "suggested_stop_reason": { "type": "string" }
+            },
+            "required": ["kind", "text", "suggested_stop_reason"]
+          }
+        }
       },
       "required": ["execution"]
     }

@@ -34,6 +34,8 @@ type Logs struct {
 
 // Next 
 type Next struct {
+  Notes string `json:"notes,omitempty"`
+  Recommended bool `json:"recommended,omitempty"`
 }
 
 // Progress 

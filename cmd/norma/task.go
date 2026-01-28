@@ -153,7 +153,7 @@ func taskLinkCmd() *cobra.Command {
 }
 
 func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store, runner *run.Runner, id string) error {
-	item, err := tracker.Get(ctx, id)
+	item, err := tracker.Task(ctx, id)
 	if err != nil {
 		return err
 	}

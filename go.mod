@@ -3,7 +3,7 @@ module github.com/metalagman/norma
 go 1.25.5
 
 require (
-	github.com/metalagman/ainvoke v1.0.4
+	github.com/metalagman/ainvoke v1.0.5
 	github.com/pressly/goose/v3 v3.16.0
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.10.2

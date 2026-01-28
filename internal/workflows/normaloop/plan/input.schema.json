@@ -5,6 +5,7 @@
   "properties": {
     "run": {
       "type": "object",
+      "title": "PlanRun",
       "properties": {
         "id": { "type": "string" },
         "iteration": { "type": "integer" }
@@ -13,6 +14,7 @@
     },
     "task": {
       "type": "object",
+      "title": "PlanTask",
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -21,6 +23,7 @@
           "type": "array",
           "items": {
             "type": "object",
+            "title": "PlanAcceptanceCriterion",
             "properties": {
               "id": { "type": "string" },
               "text": { "type": "string" },
@@ -34,6 +37,7 @@
     },
     "step": {
       "type": "object",
+      "title": "PlanStep",
       "properties": {
         "index": { "type": "integer" },
         "name": { "type": "string" },
@@ -43,6 +47,7 @@
     },
     "paths": {
       "type": "object",
+      "title": "PlanPaths",
       "properties": {
         "workspace_dir": { "type": "string" },
         "workspace_mode": { "type": "string" },
@@ -53,6 +58,7 @@
     },
     "budgets": {
       "type": "object",
+      "title": "PlanBudgets",
       "properties": {
         "max_iterations": { "type": "integer" },
         "max_wall_time_minutes": { "type": "integer" },
@@ -62,8 +68,9 @@
     },
     "context": {
       "type": "object",
+      "title": "PlanContext",
       "properties": {
-        "facts": { "type": "object" },
+        "facts": { "type": "object", "title": "PlanFacts" },
         "links": { "type": "array", "items": { "type": "string" } },
         "attempt": { "type": "integer" }
       }
@@ -71,9 +78,11 @@
     "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
     "plan_input": {
       "type": "object",
+      "title": "PlanInput",
       "properties": {
         "task": {
           "type": "object",
+          "title": "PlanTaskID",
           "properties": {
             "id": { "type": "string" }
           },

@@ -9,8 +9,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var debugEnabled bool
+
 // Init initializes the global logger.
 func Init(debug bool) {
+	debugEnabled = debug
 	level := zerolog.InfoLevel
 	if debug {
 		level = zerolog.DebugLevel
@@ -20,4 +23,9 @@ func Init(debug bool) {
 		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
 	})
+}
+
+// DebugEnabled reports whether debug logging is enabled.
+func DebugEnabled() bool {
+	return debugEnabled
 }

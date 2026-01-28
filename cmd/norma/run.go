@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/model"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
@@ -77,14 +76,14 @@ func runCmd() *cobra.Command {
 	return cmd
 }
 
-func normalizeAC(texts []string) []model.AcceptanceCriterion {
+func normalizeAC(texts []string) []task.AcceptanceCriterion {
 	if len(texts) == 0 {
 		return nil
 	}
-	out := make([]model.AcceptanceCriterion, 0, len(texts))
+	out := make([]task.AcceptanceCriterion, 0, len(texts))
 	for i, text := range texts {
 		id := fmt.Sprintf("AC%d", i+1)
-		out = append(out, model.AcceptanceCriterion{ID: id, Text: text})
+		out = append(out, task.AcceptanceCriterion{ID: id, Text: text})
 	}
 	return out
 }
@@ -106,6 +105,12 @@ func loadConfig(repoRoot string) (config.Config, error) {
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return config.Config{}, fmt.Errorf("parse config: %w", err)
 	}
+	selectedProfile, agents, err := cfg.ResolveAgents(viper.GetString("profile"))
+	if err != nil {
+		return config.Config{}, err
+	}
+	cfg.Profile = selectedProfile
+	cfg.Agents = agents
 	if cfg.Budgets.MaxIterations <= 0 {
 		return config.Config{}, fmt.Errorf("budgets.max_iterations must be > 0")
 	}

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -8,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/model"
+	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,13 +25,9 @@ func TestNewRunner(t *testing.T) {
 		Cmd:  []string{"echo", "test"},
 	}
 
-	runner, err := NewRunner(cfg, repoRoot)
+	runner, err := NewRunner(cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, runner)
-
-	info := runner.Describe()
-	assert.Equal(t, "exec", info.Type)
-	assert.Equal(t, []string{"echo", "test"}, info.Cmd)
 }
 
 func TestAinvokeRunner_Run(t *testing.T) {
@@ -54,28 +51,28 @@ echo "$RESP"
 		Cmd:  []string{agentScript},
 	}
 
-	runner, err := NewRunner(cfg, repoRoot)
+	runner, err := NewRunner(cfg)
 	require.NoError(t, err)
 
-	req := model.AgentRequest{
-		Run:  model.RunInfo{ID: "run-1", Iteration: 1},
-		Task: model.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []model.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: model.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
-		Paths: model.RequestPaths{
-			WorkspaceDir: repoRoot,
+	req := normaloop.AgentRequest{
+		Run:  normaloop.RunInfo{ID: "run-1", Iteration: 1},
+		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
+		Paths: normaloop.RequestPaths{
+			WorkspaceDir:  repoRoot,
 			WorkspaceMode: "read_only",
-			RunDir: repoRoot,
-			CodeRoot: repoRoot,
+			RunDir:        repoRoot,
+			CodeRoot:      repoRoot,
 		},
-		Budgets: model.Budgets{
+		Budgets: normaloop.Budgets{
 			MaxIterations: 1,
 		},
-		Context: model.RequestContext{
+		Context: normaloop.RequestContext{
 			Facts: make(map[string]any),
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan: &model.PlanInput{Task: model.IDInfo{ID: "task-1"}},
+		Plan:               &normaloop.PlanInput{Task: normaloop.IDInfo{ID: "task-1"}},
 	}
 
 	ctx := context.Background()
@@ -92,4 +89,54 @@ echo "$RESP"
 	// Check if output.json was created (by the agent)
 	_, err = os.Stat(filepath.Join(repoRoot, "output.json"))
 	assert.NoError(t, err)
+}
+
+func TestAinvokeRunner_RunWritesErrorToStderr(t *testing.T) {
+	repoRoot, err := os.MkdirTemp("", "norma-agent-test-*")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(repoRoot) }()
+
+	agentScript := filepath.Join(repoRoot, "my-agent.sh")
+	scriptContent := `#!/bin/sh
+echo "boom" 1>&2
+exit 1
+`
+	err = os.WriteFile(agentScript, []byte(scriptContent), 0o755)
+	require.NoError(t, err)
+
+	cfg := config.AgentConfig{
+		Type: "exec",
+		Cmd:  []string{agentScript},
+	}
+
+	runner, err := NewRunner(cfg)
+	require.NoError(t, err)
+
+	req := normaloop.AgentRequest{
+		Run:  normaloop.RunInfo{ID: "run-1", Iteration: 1},
+		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
+		Paths: normaloop.RequestPaths{
+			WorkspaceDir:  repoRoot,
+			WorkspaceMode: "read_only",
+			RunDir:        repoRoot,
+			CodeRoot:      repoRoot,
+		},
+		Budgets: normaloop.Budgets{
+			MaxIterations: 1,
+		},
+		Context: normaloop.RequestContext{
+			Facts: make(map[string]any),
+			Links: []string{},
+		},
+		StopReasonsAllowed: []string{"budget_exceeded"},
+		Plan:               &normaloop.PlanInput{Task: normaloop.IDInfo{ID: "task-1"}},
+	}
+
+	ctx := context.Background()
+	var stderr bytes.Buffer
+	_, _, exitCode, err := runner.Run(ctx, req, io.Discard, &stderr)
+	assert.Error(t, err)
+	assert.Equal(t, 1, exitCode)
+	assert.Contains(t, stderr.String(), "exit code 1")
 }

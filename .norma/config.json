@@ -1,20 +1,45 @@
 {
-  "agents": {
-    "plan": {
-      "type": "codex",
-      "model": "gpt-5.2-codex"
+  "profile": "default",
+  "profiles": {
+    "default": {
+      "agents": {
+        "plan": {
+          "type": "codex",
+          "model": "gpt-5.2-codex"
+        },
+        "do": {
+          "type": "gemini",
+          "model": "gemini-3-flash-preview"
+        },
+        "check": {
+          "type": "codex",
+          "model": "gpt-5.2-codex"
+        },
+        "act": {
+          "type": "codex",
+          "model": "gpt-5.2-codex"
+        }
+      }
     },
-    "do": {
-      "type": "gemini",
-      "model": "gemini-3-flash-preview"
-    },
-    "check": {
-      "type": "codex",
-      "model": "gpt-5.2-codex"
-    },
-    "act": {
-      "type": "codex",
-      "model": "gpt-5.2-codex"
+    "opencode": {
+      "agents": {
+        "plan": {
+          "type": "opencode",
+          "model": "opencode/big-pickle"
+        },
+        "do": {
+          "type": "opencode",
+          "model": "opencode/big-pickle"
+        },
+        "check": {
+          "type": "opencode",
+          "model": "opencode/big-pickle"
+        },
+        "act": {
+          "type": "opencode",
+          "model": "opencode/big-pickle"
+        }
+      }
     }
   },
   "budgets": {

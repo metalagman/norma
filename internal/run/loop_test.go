@@ -14,7 +14,7 @@ import (
 	"database/sql"
 	"github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/model"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,11 +22,11 @@ import (
 )
 
 type fakeAgent struct {
-	responses map[string]model.AgentResponse
-	requests  []model.AgentRequest
+	responses map[string]normaloop.AgentResponse
+	requests  []normaloop.AgentRequest
 }
 
-func (a *fakeAgent) Run(ctx context.Context, req model.AgentRequest, stdout, _ io.Writer) ([]byte, []byte, int, error) {
+func (a *fakeAgent) Run(ctx context.Context, req normaloop.AgentRequest, stdout, _ io.Writer) ([]byte, []byte, int, error) {
 	a.requests = append(a.requests, req)
 	resp, ok := a.responses[req.Step.Name]
 	if !ok {
@@ -57,10 +57,6 @@ func (a *fakeAgent) Run(ctx context.Context, req model.AgentRequest, stdout, _ i
 	return data, nil, 0, nil
 }
 
-func (a *fakeAgent) Describe() agent.RunnerInfo {
-	return agent.RunnerInfo{Type: "fake"}
-}
-
 type fakeTracker struct {
 	task.Tracker
 	statuses map[string]string
@@ -75,7 +71,7 @@ func (t *fakeTracker) MarkStatus(_ context.Context, id, status string) error {
 	return nil
 }
 
-func (t *fakeTracker) Get(_ context.Context, id string) (task.Task, error) {
+func (t *fakeTracker) Task(_ context.Context, id string) (task.Task, error) {
 	if tk, ok := t.tasks[id]; ok {
 		return tk, nil
 	}
@@ -175,17 +171,17 @@ func TestRunner_Run_Success(t *testing.T) {
 	}
 
 	fAgent := &fakeAgent{
-		responses: map[string]model.AgentResponse{
+		responses: map[string]normaloop.AgentResponse{
 			"plan": {
 				Status:   "ok",
-				Summary:  model.ResponseSummary{Text: "Planned"},
-				Progress: model.StepProgress{Title: "Planning done"},
-				Plan: &model.PlanOutput{
-					WorkPlan: model.WorkPlan{
-						DoSteps: []model.DoStep{{ID: "DO-1"}},
+				Summary:  normaloop.ResponseSummary{Text: "Planned"},
+				Progress: normaloop.StepProgress{Title: "Planning done"},
+				Plan: &normaloop.PlanOutput{
+					WorkPlan: normaloop.WorkPlan{
+						DoSteps: []normaloop.DoStep{{ID: "DO-1"}},
 					},
-					AcceptanceCriteria: model.EffectiveCriteriaGroup{
-						Effective: []model.EffectiveAcceptanceCriterion{
+					AcceptanceCriteria: normaloop.EffectiveCriteriaGroup{
+						Effective: []normaloop.EffectiveAcceptanceCriterion{
 							{ID: "AC-1", Text: "Effectively checked"},
 						},
 					},
@@ -193,25 +189,25 @@ func TestRunner_Run_Success(t *testing.T) {
 			},
 			"do": {
 				Status:   "ok",
-				Summary:  model.ResponseSummary{Text: "Did it"},
-				Progress: model.StepProgress{Title: "Doing done"},
-				Do: &model.DoOutput{
-					Execution: model.DoExecution{ExecutedStepIDs: []string{"DO-1"}},
+				Summary:  normaloop.ResponseSummary{Text: "Did it"},
+				Progress: normaloop.StepProgress{Title: "Doing done"},
+				Do: &normaloop.DoOutput{
+					Execution: normaloop.DoExecution{ExecutedStepIDs: []string{"DO-1"}},
 				},
 			},
 			"check": {
 				Status:   "ok",
-				Summary:  model.ResponseSummary{Text: "Checked"},
-				Progress: model.StepProgress{Title: "Checking done"},
-				Check: &model.CheckOutput{
-					Verdict: model.CheckVerdict{Status: "PASS"},
+				Summary:  normaloop.ResponseSummary{Text: "Checked"},
+				Progress: normaloop.StepProgress{Title: "Checking done"},
+				Check: &normaloop.CheckOutput{
+					Verdict: normaloop.CheckVerdict{Status: "PASS"},
 				},
 			},
 			"act": {
 				Status:   "ok",
-				Summary:  model.ResponseSummary{Text: "Acted"},
-				Progress: model.StepProgress{Title: "Acting done"},
-				Act:      &model.ActOutput{Decision: "close"},
+				Summary:  normaloop.ResponseSummary{Text: "Acted"},
+				Progress: normaloop.StepProgress{Title: "Acting done"},
+				Act:      &normaloop.ActOutput{Decision: "close"},
 			},
 		},
 	}
@@ -271,10 +267,10 @@ func TestRunner_Run_ReusePlan(t *testing.T) {
 
 	store := NewStore(db)
 
-	stateJSON, _ := json.Marshal(model.TaskState{
-		Plan: &model.PlanOutput{
-			WorkPlan: model.WorkPlan{
-				DoSteps: []model.DoStep{{ID: "DO-EXISTING"}},
+	stateJSON, _ := json.Marshal(normaloop.TaskState{
+		Plan: &normaloop.PlanOutput{
+			WorkPlan: normaloop.WorkPlan{
+				DoSteps: []normaloop.DoStep{{ID: "DO-EXISTING"}},
 			},
 		},
 	})
@@ -290,28 +286,28 @@ func TestRunner_Run_ReusePlan(t *testing.T) {
 	}
 
 	fAgent := &fakeAgent{
-		responses: map[string]model.AgentResponse{
+		responses: map[string]normaloop.AgentResponse{
 			"do": {
 				Status:   "ok",
-				Summary:  model.ResponseSummary{Text: "Did it"},
-				Progress: model.StepProgress{Title: "Doing done"},
-				Do: &model.DoOutput{
-					Execution: model.DoExecution{ExecutedStepIDs: []string{"DO-EXISTING"}},
+				Summary:  normaloop.ResponseSummary{Text: "Did it"},
+				Progress: normaloop.StepProgress{Title: "Doing done"},
+				Do: &normaloop.DoOutput{
+					Execution: normaloop.DoExecution{ExecutedStepIDs: []string{"DO-EXISTING"}},
 				},
 			},
 			"check": {
 				Status:   "ok",
-				Summary:  model.ResponseSummary{Text: "Checked"},
-				Progress: model.StepProgress{Title: "Checking done"},
-				Check: &model.CheckOutput{
-					Verdict: model.CheckVerdict{Status: "PASS"},
+				Summary:  normaloop.ResponseSummary{Text: "Checked"},
+				Progress: normaloop.StepProgress{Title: "Checking done"},
+				Check: &normaloop.CheckOutput{
+					Verdict: normaloop.CheckVerdict{Status: "PASS"},
 				},
 			},
 			"act": {
 				Status:   "ok",
-				Summary:  model.ResponseSummary{Text: "Acted"},
-				Progress: model.StepProgress{Title: "Acting done"},
-				Act:      &model.ActOutput{Decision: "close"},
+				Summary:  normaloop.ResponseSummary{Text: "Acted"},
+				Progress: normaloop.StepProgress{Title: "Acting done"},
+				Act:      &normaloop.ActOutput{Decision: "close"},
 			},
 		},
 	}

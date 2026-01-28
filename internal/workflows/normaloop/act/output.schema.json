@@ -40,7 +40,13 @@
       "properties": {
         "decision": { "type": "string", "enum": ["close", "replan", "rollback", "continue"] },
         "rationale": { "type": "string" },
-        "next": { "type": "object" }
+        "next": {
+          "type": "object",
+          "properties": {
+            "recommended": { "type": "boolean" },
+            "notes": { "type": "string" }
+          }
+        }
       },
       "required": ["decision", "rationale"]
     }

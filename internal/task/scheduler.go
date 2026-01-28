@@ -127,10 +127,7 @@ func isUnderParent(ctx context.Context, tracker Tracker, item Task, parentID str
 	}
 	current := strings.TrimSpace(item.ParentID)
 	for current != "" {
-		if current == parentID {
-			return true, nil
-		}
-		parent, err := tracker.Get(ctx, current)
+		parent, err := tracker.Task(ctx, current)
 		if err != nil {
 			return false, err
 		}

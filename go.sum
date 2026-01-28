@@ -99,6 +99,8 @@ github.com/mattn/go-sqlite3 v1.14.16 h1:yOQRA0RpS5PFz/oikGwBEqvAWhWg5ufRz4ETLjwp
 github.com/mattn/go-sqlite3 v1.14.16/go.mod h1:2eHXhiwb8IkHr+BDWZGa96P6+rkvnG63S2DGjv9HUNg=
 github.com/metalagman/ainvoke v1.0.4 h1:4+oogie8WCMQNg+y4Afmt/qSIljkIevrLW5HhRkGYcw=
 github.com/metalagman/ainvoke v1.0.4/go.mod h1:aDeAWtqPpTlJ/1iIPzLUYBU/gZTV2PfcvMhuDbgV6kM=
+github.com/metalagman/ainvoke v1.0.5 h1:ZPOb0UPW8s2pIlYYWatVCQqsIVAGTOjON1x6QaLwMaI=
+github.com/metalagman/ainvoke v1.0.5/go.mod h1:aDeAWtqPpTlJ/1iIPzLUYBU/gZTV2PfcvMhuDbgV6kM=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/moby/term v0.5.0 h1:xt8Q1nalod/v7BqbG21f8mQPqH+xAaC9C3N3wfWbVP0=

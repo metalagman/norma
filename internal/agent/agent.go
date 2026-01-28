@@ -3,33 +3,22 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
 	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/model"
 	"github.com/metalagman/norma/internal/workflows/normaloop"
 )
 
 // Runner executes an agent with a normalized request.
 type Runner interface {
-	Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
-	Describe() RunnerInfo
-}
-
-// RunnerInfo describes how an agent is invoked.
-type RunnerInfo struct {
-	Type     string
-	Cmd      []string
-	Model    string
-	WorkDir  string
-	RepoRoot string
-	UseTTY   bool
+	Run(ctx context.Context, req normaloop.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
 }
 
 // NewRunner constructs a runner for the given agent config.
-func NewRunner(cfg config.AgentConfig, _ string) (Runner, error) {
+func NewRunner(cfg config.AgentConfig) (Runner, error) {
 	cmd := cfg.Cmd
 	useTTY := false
 
@@ -42,27 +31,26 @@ func NewRunner(cfg config.AgentConfig, _ string) (Runner, error) {
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-			useTTY = true
 		case "codex":
+			// Keep non-TTY so codex reads the prompt from stdin.
 			cmd = []string{"codex", "exec"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
 			cmd = append(cmd, "--sandbox", "workspace-write")
-			useTTY = true
 		case "gemini":
 			cmd = []string{"gemini"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
 			cmd = append(cmd, "--output-format", "text")
-			useTTY = true
+			// Force one-shot mode (non-interactive) and allow file writes without prompts.
+			cmd = append(cmd, "--prompt", "", "--approval-mode", "auto_edit")
 		case "opencode":
 			cmd = []string{"opencode", "run"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-			useTTY = true
 		default:
 			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}
@@ -93,18 +81,29 @@ type ainvokeRunner struct {
 	cmd    []string
 }
 
-func (r *ainvokeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	prompt, err := normaloop.AgentPrompt(req)
+func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+	role := normaloop.GetRole(req.Step.Name)
+	if role == nil {
+		return nil, nil, 0, fmt.Errorf("unknown role %q", req.Step.Name)
+	}
+
+	prompt, err := role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 
+	input, err := role.MapRequest(req)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("map request: %w", err)
+	}
+
+	runDir := req.Step.Dir
 	inv := ainvoke.Invocation{
-		RunDir:       req.Step.Dir,
+		RunDir:       runDir,
 		SystemPrompt: prompt,
-		Input:        req,
-		InputSchema:  normaloop.GetInputSchema(req.Step.Name),
-		OutputSchema: normaloop.GetOutputSchema(req.Step.Name),
+		Input:        input,
+		InputSchema:  role.InputSchema(),
+		OutputSchema: role.OutputSchema(),
 	}
 
 	if stdout == nil {
@@ -115,18 +114,28 @@ func (r *ainvokeRunner) Run(ctx context.Context, req model.AgentRequest, stdout,
 	}
 
 	// ainvoke handles writing input.json, validating schemas, and running the command.
-	return r.runner.Run(ctx, inv, ainvoke.WithStdout(stdout), ainvoke.WithStderr(stderr))
+	outBytes, errBytes, exitCode, err := r.runner.Run(ctx, inv, ainvoke.WithStdout(stdout), ainvoke.WithStderr(stderr))
+	if err != nil {
+		writeInvocationError(stderr, err)
+		return outBytes, errBytes, exitCode, err
+	}
+
+	// Parse role-specific response and map back to normaloop.AgentResponse
+	agentResp, err := role.MapResponse(outBytes)
+	if err == nil {
+		// Re-marshal it to ensure consistency
+		newOut, mErr := json.Marshal(agentResp)
+		if mErr == nil {
+			return newOut, errBytes, exitCode, nil
+		}
+	}
+
+	return outBytes, errBytes, exitCode, nil
 }
 
-func (r *ainvokeRunner) Describe() RunnerInfo {
-	useTTY := false
-	if r.cfg.UseTTY != nil {
-		useTTY = *r.cfg.UseTTY
+func writeInvocationError(w io.Writer, err error) {
+	if w == nil || err == nil {
+		return
 	}
-	return RunnerInfo{
-		Type:   r.cfg.Type,
-		Cmd:    r.cmd,
-		Model:  r.cfg.Model,
-		UseTTY: useTTY,
-	}
+	_, _ = fmt.Fprintln(w, err)
 }

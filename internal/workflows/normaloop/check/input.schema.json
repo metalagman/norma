@@ -5,6 +5,7 @@
   "properties": {
     "run": {
       "type": "object",
+      "title": "CheckRun",
       "properties": {
         "id": { "type": "string" },
         "iteration": { "type": "integer" }
@@ -13,16 +14,29 @@
     },
     "task": {
       "type": "object",
+      "title": "CheckTask",
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
         "description": { "type": "string" },
-        "acceptance_criteria": { "type": "array" }
+        "acceptance_criteria": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "title": "CheckAcceptanceCriterion",
+            "properties": {
+              "id": { "type": "string" },
+              "text": { "type": "string" }
+            },
+            "required": ["id", "text"]
+          }
+        }
       },
       "required": ["id", "title", "description", "acceptance_criteria"]
     },
     "step": {
       "type": "object",
+      "title": "CheckStep",
       "properties": {
         "index": { "type": "integer" },
         "name": { "type": "string" },
@@ -32,6 +46,7 @@
     },
     "paths": {
       "type": "object",
+      "title": "CheckPaths",
       "properties": {
         "workspace_dir": { "type": "string" },
         "workspace_mode": { "type": "string" },
@@ -42,6 +57,7 @@
     },
     "budgets": {
       "type": "object",
+      "title": "CheckBudgets",
       "properties": {
         "max_iterations": { "type": "integer" },
         "max_wall_time_minutes": { "type": "integer" },
@@ -51,6 +67,7 @@
     },
     "context": {
       "type": "object",
+      "title": "CheckContext",
       "properties": {
         "facts": { "type": "object" },
         "links": { "type": "array", "items": { "type": "string" } },
@@ -60,10 +77,77 @@
     "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
     "check_input": {
       "type": "object",
+      "title": "CheckInput",
       "properties": {
-        "work_plan": { "type": "object" },
-        "acceptance_criteria_effective": { "type": "array" },
-        "do_execution": { "type": "object" }
+        "work_plan": {
+          "type": "object",
+          "title": "CheckWorkPlan",
+          "properties": {
+            "timebox_minutes": { "type": "integer" },
+            "do_steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "title": "CheckDoStep",
+                "properties": {
+                  "id": { "type": "string" },
+                  "text": { "type": "string" }
+                },
+                "required": ["id", "text"]
+              }
+            },
+            "check_steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "title": "CheckCheckStep",
+                "properties": {
+                  "id": { "type": "string" },
+                  "text": { "type": "string" },
+                  "mode": { "type": "string" }
+                },
+                "required": ["id", "text", "mode"]
+              }
+            },
+            "stop_triggers": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["timebox_minutes", "do_steps", "check_steps", "stop_triggers"]
+        },
+        "acceptance_criteria_effective": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "title": "CheckEffectiveAC",
+            "properties": {
+              "id": { "type": "string" },
+              "origin": { "type": "string" },
+              "text": { "type": "string" }
+            },
+            "required": ["id", "origin", "text"]
+          }
+        },
+        "do_execution": {
+          "type": "object",
+          "title": "CheckDoExecution",
+          "properties": {
+            "executed_step_ids": { "type": "array", "items": { "type": "string" } },
+            "skipped_step_ids": { "type": "array", "items": { "type": "string" } },
+            "commands": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "title": "CheckCommandResult",
+                "properties": {
+                  "id": { "type": "string" },
+                  "cmd": { "type": "string" },
+                  "exit_code": { "type": "integer" }
+                },
+                "required": ["id", "cmd", "exit_code"]
+              }
+            }
+          },
+          "required": ["executed_step_ids", "skipped_step_ids", "commands"]
+        }
       },
       "required": ["work_plan", "acceptance_criteria_effective", "do_execution"]
     }

@@ -1,12 +1,9 @@
-// Package model defines the core data structures for norma.
-package model
+// Package normaloop implements the standard PDCA workflow.
+package normaloop
 
-// AcceptanceCriterion describes a single acceptance criterion for a run.
-type AcceptanceCriterion struct {
-	ID          string   `json:"id"`
-	Text        string   `json:"text"`
-	VerifyHints []string `json:"verify_hints,omitempty"`
-}
+import (
+	"github.com/metalagman/norma/internal/task"
+)
 
 // EffectiveAcceptanceCriterion represents ACs refined by the Plan agent.
 type EffectiveAcceptanceCriterion struct {
@@ -66,10 +63,10 @@ type RunInfo struct {
 
 // TaskInfo contains identification and description info for an issue.
 type TaskInfo struct {
-	ID                 string                `json:"id"`
-	Title              string                `json:"title"`
-	Description        string                `json:"description"`
-	AcceptanceCriteria []AcceptanceCriterion `json:"acceptance_criteria"`
+	ID                 string                     `json:"id"`
+	Title              string                     `json:"title"`
+	Description        string                     `json:"description"`
+	AcceptanceCriteria []task.AcceptanceCriterion `json:"acceptance_criteria"`
 }
 
 // StepInfo identifies the step in the run.
@@ -178,7 +175,7 @@ type PlanOutput struct {
 
 // EffectiveCriteriaGroup groups baseline and extended acceptance criteria.
 type EffectiveCriteriaGroup struct {
-	Baseline  []AcceptanceCriterion          `json:"baseline"`
+	Baseline  []task.AcceptanceCriterion     `json:"baseline"`
 	Effective []EffectiveAcceptanceCriterion `json:"effective"`
 }
 

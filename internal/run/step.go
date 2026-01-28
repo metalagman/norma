@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/metalagman/norma/internal/agent"
-	"github.com/metalagman/norma/internal/model"
+	"github.com/metalagman/norma/internal/logging"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/rs/zerolog/log"
 )
 
@@ -36,12 +38,12 @@ type stepResult struct {
 	EndedAt   time.Time
 	Status    string
 	Summary   string
-	Response  *model.AgentResponse
+	Response  *normaloop.AgentResponse
 	Protocol  string
 	Retries   int
 }
 
-func executeStep(ctx context.Context, runner agent.Runner, req model.AgentRequest, runStepsDir string) (stepResult, error) {
+func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req normaloop.AgentRequest, runStepsDir string) (stepResult, error) {
 	stepName := fmt.Sprintf("%02d-%s", req.Step.Index, req.Step.Name)
 	if req.Context.Attempt > 0 {
 		stepName = fmt.Sprintf("%02d-%s-retry-%d", req.Step.Index, req.Step.Name, req.Context.Attempt)
@@ -56,7 +58,24 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		return stepResult{}, fmt.Errorf("create logs dir: %w", err)
 	}
 
+	// Mount worktree in step directory
+	workspaceDir := filepath.Join(finalDir, "worktree")
+	branchName := fmt.Sprintf("norma/task/%s", r.taskID)
+	if _, err := mountWorktree(ctx, r.repoRoot, workspaceDir, branchName); err != nil {
+		return stepResult{}, fmt.Errorf("mount step worktree: %w", err)
+	}
+	defer func() {
+		_ = removeWorktree(ctx, r.repoRoot, workspaceDir)
+	}()
+
+	if req.Paths.WorkspaceMode == "read_write" {
+		defer func() {
+			_ = commitWorkspace(ctx, workspaceDir, fmt.Sprintf("%s: step %d", req.Step.Name, req.Step.Index))
+		}()
+	}
+
 	req.Step.Dir = finalDir
+	req.Paths.WorkspaceDir = workspaceDir
 	if err := writeJSON(filepath.Join(finalDir, "input.json"), req); err != nil {
 		return stepResult{}, err
 	}
@@ -82,32 +101,38 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 		}
 	}()
 
-	info := runner.Describe()
 	log.Info().
 		Str("role", req.Step.Name).
 		Str("run_id", req.Run.ID).
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Run.Iteration).
 		Int("attempt", req.Context.Attempt).
-		Str("agent_type", info.Type).
-		Strs("cmd", info.Cmd).
-		Str("model", info.Model).
-		Bool("tty", info.UseTTY).
 		Str("work_dir", req.Paths.RunDir).
 		Msg("agent start")
 
+	stdoutWriter := io.Writer(stdoutFile)
+	stderrWriter := io.Writer(stderrFile)
+	if logging.DebugEnabled() {
+		stdoutWriter = io.MultiWriter(stdoutFile, os.Stderr)
+		stderrWriter = io.MultiWriter(stderrFile, os.Stderr)
+	}
+
 	agentStart := time.Now().UTC()
-	stdout, _, exitCode, runErr := runner.Run(ctx, req, stdoutFile, stderrFile)
+	stdout, _, exitCode, runErr := runner.Run(ctx, req, stdoutWriter, stderrWriter)
 	agentDuration := time.Since(agentStart)
-	log.Info().
+	finishEvent := log.Info().
 		Str("role", req.Step.Name).
 		Str("run_id", req.Run.ID).
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Run.Iteration).
 		Int("attempt", req.Context.Attempt).
 		Int("exit_code", exitCode).
-		Dur("duration", agentDuration).
-		Msg("agent finished")
+		Dur("duration", agentDuration)
+	if runErr != nil {
+		finishEvent = finishEvent.Err(runErr)
+		_, _ = fmt.Fprintln(stderrWriter, runErr)
+	}
+	finishEvent.Msg("agent finished")
 
 	res := stepResult{
 		StepIndex: req.Step.Index,
@@ -129,7 +154,7 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	}
 
 	// Try reading output.json from step dir first
-	var resp *model.AgentResponse
+	var resp *normaloop.AgentResponse
 	var protoErr string
 	outputPath := filepath.Join(finalDir, "output.json")
 	if data, err := os.ReadFile(outputPath); err == nil {
@@ -173,8 +198,8 @@ func executeStep(ctx context.Context, runner agent.Runner, req model.AgentReques
 	return res, nil
 }
 
-func parseAgentResponse(stdout []byte) (*model.AgentResponse, string) {
-	var resp model.AgentResponse
+func parseAgentResponse(stdout []byte) (*normaloop.AgentResponse, string) {
+	var resp normaloop.AgentResponse
 	if err := json.Unmarshal(stdout, &resp); err != nil {
 		recovered, ok := extractJSON(stdout)
 		if !ok || json.Unmarshal(recovered, &resp) != nil {

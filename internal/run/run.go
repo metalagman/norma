@@ -14,10 +14,9 @@ import (
 
 	"github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/model"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/reconcile"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,9 +43,8 @@ type Runner struct {
 	agents       map[string]agent.Runner
 	tracker      task.Tracker
 	taskID       string
-	workspaceDir string
 	artifactsDir string
-	state        model.TaskState
+	state        normaloop.TaskState
 }
 
 // Result summarizes a completed run.
@@ -64,7 +62,7 @@ func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tr
 		if !ok {
 			return nil, fmt.Errorf("missing agent config for role %q", role)
 		}
-		runner, err := agent.NewRunner(agentCfg, repoRoot)
+		runner, err := agent.NewRunner(agentCfg)
 		if err != nil {
 			return nil, fmt.Errorf("init %s agent: %w", role, err)
 		}
@@ -86,7 +84,7 @@ func (r *Runner) validateTaskID(id string) bool {
 }
 
 // Run starts a new run with the given goal and acceptance criteria.
-func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCriterion, taskID string) (res Result, err error) {
+func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCriterion, taskID string) (res Result, err error) {
 	if !r.validateTaskID(taskID) {
 		return Result{}, fmt.Errorf("invalid task id: %s", taskID)
 	}
@@ -96,9 +94,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	defer func() {
 		if res.RunID == "" {
 			return
-		}
-		if r.workspaceDir != "" {
-			_ = cleanupWorkspace(ctx, r.repoRoot, r.workspaceDir, r.taskID)
 		}
 		status := res.Status
 		if status == "" && err != nil {
@@ -142,11 +137,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		return Result{RunID: runID}, fmt.Errorf("create artifacts dir: %w", err)
 	}
 
-	r.workspaceDir, err = createWorkspace(ctx, r.repoRoot, runDir, r.taskID)
-	if err != nil {
-		return Result{RunID: runID}, fmt.Errorf("create workspace: %w", err)
-	}
-
 	stepsDir := filepath.Join(runDir, "steps")
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		return Result{RunID: runID}, fmt.Errorf("create run steps: %w", err)
@@ -156,7 +146,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		return Result{RunID: runID}, err
 	}
 
-	taskItem, err := r.tracker.Get(ctx, r.taskID)
+	taskItem, err := r.tracker.Task(ctx, r.taskID)
 	if err != nil {
 		return Result{RunID: runID}, fmt.Errorf("get task: %w", err)
 	}
@@ -164,10 +154,10 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	iteration := 1
 	stepIndex := 0
 
-	var lastPlan *model.PlanOutput
-	var lastDo *model.DoOutput
-	var lastCheck *model.CheckOutput
-	var lastAct *model.ActOutput
+	var lastPlan *normaloop.PlanOutput
+	var lastDo *normaloop.DoOutput
+	var lastCheck *normaloop.CheckOutput
+	var lastAct *normaloop.ActOutput
 
 	// Load existing state
 	if taskItem.Notes != "" {
@@ -232,7 +222,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Warn().Err(err).Msg("failed to update task status to planning")
 			}
 			planReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RolePlan, goal, ac)
-			planReq.Plan = &model.PlanInput{Task: model.IDInfo{ID: r.taskID}}
+			planReq.Plan = &normaloop.PlanInput{Task: normaloop.IDInfo{ID: r.taskID}}
 
 			planRes, err := r.runAndCommitStep(ctx, planReq, stepsDir)
 			if err != nil {
@@ -266,7 +256,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Warn().Err(err).Msg("failed to update task status to doing")
 			}
 			doReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RoleDo, goal, ac)
-			doReq.Do = &model.DoInput{
+			doReq.Do = &normaloop.DoInput{
 				WorkPlan:          lastPlan.WorkPlan,
 				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
 			}
@@ -280,9 +270,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Warn().Str("status", doRes.Status).Msg("do step failed without required data, stopping")
 				return r.handleStop(ctx, runID, iteration, stepIndex, doRes)
 			}
-
-			// Commit changes in workspace
-			_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("do: step %d", stepIndex))
 
 			lastDo = doRes.Response.Do
 
@@ -306,7 +293,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 				log.Warn().Err(err).Msg("failed to update task status to checking")
 			}
 			checkReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RoleCheck, goal, ac)
-			checkReq.Check = &model.CheckInput{
+			checkReq.Check = &normaloop.CheckInput{
 				WorkPlan:          lastPlan.WorkPlan,
 				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
 				DoExecution:       lastDo.Execution,
@@ -349,7 +336,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			log.Warn().Err(err).Msg("failed to update task status to acting")
 		}
 		actReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RoleAct, goal, ac)
-		actReq.Act = &model.ActInput{
+		actReq.Act = &normaloop.ActInput{
 			CheckVerdict:      lastCheck.Verdict,
 			AcceptanceResults: lastCheck.AcceptanceResults,
 		}
@@ -359,9 +346,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			log.Error().Err(err).Msg("act step execution failed with error")
 			return Result{RunID: runID}, err
 		}
-
-		// Commit changes in workspace
-		_ = commitWorkspace(ctx, r.workspaceDir, fmt.Sprintf("act: step %d", stepIndex))
 
 		if actRes.Response != nil && actRes.Response.Act != nil {
 			lastAct = actRes.Response.Act
@@ -407,32 +391,31 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 	return Result{RunID: runID, Status: statusStopped}, nil
 }
 
-func (r *Runner) baseRequest(runID string, iteration, index int, role, goal string, ac []model.AcceptanceCriterion) model.AgentRequest {
+func (r *Runner) baseRequest(runID string, iteration, index int, role, goal string, ac []task.AcceptanceCriterion) normaloop.AgentRequest {
 	mode := "read_only"
 	if role == normaloop.RoleDo || role == normaloop.RoleAct {
 		mode = "read_write"
 	}
-	return model.AgentRequest{
-		Run: model.RunInfo{
+	return normaloop.AgentRequest{
+		Run: normaloop.RunInfo{
 			ID:        runID,
 			Iteration: iteration,
 		},
-		Task: model.TaskInfo{
+		Task: normaloop.TaskInfo{
 			ID:                 r.taskID,
 			Title:              goal,
 			AcceptanceCriteria: ac,
 		},
-		Step: model.StepInfo{
+		Step: normaloop.StepInfo{
 			Index: index,
 			Name:  role,
 		},
-		Paths: model.RequestPaths{
-			WorkspaceDir:  r.workspaceDir,
+		Paths: normaloop.RequestPaths{
 			WorkspaceMode: mode,
 			RunDir:        filepath.Join(r.normaDir, "runs", runID),
 			CodeRoot:      r.repoRoot,
 		},
-		Budgets: model.Budgets{
+		Budgets: normaloop.Budgets{
 			MaxIterations: r.cfg.Budgets.MaxIterations,
 		},
 		StopReasonsAllowed: []string{
@@ -441,20 +424,20 @@ func (r *Runner) baseRequest(runID string, iteration, index int, role, goal stri
 			"verify_missing",
 			"replan_required",
 		},
-		Context: model.RequestContext{
+		Context: normaloop.RequestContext{
 			Facts: make(map[string]any),
 		},
 	}
 }
 
-func (r *Runner) runAndCommitStep(ctx context.Context, req model.AgentRequest, stepsDir string) (stepResult, error) {
+func (r *Runner) runAndCommitStep(ctx context.Context, req normaloop.AgentRequest, stepsDir string) (stepResult, error) {
 	maxAttempts := 3
 	var lastRes stepResult
 	var lastErr error
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		req.Context.Attempt = attempt
-		res, err := executeStep(ctx, r.agents[req.Step.Name], req, stepsDir)
+		res, err := r.executeStep(ctx, r.agents[req.Step.Name], req, stepsDir)
 		lastRes = res
 		lastErr = err
 
@@ -554,7 +537,7 @@ func (r *Runner) appendToProgress(res stepResult) {
 		stopReason = "none"
 	}
 
-	entry := model.JournalEntry{
+	entry := normaloop.JournalEntry{
 		Timestamp:  timestamp,
 		StepIndex:  res.StepIndex,
 		Role:       res.Role,

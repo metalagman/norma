@@ -4,38 +4,19 @@ package run
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
-func createWorkspace(ctx context.Context, repoRoot, runDir, taskID string) (string, error) {
-	workspaceDir := filepath.Join(runDir, "workspace")
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return "", fmt.Errorf("create run dir: %w", err)
-	}
-
+func mountWorktree(ctx context.Context, repoRoot, workspaceDir, branchName string) (string, error) {
 	// Ensure we prune any stale worktrees before adding a new one.
 	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
-
-	// We create a branch scoped to the task to allow restartable progress.
-	branchName := fmt.Sprintf("norma/task/%s", taskID)
-
-	log.Info().
-		Str("repo_root", repoRoot).
-		Str("workspace_dir", workspaceDir).
-		Str("branch", branchName).
-		Msg("creating git workspace")
 
 	// Check if we are in a git repo
 	if !gitAvailable(ctx, repoRoot) {
 		return "", fmt.Errorf("not a git repository: %s", repoRoot)
 	}
-
-	// Prune any stale worktree metadata
-	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
 
 	// Check if branch already exists
 	branchExists := strings.TrimSpace(runCmd(ctx, repoRoot, "git", "branch", "--list", branchName)) != ""
@@ -81,18 +62,14 @@ func forceCleanupStaleWorktree(ctx context.Context, repoRoot, branchName string)
 	}
 }
 
-func cleanupWorkspace(ctx context.Context, repoRoot, workspaceDir, _ string) error {
-	log.Info().
-		Str("workspace_dir", workspaceDir).
-		Msg("cleaning up git workspace (removing worktree only)")
-
+func removeWorktree(ctx context.Context, repoRoot, workspaceDir string) error {
 	// Remove worktree only, keep the branch for restartable progress
 	err := runCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", workspaceDir)
 	if err != nil {
 		log.Warn().Err(err).Str("workspace_dir", workspaceDir).Msg("failed to remove git worktree")
 	}
 
-	return nil
+	return err
 }
 
 func commitWorkspace(ctx context.Context, workspaceDir, message string) error {

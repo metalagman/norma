@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/metalagman/norma/internal/model"
 )
 
 const (
@@ -64,7 +63,7 @@ type BeadsIssue struct {
 }
 
 // Add creates a task via bd create.
-func (t *BeadsTracker) Add(ctx context.Context, title, goal string, criteria []model.AcceptanceCriterion, runID *string) (string, error) {
+func (t *BeadsTracker) Add(ctx context.Context, title, goal string, criteria []AcceptanceCriterion, runID *string) (string, error) {
 	description := strings.TrimSpace(goal)
 	args := []string{"create", "--title", title, "--description", description, "--type", "task", "--json", "--quiet"}
 	if len(criteria) > 0 {
@@ -207,8 +206,8 @@ func (t *BeadsTracker) Children(ctx context.Context, parentID string) ([]Task, e
 	return tasks, nil
 }
 
-// Get fetches a task via bd show.
-func (t *BeadsTracker) Get(ctx context.Context, id string) (Task, error) {
+// Task fetches a task via bd show.
+func (t *BeadsTracker) Task(ctx context.Context, id string) (Task, error) {
 	args := []string{"show", id, "--json", "--quiet"}
 	out, err := t.exec(ctx, args...)
 	if err != nil {
@@ -413,7 +412,7 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 	}
 }
 
-func formatAcceptanceCriteria(criteria []model.AcceptanceCriterion) string {
+func formatAcceptanceCriteria(criteria []AcceptanceCriterion) string {
 	lines := make([]string, 0, len(criteria))
 	for i, ac := range criteria {
 		text := strings.TrimSpace(ac.Text)
@@ -429,13 +428,13 @@ func formatAcceptanceCriteria(criteria []model.AcceptanceCriterion) string {
 	return strings.Join(lines, "\n")
 }
 
-func parseAcceptanceCriteria(raw string) []model.AcceptanceCriterion {
+func parseAcceptanceCriteria(raw string) []AcceptanceCriterion {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil
 	}
 	lines := strings.Split(raw, "\n")
-	out := make([]model.AcceptanceCriterion, 0, len(lines))
+	out := make([]AcceptanceCriterion, 0, len(lines))
 	fallback := 1
 	for _, line := range lines {
 		line = strings.TrimSpace(strings.TrimPrefix(line, "-"))
@@ -449,7 +448,7 @@ func parseAcceptanceCriteria(raw string) []model.AcceptanceCriterion {
 			fallback++
 			text = line
 		}
-		out = append(out, model.AcceptanceCriterion{ID: id, Text: text})
+		out = append(out, AcceptanceCriterion{ID: id, Text: text})
 	}
 	return out
 }

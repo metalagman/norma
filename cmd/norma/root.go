@@ -16,6 +16,7 @@ import (
 var (
 	cfgFile string
 	debug   bool
+	profile string
 	rootCmd = &cobra.Command{
 		Use:   "norma",
 		Short: "norma is a minimal agent workflow runner",
@@ -27,8 +28,12 @@ func Execute() error {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", filepath.Join(".norma", "config.json"), "config file path")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
+	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "config profile name")
 	if err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config")); err != nil {
 		return fmt.Errorf("bind config flag: %w", err)
+	}
+	if err := viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile")); err != nil {
+		return fmt.Errorf("bind profile flag: %w", err)
 	}
 	rootCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		logging.Init(debug)
