@@ -15,7 +15,7 @@ import (
 	"github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
-	"github.com/metalagman/norma/internal/normaloop"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/reconcile"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"

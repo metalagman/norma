@@ -9,7 +9,7 @@ import (
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
-	"github.com/metalagman/norma/internal/normaloop"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

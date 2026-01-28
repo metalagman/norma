@@ -9,7 +9,7 @@ import (
 	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
-	"github.com/metalagman/norma/internal/normaloop"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
 )
 
 // Runner executes an agent with a normalized request.
