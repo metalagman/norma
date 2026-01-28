@@ -58,11 +58,11 @@ func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req norma
 		return stepResult{}, fmt.Errorf("create logs dir: %w", err)
 	}
 
-	// Mount worktree in step directory
-	workspaceDir := filepath.Join(finalDir, "worktree")
+	// Mount workspace in step directory
+	workspaceDir := filepath.Join(finalDir, "workspace")
 	branchName := fmt.Sprintf("norma/task/%s", r.taskID)
 	if _, err := mountWorktree(ctx, r.repoRoot, workspaceDir, branchName); err != nil {
-		return stepResult{}, fmt.Errorf("mount step worktree: %w", err)
+		return stepResult{}, fmt.Errorf("mount step workspace: %w", err)
 	}
 	defer func() {
 		_ = removeWorktree(ctx, r.repoRoot, workspaceDir)
