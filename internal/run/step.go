@@ -107,7 +107,7 @@ func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req norma
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Run.Iteration).
 		Int("attempt", req.Context.Attempt).
-		Str("work_dir", req.Paths.RunDir).
+		Str("work_dir", req.Paths.WorkspaceDir).
 		Msg("agent start")
 
 	stdoutWriter := io.Writer(stdoutFile)
