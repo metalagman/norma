@@ -94,7 +94,7 @@ type ainvokeRunner struct {
 }
 
 func (r *ainvokeRunner) Run(ctx context.Context, req model.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	prompt, err := normaloop.AgentPrompt(req, r.cfg.Model)
+	prompt, err := normaloop.AgentPrompt(req)
 	if err != nil {
 		return nil, nil, 0, err
 	}

@@ -51,8 +51,8 @@ func GetOutputSchema(role string) string {
 	}
 }
 
-// AgentPrompt returns the system prompt for a given request and model.
-func AgentPrompt(req model.AgentRequest, _ string) (string, error) {
+// AgentPrompt returns the system prompt for a given request.
+func AgentPrompt(req model.AgentRequest) (string, error) {
 	var tmplStr string
 	switch req.Step.Name {
 	case RolePlan:
