@@ -66,11 +66,6 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 	if err := os.MkdirAll(filepath.Join(finalDir, "logs"), 0o755); err != nil {
 		return stepResult{}, fmt.Errorf("create logs dir: %w", err)
 	}
-	// Create artifacts directory inside step dir
-	r.artifactsDir = filepath.Join(finalDir, "artifacts")
-	if err := os.MkdirAll(r.artifactsDir, 0o755); err != nil {
-		return stepResult{}, fmt.Errorf("create artifacts dir: %w", err)
-	}
 
 	// Mount workspace in step directory
 	workspaceDir := filepath.Join(finalDir, "workspace")
@@ -81,6 +76,12 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 	defer func() {
 		_ = removeWorktree(ctx, r.repoRoot, workspaceDir)
 	}()
+
+	// Symlink progress.md into step directory if it exists
+	progressPath := filepath.Join(r.runDir, "progress.md")
+	if _, err := os.Stat(progressPath); err == nil {
+		_ = os.Symlink(progressPath, filepath.Join(finalDir, "progress.md"))
+	}
 
 	req.Paths.WorkspaceDir = workspaceDir
 	req.Paths.RunDir = finalDir
@@ -115,7 +116,7 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 		Int("step_index", req.Step.Index).
 		Int("iteration", req.Run.Iteration).
 		Int("attempt", req.Context.Attempt).
-		Str("work_dir", req.Paths.WorkspaceDir).
+		Str("run_dir", req.Paths.RunDir).
 		Msg("agent start")
 
 	stdoutWriter := io.Writer(stdoutFile)

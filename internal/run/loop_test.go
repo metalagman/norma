@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"database/sql"
-	"github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/task"
@@ -212,19 +211,18 @@ func TestRunner_Run_Success(t *testing.T) {
 		},
 	}
 
+	normaloop.GetRole("plan").SetRunner(fAgent)
+	normaloop.GetRole("do").SetRunner(fAgent)
+	normaloop.GetRole("check").SetRunner(fAgent)
+	normaloop.GetRole("act").SetRunner(fAgent)
+
 	runner := &Runner{
 		repoRoot: repoRoot,
 		normaDir: filepath.Join(repoRoot, ".norma"),
 		cfg: config.Config{
 			Budgets: config.Budgets{MaxIterations: 1},
 		},
-		store: store,
-		agents: map[string]agent.Runner{
-			"plan":  fAgent,
-			"do":    fAgent,
-			"check": fAgent,
-			"act":   fAgent,
-		},
+		store:   store,
 		tracker: tracker,
 	}
 
@@ -234,7 +232,7 @@ func TestRunner_Run_Success(t *testing.T) {
 	assert.Equal(t, "passed", res.Status)
 
 	// Verify progress.md
-	progressPath := filepath.Join(runner.artifactsDir, "progress.md")
+	progressPath := filepath.Join(runner.runDir, "progress.md")
 	_, err = os.Stat(progressPath)
 	assert.NoError(t, err)
 
@@ -312,18 +310,17 @@ func TestRunner_Run_ReusePlan(t *testing.T) {
 		},
 	}
 
+	normaloop.GetRole("do").SetRunner(fAgent)
+	normaloop.GetRole("check").SetRunner(fAgent)
+	normaloop.GetRole("act").SetRunner(fAgent)
+
 	runner := &Runner{
 		repoRoot: repoRoot,
 		normaDir: filepath.Join(repoRoot, ".norma"),
 		cfg: config.Config{
 			Budgets: config.Budgets{MaxIterations: 1},
 		},
-		store: store,
-		agents: map[string]agent.Runner{
-			"do":    fAgent,
-			"check": fAgent,
-			"act":   fAgent,
-		},
+		store:   store,
 		tracker: tracker,
 	}
 

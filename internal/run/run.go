@@ -36,14 +36,14 @@ const (
 
 // Runner executes the norma workflow for a run.
 type Runner struct {
-	repoRoot     string
-	normaDir     string
-	cfg          config.Config
-	store        *Store
-	tracker      task.Tracker
-	taskID       string
-	artifactsDir string
-	state        normaloop.TaskState
+	repoRoot string
+	normaDir string
+	runDir   string
+	cfg      config.Config
+	store    *Store
+	tracker  task.Tracker
+	taskID   string
+	state    normaloop.TaskState
 }
 
 // Result summarizes a completed run.
@@ -56,17 +56,17 @@ type Result struct {
 // NewRunner constructs a Runner with agent implementations.
 func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tracker) (*Runner, error) {
 	for _, roleName := range []string{normaloop.RolePlan, normaloop.RoleDo, normaloop.RoleCheck, normaloop.RoleAct} {
+		role := normaloop.GetRole(roleName)
+		if role == nil {
+			return nil, fmt.Errorf("unknown role %q", roleName)
+		}
 		agentCfg, ok := cfg.Agents[roleName]
 		if !ok {
 			return nil, fmt.Errorf("missing agent config for role %q", roleName)
 		}
-		roleRunner, err := agent.NewRunner(agentCfg)
+		roleRunner, err := agent.NewRunner(agentCfg, role)
 		if err != nil {
 			return nil, fmt.Errorf("init %s agent: %w", roleName, err)
-		}
-		role := normaloop.GetRole(roleName)
-		if role == nil {
-			return nil, fmt.Errorf("unknown role %q", roleName)
 		}
 		role.SetRunner(roleRunner)
 	}
@@ -132,14 +132,14 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		return Result{}, err
 	}
 
-	runDir := filepath.Join(r.normaDir, "runs", runID)
+	r.runDir = filepath.Join(r.normaDir, "runs", runID)
 
-	stepsDir := filepath.Join(runDir, "steps")
+	stepsDir := filepath.Join(r.runDir, "steps")
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		return Result{RunID: runID}, fmt.Errorf("create run steps: %w", err)
 	}
 
-	if err := r.store.CreateRun(ctx, runID, goal, runDir, 1); err != nil {
+	if err := r.store.CreateRun(ctx, runID, goal, r.runDir, 1); err != nil {
 		return Result{RunID: runID}, err
 	}
 
@@ -406,7 +406,7 @@ func (r *Runner) runAndCommitStep(ctx context.Context, req normaloop.AgentReques
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		req.Context.Attempt = attempt
-		res, err := r.executeStep(ctx, r.agents[req.Step.Name], req, stepsDir)
+		res, err := r.executeStep(ctx, req, stepsDir)
 		lastRes = res
 		lastErr = err
 
@@ -526,8 +526,8 @@ func (r *Runner) appendToProgress(res stepResult) {
 
 	r.state.Journal = append(r.state.Journal, entry)
 
-	// Reconstruct progress.md in current step's artifacts directory
-	path := filepath.Join(r.artifactsDir, "progress.md")
+	// Reconstruct progress.md in run directory
+	path := filepath.Join(r.runDir, "progress.md")
 	var b strings.Builder
 	for _, entry := range r.state.Journal {
 		b.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, entry.StopReason))

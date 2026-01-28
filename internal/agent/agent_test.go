@@ -25,7 +25,7 @@ func TestNewRunner(t *testing.T) {
 		Cmd:  []string{"echo", "test"},
 	}
 
-	runner, err := NewRunner(cfg)
+	runner, err := NewRunner(cfg, normaloop.GetRole(normaloop.RolePlan))
 	assert.NoError(t, err)
 	assert.NotNil(t, runner)
 }
@@ -51,7 +51,7 @@ echo "$RESP"
 		Cmd:  []string{agentScript},
 	}
 
-	runner, err := NewRunner(cfg)
+	runner, err := NewRunner(cfg, normaloop.GetRole(normaloop.RolePlan))
 	require.NoError(t, err)
 
 	req := normaloop.AgentRequest{
@@ -107,7 +107,7 @@ exit 1
 		Cmd:  []string{agentScript},
 	}
 
-	runner, err := NewRunner(cfg)
+	runner, err := NewRunner(cfg, normaloop.GetRole(normaloop.RolePlan))
 	require.NoError(t, err)
 
 	req := normaloop.AgentRequest{
