@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
+    "stop_reason": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" }
+      },
+      "required": ["text"]
+    },
+    "progress": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "details": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["title", "details"]
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "plan_match": { "type": "object" },
+        "acceptance_results": { "type": "array" },
+        "verdict": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "FAIL", "PARTIAL"] },
+            "recommendation": { "type": "string" },
+            "basis": { "type": "object" }
+          },
+          "required": ["status", "recommendation", "basis"]
+        }
+      },
+      "required": ["plan_match", "acceptance_results", "verdict"]
+    }
+  },
+  "required": ["status", "summary", "progress", "check"]
+}

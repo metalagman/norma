@@ -9,6 +9,7 @@ import (
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
+	"github.com/metalagman/norma/internal/normaloop"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,7 +60,7 @@ echo "$RESP"
 	req := model.AgentRequest{
 		Run:  model.RunInfo{ID: "run-1", Iteration: 1},
 		Task: model.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []model.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: model.StepInfo{Index: 1, Name: "plan", Dir: repoRoot},
+		Step: model.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
 		Paths: model.RequestPaths{
 			WorkspaceDir: repoRoot,
 			WorkspaceMode: "read_only",

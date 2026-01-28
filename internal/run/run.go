@@ -15,6 +15,7 @@ import (
 	"github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/model"
+	"github.com/metalagman/norma/internal/normaloop"
 	"github.com/metalagman/norma/internal/reconcile"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
@@ -28,11 +29,6 @@ const (
 	statusStopped = "stopped"
 	statusStop    = "stop"
 	statusOK      = "ok"
-
-	rolePlan  = "plan"
-	roleDo    = "do"
-	roleCheck = "check"
-	roleAct   = "act"
 
 	labelHasPlan  = "norma-has-plan"
 	labelHasDo    = "norma-has-do"
@@ -63,7 +59,7 @@ type Result struct {
 // NewRunner constructs a Runner with agent implementations.
 func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tracker) (*Runner, error) {
 	agents := make(map[string]agent.Runner)
-	for _, role := range []string{rolePlan, roleDo, roleCheck, roleAct} {
+	for _, role := range []string{normaloop.RolePlan, normaloop.RoleDo, normaloop.RoleCheck, normaloop.RoleAct} {
 		agentCfg, ok := cfg.Agents[role]
 		if !ok {
 			return nil, fmt.Errorf("missing agent config for role %q", role)
@@ -235,7 +231,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			if err := r.tracker.MarkStatus(ctx, r.taskID, "planning"); err != nil {
 				log.Warn().Err(err).Msg("failed to update task status to planning")
 			}
-			planReq := r.baseRequest(runID, iteration, stepIndex, rolePlan, goal, ac)
+			planReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RolePlan, goal, ac)
 			planReq.Plan = &model.PlanInput{Task: model.IDInfo{ID: r.taskID}}
 
 			planRes, err := r.runAndCommitStep(ctx, planReq, stepsDir)
@@ -269,7 +265,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			if err := r.tracker.MarkStatus(ctx, r.taskID, "doing"); err != nil {
 				log.Warn().Err(err).Msg("failed to update task status to doing")
 			}
-			doReq := r.baseRequest(runID, iteration, stepIndex, roleDo, goal, ac)
+			doReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RoleDo, goal, ac)
 			doReq.Do = &model.DoInput{
 				WorkPlan:          lastPlan.WorkPlan,
 				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
@@ -309,7 +305,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 			if err := r.tracker.MarkStatus(ctx, r.taskID, "checking"); err != nil {
 				log.Warn().Err(err).Msg("failed to update task status to checking")
 			}
-			checkReq := r.baseRequest(runID, iteration, stepIndex, roleCheck, goal, ac)
+			checkReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RoleCheck, goal, ac)
 			checkReq.Check = &model.CheckInput{
 				WorkPlan:          lastPlan.WorkPlan,
 				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
@@ -352,7 +348,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 		if err := r.tracker.MarkStatus(ctx, r.taskID, "acting"); err != nil {
 			log.Warn().Err(err).Msg("failed to update task status to acting")
 		}
-		actReq := r.baseRequest(runID, iteration, stepIndex, roleAct, goal, ac)
+		actReq := r.baseRequest(runID, iteration, stepIndex, normaloop.RoleAct, goal, ac)
 		actReq.Act = &model.ActInput{
 			CheckVerdict:      lastCheck.Verdict,
 			AcceptanceResults: lastCheck.AcceptanceResults,
@@ -413,7 +409,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []model.AcceptanceCrit
 
 func (r *Runner) baseRequest(runID string, iteration, index int, role, goal string, ac []model.AcceptanceCriterion) model.AgentRequest {
 	mode := "read_only"
-	if role == roleDo || role == roleAct {
+	if role == normaloop.RoleDo || role == normaloop.RoleAct {
 		mode = "read_write"
 	}
 	return model.AgentRequest{

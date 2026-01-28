@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
+    "stop_reason": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" }
+      },
+      "required": ["text"]
+    },
+    "progress": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "details": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["title", "details"]
+    },
+    "do": {
+      "type": "object",
+      "properties": {
+        "execution": {
+          "type": "object",
+          "properties": {
+            "executed_step_ids": { "type": "array", "items": { "type": "string" } },
+            "skipped_step_ids": { "type": "array", "items": { "type": "string" } },
+            "commands": { "type": "array" }
+          },
+          "required": ["executed_step_ids", "skipped_step_ids", "commands"]
+        },
+        "blockers": { "type": "array" }
+      },
+      "required": ["execution"]
+    }
+  },
+  "required": ["status", "summary", "progress", "do"]
+}
