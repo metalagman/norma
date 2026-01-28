@@ -100,10 +100,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		if status == "" && err != nil {
 			status = statusError
 		}
-		event := log.Info().
-			Str("run_id", res.RunID).
-			Str("status", status).
-			Dur("duration", time.Since(startedAt))
+					event := log.Info().
+						Str("run_id", res.RunID).
+						Str("status", status).
+						Str("duration", time.Since(startedAt).String())
+		
 		if err != nil {
 			event = event.Err(err)
 		}

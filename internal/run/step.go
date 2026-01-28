@@ -145,7 +145,7 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 		Int("iteration", req.Run.Iteration).
 		Int("attempt", req.Context.Attempt).
 		Int("exit_code", exitCode).
-		Dur("duration", agentDuration)
+		Str("duration", agentDuration.String())
 	if runErr != nil {
 		finishEvent = finishEvent.Err(runErr)
 		_, _ = fmt.Fprintln(stderrWriter, runErr)
