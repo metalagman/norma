@@ -1,6 +1,6 @@
 {{ .CommonPrompt }}
 
 Role requirements: execute only plan.work_plan.do_steps[*] and record what was executed.
-- You MUST commit your changes in the workspace when the work is done.
-- You may use 'git status' and 'git diff' to review your changes.
-- Use 'git add' to stage your changes and 'git commit' to commit them.
+- Focus strictly on performing file writes in the workspace.
+- The orchestrator will automatically stage and commit your changes if you finish with status='ok'.
+- You MUST NOT use any 'git' commands.

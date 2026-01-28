@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/metalagman/norma/internal/agent"
@@ -135,9 +136,16 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 		stderrWriter = io.MultiWriter(stderrFile, os.Stderr)
 	}
 
+	// Capture git head before agent run
+	beforeHead := strings.TrimSpace(runCmd(ctx, workspaceDir, "git", "rev-parse", "HEAD"))
+
 	agentStart := time.Now().UTC()
 	stdout, _, exitCode, runErr := roleRunner.Run(ctx, req, stdoutWriter, stderrWriter)
 	agentDuration := time.Since(agentStart)
+
+	// Capture git head after agent run
+	afterHead := strings.TrimSpace(runCmd(ctx, workspaceDir, "git", "rev-parse", "HEAD"))
+
 	finishEvent := log.Info().
 		Str("role", req.Step.Name).
 		Str("run_id", req.Run.ID).
@@ -161,6 +169,14 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 		EndedAt:   time.Now().UTC(),
 		Status:    statusOK,
 		Retries:   req.Context.Attempt,
+	}
+
+	if beforeHead != afterHead {
+		res.Status = statusFail
+		res.Protocol = "protocol_error: agent modified git state (unauthorized commit)"
+		res.Summary = "agent modified git state (unauthorized commit)"
+		log.Warn().Str("role", res.Role).Str("before", beforeHead).Str("after", afterHead).Msg("agent unauthorized git modification")
+		return res, ErrRetryable
 	}
 
 	if runErr != nil || exitCode != 0 {
@@ -205,6 +221,20 @@ func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, ru
 		Int("step_index", res.StepIndex).
 		Str("response_status", resp.Status).
 		Msg("agent response parsed")
+
+	// Orchestrator commit for Do step if finished ok
+	if req.Step.Name == normaloop.RoleDo && res.Status == statusOK {
+		log.Info().Msg("orchestrator committing Do changes")
+		if err := runCmdErr(ctx, workspaceDir, "git", "add", "."); err != nil {
+			log.Warn().Err(err).Msg("failed to stage changes")
+		} else {
+			commitMsg := fmt.Sprintf("do: %s\n\nRun: %s\nIteration: %d", req.Task.Title, req.Run.ID, req.Run.Iteration)
+			if err := runCmdErr(ctx, workspaceDir, "git", "commit", "-m", commitMsg); err != nil {
+				// It might be that there are no changes to commit
+				log.Debug().Err(err).Msg("git commit failed (possibly no changes)")
+			}
+		}
+	}
 
 	// Ensure output.json exists and is fresh
 	if err := writeJSON(outputPath, resp); err != nil {

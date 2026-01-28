@@ -198,8 +198,8 @@ Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until
 
 1. **One workflow only:** `plan -> do -> check -> act` (repeat).
 2. **Workspace exists before any agent runs:** the orchestrator creates `<step_dir>/workspace/` before each step. This workspace is a dedicated Git worktree.
-3. **Agents never modify workspace or git directly except for Do:** all agents operate in **read-only** mode with respect to `workspace/` by default.
-4. **Agents MUST commit changes in Do:** The agent is responsible for staging and committing its changes in the `workspace/` Git repository.
+3. **Agents never modify workspace or git directly except for file writes in Do:** all agents operate in **read-only** mode with respect to `workspace/` by default. Using `git` commands from within agents is **STRICTLY FORBIDDEN**.
+4. **Orchestrator commits changes in Do:** If the Do agent finishes with status `ok`, the orchestrator is responsible for staging and committing all changes in the `workspace/` Git repository.
 5. **Commits/changes in main repo happen outside agents:** the orchestrator extracts changes from the task branch and applies them to the main repository.
 6. **Contracts are JSON only:** every step is `input.json → output.json`.
 7. **Every step MUST produce output.json:** The agent MUST write its AgentResponse JSON to `output.json` in the step directory.
@@ -338,6 +338,7 @@ Do agent rules:
 - Work on exactly one task per iteration (`next_task_id`)
 - Do not start additional ready issues
 - If scope grows, split: create new child tasks and stop
+- Do NOT perform any `git` commands (add, commit, etc.). The orchestrator will handle committing your file changes.
 
 ### 3) CHECK (Tool or Check Agent)
 Input:

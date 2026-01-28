@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -37,17 +36,6 @@ func (a *fakeAgent) Run(ctx context.Context, req normaloop.AgentRequest, stdout,
 		testFile := filepath.Join(req.Paths.WorkspaceDir, "test.txt")
 		if err := os.WriteFile(testFile, []byte("some changes"), 0o644); err != nil {
 			return nil, nil, 1, fmt.Errorf("write test file: %w", err)
-		}
-		// We must commit in workspace as per orchestrator expectations
-		cmd := exec.CommandContext(ctx, "git", "add", "test.txt")
-		cmd.Dir = req.Paths.WorkspaceDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return nil, nil, 1, fmt.Errorf("git add failed: %w: %s", err, string(out))
-		}
-		cmd = exec.CommandContext(ctx, "git", "commit", "-m", "do: work")
-		cmd.Dir = req.Paths.WorkspaceDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return nil, nil, 1, fmt.Errorf("git commit failed: %w: %s", err, string(out))
 		}
 	}
 
