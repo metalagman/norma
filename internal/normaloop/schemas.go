@@ -2,22 +2,22 @@ package normaloop
 
 import _ "embed"
 
-//go:embed schemas/input.json
+//go:embed schemas/input.schema.json
 var InputSchema string
 
-//go:embed schemas/output.json
+//go:embed schemas/output.schema.json
 var OutputSchema string
 
-//go:embed schemas/plan.json
+//go:embed schemas/plan.schema.json
 var PlanSchema string
 
-//go:embed schemas/do.json
+//go:embed schemas/do.schema.json
 var DoSchema string
 
-//go:embed schemas/check.json
+//go:embed schemas/check.schema.json
 var CheckSchema string
 
-//go:embed schemas/act.json
+//go:embed schemas/act.schema.json
 var ActSchema string
 
 // GetInputSchema returns the input schema for the given role.
