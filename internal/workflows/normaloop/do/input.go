@@ -76,10 +76,10 @@ type DoInput struct {
 
 // DoPaths 
 type DoPaths struct {
-  CodeRoot string `json:"code_root"`
+  CodeRoot string `json:"code_root,omitempty"`
   RunDir string `json:"run_dir"`
   WorkspaceDir string `json:"workspace_dir"`
-  WorkspaceMode string `json:"workspace_mode"`
+  WorkspaceMode string `json:"workspace_mode,omitempty"`
 }
 
 // DoRequest 
@@ -898,8 +898,6 @@ func (strct *DoPaths) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
     comma := false
-    // "CodeRoot" field is required
-    // only required object types supported for marshal checking (for now)
     // Marshal the "code_root" field
     if comma {
         buf.WriteString(",")
@@ -937,8 +935,6 @@ func (strct *DoPaths) MarshalJSON() ([]byte, error) {
  		buf.Write(tmp)
 	}
 	comma = true
-    // "WorkspaceMode" field is required
-    // only required object types supported for marshal checking (for now)
     // Marshal the "workspace_mode" field
     if comma {
         buf.WriteString(",")
@@ -957,10 +953,8 @@ func (strct *DoPaths) MarshalJSON() ([]byte, error) {
 }
 
 func (strct *DoPaths) UnmarshalJSON(b []byte) error {
-    code_rootReceived := false
     run_dirReceived := false
     workspace_dirReceived := false
-    workspace_modeReceived := false
     var jsonMap map[string]json.RawMessage
     if err := json.Unmarshal(b, &jsonMap); err != nil {
         return err
@@ -972,7 +966,6 @@ func (strct *DoPaths) UnmarshalJSON(b []byte) error {
             if err := json.Unmarshal([]byte(v), &strct.CodeRoot); err != nil {
                 return err
              }
-            code_rootReceived = true
         case "run_dir":
             if err := json.Unmarshal([]byte(v), &strct.RunDir); err != nil {
                 return err
@@ -987,12 +980,7 @@ func (strct *DoPaths) UnmarshalJSON(b []byte) error {
             if err := json.Unmarshal([]byte(v), &strct.WorkspaceMode); err != nil {
                 return err
              }
-            workspace_modeReceived = true
         }
-    }
-    // check if code_root (a required property) was received
-    if !code_rootReceived {
-        return errors.New("\"code_root\" is required but was not present")
     }
     // check if run_dir (a required property) was received
     if !run_dirReceived {
@@ -1001,10 +989,6 @@ func (strct *DoPaths) UnmarshalJSON(b []byte) error {
     // check if workspace_dir (a required property) was received
     if !workspace_dirReceived {
         return errors.New("\"workspace_dir\" is required but was not present")
-    }
-    // check if workspace_mode (a required property) was received
-    if !workspace_modeReceived {
-        return errors.New("\"workspace_mode\" is required but was not present")
     }
     return nil
 }

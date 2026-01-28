@@ -42,7 +42,7 @@
         "run_dir": { "type": "string" },
         "code_root": { "type": "string" }
       },
-      "required": ["workspace_dir", "workspace_mode", "run_dir", "code_root"]
+      "required": ["workspace_dir", "run_dir"]
     },
     "budgets": {
       "type": "object",

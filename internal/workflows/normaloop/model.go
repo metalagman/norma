@@ -79,9 +79,9 @@ type StepInfo struct {
 // RequestPaths are absolute paths for agent execution.
 type RequestPaths struct {
 	WorkspaceDir  string `json:"workspace_dir"`
-	WorkspaceMode string `json:"workspace_mode"` // "read_only"
+	WorkspaceMode string `json:"workspace_mode,omitempty"` // "read_only"
 	RunDir        string `json:"run_dir"`
-	CodeRoot      string `json:"code_root"`
+	CodeRoot      string `json:"code_root,omitempty"`
 }
 
 // RequestContext supplies artifacts from previous steps and optional notes.
