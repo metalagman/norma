@@ -3,9 +3,9 @@
 package do
 
 import (
+    "errors"
     "bytes"
     "encoding/json"
-    "errors"
 )
 
 // DoBlocker 

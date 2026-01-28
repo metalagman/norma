@@ -37,9 +37,10 @@
       "title": "ActPaths",
       "properties": {
         "workspace_dir": { "type": "string" },
-        "run_dir": { "type": "string" }
+        "run_dir": { "type": "string" },
+        "progress": { "type": "string" }
       },
-      "required": ["workspace_dir", "run_dir"]
+      "required": ["workspace_dir", "run_dir", "progress"]
     },
     "budgets": {
       "type": "object",

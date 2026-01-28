@@ -387,6 +387,7 @@ func (r *Runner) baseRequest(runID string, iteration, index int, role, goal stri
 			Name:  role,
 		},
 		Paths: normaloop.RequestPaths{
+			Progress: filepath.Join(r.runDir, "progress.md"),
 		},
 		Budgets: normaloop.Budgets{
 			MaxIterations: r.cfg.Budgets.MaxIterations,

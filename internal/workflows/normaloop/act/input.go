@@ -55,6 +55,7 @@ type ActInput struct {
 
 // ActPaths 
 type ActPaths struct {
+  Progress string `json:"progress"`
   RunDir string `json:"run_dir"`
   WorkspaceDir string `json:"workspace_dir"`
 }
@@ -427,6 +428,19 @@ func (strct *ActPaths) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
     comma := false
+    // "Progress" field is required
+    // only required object types supported for marshal checking (for now)
+    // Marshal the "progress" field
+    if comma {
+        buf.WriteString(",")
+    }
+    buf.WriteString("\"progress\": ")
+	if tmp, err := json.Marshal(strct.Progress); err != nil {
+		return nil, err
+ 	} else {
+ 		buf.Write(tmp)
+	}
+	comma = true
     // "RunDir" field is required
     // only required object types supported for marshal checking (for now)
     // Marshal the "run_dir" field
@@ -460,6 +474,7 @@ func (strct *ActPaths) MarshalJSON() ([]byte, error) {
 }
 
 func (strct *ActPaths) UnmarshalJSON(b []byte) error {
+    progressReceived := false
     run_dirReceived := false
     workspace_dirReceived := false
     var jsonMap map[string]json.RawMessage
@@ -469,6 +484,11 @@ func (strct *ActPaths) UnmarshalJSON(b []byte) error {
     // parse all the defined properties
     for k, v := range jsonMap {
         switch k {
+        case "progress":
+            if err := json.Unmarshal([]byte(v), &strct.Progress); err != nil {
+                return err
+             }
+            progressReceived = true
         case "run_dir":
             if err := json.Unmarshal([]byte(v), &strct.RunDir); err != nil {
                 return err
@@ -480,6 +500,10 @@ func (strct *ActPaths) UnmarshalJSON(b []byte) error {
              }
             workspace_dirReceived = true
         }
+    }
+    // check if progress (a required property) was received
+    if !progressReceived {
+        return errors.New("\"progress\" is required but was not present")
     }
     // check if run_dir (a required property) was received
     if !run_dirReceived {

@@ -71,6 +71,7 @@ type StepInfo struct {
 type RequestPaths struct {
 	WorkspaceDir string `json:"workspace_dir"`
 	RunDir       string `json:"run_dir"`
+	Progress     string `json:"progress"`
 }
 
 // RequestContext supplies artifacts from previous steps and optional notes.
