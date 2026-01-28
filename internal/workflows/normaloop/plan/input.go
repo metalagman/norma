@@ -40,10 +40,8 @@ type PlanInput struct {
 
 // PlanPaths 
 type PlanPaths struct {
-  CodeRoot string `json:"code_root,omitempty"`
   RunDir string `json:"run_dir"`
   WorkspaceDir string `json:"workspace_dir"`
-  WorkspaceMode string `json:"workspace_mode,omitempty"`
 }
 
 // PlanRequest 
@@ -296,17 +294,6 @@ func (strct *PlanPaths) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
     comma := false
-    // Marshal the "code_root" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"code_root\": ")
-	if tmp, err := json.Marshal(strct.CodeRoot); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
     // "RunDir" field is required
     // only required object types supported for marshal checking (for now)
     // Marshal the "run_dir" field
@@ -333,17 +320,6 @@ func (strct *PlanPaths) MarshalJSON() ([]byte, error) {
  		buf.Write(tmp)
 	}
 	comma = true
-    // Marshal the "workspace_mode" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"workspace_mode\": ")
-	if tmp, err := json.Marshal(strct.WorkspaceMode); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
 
 	buf.WriteString("}")
 	rv := buf.Bytes()
@@ -360,10 +336,6 @@ func (strct *PlanPaths) UnmarshalJSON(b []byte) error {
     // parse all the defined properties
     for k, v := range jsonMap {
         switch k {
-        case "code_root":
-            if err := json.Unmarshal([]byte(v), &strct.CodeRoot); err != nil {
-                return err
-             }
         case "run_dir":
             if err := json.Unmarshal([]byte(v), &strct.RunDir); err != nil {
                 return err
@@ -374,10 +346,6 @@ func (strct *PlanPaths) UnmarshalJSON(b []byte) error {
                 return err
              }
             workspace_dirReceived = true
-        case "workspace_mode":
-            if err := json.Unmarshal([]byte(v), &strct.WorkspaceMode); err != nil {
-                return err
-             }
         }
     }
     // check if run_dir (a required property) was received

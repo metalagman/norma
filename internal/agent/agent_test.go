@@ -59,10 +59,8 @@ echo "$RESP"
 		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
 		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
 		Paths: normaloop.RequestPaths{
-			WorkspaceDir:  repoRoot,
-			WorkspaceMode: "read_only",
-			RunDir:        repoRoot,
-			CodeRoot:      repoRoot,
+			WorkspaceDir: repoRoot,
+			RunDir:       repoRoot,
 		},
 		Budgets: normaloop.Budgets{
 			MaxIterations: 1,
@@ -117,10 +115,8 @@ exit 1
 		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
 		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
 		Paths: normaloop.RequestPaths{
-			WorkspaceDir:  repoRoot,
-			WorkspaceMode: "read_only",
-			RunDir:        repoRoot,
-			CodeRoot:      repoRoot,
+			WorkspaceDir: repoRoot,
+			RunDir:       repoRoot,
 		},
 		Budgets: normaloop.Budgets{
 			MaxIterations: 1,

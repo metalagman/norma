@@ -68,7 +68,7 @@ func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req norma
 		_ = removeWorktree(ctx, r.repoRoot, workspaceDir)
 	}()
 
-	if req.Paths.WorkspaceMode == "read_write" {
+	if req.Step.Name == normaloop.RoleDo || req.Step.Name == normaloop.RoleAct {
 		defer func() {
 			_ = commitWorkspace(ctx, workspaceDir, fmt.Sprintf("%s: step %d", req.Step.Name, req.Step.Index))
 		}()

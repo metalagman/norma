@@ -392,10 +392,6 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 }
 
 func (r *Runner) baseRequest(runID string, iteration, index int, role, goal string, ac []task.AcceptanceCriterion) normaloop.AgentRequest {
-	mode := "read_only"
-	if role == normaloop.RoleDo || role == normaloop.RoleAct {
-		mode = "read_write"
-	}
 	return normaloop.AgentRequest{
 		Run: normaloop.RunInfo{
 			ID:        runID,
@@ -411,9 +407,7 @@ func (r *Runner) baseRequest(runID string, iteration, index int, role, goal stri
 			Name:  role,
 		},
 		Paths: normaloop.RequestPaths{
-			WorkspaceMode: mode,
-			RunDir:        filepath.Join(r.normaDir, "runs", runID),
-			CodeRoot:      r.repoRoot,
+			RunDir: filepath.Join(r.normaDir, "runs", runID),
 		},
 		Budgets: normaloop.Budgets{
 			MaxIterations: r.cfg.Budgets.MaxIterations,

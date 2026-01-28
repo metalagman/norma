@@ -31,10 +31,7 @@ type ProfileConfig struct {
 
 // Budgets defines run limits.
 type Budgets struct {
-	MaxIterations   int `json:"max_iterations"              mapstructure:"max_iterations"`
-	MaxPatchKB      int `json:"max_patch_kb,omitempty"      mapstructure:"max_patch_kb"`
-	MaxChangedFiles int `json:"max_changed_files,omitempty" mapstructure:"max_changed_files"`
-	MaxRiskyFiles   int `json:"max_risky_files,omitempty"   mapstructure:"max_risky_files"`
+	MaxIterations int `json:"max_iterations" mapstructure:"max_iterations"`
 }
 
 // RetentionPolicy defines how many old runs to keep.

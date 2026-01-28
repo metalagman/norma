@@ -27,11 +27,6 @@ type Budgets struct {
 	MaxIterations      int `json:"max_iterations"`
 	MaxWallTimeMinutes int `json:"max_wall_time_minutes,omitempty"`
 	MaxFailedChecks    int `json:"max_failed_checks,omitempty"`
-
-	// Legacy/extra budgets (keep for now if needed, but not in new spec input)
-	MaxPatchKB      int `json:"max_patch_kb,omitempty"`
-	MaxChangedFiles int `json:"max_changed_files,omitempty"`
-	MaxRiskyFiles   int `json:"max_risky_files,omitempty"`
 }
 
 // AgentRequest is the normalized request passed to agents.
@@ -50,9 +45,6 @@ type AgentRequest struct {
 	Do    *DoInput    `json:"do_input,omitempty"`
 	Check *CheckInput `json:"check_input,omitempty"`
 	Act   *ActInput   `json:"act_input,omitempty"`
-
-	// Legacy fields (optional migration)
-	Version int `json:"version,omitempty"`
 }
 
 // RunInfo identifies the current run and its iteration.
@@ -78,10 +70,8 @@ type StepInfo struct {
 
 // RequestPaths are absolute paths for agent execution.
 type RequestPaths struct {
-	WorkspaceDir  string `json:"workspace_dir"`
-	WorkspaceMode string `json:"workspace_mode,omitempty"` // "read_only"
-	RunDir        string `json:"run_dir"`
-	CodeRoot      string `json:"code_root,omitempty"`
+	WorkspaceDir string `json:"workspace_dir"`
+	RunDir       string `json:"run_dir"`
 }
 
 // RequestContext supplies artifacts from previous steps and optional notes.
@@ -134,9 +124,6 @@ type AgentResponse struct {
 	Do    *DoOutput    `json:"do_output,omitempty"`
 	Check *CheckOutput `json:"check_output,omitempty"`
 	Act   *ActOutput   `json:"act_output,omitempty"`
-
-	// Legacy fields (optional migration)
-	Version int `json:"version,omitempty"`
 }
 
 // ResponseSummary captures the outcome of an agent's task.

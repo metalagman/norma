@@ -46,24 +46,6 @@ func GetRole(name string) Role {
 	return roles[name]
 }
 
-// InputSchema returns the input schema for the given role.
-func InputSchema(role string) string {
-	initializeRoles()
-	if r, ok := roles[role]; ok {
-		return r.InputSchema()
-	}
-	return ""
-}
-
-// OutputSchema returns the output schema for the given role.
-func OutputSchema(role string) string {
-	initializeRoles()
-	if r, ok := roles[role]; ok {
-		return r.OutputSchema()
-	}
-	return ""
-}
-
 //go:embed common.gotmpl
 var commonPromptTemplate string
 
@@ -113,14 +95,4 @@ func (r *baseRole) Prompt(req AgentRequest) (string, error) {
 	}
 
 	return buf.String(), nil
-}
-
-// AgentPrompt returns the system prompt for a given request using the registered roles.
-func AgentPrompt(req AgentRequest) (string, error) {
-	initializeRoles()
-	r, ok := roles[req.Step.Name]
-	if !ok {
-		return "", fmt.Errorf("unknown role %q", req.Step.Name)
-	}
-	return r.Prompt(req)
 }

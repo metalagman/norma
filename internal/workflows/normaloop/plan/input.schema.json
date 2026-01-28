@@ -50,9 +50,7 @@
       "title": "PlanPaths",
       "properties": {
         "workspace_dir": { "type": "string" },
-        "workspace_mode": { "type": "string" },
-        "run_dir": { "type": "string" },
-        "code_root": { "type": "string" }
+        "run_dir": { "type": "string" }
       },
       "required": ["workspace_dir", "run_dir"]
     },

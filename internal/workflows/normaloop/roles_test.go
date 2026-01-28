@@ -16,10 +16,8 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 		Task: TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{}},
 		Step: StepInfo{Index: 2, Name: RoleDo, Dir: "/tmp"},
 		Paths: RequestPaths{
-			WorkspaceDir:  "/tmp",
-			WorkspaceMode: "read_only",
-			RunDir:        "/tmp",
-			CodeRoot:      "/tmp",
+			WorkspaceDir: "/tmp",
+			RunDir:       "/tmp",
 		},
 		Budgets: Budgets{
 			MaxIterations:      1,
