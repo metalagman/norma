@@ -79,7 +79,6 @@ func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req norma
 		}()
 	}
 
-	req.Step.Dir = finalDir
 	req.Paths.WorkspaceDir = workspaceDir
 	if err := writeJSON(filepath.Join(finalDir, "input.json"), req); err != nil {
 		return stepResult{}, err
