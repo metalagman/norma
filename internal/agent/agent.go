@@ -10,6 +10,7 @@ import (
 	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/workflows/normaloop"
+	"github.com/rs/zerolog/log"
 )
 
 // Runner executes an agent with a normalized request.
@@ -108,6 +109,8 @@ func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, std
 	if stderr == nil {
 		stderr = io.Discard
 	}
+
+	log.Debug().Strs("cmd", r.cmd).Msg("executing agent command via ainvoke")
 
 	// ainvoke handles writing input.json, validating schemas, and running the command.
 	outBytes, errBytes, exitCode, err := r.runner.Run(ctx, inv, ainvoke.WithStdout(stdout), ainvoke.WithStderr(stderr))
