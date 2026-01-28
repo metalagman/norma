@@ -2,6 +2,7 @@ package normaloop
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"text/template"
 
@@ -51,8 +52,32 @@ func GetOutputSchema(role string) string {
 	}
 }
 
+//go:embed common.gotmpl
+var commonPromptTemplate string
+
 // AgentPrompt returns the system prompt for a given request.
 func AgentPrompt(req model.AgentRequest) (string, error) {
+	// 1. Render common base prompt
+	baseTmpl, err := template.New("base").Parse(commonPromptTemplate)
+	if err != nil {
+		return "", fmt.Errorf("parse base prompt template: %w", err)
+	}
+	var baseBuf bytes.Buffer
+	if err := baseTmpl.Execute(&baseBuf, struct {
+		Request model.AgentRequest
+	}{Request: req}); err != nil {
+		return "", fmt.Errorf("execute base prompt template: %w", err)
+	}
+
+	// 2. Prepare data for role template
+	data := struct {
+		Request      model.AgentRequest
+		CommonPrompt string
+	}{
+		Request:      req,
+		CommonPrompt: baseBuf.String(),
+	}
+
 	var tmplStr string
 	switch req.Step.Name {
 	case RolePlan:
@@ -71,13 +96,6 @@ func AgentPrompt(req model.AgentRequest) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse prompt template for %q: %w", req.Step.Name, err)
 	}
-
-	data := struct {
-		Request model.AgentRequest
-	}{
-		Request: req,
-	}
-
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
