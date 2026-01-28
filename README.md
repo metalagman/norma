@@ -71,10 +71,10 @@ The default configuration uses the `codex` agent with the `gpt-5.2-codex` model.
 ### 4. Create a Task & Run
 ```bash
 # Add a task to Beads
-norma task add "implement user logout" --ac "AC1: /logout returns 200"
+norma task add "implement user logout" --ac "/logout returns 200"
 
 # Orchestrate the fix
-norma run norma-a3f2dd
+norma loop norma-a3f2dd
 ```
 
 ---

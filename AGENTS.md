@@ -49,7 +49,7 @@ Everything lives under the project root:
   interactions.jsonl
 .norma/
   norma.db                 # SQLite DB (source of truth for run/step state)
-  locks/run.lock           # exclusive lock for "norma run"
+  locks/run.lock           # exclusive lock for "norma loop"
       runs/<run_id>/
       norma.md               # goal + AC + budgets (human readable)
       steps/
@@ -862,14 +862,14 @@ norma generates a role-specific prompt that instructs Claude to:
 ## 16) Acceptance checklist (MVP)
 
 - [x] `norma init` initializes .beads, .norma directory and default config.json
-- [ ] `norma run <task-id>` creates a run and DB entry in `.norma/norma.db`
-- [ ] Each run creates an isolated Git worktree at `runs/<run_id>/workspace/`
-- [ ] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
-- [ ] Workflow states are tracked via `bd` labels on the task
-- [ ] Each run has a shared `artifacts/` directory for shared data
-- [ ] each step creates artifacts in `runs/<run_id>/steps/<n>-<role>/`
-- [ ] successful runs extract changes from `workspace/` and apply them to the main repo
-- [ ] Crash recovery cleans tmp dirs and reconciles missing DB step records
+- [x] `norma loop <task-id>` creates a run and DB entry in `.norma/norma.db`
+- [x] Each agent step run creates an isolated Git worktree at `<step_dir>/workspace/`
+- [x] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
+- [x] Workflow states are tracked via `bd` labels on the task
+- [x] Each agent step directory contains its own reconstructed `artifacts/progress.md`
+- [x] Each step creates artifacts (`input.json`, `output.json`, `logs/`) in `runs/<run_id>/steps/<n>-<role>/`
+- [x] Successful runs extract changes from the step workspace and apply them to the main repo
+- [x] Crash recovery cleans tmp dirs and reconciles missing DB step records
 
 ## Landing the Plane (Session Completion)
 
