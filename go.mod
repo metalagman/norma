@@ -3,7 +3,6 @@ module github.com/metalagman/norma
 go 1.25.5
 
 require (
-	github.com/creack/pty v1.1.24
 	github.com/metalagman/ainvoke v1.0.4
 	github.com/pressly/goose/v3 v3.16.0
 	github.com/rs/zerolog v1.33.0
@@ -14,8 +13,10 @@ require (
 )
 
 require (
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/elastic/go-json-schema-generate v0.0.0-20220519132038-c708d18d6ca2 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-sql-driver/mysql v1.7.2-0.20231213112541-0004702b931d // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
@@ -60,4 +61,9 @@ require (
 	modernc.org/opt v0.1.3 // indirect
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
+)
+
+tool (
+	github.com/elastic/go-json-schema-generate
+	github.com/elastic/go-json-schema-generate/cmd/schema-generate
 )

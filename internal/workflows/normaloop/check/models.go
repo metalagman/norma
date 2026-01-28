@@ -1,5 +1,8 @@
 package check
 
+//go:generate go tool schema-generate -p check -o input.go input.schema.json
+//go:generate go tool schema-generate -p check -o output.go output.schema.json
+
 import _ "embed"
 
 //go:embed input.schema.json

@@ -1,5 +1,8 @@
 package act
 
+//go:generate go tool schema-generate -p act -o input.go input.schema.json
+//go:generate go tool schema-generate -p act -o output.go output.schema.json
+
 import _ "embed"
 
 //go:embed input.schema.json
