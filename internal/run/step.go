@@ -43,7 +43,16 @@ type stepResult struct {
 	Retries   int
 }
 
-func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req normaloop.AgentRequest, runStepsDir string) (stepResult, error) {
+func (r *Runner) executeStep(ctx context.Context, req normaloop.AgentRequest, runStepsDir string) (stepResult, error) {
+	role := normaloop.GetRole(req.Step.Name)
+	if role == nil {
+		return stepResult{}, fmt.Errorf("unknown role %q", req.Step.Name)
+	}
+	roleRunner, ok := role.Runner().(agent.Runner)
+	if !ok || roleRunner == nil {
+		return stepResult{}, fmt.Errorf("role %q has no runner", req.Step.Name)
+	}
+
 	stepName := fmt.Sprintf("%02d-%s", req.Step.Index, req.Step.Name)
 	if req.Context.Attempt > 1 {
 		stepName = fmt.Sprintf("%02d-%s-retry-%d", req.Step.Index, req.Step.Name, req.Context.Attempt)
@@ -72,12 +81,6 @@ func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req norma
 	defer func() {
 		_ = removeWorktree(ctx, r.repoRoot, workspaceDir)
 	}()
-
-	if req.Step.Name == normaloop.RoleDo || req.Step.Name == normaloop.RoleAct {
-		defer func() {
-			_ = commitWorkspace(ctx, workspaceDir, fmt.Sprintf("%s: step %d", req.Step.Name, req.Step.Index))
-		}()
-	}
 
 	req.Paths.WorkspaceDir = workspaceDir
 	req.Paths.RunDir = finalDir
@@ -123,7 +126,7 @@ func (r *Runner) executeStep(ctx context.Context, runner agent.Runner, req norma
 	}
 
 	agentStart := time.Now().UTC()
-	stdout, _, exitCode, runErr := runner.Run(ctx, req, stdoutWriter, stderrWriter)
+	stdout, _, exitCode, runErr := roleRunner.Run(ctx, req, stdoutWriter, stderrWriter)
 	agentDuration := time.Since(agentStart)
 	finishEvent := log.Info().
 		Str("role", req.Step.Name).

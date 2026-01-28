@@ -17,8 +17,8 @@ type Runner interface {
 	Run(ctx context.Context, req normaloop.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
 }
 
-// NewRunner constructs a runner for the given agent config.
-func NewRunner(cfg config.AgentConfig) (Runner, error) {
+// NewRunner constructs a runner for the given agent config and role.
+func NewRunner(cfg config.AgentConfig, role normaloop.Role) (Runner, error) {
 	cmd := cfg.Cmd
 	useTTY := false
 
@@ -72,6 +72,7 @@ func NewRunner(cfg config.AgentConfig) (Runner, error) {
 		cfg:    cfg,
 		runner: ar,
 		cmd:    cmd,
+		role:   role,
 	}, nil
 }
 
@@ -79,20 +80,16 @@ type ainvokeRunner struct {
 	cfg    config.AgentConfig
 	runner ainvoke.Runner
 	cmd    []string
+	role   normaloop.Role
 }
 
 func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	role := normaloop.GetRole(req.Step.Name)
-	if role == nil {
-		return nil, nil, 0, fmt.Errorf("unknown role %q", req.Step.Name)
-	}
-
-	prompt, err := role.Prompt(req)
+	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 
-	input, err := role.MapRequest(req)
+	input, err := r.role.MapRequest(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("map request: %w", err)
 	}
@@ -101,8 +98,8 @@ func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, std
 		RunDir:       req.Paths.RunDir,
 		SystemPrompt: prompt,
 		Input:        input,
-		InputSchema:  role.InputSchema(),
-		OutputSchema: role.OutputSchema(),
+		InputSchema:  r.role.InputSchema(),
+		OutputSchema: r.role.OutputSchema(),
 	}
 
 	if stdout == nil {
@@ -120,7 +117,7 @@ func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, std
 	}
 
 	// Parse role-specific response and map back to normaloop.AgentResponse
-	agentResp, err := role.MapResponse(outBytes)
+	agentResp, err := r.role.MapResponse(outBytes)
 	if err == nil {
 		// Re-marshal it to ensure consistency
 		newOut, mErr := json.Marshal(agentResp)

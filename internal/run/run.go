@@ -40,7 +40,6 @@ type Runner struct {
 	normaDir     string
 	cfg          config.Config
 	store        *Store
-	agents       map[string]agent.Runner
 	tracker      task.Tracker
 	taskID       string
 	artifactsDir string
@@ -56,24 +55,26 @@ type Result struct {
 
 // NewRunner constructs a Runner with agent implementations.
 func NewRunner(repoRoot string, cfg config.Config, store *Store, tracker task.Tracker) (*Runner, error) {
-	agents := make(map[string]agent.Runner)
-	for _, role := range []string{normaloop.RolePlan, normaloop.RoleDo, normaloop.RoleCheck, normaloop.RoleAct} {
-		agentCfg, ok := cfg.Agents[role]
+	for _, roleName := range []string{normaloop.RolePlan, normaloop.RoleDo, normaloop.RoleCheck, normaloop.RoleAct} {
+		agentCfg, ok := cfg.Agents[roleName]
 		if !ok {
-			return nil, fmt.Errorf("missing agent config for role %q", role)
+			return nil, fmt.Errorf("missing agent config for role %q", roleName)
 		}
-		runner, err := agent.NewRunner(agentCfg)
+		roleRunner, err := agent.NewRunner(agentCfg)
 		if err != nil {
-			return nil, fmt.Errorf("init %s agent: %w", role, err)
+			return nil, fmt.Errorf("init %s agent: %w", roleName, err)
 		}
-		agents[role] = runner
+		role := normaloop.GetRole(roleName)
+		if role == nil {
+			return nil, fmt.Errorf("unknown role %q", roleName)
+		}
+		role.SetRunner(roleRunner)
 	}
 	return &Runner{
 		repoRoot: repoRoot,
 		normaDir: filepath.Join(repoRoot, ".norma"),
 		cfg:      cfg,
 		store:    store,
-		agents:   agents,
 		tracker:  tracker,
 	}, nil
 }

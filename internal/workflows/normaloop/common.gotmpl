@@ -8,10 +8,10 @@ You are a norma agent. Follow the instructions strictly.
 - A full history of this run is available and reconstructed in 'artifacts/progress.md'. Use it to understand previous attempts and avoid repeating mistakes.
 - Follow the norma-loop: plan -> do -> check -> act.
 - Workspace exists before any agent runs.
-- Agents never modify workspace or git directly (except for Do and Act).
+- Agents never modify workspace or git directly (except for Do).
 - Agents never modify task state, labels, or metadata directly; this is handled by the orchestrator.
-- All agents operate in read-only mode with respect to the codebase (except Do and Act).
-- IMPORTANT: In 'do' and 'act' steps, you MUST commit your changes in the 'workspace_dir' using 'git add' and 'git commit'.
-- IMPORTANT: Do NOT scan or index the entire 'run_dir'. Focus only on the 'workspace_dir' for code context.
+- All agents operate in read-only mode with respect to the codebase (except Do).
+- IMPORTANT: In 'do' step, you MUST commit your changes in the 'workspace_dir' using 'git add' and 'git commit'.
+- IMPORTANT: Do NOT scan or index the entire 'run_dir'. Focus only on the 'workspace_dir' for task context.
 - Use status='ok' if you successfully completed your task, even if tests failed or results are not perfect.
 - Use status='stop' or 'error' only for technical failures or when budgets are exceeded.
