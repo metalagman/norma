@@ -97,9 +97,8 @@ func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, std
 		return nil, nil, 0, fmt.Errorf("map request: %w", err)
 	}
 
-	runDir := req.Step.Dir
 	inv := ainvoke.Invocation{
-		RunDir:       runDir,
+		RunDir:       req.Paths.RunDir,
 		SystemPrompt: prompt,
 		Input:        input,
 		InputSchema:  role.InputSchema(),

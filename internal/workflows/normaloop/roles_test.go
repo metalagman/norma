@@ -14,7 +14,7 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 	req := AgentRequest{
 		Run:  RunInfo{ID: "run-1", Iteration: 1},
 		Task: TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{}},
-		Step: StepInfo{Index: 2, Name: RoleDo, Dir: "/tmp"},
+		Step: StepInfo{Index: 2, Name: RoleDo},
 		Paths: RequestPaths{
 			WorkspaceDir: "/tmp",
 			RunDir:       "/tmp",

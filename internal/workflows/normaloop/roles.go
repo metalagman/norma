@@ -37,7 +37,7 @@ func (r *planRole) MapRequest(req AgentRequest) (any, error) {
 	return &plan.PlanRequest{
 		Run:   &plan.PlanRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &plan.PlanTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
-		Step:  &plan.PlanStep{Index: int64(req.Step.Index), Name: req.Step.Name, Dir: req.Step.Dir},
+		Step:  &plan.PlanStep{Index: int64(req.Step.Index), Name: req.Step.Name},
 		Paths: &plan.PlanPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &plan.PlanBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),
@@ -199,7 +199,7 @@ func (r *doRole) MapRequest(req AgentRequest) (any, error) {
 	return &do.DoRequest{
 		Run:   &do.DoRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &do.DoTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
-		Step:  &do.DoStep{Index: int64(req.Step.Index), Name: req.Step.Name, Dir: req.Step.Dir},
+		Step:  &do.DoStep{Index: int64(req.Step.Index), Name: req.Step.Name},
 		Paths: &do.DoPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &do.DoBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),
@@ -317,7 +317,7 @@ func (r *checkRole) MapRequest(req AgentRequest) (any, error) {
 	return &check.CheckRequest{
 		Run:   &check.CheckRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &check.CheckTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
-		Step:  &check.CheckStep{Index: int64(req.Step.Index), Name: req.Step.Name, Dir: req.Step.Dir},
+		Step:  &check.CheckStep{Index: int64(req.Step.Index), Name: req.Step.Name},
 		Paths: &check.CheckPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &check.CheckBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),
@@ -440,7 +440,7 @@ func (r *actRole) MapRequest(req AgentRequest) (any, error) {
 	return &act.ActRequest{
 		Run:   &act.ActRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &act.ActTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
-		Step:  &act.ActStep{Index: int64(req.Step.Index), Name: req.Step.Name, Dir: req.Step.Dir},
+		Step:  &act.ActStep{Index: int64(req.Step.Index), Name: req.Step.Name},
 		Paths: &act.ActPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &act.ActBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),

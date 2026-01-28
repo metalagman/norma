@@ -64,7 +64,6 @@ type PlanRun struct {
 
 // PlanStep 
 type PlanStep struct {
-  Dir string `json:"dir"`
   Index int64 `json:"index"`
   Name string `json:"name"`
 }
@@ -625,19 +624,6 @@ func (strct *PlanStep) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
     comma := false
-    // "Dir" field is required
-    // only required object types supported for marshal checking (for now)
-    // Marshal the "dir" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"dir\": ")
-	if tmp, err := json.Marshal(strct.Dir); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
     // "Index" field is required
     // only required object types supported for marshal checking (for now)
     // Marshal the "index" field
@@ -671,7 +657,6 @@ func (strct *PlanStep) MarshalJSON() ([]byte, error) {
 }
 
 func (strct *PlanStep) UnmarshalJSON(b []byte) error {
-    dirReceived := false
     indexReceived := false
     nameReceived := false
     var jsonMap map[string]json.RawMessage
@@ -681,11 +666,6 @@ func (strct *PlanStep) UnmarshalJSON(b []byte) error {
     // parse all the defined properties
     for k, v := range jsonMap {
         switch k {
-        case "dir":
-            if err := json.Unmarshal([]byte(v), &strct.Dir); err != nil {
-                return err
-             }
-            dirReceived = true
         case "index":
             if err := json.Unmarshal([]byte(v), &strct.Index); err != nil {
                 return err
@@ -697,10 +677,6 @@ func (strct *PlanStep) UnmarshalJSON(b []byte) error {
              }
             nameReceived = true
         }
-    }
-    // check if dir (a required property) was received
-    if !dirReceived {
-        return errors.New("\"dir\" is required but was not present")
     }
     // check if index (a required property) was received
     if !indexReceived {

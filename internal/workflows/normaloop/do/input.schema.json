@@ -40,10 +40,9 @@
       "title": "DoStep",
       "properties": {
         "index": { "type": "integer" },
-        "name": { "type": "string" },
-        "dir": { "type": "string" }
+        "name": { "type": "string" }
       },
-      "required": ["index", "name", "dir"]
+      "required": ["index", "name"]
     },
     "paths": {
       "type": "object",

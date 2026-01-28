@@ -33,7 +33,7 @@ func (a *fakeAgent) Run(ctx context.Context, req normaloop.AgentRequest, stdout,
 		return nil, nil, 1, fmt.Errorf("no response for role %s", req.Step.Name)
 	}
 
-	if req.Step.Name == "do" && req.Paths.WorkspaceDir != "" {
+	if req.Step.Name == "do" && req.Paths.WorkspaceDir != "" && req.Paths.RunDir != "" {
 		// Simulate work in workspace
 		testFile := filepath.Join(req.Paths.WorkspaceDir, "test.txt")
 		if err := os.WriteFile(testFile, []byte("some changes"), 0o644); err != nil {

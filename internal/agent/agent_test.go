@@ -57,7 +57,7 @@ echo "$RESP"
 	req := normaloop.AgentRequest{
 		Run:  normaloop.RunInfo{ID: "run-1", Iteration: 1},
 		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
+		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan},
 		Paths: normaloop.RequestPaths{
 			WorkspaceDir: repoRoot,
 			RunDir:       repoRoot,
@@ -113,7 +113,7 @@ exit 1
 	req := normaloop.AgentRequest{
 		Run:  normaloop.RunInfo{ID: "run-1", Iteration: 1},
 		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan, Dir: repoRoot},
+		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan},
 		Paths: normaloop.RequestPaths{
 			WorkspaceDir: repoRoot,
 			RunDir:       repoRoot,

@@ -65,7 +65,6 @@ type TaskInfo struct {
 type StepInfo struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"` // "plan", "do", "check", "act"
-	Dir   string `json:"dir"`
 }
 
 // RequestPaths are absolute paths for agent execution.
