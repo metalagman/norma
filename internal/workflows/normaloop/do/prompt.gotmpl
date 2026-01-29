@@ -1,6 +1,6 @@
 {{ .CommonPrompt }}
 
-Role requirements: execute only plan.work_plan.do_steps[*] and record what was executed.
+Role requirements: execute only 'do_input.work_plan.do_steps' and produce 'do_output' recording what was executed.
 - Focus strictly on performing file writes in the workspace.
 - The orchestrator will automatically stage and commit your changes if you finish with status='ok'.
 - You MUST NOT use any 'git' commands.

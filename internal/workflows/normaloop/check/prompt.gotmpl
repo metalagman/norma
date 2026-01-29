@@ -1,5 +1,5 @@
 {{ .CommonPrompt }}
 
-Role requirements: verify plan match (planned vs executed), verify job done (all effective ACs evaluated), and emit a verdict in the 'check' field of the JSON output.
+Role requirements: verify plan match (planned vs executed using 'check_input.do_execution'), verify job done (all effective ACs evaluated), and produce 'check_output' including a verdict.
 - You may run 'git diff HEAD~1..HEAD' in the workspace to review the changes made in the previous step.
 - You MUST NOT modify the git history or any files in the workspace.
