@@ -52,14 +52,42 @@ func initCmd() *cobra.Command {
 						"default": map[string]any{
 							"agents": map[string]any{
 								"plan":  map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
+								"do":    map[string]any{"type": "gemini", "model": "gemini-3-flash-preview"},
+								"check": map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
+								"act":   map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
+							},
+						},
+						"codex": map[string]any{
+							"agents": map[string]any{
+								"plan":  map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
 								"do":    map[string]any{"type": "codex", "model": "gpt-5.1-codex-mini"},
 								"check": map[string]any{"type": "codex", "model": "gpt-5.1-codex-mini"},
 								"act":   map[string]any{"type": "codex", "model": "gpt-5.2-codex"},
 							},
 						},
+						"gemini": map[string]any{
+							"agents": map[string]any{
+								"plan":  map[string]any{"type": "gemini", "model": "gemini-3-flash-preview"},
+								"do":    map[string]any{"type": "gemini", "model": "gemini-3-flash-preview"},
+								"check": map[string]any{"type": "gemini", "model": "gemini-3-flash-preview"},
+								"act":   map[string]any{"type": "gemini", "model": "gemini-3-flash-preview"},
+							},
+						},
+						"opencode": map[string]any{
+							"agents": map[string]any{
+								"plan":  map[string]any{"type": "opencode", "model": "opencode/big-pickle"},
+								"do":    map[string]any{"type": "opencode", "model": "opencode/big-pickle"},
+								"check": map[string]any{"type": "opencode", "model": "opencode/big-pickle"},
+								"act":   map[string]any{"type": "opencode", "model": "opencode/big-pickle"},
+							},
+						},
 					},
 					"budgets": map[string]any{
 						"max_iterations": 5,
+					},
+					"retention": map[string]any{
+						"keep_last": 50,
+						"keep_days": 30,
 					},
 				}
 				data, err := json.MarshalIndent(defaultConfig, "", "  ")
