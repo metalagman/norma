@@ -19,7 +19,7 @@ type RunInput struct {
 	AcceptanceCriteria []task.AcceptanceCriterion
 	TaskID             string
 	RunDir             string
-	RepoRoot           string
+	GitRoot            string
 	BaseBranch         string
 }
 

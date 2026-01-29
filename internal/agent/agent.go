@@ -109,7 +109,10 @@ func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout
 		stderr = io.Discard
 	}
 
-	log.Debug().Strs("cmd", r.cmd).Msg("executing agent command via ainvoke")
+	log.Debug().
+		Str("dir", req.Paths.RunDir).
+		Strs("cmd", r.cmd).
+		Msg("executing agent command via ainvoke")
 
 	// ainvoke handles writing input.json, validating schemas, and running the command.
 	outBytes, errBytes, exitCode, err := r.runner.Run(ctx, inv, ainvoke.WithStdout(stdout), ainvoke.WithStderr(stderr))

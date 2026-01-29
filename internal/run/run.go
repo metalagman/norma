@@ -138,7 +138,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		AcceptanceCriteria: ac,
 		TaskID:             taskID,
 		RunDir:             runDir,
-		RepoRoot:           r.repoRoot,
+		GitRoot:            r.repoRoot,
 		BaseBranch:         baseBranch,
 	}
 

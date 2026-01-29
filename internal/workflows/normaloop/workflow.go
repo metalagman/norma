@@ -147,7 +147,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			planReq := w.baseRequest(input, iteration, stepIndex, RolePlan)
 			planReq.Plan = &models.PlanInput{Task: models.IDInfo{ID: input.TaskID}}
 
-			planRes, err := w.runAndCommitStep(ctx, planReq, stepsDir, &state, input.RepoRoot, input.BaseBranch)
+			planRes, err := w.runAndCommitStep(ctx, planReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 			if err != nil {
 				log.Error().Err(err).Msg("plan step execution failed with error")
 				return workflows.RunResult{}, err
@@ -184,7 +184,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 				EffectiveCriteria: lastPlan.AcceptanceCriteria.Effective,
 			}
 
-			doRes, err := w.runAndCommitStep(ctx, doReq, stepsDir, &state, input.RepoRoot, input.BaseBranch)
+			doRes, err := w.runAndCommitStep(ctx, doReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 			if err != nil {
 				log.Error().Err(err).Msg("do step execution failed with error")
 				return workflows.RunResult{}, err
@@ -222,7 +222,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 				DoExecution:       lastDo.Execution,
 			}
 
-			checkRes, err := w.runAndCommitStep(ctx, checkReq, stepsDir, &state, input.RepoRoot, input.BaseBranch)
+			checkRes, err := w.runAndCommitStep(ctx, checkReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 			if err != nil {
 				log.Error().Err(err).Msg("check step execution failed with error")
 				return workflows.RunResult{}, err
@@ -264,7 +264,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			AcceptanceResults: lastCheck.AcceptanceResults,
 		}
 
-		actRes, err := w.runAndCommitStep(ctx, actReq, stepsDir, &state, input.RepoRoot, input.BaseBranch)
+		actRes, err := w.runAndCommitStep(ctx, actReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 		if err != nil {
 			log.Error().Err(err).Msg("act step execution failed with error")
 			return workflows.RunResult{}, err
@@ -352,14 +352,14 @@ type stepResult struct {
 
 var ErrRetryable = errors.New("retryable error")
 
-func (w *Workflow) runAndCommitStep(ctx context.Context, req models.AgentRequest, stepsDir string, state *models.TaskState, repoRoot, baseBranch string) (stepResult, error) {
+func (w *Workflow) runAndCommitStep(ctx context.Context, req models.AgentRequest, stepsDir string, state *models.TaskState, gitRoot, baseBranch string) (stepResult, error) {
 	maxAttempts := 3
 	var lastRes stepResult
 	var lastErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		req.Context.Attempt = attempt
-		res, err := w.executeStep(ctx, req, stepsDir, state, repoRoot, baseBranch)
+		res, err := w.executeStep(ctx, req, stepsDir, state, gitRoot, baseBranch)
 		lastRes = res
 		lastErr = err
 
@@ -397,7 +397,7 @@ func (w *Workflow) runAndCommitStep(ctx context.Context, req models.AgentRequest
 	return lastRes, lastErr
 }
 
-func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, stepsDir string, state *models.TaskState, repoRoot, baseBranch string) (stepResult, error) {
+func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, stepsDir string, state *models.TaskState, gitRoot, baseBranch string) (stepResult, error) {
 	startedAt := time.Now()
 	roleName := req.Step.Name
 	stepDirName := fmt.Sprintf("%03d-%s", req.Step.Index, roleName)
@@ -414,11 +414,11 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 	// Prepare paths for agent
 	workspaceDir := filepath.Join(stepDir, "workspace")
 	branchName := fmt.Sprintf("norma/task/%s", req.Task.ID)
-	if _, err := git.MountWorktree(ctx, repoRoot, workspaceDir, branchName, baseBranch); err != nil {
+	if _, err := git.MountWorktree(ctx, gitRoot, workspaceDir, branchName, baseBranch); err != nil {
 		return stepResult{}, fmt.Errorf("mount worktree: %w", err)
 	}
 	defer func() {
-		if err := git.RemoveWorktree(ctx, repoRoot, workspaceDir); err != nil {
+		if err := git.RemoveWorktree(ctx, gitRoot, workspaceDir); err != nil {
 			log.Warn().Err(err).Msg("failed to remove worktree")
 		}
 	}()
