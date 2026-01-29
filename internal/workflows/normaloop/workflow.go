@@ -150,7 +150,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			planRes, err := w.runAndCommitStep(ctx, planReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 			if err != nil {
 				log.Error().Err(err).Msg("plan step execution failed with error")
-				return workflows.RunResult{}, err
+				return workflows.RunResult{}, fmt.Errorf("execute plan step: %w", err)
 			}
 			if planRes.Status != statusOK && (planRes.Response == nil || planRes.Response.Plan == nil) {
 				log.Warn().Str("status", planRes.Status).Msg("plan step failed without required data, stopping")
@@ -161,7 +161,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			// Persist plan
 			state.Plan = lastPlan
 			if err := w.persistState(ctx, input.TaskID, state); err != nil {
-				log.Warn().Err(err).Msg("failed to persist state after plan")
+				return workflows.RunResult{}, fmt.Errorf("persist state after plan: %w", err)
 			}
 			_ = w.tracker.AddLabel(ctx, input.TaskID, labelHasPlan)
 		}
@@ -187,7 +187,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			doRes, err := w.runAndCommitStep(ctx, doReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 			if err != nil {
 				log.Error().Err(err).Msg("do step execution failed with error")
-				return workflows.RunResult{}, err
+				return workflows.RunResult{}, fmt.Errorf("execute do step: %w", err)
 			}
 			if doRes.Status != statusOK && (doRes.Response == nil || doRes.Response.Do == nil) {
 				log.Warn().Str("status", doRes.Status).Msg("do step failed without required data, stopping")
@@ -199,7 +199,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			// Persist do
 			state.Do = lastDo
 			if err := w.persistState(ctx, input.TaskID, state); err != nil {
-				log.Warn().Err(err).Msg("failed to persist state after do")
+				return workflows.RunResult{}, fmt.Errorf("persist state after do: %w", err)
 			}
 			_ = w.tracker.AddLabel(ctx, input.TaskID, labelHasDo)
 		}
@@ -225,7 +225,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			checkRes, err := w.runAndCommitStep(ctx, checkReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 			if err != nil {
 				log.Error().Err(err).Msg("check step execution failed with error")
-				return workflows.RunResult{}, err
+				return workflows.RunResult{}, fmt.Errorf("execute check step: %w", err)
 			}
 			if checkRes.Status != statusOK && (checkRes.Response == nil || checkRes.Response.Check == nil) {
 				log.Warn().Str("status", checkRes.Status).Msg("check step failed without required data, stopping")
@@ -242,7 +242,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			// Persist check
 			state.Check = lastCheck
 			if err := w.persistState(ctx, input.TaskID, state); err != nil {
-				log.Warn().Err(err).Msg("failed to persist state after check")
+				return workflows.RunResult{}, fmt.Errorf("persist state after check: %w", err)
 			}
 			_ = w.tracker.AddLabel(ctx, input.TaskID, labelHasCheck)
 		}
@@ -267,7 +267,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 		actRes, err := w.runAndCommitStep(ctx, actReq, stepsDir, &state, input.GitRoot, input.BaseBranch)
 		if err != nil {
 			log.Error().Err(err).Msg("act step execution failed with error")
-			return workflows.RunResult{}, err
+			return workflows.RunResult{}, fmt.Errorf("execute act step: %w", err)
 		}
 
 		if actRes.Response != nil && actRes.Response.Act != nil {
@@ -281,7 +281,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 				lastPlan = nil
 				state.Plan = nil
 				if err := w.persistState(ctx, input.TaskID, state); err != nil {
-					log.Warn().Err(err).Msg("failed to persist state after act")
+					return workflows.RunResult{}, fmt.Errorf("persist state after act: %w", err)
 				}
 			}
 		}
@@ -366,7 +366,7 @@ func (w *Workflow) runAndCommitStep(ctx context.Context, req models.AgentRequest
 		if err == nil {
 			err = w.commitStep(ctx, req.Run.ID, res, statusRunning, nil)
 			if err != nil {
-				return res, err
+				return res, fmt.Errorf("commit step: %w", err)
 			}
 			w.appendToProgress(res, req.Task.ID, state)
 			return res, nil
@@ -442,7 +442,7 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 	inputPath := filepath.Join(stepDir, "input.json")
 	inputData, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
-		return stepResult{}, fmt.Errorf("marshal input.json: %w", err)
+		return stepResult{}, fmt.Errorf("marshal input request: %w", err)
 	}
 	if err := os.WriteFile(inputPath, inputData, 0o644); err != nil {
 		return stepResult{}, fmt.Errorf("write input.json: %w", err)
@@ -598,7 +598,7 @@ func (w *Workflow) failRun(ctx context.Context, runID string, iteration, stepInd
 	}
 	event := db.Event{Type: "run_failed", Message: reason, DataJSON: ""}
 	if err := w.store.UpdateRun(ctx, runID, update, &event); err != nil {
-		return workflows.RunResult{}, err
+		return workflows.RunResult{}, fmt.Errorf("update run: %w", err)
 	}
 
 	// Update task status in Beads
@@ -614,7 +614,10 @@ func (w *Workflow) persistState(ctx context.Context, taskID string, state models
 	if err != nil {
 		return fmt.Errorf("marshal task state: %w", err)
 	}
-	return w.tracker.SetNotes(ctx, taskID, string(data))
+	if err := w.tracker.SetNotes(ctx, taskID, string(data)); err != nil {
+		return fmt.Errorf("set task notes: %w", err)
+	}
+	return nil
 }
 
 func (w *Workflow) appendToProgress(res stepResult, taskID string, state *models.TaskState) {
@@ -665,5 +668,8 @@ func (w *Workflow) reconstructProgress(dir string, taskID string, state *models.
 		b.WriteString(fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath))
 		b.WriteString(fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath))
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("write progress.md: %w", err)
+	}
+	return nil
 }

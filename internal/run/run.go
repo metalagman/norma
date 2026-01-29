@@ -98,7 +98,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 
 	lock, err := AcquireRunLock(r.normaDir)
 	if err != nil {
-		return res, err
+		return res, fmt.Errorf("acquire run lock: %w", err)
 	}
 	defer func() {
 		if lErr := lock.Release(); lErr != nil {
@@ -112,7 +112,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 
 	baseBranch, err := git.CurrentBranch(ctx, r.repoRoot)
 	if err != nil {
-		return res, err
+		return res, fmt.Errorf("resolve base branch: %w", err)
 	}
 	log.Info().Str("base_branch", baseBranch).Msg("using local base branch for task sync")
 
@@ -129,7 +129,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	}
 
 	if err := r.store.CreateRun(ctx, runID, goal, runDir, 1); err != nil {
-		return res, err
+		return res, fmt.Errorf("create run in store: %w", err)
 	}
 
 	input := workflows.RunInput{
@@ -144,7 +144,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 
 	wfRes, err := r.workflow.Run(ctx, input)
 	if err != nil {
-		return res, err
+		return res, fmt.Errorf("execute workflow: %w", err)
 	}
 
 	res.Status = wfRes.Status
@@ -154,7 +154,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		err = r.applyChanges(ctx, runID, goal, taskID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to apply changes")
-			return res, err
+			return res, fmt.Errorf("apply changes: %w", err)
 		}
 		// Close task in Beads as per spec
 		if err := r.tracker.MarkStatus(ctx, taskID, "done"); err != nil {

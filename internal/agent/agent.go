@@ -65,7 +65,7 @@ func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 		UseTTY: useTTY,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create ainvoke runner: %w", err)
 	}
 
 	return &ainvokeRunner{
@@ -86,7 +86,7 @@ type ainvokeRunner struct {
 func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
 	}
 
 	input, err := r.role.MapRequest(req)
@@ -119,7 +119,7 @@ func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout
 	outBytes, errBytes, exitCode, err := r.runner.Run(ctx, inv, ainvoke.WithStdout(stdout), ainvoke.WithStderr(stderr))
 	if err != nil {
 		writeInvocationError(stderr, err)
-		return outBytes, errBytes, exitCode, err
+		return outBytes, errBytes, exitCode, fmt.Errorf("ainvoke run: %w", err)
 	}
 
 	// Parse role-specific response and map back to models.AgentResponse
@@ -130,6 +130,7 @@ func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout
 		if mErr == nil {
 			return newOut, errBytes, exitCode, nil
 		}
+		return outBytes, errBytes, exitCode, fmt.Errorf("marshal agent response: %w", mErr)
 	}
 
 	return outBytes, errBytes, exitCode, nil
