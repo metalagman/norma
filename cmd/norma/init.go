@@ -36,6 +36,16 @@ func initCmd() *cobra.Command {
 				return fmt.Errorf("create locks dir: %w", err)
 			}
 
+			gitignorePath := filepath.Join(normaDir, ".gitignore")
+			if _, err := os.Stat(gitignorePath); err == nil {
+				log.Info().Msg(".norma/.gitignore already exists, skipping")
+			} else {
+				log.Info().Str("path", gitignorePath).Msg("installing .norma/.gitignore")
+				if err := os.WriteFile(gitignorePath, []byte(normaGitignoreContent), 0o644); err != nil {
+					return fmt.Errorf("write .norma/.gitignore: %w", err)
+				}
+			}
+
 			log.Info().Msg("initializing beads")
 			if err := initBeads(); err != nil {
 				return fmt.Errorf("init beads: %w", err)
@@ -104,3 +114,15 @@ func initCmd() *cobra.Command {
 		},
 	}
 }
+
+const normaGitignoreContent = `# ignore everything in .norma by default
+*
+
+# but keep this file itself
+!.gitignore
+
+# keep config (pick the one you actually use)
+!config.yaml
+!config.yml
+!config.json
+`

@@ -31,3 +31,8 @@ tasks:
     desc: Run tests
     cmds:
       - go test ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - go tool golangci-lint run
