@@ -3,7 +3,7 @@ version: '3'
 
 vars:
   BINARY_NAME: norma
-  MAIN_PATH: cmd/norma/main.go
+  MAIN_PATH: ./cmd/norma
   OUTPUT_DIR: bin
   
 tasks:
