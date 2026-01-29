@@ -110,7 +110,7 @@ func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout
 	}
 
 	log.Debug().
-		Str("dir", req.Paths.RunDir).
+		Str("working_dir", req.Paths.RunDir).
 		Strs("cmd", r.cmd).
 		Msg("executing agent command via ainvoke")
 
