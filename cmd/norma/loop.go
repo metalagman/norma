@@ -5,9 +5,10 @@ import (
 	"path/filepath"
 
 	"github.com/metalagman/norma/internal/config"
+	"github.com/metalagman/norma/internal/db"
+	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -17,19 +18,11 @@ func loopCmd() *cobra.Command {
 	var activeFeatureID string
 	var activeEpicID string
 	cmd := &cobra.Command{
-		Use:          "loop [task-id]",
-		Short:        "Run a task by id or run the next ready task",
-		Long:         "Run a task by id. If no task id is provided, run the next ready task chosen by the scheduler.",
+		Use:          "loop",
+		Short:        "Run tasks one by one from the tracker",
+		Long:         "Run tasks one by one from the tracker using the scheduler when no task id is provided.",
 		SilenceUsage: true,
-		Args: func(_ *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return nil
-			}
-			if len(args) != 1 {
-				return fmt.Errorf("task id is required")
-			}
-			return nil
-		},
+		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			storeDB, repoRoot, closeFn, err := openDB()
 			if err != nil {
@@ -37,7 +30,7 @@ func loopCmd() *cobra.Command {
 			}
 			defer closeFn()
 
-			if !run.GitAvailable(cmd.Context(), repoRoot) {
+			if !git.Available(cmd.Context(), repoRoot) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
@@ -47,7 +40,7 @@ func loopCmd() *cobra.Command {
 			}
 
 			tracker := task.NewBeadsTracker("")
-			runStore := run.NewStore(storeDB)
+			runStore := db.NewStore(storeDB)
 			runner, err := run.NewRunner(repoRoot, cfg, runStore, tracker)
 			if err != nil {
 				return err
@@ -57,22 +50,11 @@ func loopCmd() *cobra.Command {
 				return err
 			}
 
-			if len(args) == 0 {
-				policy := task.SelectionPolicy{
-					ActiveFeatureID: activeFeatureID,
-					ActiveEpicID:    activeEpicID,
-				}
-				return runLeafTasks(cmd.Context(), tracker, runStore, runner, continueOnFail, policy)
+			policy := task.SelectionPolicy{
+				ActiveFeatureID: activeFeatureID,
+				ActiveEpicID:    activeEpicID,
 			}
-			id := args[0]
-			if err := runTaskByID(cmd.Context(), tracker, runStore, runner, id); err != nil {
-				if continueOnFail {
-					log.Error().Err(err).Msg("task failed")
-					return nil
-				}
-				return err
-			}
-			return nil
+			return runTasks(cmd.Context(), tracker, runStore, runner, continueOnFail, policy)
 		},
 	}
 	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running ready tasks after a failure")

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
@@ -152,7 +153,7 @@ func taskLinkCmd() *cobra.Command {
 	return cmd
 }
 
-func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store, runner *run.Runner, id string) error {
+func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *db.Store, runner *run.Runner, id string) error {
 	item, err := tracker.Task(ctx, id)
 	if err != nil {
 		return err
@@ -199,22 +200,24 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *run.Store,
 	}
 }
 
-func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store, runner *run.Runner, continueOnFail bool, policy task.SelectionPolicy) error {
+func runTasks(ctx context.Context, tracker task.Tracker, runStore *db.Store, runner *run.Runner, continueOnFail bool, policy task.SelectionPolicy) error {
 	for {
-		readyTasks, err := tracker.LeafTasks(ctx)
+		status := statusTodo
+		tasks, err := tracker.List(ctx, &status)
 		if err != nil {
 			return err
 		}
-		if len(readyTasks) == 0 {
-			log.Info().Msg("no ready tasks")
+		tasks = filterRunnableTasks(tasks)
+		if len(tasks) == 0 {
+			log.Info().Msg("no tasks")
 			return nil
 		}
 
-		selected, reason, err := task.SelectNextReady(ctx, tracker, readyTasks, policy)
+		selected, _, err := task.SelectNextReady(ctx, tracker, tasks, policy)
 		if err != nil {
 			return err
 		}
-		log.Info().Str("task_id", selected.ID).Str("reason", reason).Msg("task selected")
+		log.Info().Str("about", taskAbout(selected)).Str("task_id", selected.ID).Msg("task selected")
 
 		if err := runTaskByID(ctx, tracker, runStore, runner, selected.ID); err != nil {
 			if continueOnFail {
@@ -226,7 +229,7 @@ func runLeafTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store
 	}
 }
 
-func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *run.Store, normaDir string) error {
+func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *db.Store, normaDir string) error {
 	lock, ok, err := run.TryAcquireRunLock(normaDir)
 	if err != nil {
 		return err
@@ -261,4 +264,32 @@ func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *run.
 		}
 	}
 	return nil
+}
+
+func taskAbout(item task.Task) string {
+	title := strings.TrimSpace(item.Title)
+	if title != "" {
+		return title
+	}
+	return strings.TrimSpace(item.Goal)
+}
+
+func filterRunnableTasks(items []task.Task) []task.Task {
+	out := make([]task.Task, 0, len(items))
+	for _, item := range items {
+		if isRunnableTask(item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func isRunnableTask(item task.Task) bool {
+	typ := strings.ToLower(strings.TrimSpace(item.Type))
+	switch typ {
+	case "epic", "feature":
+		return false
+	default:
+		return true
+	}
 }

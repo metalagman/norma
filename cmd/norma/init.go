@@ -7,23 +7,22 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/metalagman/norma/internal/run"
+	"github.com/metalagman/norma/internal/git"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 func initCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize a new norma project",
-		Long:  "Initialize a new norma project by creating .norma directory, initializing beads, and installing a default config.",
+		Short: "Initialize norma in the current repository",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repoRoot, err := os.Getwd()
 			if err != nil {
 				return err
 			}
 
-			if !run.GitAvailable(cmd.Context(), repoRoot) {
+			if !git.Available(cmd.Context(), repoRoot) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
@@ -113,6 +112,7 @@ func initCmd() *cobra.Command {
 			return nil
 		},
 	}
+	return cmd
 }
 
 const normaGitignoreContent = `# ignore everything in .norma by default

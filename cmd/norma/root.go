@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
-	"github.com/metalagman/norma/internal/run"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -43,13 +43,14 @@ func Execute() error {
 			log.Warn().Err(err).Msg("failed to get current working directory")
 			return
 		}
-		if run.GitAvailable(cmd.Context(), repoRoot) {
+		if git.Available(cmd.Context(), repoRoot) {
 			if err := initBeads(); err != nil {
 				log.Warn().Err(err).Msg("failed to initialize beads")
 			}
 		}
 	}
 	rootCmd.AddCommand(loopCmd())
+	rootCmd.AddCommand(runCmd())
 	rootCmd.AddCommand(runsCmd())
 	rootCmd.AddCommand(taskCmd())
 	rootCmd.AddCommand(uiCmd())

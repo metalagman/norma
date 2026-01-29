@@ -1,5 +1,5 @@
 // Package normaloop implements the standard PDCA workflow.
-package normaloop
+package models
 
 import (
 	"github.com/metalagman/norma/internal/task"

@@ -12,19 +12,22 @@ import (
 
 	"database/sql"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
+	"github.com/metalagman/norma/internal/db"
+	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
+	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
 
 type fakeAgent struct {
-	responses map[string]normaloop.AgentResponse
-	requests  []normaloop.AgentRequest
+	responses map[string]models.AgentResponse
+	requests  []models.AgentRequest
 }
 
-func (a *fakeAgent) Run(ctx context.Context, req normaloop.AgentRequest, stdout, _ io.Writer) ([]byte, []byte, int, error) {
+func (a *fakeAgent) Run(ctx context.Context, req models.AgentRequest, stdout, _ io.Writer) ([]byte, []byte, int, error) {
 	a.requests = append(a.requests, req)
 	resp, ok := a.responses[req.Step.Name]
 	if !ok {
@@ -100,10 +103,10 @@ func setupTestRepo(t *testing.T) string {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	_ = runCmdErr(ctx, dir, "git", "init")
-	_ = runCmdErr(ctx, dir, "git", "config", "user.email", "test@example.com")
-	_ = runCmdErr(ctx, dir, "git", "config", "user.name", "test")
-	_ = runCmdErr(ctx, dir, "git", "commit", "--allow-empty", "-m", "initial commit")
+	_ = git.RunCmdErr(ctx, dir, "git", "init")
+	_ = git.RunCmdErr(ctx, dir, "git", "config", "user.email", "test@example.com")
+	_ = git.RunCmdErr(ctx, dir, "git", "config", "user.name", "test")
+	_ = git.RunCmdErr(ctx, dir, "git", "commit", "--allow-empty", "-m", "initial commit")
 
 	return dir
 }
@@ -112,12 +115,12 @@ func TestRunner_Run_Success(t *testing.T) {
 	repoRoot := setupTestRepo(t)
 	defer func() { _ = os.RemoveAll(repoRoot) }()
 
-	db, err := sql.Open("sqlite", ":memory:")
+	dbConn, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
+	defer func() { _ = dbConn.Close() }()
 
 	// Initialize schema
-	_, err = db.Exec(`
+	_, err = dbConn.Exec(`
 		CREATE TABLE runs (
 			run_id TEXT PRIMARY KEY,
 			created_at TEXT NOT NULL,
@@ -152,67 +155,77 @@ func TestRunner_Run_Success(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	store := NewStore(db)
+	store := db.NewStore(dbConn)
 	tracker := &fakeTracker{
 		tasks: make(map[string]task.Task),
 	}
 
 	fAgent := &fakeAgent{
-		responses: map[string]normaloop.AgentResponse{
+		responses: map[string]models.AgentResponse{
 			"plan": {
 				Status:   "ok",
-				Summary:  normaloop.ResponseSummary{Text: "Planned"},
-				Progress: normaloop.StepProgress{Title: "Planning done"},
-				Plan: &normaloop.PlanOutput{
-					WorkPlan: normaloop.WorkPlan{
-						DoSteps: []normaloop.DoStep{{ID: "DO-1"}},
+				Summary:  models.ResponseSummary{Text: "Planned"},
+				Progress: models.StepProgress{Title: "Planning done"},
+				Plan: &models.PlanOutput{
+					WorkPlan: models.WorkPlan{
+						DoSteps:      []models.DoStep{{ID: "DO-1", TargetsACIDs: []string{}}},
+						StopTriggers: []string{},
+						CheckSteps:   []models.CheckStep{},
 					},
-					AcceptanceCriteria: normaloop.EffectiveCriteriaGroup{
-						Effective: []normaloop.EffectiveAcceptanceCriterion{
-							{ID: "AC-1", Text: "Effectively checked"},
+					AcceptanceCriteria: models.EffectiveCriteriaGroup{
+						Effective: []models.EffectiveAcceptanceCriterion{
+							{ID: "AC-1", Text: "Effectively checked", Refines: []string{}, Checks: []models.Check{}},
 						},
+						Baseline: []task.AcceptanceCriterion{},
 					},
 				},
 			},
 			"do": {
 				Status:   "ok",
-				Summary:  normaloop.ResponseSummary{Text: "Did it"},
-				Progress: normaloop.StepProgress{Title: "Doing done"},
-				Do: &normaloop.DoOutput{
-					Execution: normaloop.DoExecution{ExecutedStepIDs: []string{"DO-1"}},
+				Summary:  models.ResponseSummary{Text: "Did it", Warnings: []string{}, Errors: []string{}},
+				Progress: models.StepProgress{Title: "Doing done", Details: []string{}},
+				Do: &models.DoOutput{
+					Execution: models.DoExecution{ExecutedStepIDs: []string{"DO-1"}, SkippedStepIDs: []string{}, Commands: []models.CommandResult{}},
+					Blockers:  []models.Blocker{},
 				},
 			},
 			"check": {
 				Status:   "ok",
-				Summary:  normaloop.ResponseSummary{Text: "Checked"},
-				Progress: normaloop.StepProgress{Title: "Checking done"},
-				Check: &normaloop.CheckOutput{
-					Verdict: normaloop.CheckVerdict{Status: "PASS"},
+				Summary:  models.ResponseSummary{Text: "Checked", Warnings: []string{}, Errors: []string{}},
+				Progress: models.StepProgress{Title: "Checking done", Details: []string{}},
+				Check: &models.CheckOutput{
+					Verdict: models.CheckVerdict{Status: "PASS"},
+					AcceptanceResults: []models.AcceptanceResult{},
+					ProcessNotes:      []models.ProcessNote{},
 				},
 			},
 			"act": {
 				Status:   "ok",
-				Summary:  normaloop.ResponseSummary{Text: "Acted"},
-				Progress: normaloop.StepProgress{Title: "Acting done"},
-				Act:      &normaloop.ActOutput{Decision: "close"},
+				Summary:  models.ResponseSummary{Text: "Acted", Warnings: []string{}, Errors: []string{}},
+				Progress: models.StepProgress{Title: "Acting done", Details: []string{}},
+				Act:      &models.ActOutput{Decision: "close"},
 			},
 		},
 	}
 
+	cfg := config.Config{
+		Budgets: config.Budgets{MaxIterations: 1},
+		Agents: map[string]config.AgentConfig{
+			"plan":  {Type: "exec", Cmd: []string{"true"}},
+			"do":    {Type: "exec", Cmd: []string{"true"}},
+			"check": {Type: "exec", Cmd: []string{"true"}},
+			"act":   {Type: "exec", Cmd: []string{"true"}},
+		},
+	}
+
+	// Mock roles to use fAgent
 	normaloop.GetRole("plan").SetRunner(fAgent)
 	normaloop.GetRole("do").SetRunner(fAgent)
 	normaloop.GetRole("check").SetRunner(fAgent)
 	normaloop.GetRole("act").SetRunner(fAgent)
 
-	runner := &Runner{
-		repoRoot: repoRoot,
-		normaDir: filepath.Join(repoRoot, ".norma"),
-		cfg: config.Config{
-			Budgets: config.Budgets{MaxIterations: 1},
-		},
-		store:   store,
-		tracker: tracker,
-	}
+	runner, err := NewRunner(repoRoot, cfg, store, tracker)
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	res, err := runner.Run(ctx, "Test goal", nil, "norma-123")
@@ -220,8 +233,9 @@ func TestRunner_Run_Success(t *testing.T) {
 	assert.Equal(t, "passed", res.Status)
 
 	// Verify progress.md in the last step's artifacts directory
-	lastStepDir := filepath.Join(runner.runDir, "steps", "04-act", "artifacts", "progress.md")
-	_, err = os.Stat(lastStepDir)
+	runDir := filepath.Join(repoRoot, ".norma", "runs", res.RunID)
+	lastStepProgress := filepath.Join(runDir, "steps", "004-act", "artifacts", "progress.md")
+	_, err = os.Stat(lastStepProgress)
 	assert.NoError(t, err)
 
 	// Verify sequence
@@ -239,24 +253,32 @@ func TestRunner_Run_ReusePlan(t *testing.T) {
 	repoRoot := setupTestRepo(t)
 	defer func() { _ = os.RemoveAll(repoRoot) }()
 
-	db, err := sql.Open("sqlite", ":memory:")
+	dbConn, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
+	defer func() { _ = dbConn.Close() }()
 
 	// Initialize schema
-	_, err = db.Exec(`
+	_, err = dbConn.Exec(`
 		CREATE TABLE runs (run_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL, iteration INTEGER NOT NULL, current_step_index INTEGER NOT NULL, verdict TEXT, run_dir TEXT NOT NULL);
 		CREATE TABLE steps (run_id TEXT NOT NULL, step_index INTEGER NOT NULL, role TEXT NOT NULL, iteration INTEGER NOT NULL, status TEXT NOT NULL, step_dir TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, summary TEXT, PRIMARY KEY (run_id, step_index));
 		CREATE TABLE events (run_id TEXT NOT NULL, seq INTEGER NOT NULL, ts TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, data_json TEXT, PRIMARY KEY (run_id, seq));
 	`)
 	require.NoError(t, err)
 
-	store := NewStore(db)
+	store := db.NewStore(dbConn)
 
-	stateJSON, _ := json.Marshal(normaloop.TaskState{
-		Plan: &normaloop.PlanOutput{
-			WorkPlan: normaloop.WorkPlan{
-				DoSteps: []normaloop.DoStep{{ID: "DO-EXISTING"}},
+	stateJSON, _ := json.Marshal(models.TaskState{
+		Plan: &models.PlanOutput{
+			WorkPlan: models.WorkPlan{
+				DoSteps:      []models.DoStep{{ID: "DO-EXISTING", TargetsACIDs: []string{}}},
+				StopTriggers: []string{},
+				CheckSteps:   []models.CheckStep{},
+			},
+			AcceptanceCriteria: models.EffectiveCriteriaGroup{
+				Effective: []models.EffectiveAcceptanceCriterion{
+					{ID: "AC-1", Text: "Effectively checked", Refines: []string{}, Checks: []models.Check{}},
+				},
+				Baseline: []task.AcceptanceCriterion{},
 			},
 		},
 	})
@@ -272,45 +294,52 @@ func TestRunner_Run_ReusePlan(t *testing.T) {
 	}
 
 	fAgent := &fakeAgent{
-		responses: map[string]normaloop.AgentResponse{
+		responses: map[string]models.AgentResponse{
 			"do": {
 				Status:   "ok",
-				Summary:  normaloop.ResponseSummary{Text: "Did it"},
-				Progress: normaloop.StepProgress{Title: "Doing done"},
-				Do: &normaloop.DoOutput{
-					Execution: normaloop.DoExecution{ExecutedStepIDs: []string{"DO-EXISTING"}},
+				Summary:  models.ResponseSummary{Text: "Did it", Warnings: []string{}, Errors: []string{}},
+				Progress: models.StepProgress{Title: "Doing done", Details: []string{}},
+				Do: &models.DoOutput{
+					Execution: models.DoExecution{ExecutedStepIDs: []string{"DO-EXISTING"}, SkippedStepIDs: []string{}, Commands: []models.CommandResult{}},
+					Blockers:  []models.Blocker{},
 				},
 			},
 			"check": {
 				Status:   "ok",
-				Summary:  normaloop.ResponseSummary{Text: "Checked"},
-				Progress: normaloop.StepProgress{Title: "Checking done"},
-				Check: &normaloop.CheckOutput{
-					Verdict: normaloop.CheckVerdict{Status: "PASS"},
+				Summary:  models.ResponseSummary{Text: "Checked", Warnings: []string{}, Errors: []string{}},
+				Progress: models.StepProgress{Title: "Checking done", Details: []string{}},
+				Check: &models.CheckOutput{
+					Verdict: models.CheckVerdict{Status: "PASS"},
+					AcceptanceResults: []models.AcceptanceResult{},
+					ProcessNotes:      []models.ProcessNote{},
 				},
 			},
 			"act": {
 				Status:   "ok",
-				Summary:  normaloop.ResponseSummary{Text: "Acted"},
-				Progress: normaloop.StepProgress{Title: "Acting done"},
-				Act:      &normaloop.ActOutput{Decision: "close"},
+				Summary:  models.ResponseSummary{Text: "Acted", Warnings: []string{}, Errors: []string{}},
+				Progress: models.StepProgress{Title: "Acting done", Details: []string{}},
+				Act:      &models.ActOutput{Decision: "close"},
 			},
 		},
 	}
 
+	cfg := config.Config{
+		Budgets: config.Budgets{MaxIterations: 1},
+		Agents: map[string]config.AgentConfig{
+			"plan":  {Type: "exec", Cmd: []string{"true"}},
+			"do":    {Type: "exec", Cmd: []string{"true"}},
+			"check": {Type: "exec", Cmd: []string{"true"}},
+			"act":   {Type: "exec", Cmd: []string{"true"}},
+		},
+	}
+
+	// Mock roles to use fAgent
 	normaloop.GetRole("do").SetRunner(fAgent)
 	normaloop.GetRole("check").SetRunner(fAgent)
 	normaloop.GetRole("act").SetRunner(fAgent)
 
-	runner := &Runner{
-		repoRoot: repoRoot,
-		normaDir: filepath.Join(repoRoot, ".norma"),
-		cfg: config.Config{
-			Budgets: config.Budgets{MaxIterations: 1},
-		},
-		store:   store,
-		tracker: tracker,
-	}
+	runner, err := NewRunner(repoRoot, cfg, store, tracker)
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	res, err := runner.Run(ctx, "Test goal", nil, "norma-preplanned")

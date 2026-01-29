@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"text/template"
+
+	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 )
 
 const (
@@ -15,20 +17,8 @@ const (
 	RoleAct   = "act"
 )
 
-// Role defines the interface for a workflow step implementation.
-type Role interface {
-	Name() string
-	InputSchema() string
-	OutputSchema() string
-	Prompt(req AgentRequest) (string, error)
-	MapRequest(req AgentRequest) (any, error)
-	MapResponse(outBytes []byte) (AgentResponse, error)
-	SetRunner(runner any)
-	Runner() any
-}
-
 var (
-	roles    = make(map[string]Role)
+	roles    = make(map[string]models.Role)
 	initOnce sync.Once
 )
 
@@ -38,12 +28,12 @@ func initializeRoles() {
 	})
 }
 
-func mustRegister(r Role) {
+func mustRegister(r models.Role) {
 	roles[r.Name()] = r
 }
 
 // GetRole returns the role implementation by name.
-func GetRole(name string) Role {
+func GetRole(name string) models.Role {
 	initializeRoles()
 	return roles[name]
 }
@@ -78,16 +68,16 @@ func (r *baseRole) OutputSchema() string { return r.outputSchema }
 func (r *baseRole) SetRunner(runner any) { r.runner = runner }
 func (r *baseRole) Runner() any          { return r.runner }
 
-func (r *baseRole) Prompt(req AgentRequest) (string, error) {
+func (r *baseRole) Prompt(req models.AgentRequest) (string, error) {
 	var baseBuf bytes.Buffer
 	if err := r.baseTmpl.Execute(&baseBuf, struct {
-		Request AgentRequest
+		Request models.AgentRequest
 	}{Request: req}); err != nil {
 		return "", fmt.Errorf("execute base prompt template: %w", err)
 	}
 
 	data := struct {
-		Request      AgentRequest
+		Request      models.AgentRequest
 		CommonPrompt string
 	}{
 		Request:      req,

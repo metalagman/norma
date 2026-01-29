@@ -10,10 +10,25 @@ import (
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
+	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type dummyRole struct{}
+
+func (r *dummyRole) Name() string                                { return "plan" }
+func (r *dummyRole) InputSchema() string                         { return "{}" }
+func (r *dummyRole) OutputSchema() string                        { return "{}" }
+func (r *dummyRole) Prompt(_ models.AgentRequest) (string, error) { return "prompt", nil }
+func (r *dummyRole) MapRequest(req models.AgentRequest) (any, error) {
+	return req, nil
+}
+func (r *dummyRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
+	return models.AgentResponse{}, nil
+}
+func (r *dummyRole) SetRunner(_ any) {}
+func (r *dummyRole) Runner() any     { return nil }
 
 func TestNewRunner(t *testing.T) {
 	repoRoot, err := os.MkdirTemp("", "norma-agent-test-*")
@@ -25,7 +40,7 @@ func TestNewRunner(t *testing.T) {
 		Cmd:  []string{"echo", "test"},
 	}
 
-	runner, err := NewRunner(cfg, normaloop.GetRole(normaloop.RolePlan))
+	runner, err := NewRunner(cfg, &dummyRole{})
 	assert.NoError(t, err)
 	assert.NotNil(t, runner)
 }
@@ -51,26 +66,26 @@ echo "$RESP"
 		Cmd:  []string{agentScript},
 	}
 
-	runner, err := NewRunner(cfg, normaloop.GetRole(normaloop.RolePlan))
+	runner, err := NewRunner(cfg, &dummyRole{})
 	require.NoError(t, err)
 
-	req := normaloop.AgentRequest{
-		Run:  normaloop.RunInfo{ID: "run-1", Iteration: 1},
-		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan},
-		Paths: normaloop.RequestPaths{
+	req := models.AgentRequest{
+		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
+		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: models.StepInfo{Index: 1, Name: "plan"},
+		Paths: models.RequestPaths{
 			WorkspaceDir: repoRoot,
 			RunDir:       repoRoot,
 		},
-		Budgets: normaloop.Budgets{
+		Budgets: models.Budgets{
 			MaxIterations: 1,
 		},
-		Context: normaloop.RequestContext{
+		Context: models.RequestContext{
 			Facts: make(map[string]any),
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &normaloop.PlanInput{Task: normaloop.IDInfo{ID: "task-1"}},
+		Plan:               &models.PlanInput{Task: models.IDInfo{ID: "task-1"}},
 	}
 
 	ctx := context.Background()
@@ -107,26 +122,26 @@ exit 1
 		Cmd:  []string{agentScript},
 	}
 
-	runner, err := NewRunner(cfg, normaloop.GetRole(normaloop.RolePlan))
+	runner, err := NewRunner(cfg, &dummyRole{})
 	require.NoError(t, err)
 
-	req := normaloop.AgentRequest{
-		Run:  normaloop.RunInfo{ID: "run-1", Iteration: 1},
-		Task: normaloop.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: normaloop.StepInfo{Index: 1, Name: normaloop.RolePlan},
-		Paths: normaloop.RequestPaths{
+	req := models.AgentRequest{
+		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
+		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: models.StepInfo{Index: 1, Name: "plan"},
+		Paths: models.RequestPaths{
 			WorkspaceDir: repoRoot,
 			RunDir:       repoRoot,
 		},
-		Budgets: normaloop.Budgets{
+		Budgets: models.Budgets{
 			MaxIterations: 1,
 		},
-		Context: normaloop.RequestContext{
+		Context: models.RequestContext{
 			Facts: make(map[string]any),
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &normaloop.PlanInput{Task: normaloop.IDInfo{ID: "task-1"}},
+		Plan:               &models.PlanInput{Task: models.IDInfo{ID: "task-1"}},
 	}
 
 	ctx := context.Background()

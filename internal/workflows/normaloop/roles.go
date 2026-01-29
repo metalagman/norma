@@ -7,6 +7,7 @@ import (
 	"github.com/metalagman/norma/internal/workflows/normaloop/act"
 	"github.com/metalagman/norma/internal/workflows/normaloop/check"
 	"github.com/metalagman/norma/internal/workflows/normaloop/do"
+	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 	"github.com/metalagman/norma/internal/workflows/normaloop/plan"
 )
 
@@ -21,7 +22,7 @@ type planRole struct {
 	baseRole
 }
 
-func (r *planRole) MapRequest(req AgentRequest) (any, error) {
+func (r *planRole) MapRequest(req models.AgentRequest) (any, error) {
 	acs := make([]plan.PlanAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
@@ -55,40 +56,40 @@ func (r *planRole) MapRequest(req AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *planRole) MapResponse(outBytes []byte) (AgentResponse, error) {
+func (r *planRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	var roleResp plan.PlanResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return AgentResponse{}, err
+		return models.AgentResponse{}, err
 	}
-	res := AgentResponse{
+	res := models.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.PlanOutput != nil {
-		res.Plan = &PlanOutput{
+		res.Plan = &models.PlanOutput{
 			TaskID:      roleResp.PlanOutput.TaskId,
 			Goal:        roleResp.PlanOutput.Goal,
 			Constraints: roleResp.PlanOutput.Constraints,
 		}
 		if roleResp.PlanOutput.WorkPlan != nil {
-			res.Plan.WorkPlan = WorkPlan{
+			res.Plan.WorkPlan = models.WorkPlan{
 				TimeboxMinutes: int(roleResp.PlanOutput.WorkPlan.TimeboxMinutes),
 				StopTriggers:   roleResp.PlanOutput.WorkPlan.StopTriggers,
 			}
 			for _, s := range roleResp.PlanOutput.WorkPlan.DoSteps {
-				res.Plan.WorkPlan.DoSteps = append(res.Plan.WorkPlan.DoSteps, DoStep{
+				res.Plan.WorkPlan.DoSteps = append(res.Plan.WorkPlan.DoSteps, models.DoStep{
 					ID:   s.Id,
 					Text: s.Text,
 				})
 			}
 			for _, s := range roleResp.PlanOutput.WorkPlan.CheckSteps {
-				res.Plan.WorkPlan.CheckSteps = append(res.Plan.WorkPlan.CheckSteps, CheckStep{
+				res.Plan.WorkPlan.CheckSteps = append(res.Plan.WorkPlan.CheckSteps, models.CheckStep{
 					ID:   s.Id,
 					Text: s.Text,
 					Mode: s.Mode,
@@ -103,7 +104,7 @@ func (r *planRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 				})
 			}
 			for _, e := range roleResp.PlanOutput.AcceptanceCriteria.Effective {
-				res.Plan.AcceptanceCriteria.Effective = append(res.Plan.AcceptanceCriteria.Effective, EffectiveAcceptanceCriterion{
+				res.Plan.AcceptanceCriteria.Effective = append(res.Plan.AcceptanceCriteria.Effective, models.EffectiveAcceptanceCriterion{
 					ID:     e.Id,
 					Origin: e.Origin,
 					Text:   e.Text,
@@ -112,10 +113,10 @@ func (r *planRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 		}
 	}
 	if roleResp.Logs != nil {
-		res.Logs = ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
+		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
 	}
 	if roleResp.Timing != nil {
-		res.Timing = ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
+		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }
@@ -124,7 +125,7 @@ type doRole struct {
 	baseRole
 }
 
-func (r *doRole) MapRequest(req AgentRequest) (any, error) {
+func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 	acs := make([]do.DoAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
@@ -223,30 +224,30 @@ func (r *doRole) MapRequest(req AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *doRole) MapResponse(outBytes []byte) (AgentResponse, error) {
+func (r *doRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	var roleResp do.DoResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return AgentResponse{}, err
+		return models.AgentResponse{}, err
 	}
-	res := AgentResponse{
+	res := models.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.DoOutput != nil {
-		res.Do = &DoOutput{}
+		res.Do = &models.DoOutput{}
 		if roleResp.DoOutput.Execution != nil {
-			res.Do.Execution = DoExecution{
+			res.Do.Execution = models.DoExecution{
 				ExecutedStepIDs: roleResp.DoOutput.Execution.ExecutedStepIds,
 				SkippedStepIDs:  roleResp.DoOutput.Execution.SkippedStepIds,
 			}
 			for _, c := range roleResp.DoOutput.Execution.Commands {
-				res.Do.Execution.Commands = append(res.Do.Execution.Commands, CommandResult{
+				res.Do.Execution.Commands = append(res.Do.Execution.Commands, models.CommandResult{
 					ID:       c.Id,
 					Cmd:      c.Cmd,
 					ExitCode: int(c.ExitCode),
@@ -254,7 +255,7 @@ func (r *doRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 			}
 		}
 		for _, b := range roleResp.DoOutput.Blockers {
-			res.Do.Blockers = append(res.Do.Blockers, Blocker{
+			res.Do.Blockers = append(res.Do.Blockers, models.Blocker{
 				Kind:                b.Kind,
 				Text:                b.Text,
 				SuggestedStopReason: b.SuggestedStopReason,
@@ -262,10 +263,10 @@ func (r *doRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 		}
 	}
 	if roleResp.Logs != nil {
-		res.Logs = ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
+		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
 	}
 	if roleResp.Timing != nil {
-		res.Timing = ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
+		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }
@@ -274,7 +275,7 @@ type checkRole struct {
 	baseRole
 }
 
-func (r *checkRole) MapRequest(req AgentRequest) (any, error) {
+func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 	acs := make([]check.CheckAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		acs = append(acs, check.CheckAcceptanceCriterion{
@@ -346,26 +347,26 @@ func (r *checkRole) MapRequest(req AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *checkRole) MapResponse(outBytes []byte) (AgentResponse, error) {
+func (r *checkRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	var roleResp check.CheckResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return AgentResponse{}, err
+		return models.AgentResponse{}, err
 	}
-	res := AgentResponse{
+	res := models.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.CheckOutput != nil {
-		res.Check = &CheckOutput{}
+		res.Check = &models.CheckOutput{}
 		if roleResp.CheckOutput.PlanMatch != nil {
 			if roleResp.CheckOutput.PlanMatch.DoSteps != nil {
-				res.Check.PlanMatch.DoSteps = MatchResult{
+				res.Check.PlanMatch.DoSteps = models.MatchResult{
 					PlannedIDs:    roleResp.CheckOutput.PlanMatch.DoSteps.PlannedIds,
 					ExecutedIDs:   roleResp.CheckOutput.PlanMatch.DoSteps.ExecutedIds,
 					MissingIDs:    roleResp.CheckOutput.PlanMatch.DoSteps.MissingIds,
@@ -373,7 +374,7 @@ func (r *checkRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 				}
 			}
 			if roleResp.CheckOutput.PlanMatch.Commands != nil {
-				res.Check.PlanMatch.Commands = MatchResult{
+				res.Check.PlanMatch.Commands = models.MatchResult{
 					PlannedIDs:    roleResp.CheckOutput.PlanMatch.Commands.PlannedIds,
 					ExecutedIDs:   roleResp.CheckOutput.PlanMatch.Commands.ExecutedIds,
 					MissingIDs:    roleResp.CheckOutput.PlanMatch.Commands.MissingIds,
@@ -382,19 +383,19 @@ func (r *checkRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 			}
 		}
 		if roleResp.CheckOutput.Verdict != nil {
-			res.Check.Verdict = CheckVerdict{
+			res.Check.Verdict = models.CheckVerdict{
 				Status:         roleResp.CheckOutput.Verdict.Status,
 				Recommendation: roleResp.CheckOutput.Verdict.Recommendation,
 			}
 			if roleResp.CheckOutput.Verdict.Basis != nil {
-				res.Check.Verdict.Basis = Basis{
+				res.Check.Verdict.Basis = models.Basis{
 					PlanMatch:           roleResp.CheckOutput.Verdict.Basis.PlanMatch,
 					AllAcceptancePassed: roleResp.CheckOutput.Verdict.Basis.AllAcceptancePassed,
 				}
 			}
 		}
 		for _, ar := range roleResp.CheckOutput.AcceptanceResults {
-			res.Check.AcceptanceResults = append(res.Check.AcceptanceResults, AcceptanceResult{
+			res.Check.AcceptanceResults = append(res.Check.AcceptanceResults, models.AcceptanceResult{
 				ACID:   ar.AcId,
 				Result: ar.Result,
 				Notes:  ar.Notes,
@@ -402,7 +403,7 @@ func (r *checkRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 			})
 		}
 		for _, n := range roleResp.CheckOutput.ProcessNotes {
-			res.Check.ProcessNotes = append(res.Check.ProcessNotes, ProcessNote{
+			res.Check.ProcessNotes = append(res.Check.ProcessNotes, models.ProcessNote{
 				Kind:                n.Kind,
 				Severity:            n.Severity,
 				Text:                n.Text,
@@ -411,10 +412,10 @@ func (r *checkRole) MapResponse(outBytes []byte) (AgentResponse, error) {
 		}
 	}
 	if roleResp.Logs != nil {
-		res.Logs = ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
+		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
 	}
 	if roleResp.Timing != nil {
-		res.Timing = ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
+		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }
@@ -423,7 +424,7 @@ type actRole struct {
 	baseRole
 }
 
-func (r *actRole) MapRequest(req AgentRequest) (any, error) {
+func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 	acs := make([]any, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		acs = append(acs, ac)
@@ -466,38 +467,38 @@ func (r *actRole) MapRequest(req AgentRequest) (any, error) {
 	}, nil
 }
 
-func (r *actRole) MapResponse(outBytes []byte) (AgentResponse, error) {
+func (r *actRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	var roleResp act.ActResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return AgentResponse{}, err
+		return models.AgentResponse{}, err
 	}
-	res := AgentResponse{
+	res := models.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.ActOutput != nil {
-		res.Act = &ActOutput{
+		res.Act = &models.ActOutput{
 			Decision:  roleResp.ActOutput.Decision,
 			Rationale: roleResp.ActOutput.Rationale,
 		}
 		if roleResp.ActOutput.Next != nil {
-			res.Act.Next = NextAction{
+			res.Act.Next = models.NextAction{
 				Recommended: roleResp.ActOutput.Next.Recommended,
 				Notes:       roleResp.ActOutput.Next.Notes,
 			}
 		}
 	}
 	if roleResp.Logs != nil {
-		res.Logs = ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
+		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
 	}
 	if roleResp.Timing != nil {
-		res.Timing = ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
+		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }

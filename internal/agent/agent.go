@@ -9,17 +9,17 @@ import (
 
 	"github.com/metalagman/ainvoke"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
+	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 	"github.com/rs/zerolog/log"
 )
 
 // Runner executes an agent with a normalized request.
 type Runner interface {
-	Run(ctx context.Context, req normaloop.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
+	Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
 }
 
 // NewRunner constructs a runner for the given agent config and role.
-func NewRunner(cfg config.AgentConfig, role normaloop.Role) (Runner, error) {
+func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 	cmd := cfg.Cmd
 	useTTY := false
 
@@ -80,10 +80,10 @@ type ainvokeRunner struct {
 	cfg    config.AgentConfig
 	runner ainvoke.Runner
 	cmd    []string
-	role   normaloop.Role
+	role   models.Role
 }
 
-func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, err
@@ -118,7 +118,7 @@ func (r *ainvokeRunner) Run(ctx context.Context, req normaloop.AgentRequest, std
 		return outBytes, errBytes, exitCode, err
 	}
 
-	// Parse role-specific response and map back to normaloop.AgentResponse
+	// Parse role-specific response and map back to models.AgentResponse
 	agentResp, err := r.role.MapResponse(outBytes)
 	if err == nil {
 		// Re-marshal it to ensure consistency

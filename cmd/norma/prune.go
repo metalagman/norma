@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,7 @@ func pruneCmd() *cobra.Command {
 			}
 			defer closeFn()
 
-			if !run.GitAvailable(cmd.Context(), repoRoot) {
+			if !git.Available(cmd.Context(), repoRoot) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 

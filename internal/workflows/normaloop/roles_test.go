@@ -5,43 +5,44 @@ import (
 	"testing"
 
 	"github.com/metalagman/norma/internal/task"
+	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 	role := &doRole{}
 
-	req := AgentRequest{
-		Run:  RunInfo{ID: "run-1", Iteration: 1},
-		Task: TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{}},
-		Step: StepInfo{Index: 2, Name: RoleDo},
-		Paths: RequestPaths{
+	req := models.AgentRequest{
+		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
+		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{}},
+		Step: models.StepInfo{Index: 2, Name: RoleDo},
+		Paths: models.RequestPaths{
 			WorkspaceDir: "/tmp",
 			RunDir:       "/tmp",
 		},
-		Budgets: Budgets{
+		Budgets: models.Budgets{
 			MaxIterations:      1,
 			MaxWallTimeMinutes: 10,
 			MaxFailedChecks:    1,
 		},
-		Context: RequestContext{
+		Context: models.RequestContext{
 			Facts: map[string]any{},
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Do: &DoInput{
-			WorkPlan: WorkPlan{
+		Do: &models.DoInput{
+			WorkPlan: models.WorkPlan{
 				TimeboxMinutes: 10,
-				DoSteps:        []DoStep{},
-				CheckSteps:     []CheckStep{},
+				DoSteps:        []models.DoStep{},
+				CheckSteps:     []models.CheckStep{},
 				StopTriggers:   []string{},
 			},
-			EffectiveCriteria: []EffectiveAcceptanceCriterion{
+			EffectiveCriteria: []models.EffectiveAcceptanceCriterion{
 				{
 					ID:     "AC-1",
 					Origin: "baseline",
 					Text:   "ok",
-					Checks: []Check{
+					Checks: []models.Check{
 						{ID: "CHK-1", Cmd: "true", ExpectExitCodes: []int{0}},
 					},
 				},

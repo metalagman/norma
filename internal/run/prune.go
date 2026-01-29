@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metalagman/norma/internal/git"
 	"github.com/rs/zerolog/log"
 )
 
@@ -105,10 +106,10 @@ func PruneRuns(ctx context.Context, db *sql.DB, runsDir string, policy Retention
 // Prune removes all runs, their directories, and any associated git worktrees.
 func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
 	// 1. Git worktree prune
-	_ = runCmdErr(ctx, repoRoot, "git", "worktree", "prune")
+	_ = git.RunCmdErr(ctx, repoRoot, "git", "worktree", "prune")
 
 	// 2. Identify and remove all worktrees that are inside .norma/runs
-	out := runCmd(ctx, repoRoot, "git", "worktree", "list", "--porcelain")
+	out := git.RunCmd(ctx, repoRoot, "git", "worktree", "list", "--porcelain")
 	lines := strings.Split(out, "\n")
 	var currentWorktree string
 	normaRunsPrefix := filepath.Join(repoRoot, ".norma", "runs")
@@ -121,7 +122,7 @@ func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
 			currentWorktree = strings.TrimPrefix(line, "worktree ")
 			if strings.HasPrefix(currentWorktree, normaRunsPrefix) {
 				log.Info().Str("worktree", currentWorktree).Msg("pruning worktree")
-				_ = runCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", currentWorktree)
+				_ = git.RunCmdErr(ctx, repoRoot, "git", "worktree", "remove", "--force", currentWorktree)
 			}
 		}
 	}

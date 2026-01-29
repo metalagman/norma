@@ -1,5 +1,5 @@
-// Package run implements the orchestrator for the norma development lifecycle.
-package run
+// Package db provides database connectivity and migration logic for norma.
+package db
 
 import (
 	"context"
@@ -18,6 +18,11 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// DB returns the underlying database handle.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // CreateRun inserts the run record and a run_started event.
 func (s *Store) CreateRun(ctx context.Context, runID, goal, runDir string, iteration int) error {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
@@ -31,7 +36,7 @@ func (s *Store) CreateRun(ctx context.Context, runID, goal, runDir string, itera
 		_ = tx.Rollback()
 		return fmt.Errorf("insert run: %w", err)
 	}
-	if err := insertEvent(ctx, tx, runID, "run_started", "run started", ""); err != nil {
+	if err := s.insertEvent(ctx, tx, runID, "run_started", "run started", ""); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -76,7 +81,7 @@ func (s *Store) UpdateRun(ctx context.Context, runID string, update Update, even
 		return fmt.Errorf("begin update run: %w", err)
 	}
 	if event != nil {
-		if err := insertEvent(ctx, tx, runID, event.Type, event.Message, event.DataJSON); err != nil {
+		if err := s.insertEvent(ctx, tx, runID, event.Type, event.Message, event.DataJSON); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -105,7 +110,7 @@ func (s *Store) CommitStep(ctx context.Context, step StepRecord, events []Event,
 		return fmt.Errorf("insert step: %w", err)
 	}
 	for _, ev := range events {
-		if err := insertEvent(ctx, tx, step.RunID, ev.Type, ev.Message, ev.DataJSON); err != nil {
+		if err := s.insertEvent(ctx, tx, step.RunID, ev.Type, ev.Message, ev.DataJSON); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -121,8 +126,8 @@ func (s *Store) CommitStep(ctx context.Context, step StepRecord, events []Event,
 	return nil
 }
 
-func insertEvent(ctx context.Context, tx *sql.Tx, runID, typ, message, dataJSON string) error {
-	seq, err := nextSeq(ctx, tx, runID)
+func (s *Store) insertEvent(ctx context.Context, tx *sql.Tx, runID, typ, message, dataJSON string) error {
+	seq, err := s.nextSeq(ctx, tx, runID)
 	if err != nil {
 		return err
 	}
@@ -134,7 +139,7 @@ func insertEvent(ctx context.Context, tx *sql.Tx, runID, typ, message, dataJSON 
 	return nil
 }
 
-func nextSeq(ctx context.Context, tx *sql.Tx, runID string) (int, error) {
+func (s *Store) nextSeq(ctx context.Context, tx *sql.Tx, runID string) (int, error) {
 	var seq int
 	row := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id=?`, runID)
 	if err := row.Scan(&seq); err != nil {
