@@ -483,24 +483,57 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 
 	// Parse AgentResponse
 	var agentResp models.AgentResponse
-	if err := json.Unmarshal(agentOut, &agentResp); err != nil {
-		recovered, ok := extractJSON(agentOut)
-		if !ok {
-			res.Status = statusError
-			res.Summary = "failed to parse agent response: no JSON found"
-			return res, fmt.Errorf("parse agent response: %w", err)
+	parsed := false
+
+	// 1. Try reading output.json from step dir first
+	outputPath := filepath.Join(stepDir, "output.json")
+	if data, err := os.ReadFile(outputPath); err == nil {
+		if err := json.Unmarshal(data, &agentResp); err == nil {
+			parsed = true
+			log.Debug().Str("role", roleName).Msg("using output.json from step directory")
+		} else {
+			// Try extraction even from the file if it's messy
+			if recovered, ok := extractJSON(data); ok {
+				if err := json.Unmarshal(recovered, &agentResp); err == nil {
+					parsed = true
+					log.Debug().Str("role", roleName).Msg("using extracted JSON from output.json")
+				}
+			}
 		}
-		if err := json.Unmarshal(recovered, &agentResp); err != nil {
-			res.Status = statusError
-			res.Summary = "failed to parse agent response: invalid JSON"
-			return res, fmt.Errorf("parse agent response: %w", err)
+	}
+
+	// 2. Fallback to stdout if output.json is missing or invalid
+	if !parsed {
+		if err := json.Unmarshal(agentOut, &agentResp); err == nil {
+			parsed = true
+		} else {
+			recovered, ok := extractJSON(agentOut)
+			if ok {
+				if err := json.Unmarshal(recovered, &agentResp); err == nil {
+					parsed = true
+				}
+			}
 		}
+	}
+
+	if !parsed {
+		res.Status = statusError
+		res.Summary = "failed to parse agent response: no valid JSON found in output.json or stdout"
+		return res, fmt.Errorf("parse agent response: invalid format")
 	}
 
 	res.Status = agentResp.Status
 	res.Protocol = agentResp.StopReason
 	res.Summary = agentResp.Summary.Text
 	res.Response = &agentResp
+
+	// Ensure output.json exists and is fresh with the parsed response
+	if !parsed {
+		// This should not be reached due to the !parsed check above
+	} else {
+		data, _ := json.MarshalIndent(agentResp, "", "  ")
+		_ = os.WriteFile(outputPath, data, 0o644)
+	}
 
 	return res, nil
 }
