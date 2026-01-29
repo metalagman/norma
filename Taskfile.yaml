@@ -1,0 +1,33 @@
+# Taskfile for norma build automation
+version: '3'
+
+vars:
+  BINARY_NAME: norma
+  MAIN_PATH: cmd/norma/main.go
+  OUTPUT_DIR: bin
+  
+tasks:
+  default:
+    desc: Build the norma binary
+    cmds:
+      - mkdir -p {{.OUTPUT_DIR}}
+      - go build -o {{.OUTPUT_DIR}}/{{.BINARY_NAME}} {{.MAIN_PATH}}
+    
+  install:
+    desc: Build and install norma to GOBIN
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+    cmds:
+      - echo "Installing {{.BINARY_NAME}} version {{.VERSION}}"
+      - go install -ldflags "-X main.version={{.VERSION}}" {{.MAIN_PATH}}
+    
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.OUTPUT_DIR}}
+      
+  test:
+    desc: Run tests
+    cmds:
+      - go test ./...
