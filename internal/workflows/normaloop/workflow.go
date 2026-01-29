@@ -484,9 +484,17 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 	// Parse AgentResponse
 	var agentResp models.AgentResponse
 	if err := json.Unmarshal(agentOut, &agentResp); err != nil {
-		res.Status = statusError
-		res.Summary = "failed to parse agent response"
-		return res, fmt.Errorf("parse agent response: %w", err)
+		recovered, ok := extractJSON(agentOut)
+		if !ok {
+			res.Status = statusError
+			res.Summary = "failed to parse agent response: no JSON found"
+			return res, fmt.Errorf("parse agent response: %w", err)
+		}
+		if err := json.Unmarshal(recovered, &agentResp); err != nil {
+			res.Status = statusError
+			res.Summary = "failed to parse agent response: invalid JSON"
+			return res, fmt.Errorf("parse agent response: %w", err)
+		}
 	}
 
 	res.Status = agentResp.Status
@@ -495,6 +503,15 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 	res.Response = &agentResp
 
 	return res, nil
+}
+
+func extractJSON(data []byte) ([]byte, bool) {
+	start := bytes.IndexByte(data, '{')
+	end := bytes.LastIndexByte(data, '}')
+	if start == -1 || end == -1 || start >= end {
+		return nil, false
+	}
+	return data[start : end+1], true
 }
 
 func (w *Workflow) commitStep(ctx context.Context, runID string, res stepResult, runStatus string, verdict *string) error {
