@@ -51,6 +51,8 @@ func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
+		case "loop":
+			return newLoopRunner(cfg, role)
 		default:
 			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}

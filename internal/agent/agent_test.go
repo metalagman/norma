@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -25,7 +26,9 @@ func (r *dummyRole) MapRequest(req models.AgentRequest) (any, error) {
 	return req, nil
 }
 func (r *dummyRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
-	return models.AgentResponse{}, nil
+	var resp models.AgentResponse
+	err := json.Unmarshal(outBytes, &resp)
+	return resp, err
 }
 func (r *dummyRole) SetRunner(_ any) {}
 func (r *dummyRole) Runner() any     { return nil }

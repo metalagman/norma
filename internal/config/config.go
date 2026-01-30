@@ -17,11 +17,13 @@ type Config struct {
 
 // AgentConfig describes how to run an agent.
 type AgentConfig struct {
-	Type   string   `json:"type"              mapstructure:"type"`
-	Cmd    []string `json:"cmd,omitempty"     mapstructure:"cmd"`
-	Model  string   `json:"model,omitempty"   mapstructure:"model"`
-	Path   string   `json:"path,omitempty"    mapstructure:"path"`
-	UseTTY *bool    `json:"use_tty,omitempty" mapstructure:"use_tty"`
+	Type          string        `json:"type"                     mapstructure:"type"`
+	Cmd           []string      `json:"cmd,omitempty"            mapstructure:"cmd"`
+	Model         string        `json:"model,omitempty"          mapstructure:"model"`
+	Path          string        `json:"path,omitempty"           mapstructure:"path"`
+	UseTTY        *bool         `json:"use_tty,omitempty"        mapstructure:"use_tty"`
+	MaxIterations int           `json:"max_iterations,omitempty" mapstructure:"max_iterations"`
+	SubAgents     []AgentConfig `json:"sub_agents,omitempty"     mapstructure:"sub_agents"`
 }
 
 // ProfileConfig describes an agent profile.

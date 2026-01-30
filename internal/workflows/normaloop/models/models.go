@@ -114,6 +114,7 @@ type IDInfo struct {
 type AgentResponse struct {
 	Status     string          `json:"status"` // "ok", "stop", "error"
 	StopReason string          `json:"stop_reason,omitempty"`
+	Escalate   bool            `json:"escalate,omitempty"`
 	Summary    ResponseSummary `json:"summary"`
 	Logs       ResponseLogs    `json:"logs"`
 	Timing     ResponseTiming  `json:"timing"`
