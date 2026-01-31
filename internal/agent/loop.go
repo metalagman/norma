@@ -63,6 +63,8 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 			adk.WithExecAgentOutputSchema(outputSchema),
 			adk.WithExecAgentRunDir(req.Paths.RunDir),
 			adk.WithExecAgentUseTTY(subCfg.UseTTY != nil && *subCfg.UseTTY),
+			adk.WithExecAgentStdout(stdout),
+			adk.WithExecAgentStderr(stderr),
 		)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("failed to create exec agent for sub-agent %d: %w", i, err)
@@ -156,19 +158,3 @@ func (w *escalationWrapper) Run(ctx agent.InvocationContext) iter.Seq2[*session.
 		}
 	}
 }
-
-type normaInvocationContext struct {
-	context.Context
-	userContent *genai.Content
-}
-
-func (m *normaInvocationContext) Agent() agent.Agent             { return nil }
-func (m *normaInvocationContext) Artifacts() agent.Artifacts     { return nil }
-func (m *normaInvocationContext) Memory() agent.Memory           { return nil }
-func (m *normaInvocationContext) Session() session.Session       { return nil }
-func (m *normaInvocationContext) InvocationID() string           { return "norma-inv-1" }
-func (m *normaInvocationContext) Branch() string                 { return "main" }
-func (m *normaInvocationContext) UserContent() *genai.Content    { return m.userContent }
-func (m *normaInvocationContext) RunConfig() *agent.RunConfig    { return nil }
-func (m *normaInvocationContext) EndInvocation()                 {}
-func (m *normaInvocationContext) Ended() bool                   { return false }

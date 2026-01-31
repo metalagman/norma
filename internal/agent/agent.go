@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
-	"github.com/metalagman/ainvoke"
+	"github.com/metalagman/ainvoke/adk"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
-	"github.com/rs/zerolog/log"
+
+	"google.golang.org/adk/agent"
+	"google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 // Runner executes an agent with a normalized request.
@@ -20,9 +24,24 @@ type Runner interface {
 
 // NewRunner constructs a runner for the given agent config and role.
 func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
-	cmd := cfg.Cmd
-	useTTY := false
+	if cfg.Type == "loop" {
+		return newLoopRunner(cfg, role)
+	}
 
+	cmd, err := resolveCmd(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &adkRunner{
+		cfg:  cfg,
+		role: role,
+		cmd:  cmd,
+	}, nil
+}
+
+func resolveCmd(cfg config.AgentConfig) ([]string, error) {
+	cmd := cfg.Cmd
 	if len(cmd) == 0 {
 		switch cfg.Type {
 		case "exec":
@@ -33,7 +52,6 @@ func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
 		case "codex":
-			// Keep non-TTY so codex reads the prompt from stdin.
 			cmd = []string{"codex", "exec"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
@@ -44,48 +62,28 @@ func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-			// Force one-shot mode (non-interactive) and allow file writes without prompts.
 			cmd = append(cmd, "--approval-mode", "yolo")
 		case "opencode":
 			cmd = []string{"opencode", "run"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-		case "loop":
-			return newLoopRunner(cfg, role)
 		default:
 			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}
 	}
-
-	if cfg.UseTTY != nil {
-		useTTY = *cfg.UseTTY
-	}
-
-	ar, err := ainvoke.NewRunner(ainvoke.AgentConfig{
-		Cmd:    cmd,
-		UseTTY: useTTY,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create ainvoke runner: %w", err)
-	}
-
-	return &ainvokeRunner{
-		cfg:    cfg,
-		runner: ar,
-		cmd:    cmd,
-		role:   role,
-	}, nil
+	return cmd, nil
 }
 
-type ainvokeRunner struct {
-	cfg    config.AgentConfig
-	runner ainvoke.Runner
-	cmd    []string
-	role   models.Role
+type adkRunner struct {
+	cfg  config.AgentConfig
+	role models.Role
+	cmd  []string
 }
 
-func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+	startTime := time.Now()
+
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
@@ -96,51 +94,83 @@ func (r *ainvokeRunner) Run(ctx context.Context, req models.AgentRequest, stdout
 		return nil, nil, 0, fmt.Errorf("map request: %w", err)
 	}
 
-	inv := ainvoke.Invocation{
-		RunDir:       req.Paths.RunDir,
-		SystemPrompt: prompt,
-		Input:        input,
-		InputSchema:  r.role.InputSchema(),
-		OutputSchema: r.role.OutputSchema(),
-	}
-
-	if stdout == nil {
-		stdout = io.Discard
-	}
-	if stderr == nil {
-		stderr = io.Discard
-	}
-
-	log.Debug().
-		Str("role", req.Step.Name).
-		Str("working_dir", req.Paths.RunDir).
-		Strs("cmd", r.cmd).
-		Msg("executing agent command via ainvoke")
-
-	// ainvoke handles writing input.json, validating schemas, and running the command.
-	outBytes, errBytes, exitCode, err := r.runner.Run(ctx, inv, ainvoke.WithStdout(stdout), ainvoke.WithStderr(stderr))
+	inputJSON, err := json.Marshal(input)
 	if err != nil {
-		writeInvocationError(stderr, err)
-		return outBytes, errBytes, exitCode, fmt.Errorf("ainvoke run: %w", err)
+		return nil, nil, 0, fmt.Errorf("marshal input: %w", err)
+	}
+
+	a, err := adk.NewExecAgent(
+		req.Step.Name,
+		"Norma agent",
+		r.cmd,
+		adk.WithExecAgentPrompt(prompt),
+		adk.WithExecAgentInputSchema(r.role.InputSchema()),
+		adk.WithExecAgentOutputSchema(r.role.OutputSchema()),
+		adk.WithExecAgentRunDir(req.Paths.RunDir),
+		adk.WithExecAgentUseTTY(r.cfg.UseTTY != nil && *r.cfg.UseTTY),
+		adk.WithExecAgentStdout(stdout),
+		adk.WithExecAgentStderr(stderr),
+	)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to create exec agent: %w", err)
+	}
+
+	invCtx := &normaInvocationContext{
+		Context:     ctx,
+		userContent: genai.NewContentFromText(string(inputJSON), genai.RoleUser),
+	}
+
+	var lastOutBytes []byte
+	var lastExitCode int
+	for ev, err := range a.Run(invCtx) {
+		if err != nil {
+			// Extract exit code if possible
+			if exitErr, ok := err.(interface{ ExitCode() int }); ok {
+				lastExitCode = exitErr.ExitCode()
+			} else {
+				lastExitCode = 1
+			}
+			if stderr != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+			}
+			return nil, nil, lastExitCode, fmt.Errorf("exec agent execution error: %w", err)
+		}
+		if ev.Content != nil && len(ev.Content.Parts) > 0 {
+			lastOutBytes = []byte(ev.Content.Parts[0].Text)
+		}
+	}
+
+	if len(lastOutBytes) == 0 {
+		return nil, nil, 0, fmt.Errorf("no output from exec agent")
 	}
 
 	// Parse role-specific response and map back to models.AgentResponse
-	agentResp, err := r.role.MapResponse(outBytes)
+	agentResp, err := r.role.MapResponse(lastOutBytes)
 	if err == nil {
+		agentResp.Timing.WallTimeMS = time.Since(startTime).Milliseconds()
 		// Re-marshal it to ensure consistency
 		newOut, mErr := json.Marshal(agentResp)
 		if mErr == nil {
-			return newOut, errBytes, exitCode, nil
+			return newOut, nil, 0, nil
 		}
-		return outBytes, errBytes, exitCode, fmt.Errorf("marshal agent response: %w", mErr)
+		return lastOutBytes, nil, 0, fmt.Errorf("marshal agent response: %w", mErr)
 	}
 
-	return outBytes, errBytes, exitCode, nil
+	return lastOutBytes, nil, 0, nil
 }
 
-func writeInvocationError(w io.Writer, err error) {
-	if w == nil || err == nil {
-		return
-	}
-	_, _ = fmt.Fprintln(w, err)
+type normaInvocationContext struct {
+	context.Context
+	userContent *genai.Content
 }
+
+func (m *normaInvocationContext) Agent() agent.Agent             { return nil }
+func (m *normaInvocationContext) Artifacts() agent.Artifacts     { return nil }
+func (m *normaInvocationContext) Memory() agent.Memory           { return nil }
+func (m *normaInvocationContext) Session() session.Session       { return nil }
+func (m *normaInvocationContext) InvocationID() string           { return "norma-inv-1" }
+func (m *normaInvocationContext) Branch() string                 { return "main" }
+func (m *normaInvocationContext) UserContent() *genai.Content    { return m.userContent }
+func (m *normaInvocationContext) RunConfig() *agent.RunConfig    { return nil }
+func (m *normaInvocationContext) EndInvocation()                 {}
+func (m *normaInvocationContext) Ended() bool                   { return false }
