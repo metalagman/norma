@@ -50,11 +50,13 @@ func Execute() error {
 		}
 	}
 	rootCmd.AddCommand(loopCmd())
+	rootCmd.AddCommand(loopADKCmd())
 	rootCmd.AddCommand(runCmd())
 	rootCmd.AddCommand(runsCmd())
 	rootCmd.AddCommand(taskCmd())
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(pruneCmd())
+	initAgentCmd()
 	return rootCmd.Execute()
 }
 

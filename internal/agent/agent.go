@@ -174,3 +174,25 @@ func (m *normaInvocationContext) UserContent() *genai.Content    { return m.user
 func (m *normaInvocationContext) RunConfig() *agent.RunConfig    { return nil }
 func (m *normaInvocationContext) EndInvocation()                 {}
 func (m *normaInvocationContext) Ended() bool                   { return false }
+
+// ExtractJSON finds the first JSON object in a byte slice.
+func ExtractJSON(data []byte) ([]byte, bool) {
+	start := -1
+	for i, b := range data {
+		if b == '{' {
+			start = i
+			break
+		}
+	}
+	end := -1
+	for i := len(data) - 1; i >= 0; i-- {
+		if data[i] == '}' {
+			end = i
+			break
+		}
+	}
+	if start == -1 || end == -1 || start >= end {
+		return nil, false
+	}
+	return data[start : end+1], true
+}

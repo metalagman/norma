@@ -31,43 +31,50 @@ func newLoopRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 }
 
 func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+	prompt, _ := r.role.Prompt(req)
+	out, err := RunLoop(ctx, r.cfg, req, stdout, stderr, prompt, r.role.InputSchema(), r.role.OutputSchema())
+	if err != nil {
+		return nil, nil, 1, err
+	}
+	return out, nil, 0, nil
+}
+
+// RunLoop executes a loop agent with a normalized request.
+func RunLoop(ctx context.Context, cfg config.AgentConfig, req models.AgentRequest, stdout, stderr io.Writer, prompt, inputSchema, outputSchema string) ([]byte, error) {
 	startTime := time.Now()
 
-	prompt, err := r.role.Prompt(req)
+	inputJSON, err := json.Marshal(req)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
+		return nil, fmt.Errorf("marshal input: %w", err)
 	}
-
-	input, err := r.role.MapRequest(req)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("map request: %w", err)
-	}
-
-	inputJSON, err := json.Marshal(input)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("marshal input: %w", err)
-	}
-
-	inputSchema := r.role.InputSchema()
-	outputSchema := r.role.OutputSchema()
 
 	// Create adk ExecAgents for sub-agents directly from config
-	adkSubAgents := make([]agent.Agent, 0, len(r.cfg.SubAgents))
-	for i, subCfg := range r.cfg.SubAgents {
-		sub, err := adk.NewExecAgent(
-			fmt.Sprintf("sub-%d", i),
-			"Norma sub-agent",
-			subCfg.Cmd,
-			adk.WithExecAgentPrompt(prompt),
-			adk.WithExecAgentInputSchema(inputSchema),
-			adk.WithExecAgentOutputSchema(outputSchema),
+	adkSubAgents := make([]agent.Agent, 0, len(cfg.SubAgents))
+	for i, subCfg := range cfg.SubAgents {
+		opts := []adk.OptExecAgentOptionsSetter{
 			adk.WithExecAgentRunDir(req.Paths.RunDir),
 			adk.WithExecAgentUseTTY(subCfg.UseTTY != nil && *subCfg.UseTTY),
 			adk.WithExecAgentStdout(stdout),
 			adk.WithExecAgentStderr(stderr),
+		}
+		if prompt != "" {
+			opts = append(opts, adk.WithExecAgentPrompt(prompt))
+		}
+		if inputSchema != "" {
+			opts = append(opts, adk.WithExecAgentInputSchema(inputSchema))
+		}
+		if outputSchema != "" {
+			opts = append(opts, adk.WithExecAgentOutputSchema(outputSchema))
+		}
+
+		sub, err := adk.NewExecAgent(
+			fmt.Sprintf("sub-%d", i),
+			"Norma sub-agent",
+			subCfg.Cmd,
+			opts...,
 		)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("failed to create exec agent for sub-agent %d: %w", i, err)
+			return nil, fmt.Errorf("failed to create exec agent for sub-agent %d: %w", i, err)
 		}
 
 		// Wrap to handle escalation from JSON output
@@ -77,7 +84,7 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 
 	// Create adk LoopAgent
 	la, err := loopagent.New(loopagent.Config{
-		MaxIterations: uint(r.cfg.MaxIterations),
+		MaxIterations: uint(cfg.MaxIterations),
 		AgentConfig: agent.Config{
 			Name:        "norma_loop_agent",
 			Description: "Norma Loop Agent using ADK",
@@ -85,7 +92,7 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 		},
 	})
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to create adk loop agent: %w", err)
+		return nil, fmt.Errorf("failed to create adk loop agent: %w", err)
 	}
 
 	// Run the loop agent using a minimal InvocationContext
@@ -97,7 +104,7 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 	var lastOutBytes []byte
 	for ev, err := range la.Run(invCtx) {
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("adk loop execution error: %w", err)
+			return nil, fmt.Errorf("adk loop execution error: %w", err)
 		}
 		if ev.Content != nil && len(ev.Content.Parts) > 0 {
 			lastOutBytes = []byte(ev.Content.Parts[0].Text)
@@ -105,14 +112,14 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 	}
 
 	if len(lastOutBytes) == 0 {
-		return nil, nil, 0, fmt.Errorf("no output from loop agent")
+		return nil, fmt.Errorf("no output from loop agent")
 	}
 
 	// Parse last response to ensure it's valid and update timing
 	var agentResp models.AgentResponse
 	if err := json.Unmarshal(lastOutBytes, &agentResp); err != nil {
 		// Fallback to raw bytes if not valid AgentResponse JSON
-		return lastOutBytes, nil, 0, nil
+		return lastOutBytes, nil
 	}
 
 	if agentResp.Summary.Text != "" {
@@ -124,10 +131,10 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 
 	finalOut, err := json.Marshal(agentResp)
 	if err != nil {
-		return lastOutBytes, nil, 0, nil
+		return lastOutBytes, nil
 	}
 
-	return finalOut, nil, 0, nil
+	return finalOut, nil
 }
 
 type escalationWrapper struct {

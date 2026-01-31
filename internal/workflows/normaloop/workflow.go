@@ -493,7 +493,7 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 			log.Debug().Str("role", roleName).Msg("using output.json from step directory")
 		} else {
 			// Try extraction even from the file if it's messy
-			if recovered, ok := extractJSON(data); ok {
+			if recovered, ok := agent.ExtractJSON(data); ok {
 				if err := json.Unmarshal(recovered, &agentResp); err == nil {
 					parsed = true
 					log.Debug().Str("role", roleName).Msg("using extracted JSON from output.json")
@@ -507,7 +507,7 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 		if err := json.Unmarshal(agentOut, &agentResp); err == nil {
 			parsed = true
 		} else {
-			recovered, ok := extractJSON(agentOut)
+			recovered, ok := agent.ExtractJSON(agentOut)
 			if ok {
 				if err := json.Unmarshal(recovered, &agentResp); err == nil {
 					parsed = true
@@ -536,15 +536,6 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 	}
 
 	return res, nil
-}
-
-func extractJSON(data []byte) ([]byte, bool) {
-	start := bytes.IndexByte(data, '{')
-	end := bytes.LastIndexByte(data, '}')
-	if start == -1 || end == -1 || start >= end {
-		return nil, false
-	}
-	return data[start : end+1], true
 }
 
 func (w *Workflow) commitStep(ctx context.Context, runID string, res stepResult, runStatus string, verdict *string) error {

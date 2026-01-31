@@ -62,6 +62,18 @@ func NewRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task
 	}, nil
 }
 
+// NewADKRunner constructs a Runner with an ADK-based PDCA workflow.
+func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker, wf workflows.Workflow) (*Runner, error) {
+	return &Runner{
+		repoRoot: repoRoot,
+		normaDir: filepath.Join(repoRoot, ".norma"),
+		cfg:      cfg,
+		store:    store,
+		tracker:  tracker,
+		workflow: wf,
+	}, nil
+}
+
 func (r *Runner) validateTaskID(id string) bool {
 	matched, _ := regexp.MatchString(`^norma-[a-z0-9]+$`, id)
 	return matched
