@@ -8,6 +8,7 @@ import (
 	"iter"
 	"time"
 
+	"github.com/metalagman/ainvoke/adk"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 
@@ -18,78 +19,58 @@ import (
 )
 
 type loopRunner struct {
-	cfg       config.AgentConfig
-	subAgents []Runner
-	role      models.Role
+	cfg  config.AgentConfig
+	role models.Role
 }
 
 func newLoopRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
-	subAgents := make([]Runner, 0, len(cfg.SubAgents))
-	for i, subCfg := range cfg.SubAgents {
-		subRunner, err := NewRunner(subCfg, role)
-		if err != nil {
-			return nil, fmt.Errorf("init sub-agent %d: %w", i, err)
-		}
-		subAgents = append(subAgents, subRunner)
-	}
-
 	return &loopRunner{
-		cfg:       cfg,
-		subAgents: subAgents,
-		role:      role,
+		cfg:  cfg,
+		role: role,
 	}, nil
 }
 
 func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	startTime := time.Now()
 
-	var lastOutBytes []byte
-	var lastErrBytes []byte
-	var lastExitCode int
-	var lastAgentResp models.AgentResponse
+	prompt, err := r.role.Prompt(req)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
+	}
 
-	// Wrap norma Runners as adk Agents
-	adkSubAgents := make([]agent.Agent, 0, len(r.subAgents))
-	for i, sub := range r.subAgents {
-		subIdx := i
-		subRunner := sub
-		a, err := agent.New(agent.Config{
-			Name:        fmt.Sprintf("sub-%d", subIdx),
-			Description: "Norma sub-agent",
-			Run: func(invCtx agent.InvocationContext) iter.Seq2[*session.Event, error] {
-				return func(yield func(*session.Event, error) bool) {
-					outBytes, errBytes, exitCode, err := subRunner.Run(invCtx, req, stdout, stderr)
-					lastOutBytes = outBytes
-					lastErrBytes = errBytes
-					lastExitCode = exitCode
+	input, err := r.role.MapRequest(req)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("map request: %w", err)
+	}
 
-					if err != nil {
-						yield(nil, err)
-						return
-					}
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("marshal input: %w", err)
+	}
 
-					var agentResp models.AgentResponse
-					if err := json.Unmarshal(outBytes, &agentResp); err == nil {
-						lastAgentResp = agentResp
-						event := &session.Event{
-							Actions: session.EventActions{
-								Escalate: agentResp.Escalate,
-							},
-						}
-						if agentResp.Status == "stop" || agentResp.Status == "error" {
-							event.Actions.Escalate = true
-						}
-						yield(event, nil)
-					} else {
-						yield(&session.Event{}, nil)
-					}
-				}
-			},
-		})
+	inputSchema := r.role.InputSchema()
+	outputSchema := r.role.OutputSchema()
+
+	// Create adk ExecAgents for sub-agents directly from config
+	adkSubAgents := make([]agent.Agent, 0, len(r.cfg.SubAgents))
+	for i, subCfg := range r.cfg.SubAgents {
+		sub, err := adk.NewExecAgent(
+			fmt.Sprintf("sub-%d", i),
+			"Norma sub-agent",
+			subCfg.Cmd,
+			adk.WithExecAgentPrompt(prompt),
+			adk.WithExecAgentInputSchema(inputSchema),
+			adk.WithExecAgentOutputSchema(outputSchema),
+			adk.WithExecAgentRunDir(req.Paths.RunDir),
+			adk.WithExecAgentUseTTY(subCfg.UseTTY != nil && *subCfg.UseTTY),
+		)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("failed to create adk agent for sub-agent %d: %w", i, err)
+			return nil, nil, 0, fmt.Errorf("failed to create exec agent for sub-agent %d: %w", i, err)
 		}
-		adkSubAgents = append(adkSubAgents, a)
+
+		// Wrap to handle escalation from JSON output
+		wrapped := &escalationWrapper{Agent: sub}
+		adkSubAgents = append(adkSubAgents, wrapped)
 	}
 
 	// Create adk LoopAgent
@@ -106,31 +87,79 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 	}
 
 	// Run the loop agent using a minimal InvocationContext
-	invCtx := &normaInvocationContext{Context: ctx}
-	for _, err := range la.Run(invCtx) {
+	invCtx := &normaInvocationContext{
+		Context:     ctx,
+		userContent: genai.NewContentFromText(string(inputJSON), genai.RoleUser),
+	}
+
+	var lastOutBytes []byte
+	for ev, err := range la.Run(invCtx) {
 		if err != nil {
-			return lastOutBytes, lastErrBytes, lastExitCode, fmt.Errorf("adk loop execution error: %w", err)
+			return nil, nil, 0, fmt.Errorf("adk loop execution error: %w", err)
+		}
+		if ev.Content != nil && len(ev.Content.Parts) > 0 {
+			lastOutBytes = []byte(ev.Content.Parts[0].Text)
 		}
 	}
 
-	// Final summary update
-	if lastAgentResp.Summary.Text != "" {
-		lastAgentResp.Summary.Text = fmt.Sprintf("[ADK Loop completed] %s", lastAgentResp.Summary.Text)
+	if len(lastOutBytes) == 0 {
+		return nil, nil, 0, fmt.Errorf("no output from loop agent")
+	}
+
+	// Parse last response to ensure it's valid and update timing
+	var agentResp models.AgentResponse
+	if err := json.Unmarshal(lastOutBytes, &agentResp); err != nil {
+		// Fallback to raw bytes if not valid AgentResponse JSON
+		return lastOutBytes, nil, 0, nil
+	}
+
+	if agentResp.Summary.Text != "" {
+		agentResp.Summary.Text = fmt.Sprintf("[ADK Loop completed] %s", agentResp.Summary.Text)
 	} else {
-		lastAgentResp.Summary.Text = "ADK Loop completed"
+		agentResp.Summary.Text = "ADK Loop completed"
 	}
-	lastAgentResp.Timing.WallTimeMS = time.Since(startTime).Milliseconds()
+	agentResp.Timing.WallTimeMS = time.Since(startTime).Milliseconds()
 
-	finalOut, err := json.Marshal(lastAgentResp)
+	finalOut, err := json.Marshal(agentResp)
 	if err != nil {
-		return lastOutBytes, lastErrBytes, lastExitCode, nil
+		return lastOutBytes, nil, 0, nil
 	}
 
-	return finalOut, lastErrBytes, lastExitCode, nil
+	return finalOut, nil, 0, nil
+}
+
+type escalationWrapper struct {
+	agent.Agent
+}
+
+func (w *escalationWrapper) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+	return func(yield func(*session.Event, error) bool) {
+		for ev, err := range w.Agent.Run(ctx) {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			// Check for escalation in JSON output
+			if ev.Content != nil && len(ev.Content.Parts) > 0 {
+				var resp models.AgentResponse
+				if err := json.Unmarshal([]byte(ev.Content.Parts[0].Text), &resp); err == nil {
+					if resp.Escalate || resp.Status == "stop" || resp.Status == "error" {
+						ev.Actions.Escalate = true
+					}
+				}
+			}
+
+			if !yield(ev, nil) {
+				return
+			}
+		}
+	}
 }
 
 type normaInvocationContext struct {
 	context.Context
+	userContent *genai.Content
 }
 
 func (m *normaInvocationContext) Agent() agent.Agent             { return nil }
@@ -139,7 +168,7 @@ func (m *normaInvocationContext) Memory() agent.Memory           { return nil }
 func (m *normaInvocationContext) Session() session.Session       { return nil }
 func (m *normaInvocationContext) InvocationID() string           { return "norma-inv-1" }
 func (m *normaInvocationContext) Branch() string                 { return "main" }
-func (m *normaInvocationContext) UserContent() *genai.Content    { return nil }
+func (m *normaInvocationContext) UserContent() *genai.Content    { return m.userContent }
 func (m *normaInvocationContext) RunConfig() *agent.RunConfig    { return nil }
 func (m *normaInvocationContext) EndInvocation()                 {}
 func (m *normaInvocationContext) Ended() bool                   { return false }
