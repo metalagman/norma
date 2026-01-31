@@ -59,16 +59,9 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	stepIndex := 0
 
 	// Create the custom PDCA agent
-	pdcaAgent := NewNormaPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
-
-	// Create the ADK agent using agent.New to satisfy the agent.Agent interface
-	adkPDCAAgent, err := agent.New(agent.Config{
-		Name:        "PDCA_Agent",
-		Description: "Orchestrates Plan-Do-Check-Act iterations using ADK",
-		Run:         pdcaAgent.Run,
-	})
+	pdcaAgent, err := NewNormaPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
 	if err != nil {
-		return workflows.RunResult{}, fmt.Errorf("failed to create custom ADK agent: %w", err)
+		return workflows.RunResult{}, fmt.Errorf("failed to create custom PDCA agent: %w", err)
 	}
 
 	// Create the ADK LoopAgent
@@ -77,7 +70,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 		AgentConfig: agent.Config{
 			Name:        "NormaLoop",
 			Description: "ADK Loop Agent for Norma PDCA",
-			SubAgents:   []agent.Agent{adkPDCAAgent},
+			SubAgents:   []agent.Agent{pdcaAgent},
 		},
 	})
 	if err != nil {

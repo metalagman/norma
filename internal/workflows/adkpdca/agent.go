@@ -32,17 +32,72 @@ type NormaPDCAAgent struct {
 	runInput   workflows.RunInput
 	stepIndex  *int // Shared step index across iterations
 	baseBranch string
+
+	planAgent  agent.Agent
+	doAgent    agent.Agent
+	checkAgent agent.Agent
+	actAgent   agent.Agent
 }
 
-func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) *NormaPDCAAgent {
-	return &NormaPDCAAgent{
+// NewNormaPDCAAgent creates and configures the entire custom agent workflow.
+func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
+	orchestrator := &NormaPDCAAgent{
 		cfg:        cfg,
 		store:      store,
 		tracker:    tracker,
-	runInput:   runInput,
+		runInput:   runInput,
 		stepIndex:  stepIndex,
 		baseBranch: baseBranch,
 	}
+
+	orchestrator.planAgent = orchestrator.createSubAgent(normaloop.RolePlan)
+	orchestrator.doAgent = orchestrator.createSubAgent(normaloop.RoleDo)
+	orchestrator.checkAgent = orchestrator.createSubAgent(normaloop.RoleCheck)
+	orchestrator.actAgent = orchestrator.createSubAgent(normaloop.RoleAct)
+
+	return agent.New(agent.Config{
+		Name:        "NormaPDCAAgent",
+		Description: "Orchestrates story generation, critique, revision, and checks.",
+		SubAgents:   []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent},
+		Run:         orchestrator.Run,
+	})
+}
+
+func (a *NormaPDCAAgent) createSubAgent(roleName string) agent.Agent {
+	ag, _ := agent.New(agent.Config{
+		Name:        roleName,
+		Description: fmt.Sprintf("Norma %s agent", roleName),
+		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {
+				iteration, err := ctx.Session().State().Get("iteration")
+				itNum, ok := iteration.(int)
+				if err != nil || !ok {
+					itNum = 1
+				}
+
+				resp, err := a.runStep(ctx, itNum, roleName, yield)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+
+				// Communicate results via session state
+				if roleName == normaloop.RoleCheck && resp.Check != nil {
+					_ = ctx.Session().State().Set("verdict", resp.Check.Verdict.Status)
+				}
+				if roleName == normaloop.RoleAct && resp.Act != nil {
+					_ = ctx.Session().State().Set("decision", resp.Act.Decision)
+					if resp.Act.Decision == "close" {
+						_ = ctx.Session().State().Set("stop", true)
+					}
+				}
+				if resp.Status != "ok" {
+					_ = ctx.Session().State().Set("stop", true)
+				}
+			}
+		},
+	})
+	return ag
 }
 
 func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
@@ -56,63 +111,55 @@ func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 		log.Info().Int("iteration", itNum).Msg("ADK PDCA Agent: starting iteration")
 
 		// 1. PLAN
-		planRes, err := a.runStep(ctx, itNum, normaloop.RolePlan, yield)
-		if err != nil {
-			yield(nil, fmt.Errorf("plan step failed: %w", err))
-			return
+		for event, err := range a.planAgent.Run(ctx) {
+			if !yield(event, err) {
+				return
+			}
 		}
-		if planRes.Status != "ok" {
-			log.Warn().Str("status", planRes.Status).Msg("plan step stopped")
-			_ = ctx.Session().State().Set("stop", true)
+		if a.shouldStop(ctx) {
 			return
 		}
 
 		// 2. DO
-		doRes, err := a.runStep(ctx, itNum, normaloop.RoleDo, yield)
-		if err != nil {
-			yield(nil, fmt.Errorf("do step failed: %w", err))
-			return
+		for event, err := range a.doAgent.Run(ctx) {
+			if !yield(event, err) {
+				return
+			}
 		}
-		if doRes.Status != "ok" {
-			log.Warn().Str("status", doRes.Status).Msg("do step stopped")
-			_ = ctx.Session().State().Set("stop", true)
+		if a.shouldStop(ctx) {
 			return
 		}
 
 		// 3. CHECK
-		checkRes, err := a.runStep(ctx, itNum, normaloop.RoleCheck, yield)
-		if err != nil {
-			yield(nil, fmt.Errorf("check step failed: %w", err))
-			return
+		for event, err := range a.checkAgent.Run(ctx) {
+			if !yield(event, err) {
+				return
+			}
 		}
-		if checkRes.Status != "ok" {
-			log.Warn().Str("status", checkRes.Status).Msg("check step stopped")
-			_ = ctx.Session().State().Set("stop", true)
+		if a.shouldStop(ctx) {
 			return
 		}
 
 		// 4. ACT
-		actRes, err := a.runStep(ctx, itNum, normaloop.RoleAct, yield)
-		if err != nil {
-			yield(nil, fmt.Errorf("act step failed: %w", err))
-			return
-		}
-
-		// Set verdict in session state for LoopAgent to check if it should continue
-		if checkRes.Check != nil {
-			_ = ctx.Session().State().Set("verdict", checkRes.Check.Verdict.Status)
-		}
-
-		if actRes.Act != nil {
-			_ = ctx.Session().State().Set("decision", actRes.Act.Decision)
-			if actRes.Act.Decision == "close" {
-				_ = ctx.Session().State().Set("stop", true)
+		for event, err := range a.actAgent.Run(ctx) {
+			if !yield(event, err) {
+				return
 			}
 		}
 
 		// Increment iteration for next run
 		_ = ctx.Session().State().Set("iteration", itNum+1)
 	}
+}
+
+func (a *NormaPDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
+	stop, err := ctx.Session().State().Get("stop")
+	if err == nil {
+		if s, ok := stop.(bool); ok && s {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string, yield func(*session.Event, error) bool) (*models.AgentResponse, error) {
