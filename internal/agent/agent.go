@@ -13,6 +13,7 @@ import (
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
@@ -116,14 +117,31 @@ func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, st
 		return nil, nil, 0, fmt.Errorf("failed to create exec agent: %w", err)
 	}
 
-	invCtx := &normaInvocationContext{
-		Context:     ctx,
-		userContent: genai.NewContentFromText(string(inputJSON), genai.RoleUser),
+	sessionService := session.InMemoryService()
+	adkRunner, err := runner.New(runner.Config{
+		AppName:        "norma",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to create adk runner: %w", err)
 	}
+
+	userID := "norma-user"
+	sess, err := sessionService.Create(ctx, &session.CreateRequest{
+		AppName: "norma",
+		UserID:  userID,
+	})
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
+	events := adkRunner.Run(ctx, userID, sess.Session.ID(), userContent, agent.RunConfig{})
 
 	var lastOutBytes []byte
 	var lastExitCode int
-	for ev, err := range a.Run(invCtx) {
+	for ev, err := range events {
 		if err != nil {
 			// Extract exit code if possible
 			if exitErr, ok := err.(interface{ ExitCode() int }); ok {
@@ -159,22 +177,6 @@ func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, st
 
 	return lastOutBytes, nil, 0, nil
 }
-
-type normaInvocationContext struct {
-	context.Context
-	userContent *genai.Content
-}
-
-func (m *normaInvocationContext) Agent() agent.Agent             { return nil }
-func (m *normaInvocationContext) Artifacts() agent.Artifacts     { return nil }
-func (m *normaInvocationContext) Memory() agent.Memory           { return nil }
-func (m *normaInvocationContext) Session() session.Session       { return nil }
-func (m *normaInvocationContext) InvocationID() string           { return "norma-inv-1" }
-func (m *normaInvocationContext) Branch() string                 { return "main" }
-func (m *normaInvocationContext) UserContent() *genai.Content    { return m.userContent }
-func (m *normaInvocationContext) RunConfig() *agent.RunConfig    { return nil }
-func (m *normaInvocationContext) EndInvocation()                 {}
-func (m *normaInvocationContext) Ended() bool                   { return false }
 
 // ExtractJSON finds the first JSON object in a byte slice.
 func ExtractJSON(data []byte) ([]byte, bool) {

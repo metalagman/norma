@@ -15,6 +15,7 @@ import (
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/workflowagents/loopagent"
+	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
@@ -98,14 +99,30 @@ func RunLoop(ctx context.Context, cfg config.AgentConfig, req models.AgentReques
 		return nil, fmt.Errorf("failed to create adk loop agent: %w", err)
 	}
 
-	// Run the loop agent using a minimal InvocationContext
-	invCtx := &normaInvocationContext{
-		Context:     ctx,
-		userContent: genai.NewContentFromText(string(inputJSON), genai.RoleUser),
+	sessionService := session.InMemoryService()
+	adkRunner, err := runner.New(runner.Config{
+		AppName:        "norma",
+		Agent:          la,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create adk runner: %w", err)
 	}
 
+	userID := "norma-user"
+	sess, err := sessionService.Create(ctx, &session.CreateRequest{
+		AppName: "norma",
+		UserID:  userID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
+	events := adkRunner.Run(ctx, userID, sess.Session.ID(), userContent, agent.RunConfig{})
+
 	var lastOutBytes []byte
-	for ev, err := range la.Run(invCtx) {
+	for ev, err := range events {
 		if err != nil {
 			log.Error().Err(err).Msg("ADK loop execution failed")
 			return nil, fmt.Errorf("adk loop execution error: %w", err)

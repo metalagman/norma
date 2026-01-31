@@ -58,8 +58,10 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 
 	stepIndex := 0
 
+	sessionService := session.InMemoryService()
+
 	// Create the custom PDCA agent
-	pdcaAgent, err := NewNormaPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
+	pdcaAgent, err := NewNormaPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch, sessionService)
 	if err != nil {
 		return workflows.RunResult{}, fmt.Errorf("failed to create custom PDCA agent: %w", err)
 	}
@@ -78,7 +80,6 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	}
 
 	// Create an ADK Runner to execute the loop
-	sessionService := session.InMemoryService()
 	adkRunner, err := runner.New(runner.Config{
 		AppName:        "norma",
 		Agent:          la,

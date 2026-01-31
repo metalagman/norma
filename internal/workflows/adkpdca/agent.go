@@ -21,18 +21,20 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
 
 // NormaPDCAAgent is a custom ADK agent that orchestrates one iteration of the PDCA loop.
 type NormaPDCAAgent struct {
-	cfg        config.Config
-	store      *db.Store
-	tracker    task.Tracker
-	runInput   workflows.RunInput
-	stepIndex  *int // Shared step index across iterations
-	baseBranch string
+	cfg            config.Config
+	store          *db.Store
+	tracker        task.Tracker
+	runInput       workflows.RunInput
+	stepIndex      *int // Shared step index across iterations
+	baseBranch     string
+	sessionService session.Service
 
 	planAgent  agent.Agent
 	doAgent    agent.Agent
@@ -41,14 +43,15 @@ type NormaPDCAAgent struct {
 }
 
 // NewNormaPDCAAgent creates and configures the entire custom agent workflow.
-func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
+func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string, sessionService session.Service) (agent.Agent, error) {
 	orchestrator := &NormaPDCAAgent{
-		cfg:        cfg,
-		store:      store,
-		tracker:    tracker,
-		runInput:   runInput,
-		stepIndex:  stepIndex,
-		baseBranch: baseBranch,
+		cfg:            cfg,
+		store:          store,
+		tracker:        tracker,
+		runInput:       runInput,
+		stepIndex:      stepIndex,
+		baseBranch:     baseBranch,
+		sessionService: sessionService,
 	}
 
 	orchestrator.planAgent = orchestrator.createSubAgent(normaloop.RolePlan)
@@ -268,7 +271,6 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 
 	log.Debug().Str("role", roleName).Interface("cmd", cmd).Msg("ADK PDCA Agent: creating ExecAgent")
-
 	prompt, _ := role.Prompt(req)
 	input, _ := role.MapRequest(req)
 	inputJSON, _ := json.Marshal(input)
@@ -288,15 +290,23 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 		return nil, err
 	}
 
-	// Run ExecAgent
-	invCtx := &stepInvocationContext{
-		InvocationContext: ctx,
-		userContent:       genai.NewContentFromText(string(inputJSON), genai.RoleUser),
+	// Create ADK Runner for the sub-agent
+	adkRunner, err := runner.New(runner.Config{
+		AppName:        "norma",
+		Agent:          execAgent,
+		SessionService: a.sessionService,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create adk runner for sub-agent: %w", err)
 	}
+
+	// Run ExecAgent
+	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
+	userID := "norma-user"
 
 	startTime := time.Now()
 	var lastOut []byte
-	for ev, err := range execAgent.Run(invCtx) {
+	for ev, err := range adkRunner.Run(ctx, userID, ctx.Session().ID(), userContent, agent.RunConfig{}) {
 		if err != nil {
 			return nil, err
 		}
@@ -425,9 +435,4 @@ func (a *NormaPDCAAgent) reconstructProgress(dir string, state *models.TaskState
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
 }
 
-type stepInvocationContext struct {
-	agent.InvocationContext
-	userContent *genai.Content
-}
 
-func (m *stepInvocationContext) UserContent() *genai.Content { return m.userContent }
