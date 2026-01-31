@@ -28,7 +28,7 @@ func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 		return newLoopRunner(cfg, role)
 	}
 
-	cmd, err := resolveCmd(cfg)
+	cmd, err := ResolveCmd(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,8 @@ func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 	}, nil
 }
 
-func resolveCmd(cfg config.AgentConfig) ([]string, error) {
+// ResolveCmd resolves the command for an agent config.
+func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 	cmd := cfg.Cmd
 	if len(cmd) == 0 {
 		switch cfg.Type {

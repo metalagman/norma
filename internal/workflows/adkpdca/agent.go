@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/metalagman/ainvoke/adk"
+	normaagent "github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
@@ -255,13 +256,13 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 		return nil, err
 	}
 
-	// Write input.json
+	// Create input.json
 	inputData, _ := json.MarshalIndent(req, "", "  ")
 	_ = os.WriteFile(filepath.Join(stepDir, "input.json"), inputData, 0o644)
 
 	// Create ExecAgent for this step
 	agentCfg := a.cfg.Agents[roleName]
-	cmd, err := a.resolveCmd(agentCfg)
+	cmd, err := normaagent.ResolveCmd(agentCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -422,23 +423,6 @@ func (a *NormaPDCAAgent) reconstructProgress(dir string, state *models.TaskState
 		sb.WriteString(fmt.Sprintf("**Title:** %s\n\n", entry.Title))
 	}
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
-}
-
-func (a *NormaPDCAAgent) resolveCmd(cfg config.AgentConfig) ([]string, error) {
-	if len(cfg.Cmd) > 0 {
-		return cfg.Cmd, nil
-	}
-	// Fallback logic similar to resolveCmd in internal/agent/agent.go
-	switch cfg.Type {
-	case "claude":
-		return []string{"claude"}, nil
-	case "gemini":
-		return []string{"gemini"}, nil
-	case "codex":
-		return []string{"codex", "exec"}, nil
-	default:
-		return nil, fmt.Errorf("cannot resolve command for agent type %q", cfg.Type)
-	}
 }
 
 type stepInvocationContext struct {
