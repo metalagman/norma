@@ -35,6 +35,10 @@ func (r *planRole) MapRequest(req models.AgentRequest) (any, error) {
 			VerifyHints: hints,
 		})
 	}
+	links := req.Context.Links
+	if links == nil {
+		links = []string{}
+	}
 	return &plan.PlanRequest{
 		Run:   &plan.PlanRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &plan.PlanTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
@@ -47,7 +51,7 @@ func (r *planRole) MapRequest(req models.AgentRequest) (any, error) {
 		},
 		Context: &plan.PlanContext{
 			Attempt: int64(req.Context.Attempt),
-			Links:   req.Context.Links,
+			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
 		PlanInput: &plan.PlanInput{
@@ -143,14 +147,18 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 		}
 		checks := make([]do.DoACCheck, 0, len(ac.Checks))
 		for _, c := range ac.Checks {
-			exitCodes := make([]int64, 0, len(c.ExpectExitCodes))
-			for _, ec := range c.ExpectExitCodes {
-				exitCodes = append(exitCodes, int64(ec))
+			exitCodes := c.ExpectExitCodes
+			if exitCodes == nil {
+				exitCodes = []int{}
+			}
+			mappedExitCodes := make([]int64, 0, len(exitCodes))
+			for _, ec := range exitCodes {
+				mappedExitCodes = append(mappedExitCodes, int64(ec))
 			}
 			checks = append(checks, do.DoACCheck{
 				Id:              c.ID,
 				Cmd:             c.Cmd,
-				ExpectExitCodes: exitCodes,
+				ExpectExitCodes: mappedExitCodes,
 			})
 		}
 		effective = append(effective, do.DoEffectiveAC{
@@ -167,21 +175,29 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 	for _, s := range req.Do.WorkPlan.DoSteps {
 		commands := make([]do.DoCommand, 0, len(s.Commands))
 		for _, c := range s.Commands {
-			exitCodes := make([]int64, 0, len(c.ExpectExitCodes))
-			for _, ec := range c.ExpectExitCodes {
-				exitCodes = append(exitCodes, int64(ec))
+			exitCodes := c.ExpectExitCodes
+			if exitCodes == nil {
+				exitCodes = []int{}
+			}
+			mappedExitCodes := make([]int64, 0, len(exitCodes))
+			for _, ec := range exitCodes {
+				mappedExitCodes = append(mappedExitCodes, int64(ec))
 			}
 			commands = append(commands, do.DoCommand{
 				Id:              c.ID,
 				Cmd:             c.Cmd,
-				ExpectExitCodes: exitCodes,
+				ExpectExitCodes: mappedExitCodes,
 			})
+		}
+		targetsACIDs := s.TargetsACIDs
+		if targetsACIDs == nil {
+			targetsACIDs = []string{}
 		}
 		doSteps = append(doSteps, do.DoDoStep{
 			Id:           s.ID,
 			Text:         s.Text,
 			Commands:     commands,
-			TargetsAcIds: s.TargetsACIDs,
+			TargetsAcIds: targetsACIDs,
 		})
 	}
 
@@ -192,6 +208,16 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 			Text: s.Text,
 			Mode: s.Mode,
 		})
+	}
+
+	stopTriggers := req.Do.WorkPlan.StopTriggers
+	if stopTriggers == nil {
+		stopTriggers = []string{}
+	}
+
+	links := req.Context.Links
+	if links == nil {
+		links = []string{}
 	}
 
 	return &do.DoRequest{
@@ -206,7 +232,7 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 		},
 		Context: &do.DoContext{
 			Attempt: int64(req.Context.Attempt),
-			Links:   req.Context.Links,
+			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
 		DoInput: &do.DoInput{
@@ -214,7 +240,7 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 				TimeboxMinutes: int64(req.Do.WorkPlan.TimeboxMinutes),
 				DoSteps:        doSteps,
 				CheckSteps:     checkSteps,
-				StopTriggers:   req.Do.WorkPlan.StopTriggers,
+				StopTriggers:   stopTriggers,
 			},
 			AcceptanceCriteriaEffective: effective,
 		},
@@ -309,6 +335,26 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 		})
 	}
 
+	stopTriggers := req.Check.WorkPlan.StopTriggers
+	if stopTriggers == nil {
+		stopTriggers = []string{}
+	}
+
+	executedStepIDs := req.Check.DoExecution.ExecutedStepIDs
+	if executedStepIDs == nil {
+		executedStepIDs = []string{}
+	}
+
+	skippedStepIDs := req.Check.DoExecution.SkippedStepIDs
+	if skippedStepIDs == nil {
+		skippedStepIDs = []string{}
+	}
+
+	links := req.Context.Links
+	if links == nil {
+		links = []string{}
+	}
+
 	return &check.CheckRequest{
 		Run:   &check.CheckRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &check.CheckTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
@@ -321,7 +367,7 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 		},
 		Context: &check.CheckContext{
 			Attempt: int64(req.Context.Attempt),
-			Links:   req.Context.Links,
+			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
 		CheckInput: &check.CheckInput{
@@ -329,12 +375,12 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 				TimeboxMinutes: int64(req.Check.WorkPlan.TimeboxMinutes),
 				DoSteps:        doSteps,
 				CheckSteps:     checkSteps,
-				StopTriggers:   req.Check.WorkPlan.StopTriggers,
+				StopTriggers:   stopTriggers,
 			},
 			AcceptanceCriteriaEffective: effective,
 			DoExecution: &check.CheckDoExecution{
-				ExecutedStepIds: req.Check.DoExecution.ExecutedStepIDs,
-				SkippedStepIds:  req.Check.DoExecution.SkippedStepIDs,
+				ExecutedStepIds: executedStepIDs,
+				SkippedStepIds:  skippedStepIDs,
 				Commands:        commands,
 			},
 		},
@@ -427,6 +473,12 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 			Notes:  ar.Notes,
 		})
 	}
+
+	links := req.Context.Links
+	if links == nil {
+		links = []string{}
+	}
+
 	return &act.ActRequest{
 		Run:   &act.ActRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &act.ActTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
@@ -439,7 +491,7 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 		},
 		Context: &act.ActContext{
 			Attempt: int64(req.Context.Attempt),
-			Links:   req.Context.Links,
+			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
 		ActInput: &act.ActInput{
