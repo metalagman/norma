@@ -116,7 +116,6 @@ type AgentResponse struct {
 	StopReason string          `json:"stop_reason,omitempty"`
 	Escalate   bool            `json:"escalate,omitempty"`
 	Summary    ResponseSummary `json:"summary"`
-	Logs       ResponseLogs    `json:"logs"`
 	Timing     ResponseTiming  `json:"timing"`
 	Progress   StepProgress    `json:"progress"`
 
@@ -132,12 +131,6 @@ type ResponseSummary struct {
 	Text     string   `json:"text"`
 	Warnings []string `json:"warnings"`
 	Errors   []string `json:"errors"`
-}
-
-// ResponseLogs provides paths to stdout and stderr logs.
-type ResponseLogs struct {
-	StdoutPath string `json:"stdout_path"`
-	StderrPath string `json:"stderr_path"`
 }
 
 // ResponseTiming records the duration of an agent's execution.
@@ -251,7 +244,6 @@ type AcceptanceResult struct {
 	ACID   string `json:"ac_id"`
 	Result string `json:"result"` // "PASS", "FAIL"
 	Notes  string `json:"notes"`
-	LogRef string `json:"log_ref"`
 }
 
 // CheckVerdict summarizes the outcome of the Check step.
@@ -299,12 +291,11 @@ type TaskState struct {
 
 // JournalEntry records detailed progress for a single step.
 type JournalEntry struct {
-	Timestamp  string       `json:"timestamp"`
-	StepIndex  int          `json:"step_index"`
-	Role       string       `json:"role"`
-	Status     string       `json:"status"`
-	StopReason string       `json:"stop_reason"`
-	Title      string       `json:"title"`
-	Details    []string     `json:"details"`
-	Logs       ResponseLogs `json:"logs"`
+	Timestamp  string   `json:"timestamp"`
+	StepIndex  int      `json:"step_index"`
+	Role       string   `json:"role"`
+	Status     string   `json:"status"`
+	StopReason string   `json:"stop_reason"`
+	Title      string   `json:"title"`
+	Details    []string `json:"details"`
 }

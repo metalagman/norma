@@ -112,9 +112,6 @@ func (r *planRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 			}
 		}
 	}
-	if roleResp.Logs != nil {
-		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
-	}
 	if roleResp.Timing != nil {
 		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
@@ -262,9 +259,6 @@ func (r *doRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 			})
 		}
 	}
-	if roleResp.Logs != nil {
-		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
-	}
 	if roleResp.Timing != nil {
 		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
@@ -399,7 +393,6 @@ func (r *checkRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 				ACID:   ar.AcId,
 				Result: ar.Result,
 				Notes:  ar.Notes,
-				LogRef: ar.LogRef,
 			})
 		}
 		for _, n := range roleResp.CheckOutput.ProcessNotes {
@@ -410,9 +403,6 @@ func (r *checkRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 				SuggestedStopReason: n.SuggestedStopReason,
 			})
 		}
-	}
-	if roleResp.Logs != nil {
-		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
 	}
 	if roleResp.Timing != nil {
 		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
@@ -435,7 +425,6 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 			AcId:   ar.ACID,
 			Result: ar.Result,
 			Notes:  ar.Notes,
-			LogRef: ar.LogRef,
 		})
 	}
 	return &act.ActRequest{
@@ -493,9 +482,6 @@ func (r *actRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 				Notes:       roleResp.ActOutput.Next.Notes,
 			}
 		}
-	}
-	if roleResp.Logs != nil {
-		res.Logs = models.ResponseLogs{StdoutPath: roleResp.Logs.StdoutPath, StderrPath: roleResp.Logs.StderrPath}
 	}
 	if roleResp.Timing != nil {
 		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}

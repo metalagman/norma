@@ -641,7 +641,6 @@ func (w *Workflow) appendToProgress(res stepResult, taskID string, state *models
 	if res.Response != nil {
 		entry.Title = res.Response.Progress.Title
 		entry.Details = res.Response.Progress.Details
-		entry.Logs = res.Response.Logs
 	}
 
 	if entry.Title == "" {
@@ -664,9 +663,7 @@ func (w *Workflow) reconstructProgress(dir string, taskID string, state *models.
 				b.WriteString(fmt.Sprintf("- %s\n", detail))
 			}
 		}
-		b.WriteString("\n**Logs:**\n")
-		b.WriteString(fmt.Sprintf("- stdout: %s\n", entry.Logs.StdoutPath))
-		b.WriteString(fmt.Sprintf("- stderr: %s\n\n", entry.Logs.StderrPath))
+		b.WriteString("\n")
 	}
 	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 		return fmt.Errorf("write progress.md: %w", err)

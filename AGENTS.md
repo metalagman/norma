@@ -730,10 +730,6 @@ The orchestrator maintains a `Journal` in the task's `TaskState`. Before every s
 **Details:**
 - <progress.details[0]>
 - <progress.details[1]>
-
-**Logs:**
-- stdout: <progress.links.stdout>
-- stderr: <progress.links.stderr>
 ```
 
 ### Step progress expectations (minimum)
