@@ -45,7 +45,7 @@ func TestLoopRunner_Run(t *testing.T) {
 	stdout, _, exitCode, err := runner.Run(ctx, req, io.Discard, io.Discard)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
-	assert.Contains(t, string(stdout), "Loop completed 2 iterations")
+	assert.Contains(t, string(stdout), "ADK Loop completed")
 }
 
 func TestLoopRunner_Escalate(t *testing.T) {
