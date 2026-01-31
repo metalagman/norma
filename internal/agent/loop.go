@@ -11,6 +11,7 @@ import (
 	"github.com/metalagman/ainvoke/adk"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/workflowagents/loopagent"
@@ -42,6 +43,7 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 // RunLoop executes a loop agent with a normalized request.
 func RunLoop(ctx context.Context, cfg config.AgentConfig, req models.AgentRequest, stdout, stderr io.Writer, prompt, inputSchema, outputSchema string) ([]byte, error) {
 	startTime := time.Now()
+	log.Info().Str("run_id", req.Run.ID).Int("iteration", req.Run.Iteration).Int("sub_agents", len(cfg.SubAgents)).Msg("starting ADK RunLoop")
 
 	inputJSON, err := json.Marshal(req)
 	if err != nil {
@@ -51,6 +53,7 @@ func RunLoop(ctx context.Context, cfg config.AgentConfig, req models.AgentReques
 	// Create adk ExecAgents for sub-agents directly from config
 	adkSubAgents := make([]agent.Agent, 0, len(cfg.SubAgents))
 	for i, subCfg := range cfg.SubAgents {
+		log.Debug().Int("index", i).Interface("cmd", subCfg.Cmd).Msg("creating sub-agent for loop")
 		opts := []adk.OptExecAgentOptionsSetter{
 			adk.WithExecAgentRunDir(req.Paths.RunDir),
 			adk.WithExecAgentUseTTY(subCfg.UseTTY != nil && *subCfg.UseTTY),
@@ -104,6 +107,7 @@ func RunLoop(ctx context.Context, cfg config.AgentConfig, req models.AgentReques
 	var lastOutBytes []byte
 	for ev, err := range la.Run(invCtx) {
 		if err != nil {
+			log.Error().Err(err).Msg("ADK loop execution failed")
 			return nil, fmt.Errorf("adk loop execution error: %w", err)
 		}
 		if ev.Content != nil && len(ev.Content.Parts) > 0 {
@@ -112,8 +116,11 @@ func RunLoop(ctx context.Context, cfg config.AgentConfig, req models.AgentReques
 	}
 
 	if len(lastOutBytes) == 0 {
+		log.Warn().Msg("ADK loop produced no output")
 		return nil, fmt.Errorf("no output from loop agent")
 	}
+
+	log.Info().Int64("duration_ms", time.Since(startTime).Milliseconds()).Msg("ADK RunLoop completed")
 
 	// Parse last response to ensure it's valid and update timing
 	var agentResp models.AgentResponse

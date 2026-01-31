@@ -57,6 +57,7 @@ func loopADKCmd() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
+			fmt.Println("Running tasks using Google ADK Loop Agent...")
 			return runTasks(cmd.Context(), tracker, runStore, runner, continueOnFail, policy)
 		},
 	}

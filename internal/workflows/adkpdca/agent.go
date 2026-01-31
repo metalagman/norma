@@ -75,23 +75,31 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) agent.Agent {
 					itNum = 1
 				}
 
+				log.Info().Str("role", roleName).Int("iteration", itNum).Msg("ADK PDCA Sub-agent: starting step")
 				resp, err := a.runStep(ctx, itNum, roleName, yield)
 				if err != nil {
+					log.Error().Err(err).Str("role", roleName).Msg("ADK PDCA Sub-agent: step failed")
 					yield(nil, err)
 					return
 				}
 
+				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("ADK PDCA Sub-agent: step completed")
+
 				// Communicate results via session state
 				if roleName == normaloop.RoleCheck && resp.Check != nil {
+					log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("ADK PDCA Sub-agent: setting check verdict in state")
 					_ = ctx.Session().State().Set("verdict", resp.Check.Verdict.Status)
 				}
 				if roleName == normaloop.RoleAct && resp.Act != nil {
+					log.Debug().Str("decision", resp.Act.Decision).Msg("ADK PDCA Sub-agent: setting act decision in state")
 					_ = ctx.Session().State().Set("decision", resp.Act.Decision)
 					if resp.Act.Decision == "close" {
+						log.Info().Msg("ADK PDCA Sub-agent: act decision is close, stopping loop")
 						_ = ctx.Session().State().Set("stop", true)
 					}
 				}
 				if resp.Status != "ok" {
+					log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("ADK PDCA Sub-agent: non-ok status, stopping loop")
 					_ = ctx.Session().State().Set("stop", true)
 				}
 			}
@@ -111,36 +119,43 @@ func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 		log.Info().Int("iteration", itNum).Msg("ADK PDCA Agent: starting iteration")
 
 		// 1. PLAN
+		log.Debug().Msg("ADK PDCA Agent: invoking plan agent")
 		for event, err := range a.planAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
+			log.Info().Msg("ADK PDCA Agent: stopping after Plan step")
 			return
 		}
 
 		// 2. DO
+		log.Debug().Msg("ADK PDCA Agent: invoking do agent")
 		for event, err := range a.doAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
+			log.Info().Msg("ADK PDCA Agent: stopping after Do step")
 			return
 		}
 
 		// 3. CHECK
+		log.Debug().Msg("ADK PDCA Agent: invoking check agent")
 		for event, err := range a.checkAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
+			log.Info().Msg("ADK PDCA Agent: stopping after Check step")
 			return
 		}
 
 		// 4. ACT
+		log.Debug().Msg("ADK PDCA Agent: invoking act agent")
 		for event, err := range a.actAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
@@ -148,6 +163,7 @@ func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 		}
 
 		// Increment iteration for next run
+		log.Info().Int("iteration", itNum).Msg("ADK PDCA Agent: iteration finished")
 		_ = ctx.Session().State().Set("iteration", itNum+1)
 	}
 }
@@ -218,10 +234,12 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 
 	workspaceDir := filepath.Join(stepDir, "workspace")
 	branchName := fmt.Sprintf("norma/task/%s", a.runInput.TaskID)
+	log.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("ADK PDCA Agent: mounting worktree")
 	if _, err := git.MountWorktree(ctx, a.runInput.GitRoot, workspaceDir, branchName, a.baseBranch); err != nil {
 		return nil, fmt.Errorf("mount worktree: %w", err)
 	}
 	defer func() {
+		log.Debug().Str("workspace", workspaceDir).Msg("ADK PDCA Agent: removing worktree")
 		_ = git.RemoveWorktree(ctx, a.runInput.GitRoot, workspaceDir)
 	}()
 
@@ -247,6 +265,8 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	if err != nil {
 		return nil, err
 	}
+
+	log.Debug().Str("role", roleName).Interface("cmd", cmd).Msg("ADK PDCA Agent: creating ExecAgent")
 
 	prompt, _ := role.Prompt(req)
 	input, _ := role.MapRequest(req)

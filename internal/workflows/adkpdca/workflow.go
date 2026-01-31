@@ -103,44 +103,47 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 		return workflows.RunResult{}, err
 	}
 
-	// Run it
-	genaiInput := genai.NewContentFromText(fmt.Sprintf("Run PDCA loop for task %s: %s", input.TaskID, input.Goal), genai.RoleUser)
-	events := adkRunner.Run(ctx, userID, sess.Session.ID(), genaiInput, agent.RunConfig{})
-
-	for ev, err := range events {
-		if err != nil {
-			log.Error().Err(err).Msg("ADK execution error")
-			return workflows.RunResult{Status: "failed"}, err
-		}
-		if ev.Content != nil {
-			for _, p := range ev.Content.Parts {
-				log.Debug().Str("part", p.Text).Msg("ADK event part")
+		// Run it
+		genaiInput := genai.NewContentFromText(fmt.Sprintf("Run PDCA loop for task %s: %s", input.TaskID, input.Goal), genai.RoleUser)
+		log.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("ADK PDCA Workflow: starting ADK runner")
+		events := adkRunner.Run(ctx, userID, sess.Session.ID(), genaiInput, agent.RunConfig{})
+	
+		for ev, err := range events {
+			if err != nil {
+				log.Error().Err(err).Msg("ADK execution error")
+				return workflows.RunResult{Status: "failed"}, err
+			}
+			if ev.Content != nil {
+				for _, p := range ev.Content.Parts {
+					log.Debug().Str("part", p.Text).Msg("ADK event part")
+				}
 			}
 		}
-	}
-
-	// Retrieve final state from session
-	finalSess, err := sessionService.Get(ctx, &session.GetRequest{
-		AppName:   "norma",
-		UserID:    userID,
-		SessionID: sess.Session.ID(),
-	})
-	if err != nil {
-		return workflows.RunResult{Status: "failed"}, err
-	}
-
-	verdict, _ := finalSess.Session.State().Get("verdict")
-	vStr, _ := verdict.(string)
-
-	status := "stopped"
-	switch vStr {
-	case "PASS":
-		status = "passed"
-	case "FAIL":
-		status = "failed"
-	}
-
-	res := workflows.RunResult{
+	
+		// Retrieve final state from session
+		log.Debug().Msg("ADK PDCA Workflow: retrieving final session state")
+		finalSess, err := sessionService.Get(ctx, &session.GetRequest{
+			AppName:   "norma",
+			UserID:    userID,
+			SessionID: sess.Session.ID(),
+		})
+		if err != nil {
+			log.Error().Err(err).Msg("ADK PDCA Workflow: failed to retrieve final session state")
+			return workflows.RunResult{Status: "failed"}, err
+		}
+	
+		verdict, _ := finalSess.Session.State().Get("verdict")
+		vStr, _ := verdict.(string)
+		log.Info().Str("verdict", vStr).Msg("ADK PDCA Workflow: final verdict")
+		
+		status := "stopped"
+		switch vStr {
+		case "PASS":
+			status = "passed"
+		case "FAIL":
+			status = "failed"
+		}
+		res := workflows.RunResult{
 		Status: status,
 	}
 	if vStr != "" {
