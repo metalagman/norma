@@ -3,6 +3,7 @@ package adkpdca
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"path/filepath"
@@ -275,8 +276,40 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 
 	log.Debug().Str("role", roleName).Interface("cmd", cmd).Msg("ADK PDCA Agent: creating ExecAgent")
 	prompt, _ := role.Prompt(req)
+
+	// Save prompt to logs/prompt.txt
+	promptPath := filepath.Join(stepDir, "logs", "prompt.txt")
+	if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
+		log.Warn().Err(err).Str("path", promptPath).Msg("failed to save prompt log")
+	}
+
 	input, _ := role.MapRequest(req)
 	inputJSON, _ := json.Marshal(input)
+
+	// Prepare log files
+	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to create stdout log file")
+	}
+	defer func() { _ = stdoutFile.Close() }()
+
+	stderrFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stderr.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to create stderr log file")
+	}
+	defer func() { _ = stderrFile.Close() }()
+
+	var multiStdout, multiStderr io.Writer
+	if stdoutFile != nil {
+		multiStdout = io.MultiWriter(os.Stdout, stdoutFile)
+	} else {
+		multiStdout = os.Stdout
+	}
+	if stderrFile != nil {
+		multiStderr = io.MultiWriter(os.Stderr, stderrFile)
+	} else {
+		multiStderr = os.Stderr
+	}
 
 	execAgent, err := adk.NewExecAgent(
 		roleName,
@@ -286,8 +319,8 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 		adk.WithExecAgentInputSchema(role.InputSchema()),
 		adk.WithExecAgentOutputSchema(role.OutputSchema()),
 		adk.WithExecAgentRunDir(stepDir),
-		adk.WithExecAgentStdout(os.Stdout),
-		adk.WithExecAgentStderr(os.Stderr),
+		adk.WithExecAgentStdout(multiStdout),
+		adk.WithExecAgentStderr(multiStderr),
 	)
 	if err != nil {
 		return nil, err

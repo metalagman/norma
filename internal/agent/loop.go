@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/metalagman/ainvoke/adk"
@@ -45,6 +47,15 @@ func (r *loopRunner) Run(ctx context.Context, req models.AgentRequest, stdout, s
 func RunLoop(ctx context.Context, cfg config.AgentConfig, req models.AgentRequest, stdout, stderr io.Writer, prompt, inputSchema, outputSchema string) ([]byte, error) {
 	startTime := time.Now()
 	log.Info().Str("run_id", req.Run.ID).Int("iteration", req.Run.Iteration).Int("sub_agents", len(cfg.SubAgents)).Msg("starting ADK RunLoop")
+
+	// Save prompt to logs/prompt.txt
+	if req.Paths.RunDir != "" && prompt != "" {
+		promptPath := filepath.Join(req.Paths.RunDir, "logs", "prompt.txt")
+		_ = os.MkdirAll(filepath.Dir(promptPath), 0o755)
+		if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
+			log.Warn().Err(err).Str("path", promptPath).Msg("failed to save prompt log")
+		}
+	}
 
 	inputJSON, err := json.Marshal(req)
 	if err != nil {

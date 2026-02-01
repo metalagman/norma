@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/metalagman/ainvoke/adk"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -89,6 +92,15 @@ func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, st
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
+	}
+
+	// Save prompt to logs/prompt.txt
+	if req.Paths.RunDir != "" {
+		promptPath := filepath.Join(req.Paths.RunDir, "logs", "prompt.txt")
+		_ = os.MkdirAll(filepath.Dir(promptPath), 0o755)
+		if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
+			log.Warn().Err(err).Str("path", promptPath).Msg("failed to save prompt log")
+		}
 	}
 
 	input, err := r.role.MapRequest(req)
