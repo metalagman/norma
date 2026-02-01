@@ -47,14 +47,19 @@ type Result struct {
 
 // NewRunner constructs a Runner with a default normaloop workflow.
 func NewRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker) (*Runner, error) {
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve absolute repo root: %w", err)
+	}
+
 	wf, err := normaloop.NewWorkflow(cfg, store, tracker)
 	if err != nil {
 		return nil, fmt.Errorf("init normaloop workflow: %w", err)
 	}
 
 	return &Runner{
-		repoRoot: repoRoot,
-		normaDir: filepath.Join(repoRoot, ".norma"),
+		repoRoot: absRoot,
+		normaDir: filepath.Join(absRoot, ".norma"),
 		cfg:      cfg,
 		store:    store,
 		tracker:  tracker,
@@ -64,9 +69,14 @@ func NewRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task
 
 // NewADKRunner constructs a Runner with an ADK-based PDCA workflow.
 func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker, wf workflows.Workflow) (*Runner, error) {
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve absolute repo root: %w", err)
+	}
+
 	return &Runner{
-		repoRoot: repoRoot,
-		normaDir: filepath.Join(repoRoot, ".norma"),
+		repoRoot: absRoot,
+		normaDir: filepath.Join(absRoot, ".norma"),
 		cfg:      cfg,
 		store:    store,
 		tracker:  tracker,

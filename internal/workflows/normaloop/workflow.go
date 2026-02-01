@@ -423,10 +423,13 @@ func (w *Workflow) executeStep(ctx context.Context, req models.AgentRequest, ste
 		}
 	}()
 
-	progressPath := filepath.Join(stepDir, "artifacts", "progress.md")
+	progressPath, _ := filepath.Abs(filepath.Join(stepDir, "artifacts", "progress.md"))
+	absStepDir, _ := filepath.Abs(stepDir)
+	absWorkspaceDir, _ := filepath.Abs(workspaceDir)
+
 	req.Paths = models.RequestPaths{
-		WorkspaceDir: workspaceDir,
-		RunDir:       stepDir,
+		WorkspaceDir: absWorkspaceDir,
+		RunDir:       absStepDir,
 		Progress:     progressPath,
 	}
 

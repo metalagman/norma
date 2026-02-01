@@ -247,10 +247,13 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 		_ = git.RemoveWorktree(ctx, a.runInput.GitRoot, workspaceDir)
 	}()
 
-	progressPath := filepath.Join(stepDir, "artifacts", "progress.md")
+	progressPath, _ := filepath.Abs(filepath.Join(stepDir, "artifacts", "progress.md"))
+	absStepDir, _ := filepath.Abs(stepDir)
+	absWorkspaceDir, _ := filepath.Abs(workspaceDir)
+
 	req.Paths = models.RequestPaths{
-		WorkspaceDir: workspaceDir,
-		RunDir:       stepDir,
+		WorkspaceDir: absWorkspaceDir,
+		RunDir:       absStepDir,
 		Progress:     progressPath,
 	}
 
