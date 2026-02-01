@@ -531,8 +531,8 @@ github.com/mattn/go-sqlite3 v1.14.16 h1:yOQRA0RpS5PFz/oikGwBEqvAWhWg5ufRz4ETLjwp
 github.com/mattn/go-sqlite3 v1.14.16/go.mod h1:2eHXhiwb8IkHr+BDWZGa96P6+rkvnG63S2DGjv9HUNg=
 github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0jegS5sx/RkqARlsWZ6pIwiU=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
-github.com/metalagman/ainvoke v1.2.0 h1:9300TziGTDoENb/+MNhUoSijrFbb5F5NiXwbDR21jpY=
-github.com/metalagman/ainvoke v1.2.0/go.mod h1:dmbhcx/mK25j3XObbwkdJO09T40s0mnEORzJMVKpYRA=
+github.com/metalagman/ainvoke v1.3.0 h1:A37LXWvjPN0ab95rAWi2GA0Ex4RRn3ZCwNEeKwPl+HY=
+github.com/metalagman/ainvoke v1.3.0/go.mod h1:XSxs/iCWNN3RYd2ZxJaslhtsU9kmCpHnnIEuL8hB7fo=
 github.com/mgechev/revive v1.13.0 h1:yFbEVliCVKRXY8UgwEO7EOYNopvjb1BFbmYqm9hZjBM=
 github.com/mgechev/revive v1.13.0/go.mod h1:efJfeBVCX2JUumNQ7dtOLDja+QKj9mYGgEZA7rt5u+0=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
