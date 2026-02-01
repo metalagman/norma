@@ -44,7 +44,7 @@ type NormaPDCAAgent struct {
 }
 
 // NewNormaPDCAAgent creates and configures the entire custom agent workflow.
-func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string, sessionService session.Service) (agent.Agent, error) {
+func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string, sessionService session.Service) (agent.Agent, []agent.Agent, error) {
 	orchestrator := &NormaPDCAAgent{
 		cfg:            cfg,
 		store:          store,
@@ -60,12 +60,14 @@ func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	orchestrator.checkAgent = orchestrator.createSubAgent(normaloop.RoleCheck)
 	orchestrator.actAgent = orchestrator.createSubAgent(normaloop.RoleAct)
 
-	return agent.New(agent.Config{
+	subAgents := []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent}
+
+	ag, err := agent.New(agent.Config{
 		Name:        "NormaPDCAAgent",
 		Description: "Orchestrates story generation, critique, revision, and checks.",
-		SubAgents:   []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent},
 		Run:         orchestrator.Run,
 	})
+	return ag, subAgents, err
 }
 
 func (a *NormaPDCAAgent) createSubAgent(roleName string) agent.Agent {
@@ -340,12 +342,9 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
 	userID := "norma-user"
 
-	// Use a sub-session ID to avoid clashing with the parent runner's session
-	subSessionID := fmt.Sprintf("%s-%s-%d", ctx.Session().ID(), roleName, index)
-
 	startTime := time.Now()
 	var lastOut []byte
-	for ev, err := range adkRunner.Run(ctx, userID, subSessionID, userContent, agent.RunConfig{}) {
+	for ev, err := range adkRunner.Run(ctx, userID, ctx.Session().ID(), userContent, agent.RunConfig{}) {
 		if err != nil {
 			return nil, err
 		}

@@ -61,24 +61,24 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	sessionService := session.InMemoryService()
 
 	// Create the custom PDCA agent
-	pdcaAgent, err := NewNormaPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch, sessionService)
+	pdcaAgent, pdcaSubAgents, err := NewNormaPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch, sessionService)
 	if err != nil {
 		return workflows.RunResult{}, fmt.Errorf("failed to create custom PDCA agent: %w", err)
 	}
 
-	// Create the ADK LoopAgent. We register sub-agents of pdcaAgent as well
-	// to ensure the root runner recognizes them in events and history.
-	pdcaSubAgents := pdcaAgent.SubAgents()
-	subAgents := make([]agent.Agent, 0, 1+len(pdcaSubAgents))
-	subAgents = append(subAgents, pdcaAgent)
-	subAgents = append(subAgents, pdcaSubAgents...)
+	// Create the ADK LoopAgent. We register the orchestrator and all its sub-agents
+	// as direct children of the loop agent. This ensures they are all recognized
+	// by the root runner while avoiding the "multiple parents" tree error.
+	allSubAgents := make([]agent.Agent, 0, 1+len(pdcaSubAgents))
+	allSubAgents = append(allSubAgents, pdcaAgent)
+	allSubAgents = append(allSubAgents, pdcaSubAgents...)
 
 	la, err := loopagent.New(loopagent.Config{
 		MaxIterations: uint(w.cfg.Budgets.MaxIterations),
 		AgentConfig: agent.Config{
 			Name:        "NormaLoop",
 			Description: "ADK Loop Agent for Norma PDCA",
-			SubAgents:   subAgents,
+			SubAgents:   allSubAgents,
 		},
 	})
 	if err != nil {
