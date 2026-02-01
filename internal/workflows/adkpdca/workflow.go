@@ -66,13 +66,19 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 		return workflows.RunResult{}, fmt.Errorf("failed to create custom PDCA agent: %w", err)
 	}
 
-	// Create the ADK LoopAgent
+	// Create the ADK LoopAgent. We register sub-agents of pdcaAgent as well
+	// to ensure the root runner recognizes them in events and history.
+	pdcaSubAgents := pdcaAgent.SubAgents()
+	subAgents := make([]agent.Agent, 0, 1+len(pdcaSubAgents))
+	subAgents = append(subAgents, pdcaAgent)
+	subAgents = append(subAgents, pdcaSubAgents...)
+
 	la, err := loopagent.New(loopagent.Config{
 		MaxIterations: uint(w.cfg.Budgets.MaxIterations),
 		AgentConfig: agent.Config{
 			Name:        "NormaLoop",
 			Description: "ADK Loop Agent for Norma PDCA",
-			SubAgents:   []agent.Agent{pdcaAgent},
+			SubAgents:   subAgents,
 		},
 	})
 	if err != nil {

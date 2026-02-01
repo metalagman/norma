@@ -340,9 +340,12 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
 	userID := "norma-user"
 
+	// Use a sub-session ID to avoid clashing with the parent runner's session
+	subSessionID := fmt.Sprintf("%s-%s-%d", ctx.Session().ID(), roleName, index)
+
 	startTime := time.Now()
 	var lastOut []byte
-	for ev, err := range adkRunner.Run(ctx, userID, ctx.Session().ID(), userContent, agent.RunConfig{}) {
+	for ev, err := range adkRunner.Run(ctx, userID, subSessionID, userContent, agent.RunConfig{}) {
 		if err != nil {
 			return nil, err
 		}
