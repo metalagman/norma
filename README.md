@@ -74,7 +74,7 @@ The default configuration uses the `codex` agent with the `gpt-5.2-codex` model.
 norma task add "implement user logout" --ac "/logout returns 200"
 
 # Orchestrate the fix
-norma loop norma-a3f2dd
+norma loopadk norma-a3f2dd
 ```
 
 ---

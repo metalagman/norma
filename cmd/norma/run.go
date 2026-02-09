@@ -8,6 +8,7 @@ import (
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/metalagman/norma/internal/workflows/adkpdca"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +36,8 @@ func runCmd() *cobra.Command {
 
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
-			runner, err := run.NewRunner(repoRoot, cfg, runStore, tracker)
+			wf := adkpdca.NewWorkflow(cfg, runStore, tracker)
+			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, wf)
 			if err != nil {
 				return err
 			}
