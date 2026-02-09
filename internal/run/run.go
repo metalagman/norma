@@ -18,7 +18,6 @@ import (
 	"github.com/metalagman/norma/internal/reconcile"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/rs/zerolog/log"
 )
 
@@ -43,28 +42,6 @@ type Runner struct {
 type Result struct {
 	RunID  string
 	Status string
-}
-
-// NewRunner constructs a Runner with a default normaloop workflow.
-func NewRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker) (*Runner, error) {
-	absRoot, err := filepath.Abs(repoRoot)
-	if err != nil {
-		return nil, fmt.Errorf("resolve absolute repo root: %w", err)
-	}
-
-	wf, err := normaloop.NewWorkflow(cfg, store, tracker)
-	if err != nil {
-		return nil, fmt.Errorf("init normaloop workflow: %w", err)
-	}
-
-	return &Runner{
-		repoRoot: absRoot,
-		normaDir: filepath.Join(absRoot, ".norma"),
-		cfg:      cfg,
-		store:    store,
-		tracker:  tracker,
-		workflow: wf,
-	}, nil
 }
 
 // NewADKRunner constructs a Runner with an ADK-based PDCA workflow.

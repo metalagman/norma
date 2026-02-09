@@ -28,10 +28,6 @@ type Runner interface {
 
 // NewRunner constructs a runner for the given agent config and role.
 func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
-	if cfg.Type == "loop" {
-		return newLoopRunner(cfg, role)
-	}
-
 	cmd, err := ResolveCmd(cfg)
 	if err != nil {
 		return nil, err

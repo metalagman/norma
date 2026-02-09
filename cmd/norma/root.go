@@ -55,7 +55,6 @@ func Execute() error {
 	rootCmd.AddCommand(taskCmd())
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(pruneCmd())
-	initAgentCmd()
 	return rootCmd.Execute()
 }
 
