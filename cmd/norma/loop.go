@@ -4,20 +4,20 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/db"
-	"github.com/metalagman/norma/internal/workflows/adkpdca"
+	"github.com/metalagman/norma/internal/workflows/pdca"
 	"github.com/spf13/cobra"
 )
 
-func loopADKCmd() *cobra.Command {
+func loopCmd() *cobra.Command {
 	var continueOnFail bool
 	var activeFeatureID string
 	var activeEpicID string
 	cmd := &cobra.Command{
-		Use:          "loopadk",
+		Use:          "loop",
 		Short:        "Run tasks one by one using Google ADK Loop Agent",
 		Long:         "Run tasks one by one from the tracker using Google ADK Loop Agent for orchestration.",
 		SilenceUsage: true,
@@ -40,14 +40,14 @@ func loopADKCmd() *cobra.Command {
 
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
-			
-			// Use ADK workflow
-			wf := adkpdca.NewWorkflow(cfg, runStore, tracker)
+
+			// Use PDCA workflow with ADK-backed execution.
+			wf := pdca.NewWorkflow(cfg, runStore, tracker)
 			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, wf)
 			if err != nil {
 				return err
 			}
-			
+
 			normaDir := filepath.Join(repoRoot, ".norma")
 			if err := recoverDoingTasks(cmd.Context(), tracker, runStore, normaDir); err != nil {
 				return err

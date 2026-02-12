@@ -1,4 +1,4 @@
-package adkpdca
+package pdca
 
 import (
 	"os"

@@ -49,7 +49,7 @@ func Execute() error {
 			}
 		}
 	}
-	rootCmd.AddCommand(loopADKCmd())
+	rootCmd.AddCommand(loopCmd())
 	rootCmd.AddCommand(runCmd())
 	rootCmd.AddCommand(runsCmd())
 	rootCmd.AddCommand(taskCmd())
