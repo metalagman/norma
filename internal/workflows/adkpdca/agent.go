@@ -1,6 +1,7 @@
 package adkpdca
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -368,6 +369,13 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	respJSON, _ := json.MarshalIndent(resp, "", "  ")
 	_ = os.WriteFile(filepath.Join(stepDir, "output.json"), respJSON, 0o644)
 
+	// Persist Do workspace changes before worktree cleanup.
+	if roleName == normaloop.RoleDo && resp.Status == "ok" {
+		if err := commitWorkspaceChanges(ctx, workspaceDir, a.runInput.RunID, a.runInput.TaskID, index); err != nil {
+			return nil, err
+		}
+	}
+
 	// Commit to DB
 	stepRec := db.StepRecord{
 		RunID:     a.runInput.RunID,
@@ -479,6 +487,24 @@ func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentRe
 		entry.Title = fmt.Sprintf("%s step completed", role)
 	}
 	state.Journal = append(state.Journal, entry)
+}
+
+func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID string, stepIndex int) error {
+	status := strings.TrimSpace(git.RunCmd(ctx, workspaceDir, "git", "status", "--porcelain"))
+	if status == "" {
+		return nil
+	}
+
+	if err := git.RunCmdErr(ctx, workspaceDir, "git", "add", "-A"); err != nil {
+		return fmt.Errorf("stage workspace changes: %w", err)
+	}
+
+	commitMsg := fmt.Sprintf("chore: do step %03d\n\nRun: %s\nTask: %s", stepIndex, runID, taskID)
+	if err := git.RunCmdErr(ctx, workspaceDir, "git", "commit", "-m", commitMsg); err != nil {
+		return fmt.Errorf("commit workspace changes: %w", err)
+	}
+
+	return nil
 }
 
 func (a *NormaPDCAAgent) reconstructProgress(dir string, state *models.TaskState) error {
