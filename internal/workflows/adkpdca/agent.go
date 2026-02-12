@@ -401,7 +401,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	_ = a.store.CommitStep(ctx, stepRec, nil, update)
 
 	// Update Task State and persist to Beads.
-	if err := a.updateTaskState(ctx, &resp, roleName, index); err != nil {
+	if err := a.updateTaskState(ctx, &resp, roleName, iteration, index); err != nil {
 		return nil, err
 	}
 
@@ -476,13 +476,13 @@ func (a *NormaPDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskS
 	return s.(*models.TaskState)
 }
 
-func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, index int) error {
+func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
 
 	state := a.getTaskState(ctx)
-	applyAgentResponseToTaskState(state, resp, role, index, time.Now())
+	applyAgentResponseToTaskState(state, resp, role, a.runInput.RunID, iteration, index, time.Now())
 
 	if err := ctx.Session().State().Set("task_state", state); err != nil {
 		return fmt.Errorf("set task state in session: %w", err)
@@ -500,7 +500,7 @@ func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *mode
 	return nil
 }
 
-func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentResponse, role string, index int, now time.Time) {
+func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentResponse, role, runID string, iteration, index int, now time.Time) {
 	switch role {
 	case normaloop.RolePlan:
 		state.Plan = resp.Plan
@@ -514,6 +514,8 @@ func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentRe
 
 	entry := models.JournalEntry{
 		Timestamp:  now.UTC().Format(time.RFC3339),
+		RunID:      runID,
+		Iteration:  iteration,
 		StepIndex:  index,
 		Role:       role,
 		Status:     resp.Status,
@@ -549,8 +551,36 @@ func (a *NormaPDCAAgent) reconstructProgress(dir string, state *models.TaskState
 	path := filepath.Join(dir, "artifacts", "progress.md")
 	var sb strings.Builder
 	for _, entry := range state.Journal {
-		sb.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, entry.Role, entry.Status, entry.StopReason))
-		sb.WriteString(fmt.Sprintf("**Title:** %s\n\n", entry.Title))
+		stopReason := entry.StopReason
+		if stopReason == "" {
+			stopReason = "none"
+		}
+		title := entry.Title
+		if title == "" {
+			title = fmt.Sprintf("%s step completed", entry.Role)
+		}
+		runID := entry.RunID
+		if runID == "" {
+			runID = a.runInput.RunID
+		}
+		iter := entry.Iteration
+		if iter <= 0 {
+			iter = 1
+		}
+
+		sb.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, stopReason))
+		sb.WriteString(fmt.Sprintf("**Task:** %s  \n", a.runInput.TaskID))
+		sb.WriteString(fmt.Sprintf("**Run:** %s · **Iteration:** %d\n\n", runID, iter))
+		sb.WriteString(fmt.Sprintf("**Title:** %s\n\n", title))
+		sb.WriteString("**Details:**\n")
+		if len(entry.Details) == 0 {
+			sb.WriteString("- (none)\n")
+		} else {
+			for _, detail := range entry.Details {
+				sb.WriteString(fmt.Sprintf("- %s\n", detail))
+			}
+		}
+		sb.WriteString("\n")
 	}
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
 }

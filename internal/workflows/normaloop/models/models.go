@@ -292,6 +292,8 @@ type TaskState struct {
 // JournalEntry records detailed progress for a single step.
 type JournalEntry struct {
 	Timestamp  string   `json:"timestamp"`
+	RunID      string   `json:"run_id,omitempty"`
+	Iteration  int      `json:"iteration,omitempty"`
 	StepIndex  int      `json:"step_index"`
 	Role       string   `json:"role"`
 	Status     string   `json:"status"`

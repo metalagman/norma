@@ -1,9 +1,13 @@
 package adkpdca
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/metalagman/norma/internal/workflows"
 	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 )
@@ -30,7 +34,7 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 	}
 
 	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
-	applyAgentResponseToTaskState(state, resp, normaloop.RoleAct, 4, ts)
+	applyAgentResponseToTaskState(state, resp, normaloop.RoleAct, "run-1", 2, 4, ts)
 
 	if state.Act == nil {
 		t.Fatalf("state.Act = nil, want persisted act output")
@@ -48,6 +52,12 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 	}
 	if entry.StepIndex != 4 {
 		t.Fatalf("journal step index = %d, want 4", entry.StepIndex)
+	}
+	if entry.RunID != "run-1" {
+		t.Fatalf("journal run id = %q, want %q", entry.RunID, "run-1")
+	}
+	if entry.Iteration != 2 {
+		t.Fatalf("journal iteration = %d, want %d", entry.Iteration, 2)
 	}
 	if entry.Title != "Act decision applied" {
 		t.Fatalf("journal title = %q, want %q", entry.Title, "Act decision applied")
@@ -74,12 +84,66 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 	}
 
 	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
-	applyAgentResponseToTaskState(state, resp, normaloop.RoleAct, 5, ts)
+	applyAgentResponseToTaskState(state, resp, normaloop.RoleAct, "run-2", 3, 5, ts)
 
 	if len(state.Journal) != 1 {
 		t.Fatalf("len(state.Journal) = %d, want 1", len(state.Journal))
 	}
 	if state.Journal[0].Title != "act step completed" {
 		t.Fatalf("journal title = %q, want %q", state.Journal[0].Title, "act step completed")
+	}
+}
+
+func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
+	t.Parallel()
+
+	agent := &NormaPDCAAgent{
+		runInput: workflows.RunInput{
+			TaskID: "norma-95b",
+			RunID:  "run-default",
+		},
+	}
+
+	stepDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0o755); err != nil {
+		t.Fatalf("create artifacts dir: %v", err)
+	}
+
+	state := &models.TaskState{
+		Journal: []models.JournalEntry{
+			{
+				Timestamp:  "2026-02-12T10:00:00Z",
+				RunID:      "run-abc",
+				Iteration:  7,
+				StepIndex:  3,
+				Role:       "do",
+				Status:     "ok",
+				StopReason: "none",
+				Title:      "Executed planned changes",
+				Details:    []string{"updated files", "ran tests"},
+			},
+		},
+	}
+
+	if err := agent.reconstructProgress(stepDir, state); err != nil {
+		t.Fatalf("reconstructProgress() error = %v", err)
+	}
+
+	contentBytes, err := os.ReadFile(filepath.Join(stepDir, "artifacts", "progress.md"))
+	if err != nil {
+		t.Fatalf("read progress.md: %v", err)
+	}
+	content := string(contentBytes)
+	if !strings.Contains(content, "**Task:** norma-95b") {
+		t.Fatalf("progress missing task line:\n%s", content)
+	}
+	if !strings.Contains(content, "**Run:** run-abc · **Iteration:** 7") {
+		t.Fatalf("progress missing run/iteration line:\n%s", content)
+	}
+	if !strings.Contains(content, "## 2026-02-12T10:00:00Z — 3 DO — ok/none") {
+		t.Fatalf("progress missing header line:\n%s", content)
+	}
+	if !strings.Contains(content, "- updated files") || !strings.Contains(content, "- ran tests") {
+		t.Fatalf("progress missing details bullets:\n%s", content)
 	}
 }
