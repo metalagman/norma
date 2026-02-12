@@ -195,7 +195,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 
 	req := a.baseRequest(iteration, index, roleName)
-	
+
 	// Enrich request based on role and current state
 	state := a.getTaskState(ctx)
 	switch roleName {
@@ -387,8 +387,10 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 	_ = a.store.CommitStep(ctx, stepRec, nil, update)
 
-	// Update Task State and Persist to Beads
-	a.updateTaskState(ctx, &resp, roleName, iteration, index)
+	// Update Task State and persist to Beads.
+	if err := a.updateTaskState(ctx, &resp, roleName, index); err != nil {
+		return nil, err
+	}
 
 	return &resp, nil
 }
@@ -428,8 +430,31 @@ func (a *NormaPDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskS
 	return s.(*models.TaskState)
 }
 
-func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) {
+func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, index int) error {
+	if resp == nil {
+		return fmt.Errorf("nil agent response for role %q", role)
+	}
+
 	state := a.getTaskState(ctx)
+	applyAgentResponseToTaskState(state, resp, role, index, time.Now())
+
+	if err := ctx.Session().State().Set("task_state", state); err != nil {
+		return fmt.Errorf("set task state in session: %w", err)
+	}
+
+	// Persist to Beads
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal task state: %w", err)
+	}
+	if err := a.tracker.SetNotes(ctx, a.runInput.TaskID, string(data)); err != nil {
+		return fmt.Errorf("persist task state to task notes: %w", err)
+	}
+
+	return nil
+}
+
+func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentResponse, role string, index int, now time.Time) {
 	switch role {
 	case normaloop.RolePlan:
 		state.Plan = resp.Plan
@@ -441,9 +466,8 @@ func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *mode
 		state.Act = resp.Act
 	}
 
-	// Append to journal
 	entry := models.JournalEntry{
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		Timestamp:  now.UTC().Format(time.RFC3339),
 		StepIndex:  index,
 		Role:       role,
 		Status:     resp.Status,
@@ -455,12 +479,6 @@ func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *mode
 		entry.Title = fmt.Sprintf("%s step completed", role)
 	}
 	state.Journal = append(state.Journal, entry)
-
-	_ = ctx.Session().State().Set("task_state", state)
-
-	// Persist to Beads
-	data, _ := json.MarshalIndent(state, "", "  ")
-	_ = a.tracker.SetNotes(ctx, a.runInput.TaskID, string(data))
 }
 
 func (a *NormaPDCAAgent) reconstructProgress(dir string, state *models.TaskState) error {
@@ -472,5 +490,3 @@ func (a *NormaPDCAAgent) reconstructProgress(dir string, state *models.TaskState
 	}
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
 }
-
-
