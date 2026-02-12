@@ -182,29 +182,33 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 		stashed = true
 	}
 
+	restoreStash := func() error {
+		if !stashed {
+			return nil
+		}
+		if err := git.RunCmdErr(ctx, r.repoRoot, "git", "stash", "pop"); err != nil {
+			return fmt.Errorf("git stash pop: %w", err)
+		}
+		stashed = false
+		return nil
+	}
+
 	// record git status/hash "before"
 	beforeHash := strings.TrimSpace(git.RunCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
 
 	// merge --squash
 	if err := git.RunCmdErr(ctx, r.repoRoot, "git", "merge", "--squash", branchName); err != nil {
-		if stashed {
-			_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
-			_ = git.RunCmdErr(ctx, r.repoRoot, "git", "stash", "pop")
+		_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
+		if restoreErr := restoreStash(); restoreErr != nil {
+			return fmt.Errorf("git merge --squash: %w (failed to restore stashed changes: %v)", err, restoreErr)
 		}
 		return fmt.Errorf("git merge --squash: %w", err)
 	}
 
-	if stashed {
-		if err := git.RunCmdErr(ctx, r.repoRoot, "git", "stash", "apply"); err != nil {
-			_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
-			return fmt.Errorf("git stash apply: %w", err)
-		}
-	}
-
 	if err := git.RunCmdErr(ctx, r.repoRoot, "git", "add", "-A"); err != nil {
 		_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
-		if stashed {
-			_ = git.RunCmdErr(ctx, r.repoRoot, "git", "stash", "pop")
+		if restoreErr := restoreStash(); restoreErr != nil {
+			return fmt.Errorf("git add -A: %w (failed to restore stashed changes: %v)", err, restoreErr)
 		}
 		return fmt.Errorf("git add -A: %w", err)
 	}
@@ -213,6 +217,9 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	status := git.RunCmd(ctx, r.repoRoot, "git", "status", "--porcelain")
 	log.Debug().Str("git_status", status).Msg("git status after merge")
 	if strings.TrimSpace(status) == "" {
+		if err := restoreStash(); err != nil {
+			return err
+		}
 		log.Info().Msg("nothing to commit after merge")
 		return nil
 	}
@@ -221,16 +228,14 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	if err := git.RunCmdErr(ctx, r.repoRoot, "git", "commit", "-m", commitMsg); err != nil {
 		log.Error().Err(err).Msg("failed to commit merged changes, rolling back")
 		_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
-		if stashed {
-			_ = git.RunCmdErr(ctx, r.repoRoot, "git", "stash", "pop")
+		if restoreErr := restoreStash(); restoreErr != nil {
+			return fmt.Errorf("git commit: %w (failed to restore stashed changes: %v)", err, restoreErr)
 		}
 		return fmt.Errorf("git commit: %w", err)
 	}
 
-	if stashed {
-		if err := git.RunCmdErr(ctx, r.repoRoot, "git", "stash", "drop"); err != nil {
-			log.Warn().Err(err).Msg("failed to drop applied stash")
-		}
+	if err := restoreStash(); err != nil {
+		return err
 	}
 
 	afterHash := strings.TrimSpace(git.RunCmd(ctx, r.repoRoot, "git", "rev-parse", "HEAD"))
