@@ -4,6 +4,7 @@ package run
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -167,7 +168,11 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 
 func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) error {
 	branchName := fmt.Sprintf("norma/task/%s", taskID)
-	commitMsg := fmt.Sprintf("feat: %s\n\nRun: %s\nTask: %s", goal, runID, taskID)
+	stepIndex, err := r.currentStepIndex(ctx, runID)
+	if err != nil {
+		return err
+	}
+	commitMsg := buildApplyCommitMessage(goal, runID, stepIndex, taskID)
 
 	log.Info().Str("branch", branchName).Msg("applying changes from workspace")
 
@@ -262,4 +267,41 @@ func randomHex(bytesLen int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func (r *Runner) currentStepIndex(ctx context.Context, runID string) (int, error) {
+	if r.store == nil || r.store.DB() == nil {
+		return 0, nil
+	}
+
+	var stepIndex int
+	err := r.store.DB().QueryRowContext(ctx, `SELECT current_step_index FROM runs WHERE run_id=?`, runID).Scan(&stepIndex)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read current step index for run %s: %w", runID, err)
+	}
+
+	return stepIndex, nil
+}
+
+func buildApplyCommitMessage(goal, runID string, stepIndex int, taskID string) string {
+	commitType := commitTypeForGoal(goal)
+	summary := strings.TrimSpace(goal)
+	if summary == "" {
+		summary = "apply workspace changes"
+	}
+	return fmt.Sprintf("%s: %s\n\nrun_id: %s\nstep_index: %d\ntask_id: %s", commitType, summary, runID, stepIndex, taskID)
+}
+
+func commitTypeForGoal(goal string) string {
+	normalizedGoal := strings.ToLower(goal)
+	fixHints := []string{"fix", "bug", "error", "fail", "failure", "issue", "regression"}
+	for _, hint := range fixHints {
+		if strings.Contains(normalizedGoal, hint) {
+			return "fix"
+		}
+	}
+	return "feat"
 }

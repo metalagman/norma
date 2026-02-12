@@ -104,3 +104,32 @@ func runGit(t *testing.T, ctx context.Context, repoRoot string, args ...string) 
 	}
 	return string(out)
 }
+
+func TestBuildApplyCommitMessageUsesFixForBugGoals(t *testing.T) {
+	t.Parallel()
+
+	msg := buildApplyCommitMessage("Fix panic in workflow", "run-123", 7, "norma-agf")
+
+	if !strings.HasPrefix(msg, "fix: Fix panic in workflow") {
+		t.Fatalf("unexpected commit subject: %q", msg)
+	}
+	if !strings.Contains(msg, "run_id: run-123") {
+		t.Fatalf("missing run_id footer: %q", msg)
+	}
+	if !strings.Contains(msg, "step_index: 7") {
+		t.Fatalf("missing step_index footer: %q", msg)
+	}
+	if !strings.Contains(msg, "task_id: norma-agf") {
+		t.Fatalf("missing task_id footer: %q", msg)
+	}
+}
+
+func TestBuildApplyCommitMessageUsesFeatForNonFixGoals(t *testing.T) {
+	t.Parallel()
+
+	msg := buildApplyCommitMessage("Implement dashboard endpoint", "run-321", 3, "norma-x")
+
+	if !strings.HasPrefix(msg, "feat: Implement dashboard endpoint") {
+		t.Fatalf("unexpected commit subject: %q", msg)
+	}
+}
