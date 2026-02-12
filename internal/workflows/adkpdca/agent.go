@@ -90,6 +90,11 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) agent.Agent {
 					yield(nil, err)
 					return
 				}
+				if err := validateStepResponse(roleName, resp); err != nil {
+					log.Error().Err(err).Str("role", roleName).Msg("ADK PDCA Sub-agent: invalid step response")
+					yield(nil, err)
+					return
+				}
 
 				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("ADK PDCA Sub-agent: step completed")
 
@@ -428,6 +433,39 @@ func (a *NormaPDCAAgent) baseRequest(iteration, index int, role string) models.A
 			"replan_required",
 		},
 	}
+}
+
+func validateStepResponse(roleName string, resp *models.AgentResponse) error {
+	if resp == nil {
+		return fmt.Errorf("nil response for role %q", roleName)
+	}
+
+	switch roleName {
+	case normaloop.RolePlan:
+		switch resp.Status {
+		case "ok":
+			if resp.Plan == nil {
+				return fmt.Errorf("plan step returned status ok without plan output")
+			}
+		case "stop":
+			return nil
+		default:
+			return fmt.Errorf("plan step returned non-ok status %q", resp.Status)
+		}
+	case normaloop.RoleDo:
+		switch resp.Status {
+		case "ok":
+			if resp.Do == nil {
+				return fmt.Errorf("do step returned status ok without do output")
+			}
+		case "stop":
+			return nil
+		default:
+			return fmt.Errorf("do step returned non-ok status %q", resp.Status)
+		}
+	}
+
+	return nil
 }
 
 func (a *NormaPDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
