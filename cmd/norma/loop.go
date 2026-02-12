@@ -18,6 +18,7 @@ func loopCmd() *cobra.Command {
 	var activeEpicID string
 	cmd := &cobra.Command{
 		Use:          "loop",
+		Aliases:      []string{"loopadk"},
 		Short:        "Run tasks one by one using Google ADK Loop Agent",
 		Long:         "Run tasks one by one from the tracker using Google ADK Loop Agent for orchestration.",
 		SilenceUsage: true,
