@@ -206,6 +206,7 @@ Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until
 8. **Every step captures logs:**
     - `steps/<n>-<role>/logs/stdout.txt`
     - `steps/<n>-<role>/logs/stderr.txt`
+   - Agent `stdout`/`stderr` MUST be mirrored to terminal only when debug mode is enabled.
 9. **Run journal:** the orchestrator appends one entry after every step to:
     - `artifacts/progress.md`
 10. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
@@ -783,6 +784,7 @@ Common types:
 - norma captures `stdout` and `stderr` into:
   - `logs/stdout.txt`
   - `logs/stderr.txt`
+- norma MUST NOT stream agent `stdout`/`stderr` to terminal unless debug mode is enabled.
 
 ### Errors
 - Non-zero exit code:
@@ -805,6 +807,7 @@ norma generates a role-specific prompt that instructs Codex to:
 - norma stores raw stdout/stderr to logs
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
+- terminal mirroring of agent stdout/stderr is debug-only
 
 ---
 
@@ -821,6 +824,7 @@ norma generates a role-specific prompt that instructs OpenCode to:
 - norma stores raw stdout/stderr to logs
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
+- terminal mirroring of agent stdout/stderr is debug-only
 
 ---
 
@@ -837,6 +841,7 @@ norma generates a role-specific prompt that instructs Gemini to:
 - norma stores raw stdout/stderr to logs
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
+- terminal mirroring of agent stdout/stderr is debug-only
 
 ---
 
@@ -853,6 +858,7 @@ norma generates a role-specific prompt that instructs Claude to:
 - norma stores raw stdout/stderr to logs
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
+- terminal mirroring of agent stdout/stderr is debug-only
 
 ---
 

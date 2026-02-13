@@ -16,6 +16,7 @@ import (
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
+	"github.com/metalagman/norma/internal/logging"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows"
 	"github.com/metalagman/norma/internal/workflows/normaloop"
@@ -341,8 +342,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 	defer func() { _ = stderrFile.Close() }()
 
-	multiStdout := io.MultiWriter(os.Stdout, stdoutFile)
-	multiStderr := io.MultiWriter(os.Stderr, stderrFile)
+	multiStdout, multiStderr := agentOutputWriters(logging.DebugEnabled(), stdoutFile, stderrFile)
 
 	execAgent, err := adk.NewExecAgent(
 		roleName,
@@ -438,6 +438,13 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 
 	return &resp, nil
+}
+
+func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Writer) (io.Writer, io.Writer) {
+	if !debugEnabled {
+		return stdoutLog, stderrLog
+	}
+	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
 func (a *NormaPDCAAgent) baseRequest(iteration, index int, role string) models.AgentRequest {

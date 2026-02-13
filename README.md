@@ -85,6 +85,7 @@ Norma ensures **Zero Data Loss**:
 - **authoritative run state**: Stored in `.norma/norma.db` (SQLite).
 - **Authoritative task state**: Serialized as a `TaskState` JSON object in Beads `notes`.
 - **Artifacts**: Every step's `input.json`, `output.json`, and `logs/` are saved to disk under `.norma/runs/<run_id>/`.
+- **Agent output visibility**: Agent `stdout`/`stderr` is always captured in step logs and is mirrored to terminal only when running with `--debug`.
 
 ---
 
