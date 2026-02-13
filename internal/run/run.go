@@ -29,6 +29,8 @@ const (
 	statusStopped = "stopped"
 )
 
+var taskIDPattern = regexp.MustCompile(`^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`)
+
 // Runner executes a workflow for a task.
 type Runner struct {
 	repoRoot string
@@ -63,8 +65,7 @@ func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker t
 }
 
 func (r *Runner) validateTaskID(id string) bool {
-	matched, _ := regexp.MatchString(`^norma-[a-z0-9]+$`, id)
-	return matched
+	return taskIDPattern.MatchString(id)
 }
 
 // Run starts a new run with the given goal and acceptance criteria.

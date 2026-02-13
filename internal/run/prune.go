@@ -127,12 +127,17 @@ func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
 		}
 	}
 
-	// 3. Delete all run directories
+	// 3. Prune stale task branches that are no longer attached to any worktree.
+	if err := pruneStaleNormaTaskBranches(ctx, repoRoot); err != nil {
+		return err
+	}
+
+	// 4. Delete all run directories
 	if err := os.RemoveAll(normaRunsPrefix); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove runs dir: %w", err)
 	}
 
-	// 4. Clear database tables
+	// 5. Clear database tables
 	if _, err := db.ExecContext(ctx, "DELETE FROM steps"); err != nil {
 		return fmt.Errorf("clear steps table: %w", err)
 	}
@@ -144,4 +149,60 @@ func Prune(ctx context.Context, db *sql.DB, repoRoot string) error {
 	}
 
 	return nil
+}
+
+func pruneStaleNormaTaskBranches(ctx context.Context, repoRoot string) error {
+	branchesOut, err := git.RunCmdOutput(ctx, repoRoot, "git", "for-each-ref", "--format=%(refname:short)", "refs/heads/norma/task")
+	if err != nil {
+		return fmt.Errorf("list norma task branches: %w", err)
+	}
+
+	checkedOut, err := checkedOutLocalBranches(ctx, repoRoot)
+	if err != nil {
+		return err
+	}
+
+	var deleteErrors []string
+	for _, branch := range strings.Split(branchesOut, "\n") {
+		branch = strings.TrimSpace(branch)
+		if branch == "" {
+			continue
+		}
+		if _, isCheckedOut := checkedOut[branch]; isCheckedOut {
+			continue
+		}
+		if err := git.RunCmdErr(ctx, repoRoot, "git", "branch", "-D", branch); err != nil {
+			deleteErrors = append(deleteErrors, fmt.Sprintf("%s: %v", branch, err))
+			continue
+		}
+		log.Info().Str("branch", branch).Msg("pruned stale norma task branch")
+	}
+
+	if len(deleteErrors) > 0 {
+		return fmt.Errorf("delete stale norma task branches: %s", strings.Join(deleteErrors, "; "))
+	}
+	return nil
+}
+
+func checkedOutLocalBranches(ctx context.Context, repoRoot string) (map[string]struct{}, error) {
+	out, err := git.RunCmdOutput(ctx, repoRoot, "git", "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("list git worktrees: %w", err)
+	}
+
+	branches := make(map[string]struct{})
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "branch ") {
+			continue
+		}
+		ref := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+		if !strings.HasPrefix(ref, "refs/heads/") {
+			continue
+		}
+		branch := strings.TrimPrefix(ref, "refs/heads/")
+		branches[branch] = struct{}{}
+	}
+
+	return branches, nil
 }

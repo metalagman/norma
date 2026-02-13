@@ -11,7 +11,7 @@ import (
 func pruneCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "prune",
-		Short: "Prune all runs, their directories, and associated git worktrees",
+		Short: "Prune all runs, their directories, associated worktrees, and stale norma task branches",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			storeDB, repoRoot, closeFn, err := openDB()
 			if err != nil {
@@ -27,7 +27,7 @@ func pruneCmd() *cobra.Command {
 				return fmt.Errorf("prune failed: %w", err)
 			}
 
-			fmt.Println("Successfully pruned all runs and worktrees.")
+			fmt.Println("Successfully pruned all runs, worktrees, and stale norma task branches.")
 			return nil
 		},
 	}

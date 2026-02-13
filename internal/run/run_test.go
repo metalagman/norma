@@ -133,3 +133,31 @@ func TestBuildApplyCommitMessageUsesFeatForNonFixGoals(t *testing.T) {
 		t.Fatalf("unexpected commit subject: %q", msg)
 	}
 }
+
+func TestValidateTaskID(t *testing.T) {
+	t.Parallel()
+
+	runner := &Runner{}
+
+	tests := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{name: "flat", id: "norma-a3f2dd", want: true},
+		{name: "single segment with digits", id: "norma-01", want: true},
+		{name: "hierarchical dotted", id: "norma-4pm.1.1", want: true},
+		{name: "uppercase rejected", id: "norma-ABC", want: false},
+		{name: "wrong prefix rejected", id: "task-a3f2dd", want: false},
+		{name: "double dot rejected", id: "norma-a..1", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := runner.validateTaskID(tc.id); got != tc.want {
+				t.Fatalf("validateTaskID(%q)=%v, want %v", tc.id, got, tc.want)
+			}
+		})
+	}
+}

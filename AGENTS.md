@@ -226,8 +226,8 @@ Stopping must be reflected in `output.json` with `status="stop"` and a concrete 
 
 ### Task IDs
 
-- `task.id` must match: `^norma-[a-z0-9]+$`
-    - examples: `norma-a3f2dd`, `norma-01`, `norma-fixlogin2`
+- `task.id` must match: `^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`
+    - examples: `norma-a3f2dd`, `norma-01`, `norma-fixlogin2`, `norma-4pm.1.1`
 - Non-matching IDs → Plan must stop with `stop_reason="replan_required"` (reason in logs).
 
 ---
