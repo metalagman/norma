@@ -23,14 +23,9 @@ func resolveConfigPath(repoRoot, configuredPath string) string {
 }
 
 func loadConfig(repoRoot string) (config.Config, error) {
-	path := resolveConfigPath(repoRoot, viper.GetString("config"))
-	viper.SetConfigFile(path)
-	if err := viper.ReadInConfig(); err != nil {
-		return config.Config{}, fmt.Errorf("read config: %w", err)
-	}
-	var cfg config.Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return config.Config{}, fmt.Errorf("parse config: %w", err)
+	cfg, err := loadRawConfig(repoRoot)
+	if err != nil {
+		return config.Config{}, err
 	}
 	selectedProfile, agents, err := cfg.ResolveAgents(viper.GetString("profile"))
 	if err != nil {
@@ -40,6 +35,19 @@ func loadConfig(repoRoot string) (config.Config, error) {
 	cfg.Agents = agents
 	if cfg.Budgets.MaxIterations <= 0 {
 		return config.Config{}, fmt.Errorf("budgets.max_iterations must be > 0")
+	}
+	return cfg, nil
+}
+
+func loadRawConfig(repoRoot string) (config.Config, error) {
+	path := resolveConfigPath(repoRoot, viper.GetString("config"))
+	viper.SetConfigFile(path)
+	if err := viper.ReadInConfig(); err != nil {
+		return config.Config{}, fmt.Errorf("read config: %w", err)
+	}
+	var cfg config.Config
+	if err := viper.Unmarshal(&cfg); err != nil {
+		return config.Config{}, fmt.Errorf("parse config: %w", err)
 	}
 	return cfg, nil
 }

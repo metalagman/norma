@@ -52,6 +52,7 @@ func Execute() error {
 	rootCmd.AddCommand(runCmd())
 	rootCmd.AddCommand(runsCmd())
 	rootCmd.AddCommand(taskCmd())
+	rootCmd.AddCommand(planCmd())
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(pruneCmd())
 	return rootCmd.Execute()

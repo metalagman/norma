@@ -140,3 +140,71 @@ func TestResolveAgents_ReturnsErrorForUndefinedFeatureAgentReference(t *testing.
 		t.Fatal("ResolveAgents returned nil error, want error")
 	}
 }
+
+func TestResolveFeatureAgents_ResolvesFeatureAgentMap(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Agents: map[string]AgentConfig{
+			"codex_primary": {Type: "codex", Model: "gpt-5-codex"},
+			"gemini_flash":  {Type: "gemini", Model: "gemini-3-flash-preview"},
+		},
+		Profiles: map[string]ProfileConfig{
+			"default": {
+				PDCA: PDCAAgentRefs{
+					Plan:  "codex_primary",
+					Do:    "codex_primary",
+					Check: "codex_primary",
+					Act:   "codex_primary",
+				},
+				Features: map[string]FeatureConfig{
+					"backlog_refiner": {
+						Agents: map[string]string{
+							"planner":     "codex_primary",
+							"implementer": "gemini_flash",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	profile, agents, err := cfg.ResolveFeatureAgents("", "backlog_refiner")
+	if err != nil {
+		t.Fatalf("ResolveFeatureAgents returned error: %v", err)
+	}
+	if profile != "default" {
+		t.Fatalf("profile = %q, want %q", profile, "default")
+	}
+	if agents["planner"].Type != "codex" {
+		t.Fatalf("planner type = %q, want %q", agents["planner"].Type, "codex")
+	}
+	if agents["implementer"].Type != "gemini" {
+		t.Fatalf("implementer type = %q, want %q", agents["implementer"].Type, "gemini")
+	}
+}
+
+func TestResolveFeatureAgents_ReturnsErrorForMissingFeature(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Agents: map[string]AgentConfig{
+			"codex_primary": {Type: "codex"},
+		},
+		Profiles: map[string]ProfileConfig{
+			"default": {
+				PDCA: PDCAAgentRefs{
+					Plan:  "codex_primary",
+					Do:    "codex_primary",
+					Check: "codex_primary",
+					Act:   "codex_primary",
+				},
+			},
+		},
+	}
+
+	_, _, err := cfg.ResolveFeatureAgents("", "backlog_refiner")
+	if err == nil {
+		t.Fatal("ResolveFeatureAgents returned nil error, want error")
+	}
+}

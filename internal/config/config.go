@@ -64,20 +64,9 @@ func (c Config) ResolveAgents(profile string) (string, map[string]AgentConfig, e
 		return "", nil, fmt.Errorf("missing global agents configuration")
 	}
 
-	selected := strings.TrimSpace(profile)
-	if selected == "" {
-		selected = strings.TrimSpace(c.Profile)
-	}
-	if selected == "" {
-		selected = defaultProfile
-	}
-	if len(c.Profiles) == 0 {
-		return "", nil, fmt.Errorf("missing profiles configuration")
-	}
-
-	profileCfg, ok := c.Profiles[selected]
-	if !ok {
-		return "", nil, fmt.Errorf("profile %q not found", selected)
+	selected, profileCfg, err := c.resolveProfile(profile)
+	if err != nil {
+		return "", nil, err
 	}
 
 	refs := profileCfg.PDCA
@@ -113,6 +102,81 @@ func (c Config) ResolveAgents(profile string) (string, map[string]AgentConfig, e
 	}
 
 	return selected, resolved, nil
+}
+
+// ResolveFeatureAgents returns resolved agent configs for a profile feature.
+func (c Config) ResolveFeatureAgents(profile, feature string) (string, map[string]AgentConfig, error) {
+	if len(c.Agents) == 0 {
+		return "", nil, fmt.Errorf("missing global agents configuration")
+	}
+
+	selected, profileCfg, err := c.resolveProfile(profile)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if err := validateFeatureRefs(selected, profileCfg.Features, c.Agents); err != nil {
+		return "", nil, err
+	}
+
+	featureName := strings.TrimSpace(feature)
+	if featureName == "" {
+		return "", nil, fmt.Errorf("feature name is required")
+	}
+
+	featureCfg, ok := profileCfg.Features[featureName]
+	if !ok {
+		return "", nil, fmt.Errorf("profile %q feature %q not found", selected, featureName)
+	}
+	if len(featureCfg.Agents) == 0 {
+		return "", nil, fmt.Errorf("profile %q feature %q has no agent references", selected, featureName)
+	}
+
+	resolved := make(map[string]AgentConfig, len(featureCfg.Agents))
+	for refName, agentName := range featureCfg.Agents {
+		name := strings.TrimSpace(agentName)
+		if name == "" {
+			return "", nil, fmt.Errorf(
+				"profile %q feature %q has empty agent reference for key %q",
+				selected,
+				featureName,
+				refName,
+			)
+		}
+		agentCfg, exists := c.Agents[name]
+		if !exists {
+			return "", nil, fmt.Errorf(
+				"profile %q feature %q references undefined agent %q in agents.%s",
+				selected,
+				featureName,
+				name,
+				refName,
+			)
+		}
+		resolved[refName] = agentCfg
+	}
+
+	return selected, resolved, nil
+}
+
+func (c Config) resolveProfile(profile string) (string, ProfileConfig, error) {
+	selected := strings.TrimSpace(profile)
+	if selected == "" {
+		selected = strings.TrimSpace(c.Profile)
+	}
+	if selected == "" {
+		selected = defaultProfile
+	}
+	if len(c.Profiles) == 0 {
+		return "", ProfileConfig{}, fmt.Errorf("missing profiles configuration")
+	}
+
+	profileCfg, ok := c.Profiles[selected]
+	if !ok {
+		return "", ProfileConfig{}, fmt.Errorf("profile %q not found", selected)
+	}
+
+	return selected, profileCfg, nil
 }
 
 func validateFeatureRefs(profile string, features map[string]FeatureConfig, registry map[string]AgentConfig) error {

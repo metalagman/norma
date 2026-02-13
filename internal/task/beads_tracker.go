@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
 )
 
 const (
@@ -64,8 +63,21 @@ type BeadsIssue struct {
 
 // Add creates a task via bd create.
 func (t *BeadsTracker) Add(ctx context.Context, title, goal string, criteria []AcceptanceCriterion, runID *string) (string, error) {
+	return t.AddTaskDetailed(ctx, "", title, goal, criteria, runID)
+}
+
+// AddTaskDetailed creates a task via bd create and optionally sets its parent.
+func (t *BeadsTracker) AddTaskDetailed(
+	ctx context.Context,
+	parentID, title, goal string,
+	criteria []AcceptanceCriterion,
+	runID *string,
+) (string, error) {
 	description := strings.TrimSpace(goal)
 	args := []string{"create", "--title", title, "--description", description, "--type", "task", "--json", "--quiet"}
+	if strings.TrimSpace(parentID) != "" {
+		args = append(args, "--parent", strings.TrimSpace(parentID))
+	}
 	if len(criteria) > 0 {
 		args = append(args, "--acceptance", formatAcceptanceCriteria(criteria))
 	}
@@ -101,8 +113,16 @@ func (t *BeadsTracker) AddEpic(ctx context.Context, title, goal string) (string,
 
 // AddFeature creates a feature via bd create with parent epic.
 func (t *BeadsTracker) AddFeature(ctx context.Context, epicID, title string) (string, error) {
+	return t.AddFeatureDetailed(ctx, epicID, title, "")
+}
+
+// AddFeatureDetailed creates a feature via bd create with parent epic.
+func (t *BeadsTracker) AddFeatureDetailed(ctx context.Context, epicID, title, description string) (string, error) {
 	// Using type feature
 	args := []string{"create", "--title", title, "--type", "feature", "--parent", epicID, "--json", "--quiet"}
+	if strings.TrimSpace(description) != "" {
+		args = append(args, "--description", strings.TrimSpace(description))
+	}
 	out, err := t.exec(ctx, args...)
 	if err != nil {
 		return "", fmt.Errorf("bd create feature: %w", err)

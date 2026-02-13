@@ -135,6 +135,17 @@ norma task add "implement user logout" --ac "/logout returns 200"
 norma loop norma-a3f2dd
 ```
 
+### 5. Decompose a Global Epic
+Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarchy:
+
+```bash
+# Wizard mode (default): asks clarification questions first
+norma plan "Build multi-tenant billing and subscription management"
+
+# Auto mode: no interactive clarifications
+norma plan --mode auto "Build multi-tenant billing and subscription management"
+```
+
 ---
 
 ## 📊 State & Persistence
