@@ -147,3 +147,61 @@ func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 		t.Fatalf("progress missing details bullets:\n%s", content)
 	}
 }
+
+func TestCoerceTaskStatePointerAndValue(t *testing.T) {
+	t.Parallel()
+
+	original := &models.TaskState{
+		Act: &models.ActOutput{Decision: "close"},
+	}
+	gotPtr := coerceTaskState(original)
+	if gotPtr != original {
+		t.Fatalf("coerceTaskState(pointer) should return same pointer")
+	}
+
+	value := models.TaskState{
+		Act: &models.ActOutput{Decision: "replan"},
+	}
+	gotVal := coerceTaskState(value)
+	if gotVal == nil || gotVal.Act == nil {
+		t.Fatalf("coerceTaskState(value) returned nil act")
+	}
+	if gotVal.Act.Decision != "replan" {
+		t.Fatalf("coerceTaskState(value) decision = %q, want %q", gotVal.Act.Decision, "replan")
+	}
+}
+
+func TestCoerceTaskStateHandlesUnexpectedType(t *testing.T) {
+	t.Parallel()
+
+	got := coerceTaskState("unexpected")
+	if got == nil {
+		t.Fatalf("coerceTaskState(unexpected) returned nil")
+	}
+	if got.Plan != nil || got.Do != nil || got.Check != nil || got.Act != nil || len(got.Journal) != 0 {
+		t.Fatalf("coerceTaskState(unexpected) should return empty state")
+	}
+}
+
+func TestCoerceTaskStateFromMap(t *testing.T) {
+	t.Parallel()
+
+	raw := map[string]any{
+		"act": map[string]any{
+			"decision":  "continue",
+			"rationale": "needs more work",
+			"next": map[string]any{
+				"recommended": true,
+				"notes":       "run do again",
+			},
+		},
+	}
+
+	got := coerceTaskState(raw)
+	if got == nil || got.Act == nil {
+		t.Fatalf("coerceTaskState(map) returned nil act")
+	}
+	if got.Act.Decision != "continue" {
+		t.Fatalf("coerceTaskState(map) decision = %q, want %q", got.Act.Decision, "continue")
+	}
+}

@@ -83,12 +83,54 @@ func TestValidateStepResponse(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "check role ignored",
+			name: "check ok with payload",
+			role: normaloop.RoleCheck,
+			resp: &models.AgentResponse{
+				Status: "ok",
+				Check:  &models.CheckOutput{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "check ok missing payload",
+			role: normaloop.RoleCheck,
+			resp: &models.AgentResponse{
+				Status: "ok",
+			},
+			wantErr: true,
+		},
+		{
+			name: "check error status",
 			role: normaloop.RoleCheck,
 			resp: &models.AgentResponse{
 				Status: "error",
 			},
+			wantErr: true,
+		},
+		{
+			name: "act ok with payload",
+			role: normaloop.RoleAct,
+			resp: &models.AgentResponse{
+				Status: "ok",
+				Act:    &models.ActOutput{},
+			},
 			wantErr: false,
+		},
+		{
+			name: "act ok missing payload",
+			role: normaloop.RoleAct,
+			resp: &models.AgentResponse{
+				Status: "ok",
+			},
+			wantErr: true,
+		},
+		{
+			name: "unknown role",
+			role: "unknown",
+			resp: &models.AgentResponse{
+				Status: "ok",
+			},
+			wantErr: true,
 		},
 		{
 			name:    "nil response",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,9 +19,9 @@ import (
 
 type dummyRole struct{}
 
-func (r *dummyRole) Name() string                                { return "plan" }
-func (r *dummyRole) InputSchema() string                         { return "{}" }
-func (r *dummyRole) OutputSchema() string                        { return "{}" }
+func (r *dummyRole) Name() string                                 { return "plan" }
+func (r *dummyRole) InputSchema() string                          { return "{}" }
+func (r *dummyRole) OutputSchema() string                         { return "{}" }
 func (r *dummyRole) Prompt(_ models.AgentRequest) (string, error) { return "prompt", nil }
 func (r *dummyRole) MapRequest(req models.AgentRequest) (any, error) {
 	return req, nil
@@ -32,6 +33,14 @@ func (r *dummyRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 }
 func (r *dummyRole) SetRunner(_ any) {}
 func (r *dummyRole) Runner() any     { return nil }
+
+type failingMapRole struct {
+	dummyRole
+}
+
+func (r *failingMapRole) MapResponse(_ []byte) (models.AgentResponse, error) {
+	return models.AgentResponse{}, errors.New("map failed")
+}
 
 func TestNewRunner(t *testing.T) {
 	repoRoot, err := os.MkdirTemp("", "norma-agent-test-*")
@@ -153,4 +162,52 @@ exit 1
 	assert.Error(t, err)
 	assert.Equal(t, 1, exitCode)
 	assert.Contains(t, stderr.String(), "exit code 1")
+}
+
+func TestAinvokeRunner_RunReturnsErrorWhenResponseMappingFails(t *testing.T) {
+	repoRoot, err := os.MkdirTemp("", "norma-agent-test-*")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(repoRoot) }()
+
+	agentScript := filepath.Join(repoRoot, "my-agent.sh")
+	scriptContent := `#!/bin/sh
+cat > /dev/null # consume stdin
+echo '{}' > output.json
+echo '{}'
+	`
+	err = os.WriteFile(agentScript, []byte(scriptContent), 0o755)
+	require.NoError(t, err)
+
+	cfg := config.AgentConfig{
+		Type: "exec",
+		Cmd:  []string{agentScript},
+	}
+
+	runner, err := NewRunner(cfg, &failingMapRole{})
+	require.NoError(t, err)
+
+	req := models.AgentRequest{
+		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
+		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: models.StepInfo{Index: 1, Name: "plan"},
+		Paths: models.RequestPaths{
+			WorkspaceDir: repoRoot,
+			RunDir:       repoRoot,
+		},
+		Budgets: models.Budgets{
+			MaxIterations: 1,
+		},
+		Context: models.RequestContext{
+			Facts: make(map[string]any),
+			Links: []string{},
+		},
+		StopReasonsAllowed: []string{"budget_exceeded"},
+		Plan:               &models.PlanInput{Task: models.IDInfo{ID: "task-1"}},
+	}
+
+	_, _, exitCode, err := runner.Run(context.Background(), req, io.Discard, io.Discard)
+	require.Error(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Contains(t, err.Error(), "parse agent response")
+	assert.Contains(t, err.Error(), "map failed")
 }

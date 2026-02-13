@@ -183,7 +183,7 @@ func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, st
 		return lastOutBytes, nil, 0, fmt.Errorf("marshal agent response: %w", mErr)
 	}
 
-	return lastOutBytes, nil, 0, nil
+	return lastOutBytes, nil, 0, fmt.Errorf("parse agent response: %w", err)
 }
 
 // ExtractJSON finds the first JSON object in a byte slice.

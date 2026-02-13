@@ -45,7 +45,7 @@ type NormaPDCAAgent struct {
 }
 
 // NewNormaPDCAAgent creates and configures the entire custom agent workflow.
-func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string, sessionService session.Service) (agent.Agent, []agent.Agent, error) {
+func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string, sessionService session.Service) (agent.Agent, error) {
 	orchestrator := &NormaPDCAAgent{
 		cfg:            cfg,
 		store:          store,
@@ -56,23 +56,40 @@ func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 		sessionService: sessionService,
 	}
 
-	orchestrator.planAgent = orchestrator.createSubAgent(normaloop.RolePlan)
-	orchestrator.doAgent = orchestrator.createSubAgent(normaloop.RoleDo)
-	orchestrator.checkAgent = orchestrator.createSubAgent(normaloop.RoleCheck)
-	orchestrator.actAgent = orchestrator.createSubAgent(normaloop.RoleAct)
+	var err error
+	orchestrator.planAgent, err = orchestrator.createSubAgent(normaloop.RolePlan)
+	if err != nil {
+		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RolePlan, err)
+	}
+	orchestrator.doAgent, err = orchestrator.createSubAgent(normaloop.RoleDo)
+	if err != nil {
+		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RoleDo, err)
+	}
+	orchestrator.checkAgent, err = orchestrator.createSubAgent(normaloop.RoleCheck)
+	if err != nil {
+		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RoleCheck, err)
+	}
+	orchestrator.actAgent, err = orchestrator.createSubAgent(normaloop.RoleAct)
+	if err != nil {
+		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RoleAct, err)
+	}
 
 	subAgents := []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent}
 
 	ag, err := agent.New(agent.Config{
 		Name:        "NormaPDCAAgent",
 		Description: "Orchestrates story generation, critique, revision, and checks.",
+		SubAgents:   subAgents,
 		Run:         orchestrator.Run,
 	})
-	return ag, subAgents, err
+	if err != nil {
+		return nil, err
+	}
+	return ag, nil
 }
 
-func (a *NormaPDCAAgent) createSubAgent(roleName string) agent.Agent {
-	ag, _ := agent.New(agent.Config{
+func (a *NormaPDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
+	ag, err := agent.New(agent.Config{
 		Name:        roleName,
 		Description: fmt.Sprintf("Norma %s agent", roleName),
 		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
@@ -118,7 +135,10 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) agent.Agent {
 			}
 		},
 	})
-	return ag
+	if err != nil {
+		return nil, err
+	}
+	return ag, nil
 }
 
 func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
@@ -272,8 +292,13 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 
 	// Create input.json
-	inputData, _ := json.MarshalIndent(req, "", "  ")
-	_ = os.WriteFile(filepath.Join(stepDir, "input.json"), inputData, 0o644)
+	inputData, err := json.MarshalIndent(req, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal input.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(stepDir, "input.json"), inputData, 0o644); err != nil {
+		return nil, fmt.Errorf("write input.json: %w", err)
+	}
 
 	// Create ExecAgent for this step
 	agentCfg := a.cfg.Agents[roleName]
@@ -283,7 +308,10 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 
 	log.Debug().Str("role", roleName).Interface("cmd", cmd).Msg("ADK PDCA Agent: creating ExecAgent")
-	prompt, _ := role.Prompt(req)
+	prompt, err := role.Prompt(req)
+	if err != nil {
+		return nil, fmt.Errorf("build prompt for %s: %w", roleName, err)
+	}
 
 	// Save prompt to logs/prompt.txt
 	promptPath := filepath.Join(stepDir, "logs", "prompt.txt")
@@ -291,33 +319,30 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 		log.Warn().Err(err).Str("path", promptPath).Msg("failed to save prompt log")
 	}
 
-	input, _ := role.MapRequest(req)
-	inputJSON, _ := json.Marshal(input)
+	input, err := role.MapRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("map request for %s: %w", roleName, err)
+	}
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mapped request for %s: %w", roleName, err)
+	}
 
 	// Prepare log files
 	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		log.Warn().Err(err).Msg("failed to create stdout log file")
+		return nil, fmt.Errorf("create stdout log file: %w", err)
 	}
 	defer func() { _ = stdoutFile.Close() }()
 
 	stderrFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stderr.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		log.Warn().Err(err).Msg("failed to create stderr log file")
+		return nil, fmt.Errorf("create stderr log file: %w", err)
 	}
 	defer func() { _ = stderrFile.Close() }()
 
-	var multiStdout, multiStderr io.Writer
-	if stdoutFile != nil {
-		multiStdout = io.MultiWriter(os.Stdout, stdoutFile)
-	} else {
-		multiStdout = os.Stdout
-	}
-	if stderrFile != nil {
-		multiStderr = io.MultiWriter(os.Stderr, stderrFile)
-	} else {
-		multiStderr = os.Stderr
-	}
+	multiStdout := io.MultiWriter(os.Stdout, stdoutFile)
+	multiStderr := io.MultiWriter(os.Stderr, stderrFile)
 
 	execAgent, err := adk.NewExecAgent(
 		roleName,
@@ -371,8 +396,13 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	resp.Timing.WallTimeMS = time.Since(startTime).Milliseconds()
 
 	// Persist output.json
-	respJSON, _ := json.MarshalIndent(resp, "", "  ")
-	_ = os.WriteFile(filepath.Join(stepDir, "output.json"), respJSON, 0o644)
+	respJSON, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal output.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(stepDir, "output.json"), respJSON, 0o644); err != nil {
+		return nil, fmt.Errorf("write output.json: %w", err)
+	}
 
 	// Persist Do workspace changes before worktree cleanup.
 	if roleName == normaloop.RoleDo && resp.Status == "ok" {
@@ -398,7 +428,9 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 		Iteration:        iteration,
 		Status:           "running",
 	}
-	_ = a.store.CommitStep(ctx, stepRec, nil, update)
+	if err := a.store.CommitStep(ctx, stepRec, nil, update); err != nil {
+		return nil, fmt.Errorf("commit step %d (%s): %w", index, roleName, err)
+	}
 
 	// Update Task State and persist to Beads.
 	if err := a.updateTaskState(ctx, &resp, roleName, iteration, index); err != nil {
@@ -440,29 +472,34 @@ func validateStepResponse(roleName string, resp *models.AgentResponse) error {
 		return fmt.Errorf("nil response for role %q", roleName)
 	}
 
+	switch resp.Status {
+	case "ok", "stop":
+	default:
+		return fmt.Errorf("%s step returned non-ok status %q", roleName, resp.Status)
+	}
+	if resp.Status == "stop" {
+		return nil
+	}
+
 	switch roleName {
 	case normaloop.RolePlan:
-		switch resp.Status {
-		case "ok":
-			if resp.Plan == nil {
-				return fmt.Errorf("plan step returned status ok without plan output")
-			}
-		case "stop":
-			return nil
-		default:
-			return fmt.Errorf("plan step returned non-ok status %q", resp.Status)
+		if resp.Plan == nil {
+			return fmt.Errorf("plan step returned status ok without plan output")
 		}
 	case normaloop.RoleDo:
-		switch resp.Status {
-		case "ok":
-			if resp.Do == nil {
-				return fmt.Errorf("do step returned status ok without do output")
-			}
-		case "stop":
-			return nil
-		default:
-			return fmt.Errorf("do step returned non-ok status %q", resp.Status)
+		if resp.Do == nil {
+			return fmt.Errorf("do step returned status ok without do output")
 		}
+	case normaloop.RoleCheck:
+		if resp.Check == nil {
+			return fmt.Errorf("check step returned status ok without check output")
+		}
+	case normaloop.RoleAct:
+		if resp.Act == nil {
+			return fmt.Errorf("act step returned status ok without act output")
+		}
+	default:
+		return fmt.Errorf("unknown role %q", roleName)
 	}
 
 	return nil
@@ -473,7 +510,34 @@ func (a *NormaPDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskS
 	if err != nil {
 		return &models.TaskState{}
 	}
-	return s.(*models.TaskState)
+	return coerceTaskState(s)
+}
+
+func coerceTaskState(value any) *models.TaskState {
+	switch state := value.(type) {
+	case nil:
+		return &models.TaskState{}
+	case *models.TaskState:
+		if state == nil {
+			return &models.TaskState{}
+		}
+		return state
+	case models.TaskState:
+		copied := state
+		return &copied
+	case map[string]any:
+		raw, err := json.Marshal(state)
+		if err != nil {
+			return &models.TaskState{}
+		}
+		var decoded models.TaskState
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			return &models.TaskState{}
+		}
+		return &decoded
+	default:
+		return &models.TaskState{}
+	}
 }
 
 func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
