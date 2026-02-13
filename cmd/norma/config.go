@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 var defaultConfigPath = filepath.Join(".norma", "config.yaml")
@@ -41,6 +43,18 @@ func loadConfig(repoRoot string) (config.Config, error) {
 
 func loadRawConfig(repoRoot string) (config.Config, error) {
 	path := resolveConfigPath(repoRoot, viper.GetString("config"))
+	rawConfig, err := os.ReadFile(path)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("read config bytes: %w", err)
+	}
+	var rawSettings map[string]any
+	if err := yaml.Unmarshal(rawConfig, &rawSettings); err != nil {
+		return config.Config{}, fmt.Errorf("parse raw config yaml: %w", err)
+	}
+	if err := config.ValidateSettings(rawSettings); err != nil {
+		return config.Config{}, fmt.Errorf("validate config: %w", err)
+	}
+
 	viper.SetConfigFile(path)
 	if err := viper.ReadInConfig(); err != nil {
 		return config.Config{}, fmt.Errorf("read config: %w", err)

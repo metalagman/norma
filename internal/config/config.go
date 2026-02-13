@@ -20,6 +20,10 @@ type AgentConfig struct {
 	Type          string        `json:"type"                     mapstructure:"type"`
 	Cmd           []string      `json:"cmd,omitempty"            mapstructure:"cmd"`
 	Model         string        `json:"model,omitempty"          mapstructure:"model"`
+	BaseURL       string        `json:"base_url,omitempty"       mapstructure:"base_url"`
+	APIKeyEnv     string        `json:"api_key_env,omitempty"    mapstructure:"api_key_env"`
+	APIKey        string        `json:"api_key,omitempty"        mapstructure:"api_key"`
+	Timeout       int           `json:"timeout,omitempty"        mapstructure:"timeout"`
 	Path          string        `json:"path,omitempty"           mapstructure:"path"`
 	UseTTY        *bool         `json:"use_tty,omitempty"        mapstructure:"use_tty"`
 	MaxIterations int           `json:"max_iterations,omitempty" mapstructure:"max_iterations"`
@@ -57,6 +61,16 @@ type RetentionPolicy struct {
 }
 
 const defaultProfile = "default"
+
+// Supported agent types.
+const (
+	AgentTypeExec     = "exec"
+	AgentTypeCodex    = "codex"
+	AgentTypeOpenCode = "opencode"
+	AgentTypeGemini   = "gemini"
+	AgentTypeClaude   = "claude"
+	AgentTypeOpenAI   = "openai"
+)
 
 // ResolveAgents returns the agents for the selected profile.
 func (c Config) ResolveAgents(profile string) (string, map[string]AgentConfig, error) {

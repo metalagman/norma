@@ -1,0 +1,207 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["agents", "profiles", "budgets"],
+  "properties": {
+    "profile": {
+      "type": "string"
+    },
+    "agents": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/agentConfig"
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/profileConfig"
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "required": ["max_iterations"],
+      "additionalProperties": false,
+      "properties": {
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keep_last": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "keep_days": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "agentConfig": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["exec", "codex", "opencode", "gemini", "claude", "openai"]
+        },
+        "cmd": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "api_key_env": {
+          "type": "string",
+          "minLength": 1
+        },
+        "api_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "use_tty": {
+          "type": "boolean"
+        },
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sub_agents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/agentConfig"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "exec"
+              }
+            }
+          },
+          "then": {
+            "required": ["cmd"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": ["codex", "opencode", "gemini", "claude", "openai"]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": ["cmd"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "openai"
+              }
+            }
+          },
+          "then": {
+            "required": ["model"],
+            "oneOf": [
+              {
+                "required": ["api_key_env"]
+              },
+              {
+                "required": ["api_key"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "profileConfig": {
+      "type": "object",
+      "required": ["pdca"],
+      "properties": {
+        "pdca": {
+          "type": "object",
+          "required": ["plan", "do", "check", "act"],
+          "additionalProperties": false,
+          "properties": {
+            "plan": {
+              "type": "string",
+              "minLength": 1
+            },
+            "do": {
+              "type": "string",
+              "minLength": 1
+            },
+            "check": {
+              "type": "string",
+              "minLength": 1
+            },
+            "act": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/featureConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "featureConfig": {
+      "type": "object",
+      "required": ["agents"],
+      "properties": {
+        "agents": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

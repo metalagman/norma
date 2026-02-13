@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metalagman/ainvoke/adk"
 	normaagent "github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
@@ -24,9 +23,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
-	"google.golang.org/genai"
 )
 
 // NormaPDCAAgent is a custom ADK agent that orchestrates one iteration of the PDCA loop.
@@ -306,31 +303,11 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	if err != nil {
 		return nil, err
 	}
-	cmd, err := normaagent.ResolveCmd(agentCfg)
+	runner, err := normaagent.NewRunner(agentCfg, role)
 	if err != nil {
-		return nil, fmt.Errorf("resolve command for role %q: %w", roleName, err)
+		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
 	}
-
-	log.Debug().Str("role", roleName).Interface("cmd", cmd).Msg("ADK PDCA Agent: creating ExecAgent")
-	prompt, err := role.Prompt(req)
-	if err != nil {
-		return nil, fmt.Errorf("build prompt for %s: %w", roleName, err)
-	}
-
-	// Save prompt to logs/prompt.txt
-	promptPath := filepath.Join(stepDir, "logs", "prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
-		log.Warn().Err(err).Str("path", promptPath).Msg("failed to save prompt log")
-	}
-
-	input, err := role.MapRequest(req)
-	if err != nil {
-		return nil, fmt.Errorf("map request for %s: %w", roleName, err)
-	}
-	inputJSON, err := json.Marshal(input)
-	if err != nil {
-		return nil, fmt.Errorf("marshal mapped request for %s: %w", roleName, err)
-	}
+	log.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("ADK PDCA Agent: running step runner")
 
 	// Prepare log files
 	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -347,48 +324,12 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 
 	multiStdout, multiStderr := agentOutputWriters(logging.DebugEnabled(), stdoutFile, stderrFile)
 
-	execAgent, err := adk.NewExecAgent(
-		roleName,
-		fmt.Sprintf("Norma %s agent", roleName),
-		cmd,
-		adk.WithExecAgentPrompt(prompt),
-		adk.WithExecAgentInputSchema(role.InputSchema()),
-		adk.WithExecAgentOutputSchema(role.OutputSchema()),
-		adk.WithExecAgentRunDir(stepDir),
-		adk.WithExecAgentStdout(multiStdout),
-		adk.WithExecAgentStderr(multiStderr),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create ADK Runner for the sub-agent
-	adkRunner, err := runner.New(runner.Config{
-		AppName:        "norma",
-		Agent:          execAgent,
-		SessionService: a.sessionService,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create adk runner for sub-agent: %w", err)
-	}
-
-	// Run ExecAgent
-	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
-	userID := "norma-user"
-
 	startTime := time.Now()
-	var lastOut []byte
-	for ev, err := range adkRunner.Run(ctx, userID, ctx.Session().ID(), userContent, agent.RunConfig{}) {
-		if err != nil {
-			return nil, err
-		}
-		if !yield(ev, nil) {
-			return nil, fmt.Errorf("yield stopped")
-		}
-		if ev.Content != nil && len(ev.Content.Parts) > 0 {
-			lastOut = []byte(ev.Content.Parts[0].Text)
-		}
+	lastOut, _, exitCode, err := runner.Run(ctx, req, multiStdout, multiStderr)
+	if err != nil {
+		return nil, fmt.Errorf("run role %q agent (exit code %d): %w", roleName, exitCode, err)
 	}
+	_ = yield
 	endTime := time.Now()
 
 	// Parse response

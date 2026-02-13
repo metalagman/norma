@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
@@ -75,5 +76,8 @@ func initConfig() {
 	if path == "" {
 		path = defaultConfigPath
 	}
+	viper.SetEnvPrefix("NORMA")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	viper.AutomaticEnv()
 	viper.SetConfigFile(path)
 }

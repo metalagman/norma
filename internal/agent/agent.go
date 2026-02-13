@@ -28,6 +28,10 @@ type Runner interface {
 
 // NewRunner constructs a runner for the given agent config and role.
 func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
+	if cfg.Type == config.AgentTypeOpenAI {
+		return newOpenAIRunner(cfg, role)
+	}
+
 	cmd, err := ResolveCmd(cfg)
 	if err != nil {
 		return nil, err
@@ -45,30 +49,32 @@ func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 	cmd := cfg.Cmd
 	if len(cmd) == 0 {
 		switch cfg.Type {
-		case "exec":
+		case config.AgentTypeExec:
 			return nil, fmt.Errorf("exec agent requires cmd")
-		case "claude":
+		case config.AgentTypeClaude:
 			cmd = []string{"claude"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-		case "codex":
+		case config.AgentTypeCodex:
 			cmd = []string{"codex", "exec"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
 			cmd = append(cmd, "--sandbox", "workspace-write")
-		case "gemini":
+		case config.AgentTypeGemini:
 			cmd = []string{"gemini"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
 			cmd = append(cmd, "--approval-mode", "yolo")
-		case "opencode":
+		case config.AgentTypeOpenCode:
 			cmd = []string{"opencode", "run"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
+		case config.AgentTypeOpenAI:
+			return nil, fmt.Errorf("openai agent does not support command execution")
 		default:
 			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
 		}

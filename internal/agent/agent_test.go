@@ -211,3 +211,26 @@ echo '{}'
 	assert.Contains(t, err.Error(), "parse agent response")
 	assert.Contains(t, err.Error(), "map failed")
 }
+
+func TestResolveCmd_OpenAIAgentReturnsError(t *testing.T) {
+	t.Parallel()
+
+	_, err := ResolveCmd(config.AgentConfig{
+		Type:  config.AgentTypeOpenAI,
+		Model: "gpt-5",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support command execution")
+}
+
+func TestNewRunner_OpenAIAgent(t *testing.T) {
+	t.Parallel()
+
+	runner, err := NewRunner(config.AgentConfig{
+		Type:   config.AgentTypeOpenAI,
+		Model:  "gpt-5",
+		APIKey: "test-key",
+	}, &dummyRole{})
+	require.NoError(t, err)
+	require.NotNil(t, runner)
+}
