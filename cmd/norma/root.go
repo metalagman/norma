@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
@@ -27,7 +26,7 @@ var (
 // Execute runs the root command.
 func Execute() error {
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", filepath.Join(".norma", "config.json"), "config file path")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", defaultConfigPath, "config file path")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "config profile name")
 	if err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config")); err != nil {
@@ -73,8 +72,7 @@ func initBeads() error {
 func initConfig() {
 	path := cfgFile
 	if path == "" {
-		path = filepath.Join(".norma", "config.json")
+		path = defaultConfigPath
 	}
 	viper.SetConfigFile(path)
-	viper.SetConfigType("json")
 }

@@ -417,32 +417,47 @@ An epic is complete when:
 - `claude` : run Claude CLI oneshot using a generated prompt (norma enforces JSON output)
 
 ### 6.2 Agent configuration (MVP)
-Stored in `.norma/config.json` (or repo `.norma.json` — your choice later).
+Stored in `.norma/config.yaml`.
 
 Example:
-```json
-{
-  "agents": {
-    "plan":  { "type": "exec",  "cmd": ["./bin/norma-agent-plan"] },
-    "do":    { "type": "exec",  "cmd": ["./bin/norma-agent-do"] },
-    "check": { "type": "exec",  "cmd": ["./bin/norma-agent-check"] },
-    "act":   { "type": "codex", "model": "gpt-5-codex" }
-  },
-  "budgets": {
-    "max_iterations": 5,
-    "max_patch_kb": 200
-  },
-  "retention": {
-    "keep_last": 50,
-    "keep_days": 30
-  }
-}
+```yaml
+profile: default
+
+agents:
+  opencode_exec_agent:
+    type: exec
+    cmd: ["./bin/norma-agent-opencode-exec"]
+  codex_agent:
+    type: codex
+    model: gpt-5-codex
+
+profiles:
+  default:
+    pdca:
+      plan: opencode_exec_agent
+      do: opencode_exec_agent
+      check: codex_agent
+      act: codex_agent
+    features:
+      backlog_refiner:
+        agents:
+          planner: codex_agent
+          implementer: opencode_exec_agent
+
+budgets:
+  max_iterations: 5
+  max_patch_kb: 200
+
+retention:
+  keep_last: 50
+  keep_days: 30
 ```
 
 Notes:
 - `cmd` is an argv array for safety.
 - For `codex`, `opencode`, `gemini`, and `claude`, `cmd` is not supported; the tool binary is fixed.
 - `codex.path`, `opencode.path`, `gemini.path`, and `claude.path` should constrain context (repo root or subdir).
+- `profiles.<name>.features.*.agents.*` must reference keys defined in top-level `agents`.
 - `retention.keep_last` and `retention.keep_days` control auto-pruning on each run (optional).
 
 ---
@@ -864,7 +879,7 @@ norma generates a role-specific prompt that instructs Claude to:
 
 ## 16) Acceptance checklist (MVP)
 
-- [x] `norma init` initializes .beads, .norma directory and default config.json
+- [x] `norma init` initializes .beads, .norma directory and default config.yaml
 - [x] `norma loop <task-id>` creates a run and DB entry in `.norma/norma.db`
 - [x] Each agent step run creates an isolated Git worktree at `<step_dir>/workspace/`
 - [x] Each run uses a task-scoped Git branch: `norma/task/<task_id>`

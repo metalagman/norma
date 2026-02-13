@@ -46,7 +46,7 @@ func runsPruneCmd() *cobra.Command {
 				}
 			}
 			if policy.KeepLast <= 0 && policy.KeepDays <= 0 {
-				return fmt.Errorf("set --keep-last or --keep-days (or configure retention in .norma/config.json)")
+				return fmt.Errorf("set --keep-last or --keep-days (or configure retention in .norma/config.yaml)")
 			}
 
 			normaDir := filepath.Join(repoRoot, ".norma")

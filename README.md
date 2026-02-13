@@ -60,13 +60,71 @@ go install github.com/metalagman/norma/cmd/norma@latest
 ```
 
 ### 3. Initialize & Configure
-Run `norma init` to automatically initialize `.beads` and create a default `.norma/config.json`:
+Run `norma init` to automatically initialize `.beads` and create a default `.norma/config.yaml`:
 
 ```bash
 norma init
 ```
 
-The default configuration uses the `codex` agent with the `gpt-5.2-codex` model. You can customize it in `.norma/config.json`:
+The default configuration uses the `codex` agent with the `gpt-5.2-codex` model. You can customize it in `.norma/config.yaml`:
+
+```yaml
+profile: default
+
+agents:
+  codex_primary:
+    type: codex
+    model: gpt-5.2-codex
+  gemini_flash:
+    type: gemini
+    model: gemini-3-flash-preview
+
+profiles:
+  default:
+    pdca:
+      plan: codex_primary
+      do: gemini_flash
+      check: codex_primary
+      act: codex_primary
+    features:
+      backlog_refiner:
+        agents:
+          planner: codex_primary
+          implementer: gemini_flash
+
+budgets:
+  max_iterations: 5
+retention:
+  keep_last: 50
+  keep_days: 30
+```
+
+Legacy role-keyed configs should be migrated to named agents. Example:
+
+```yaml
+# old
+profiles:
+  default:
+    agents:
+      plan: { type: codex, model: gpt-5.2-codex }
+      do: { type: gemini, model: gemini-3-flash-preview }
+      check: { type: codex, model: gpt-5.2-codex }
+      act: { type: codex, model: gpt-5.2-codex }
+```
+
+```yaml
+# new
+agents:
+  codex_primary: { type: codex, model: gpt-5.2-codex }
+  gemini_flash: { type: gemini, model: gemini-3-flash-preview }
+profiles:
+  default:
+    pdca:
+      plan: codex_primary
+      do: gemini_flash
+      check: codex_primary
+      act: codex_primary
+```
 
 ### 4. Create a Task & Run
 ```bash

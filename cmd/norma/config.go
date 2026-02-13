@@ -3,21 +3,28 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/spf13/viper"
 )
 
-func loadConfig(repoRoot string) (config.Config, error) {
-	path := viper.GetString("config")
+var defaultConfigPath = filepath.Join(".norma", "config.yaml")
+
+func resolveConfigPath(repoRoot, configuredPath string) string {
+	path := strings.TrimSpace(configuredPath)
 	if path == "" {
-		path = filepath.Join(".norma", "config.json")
+		path = defaultConfigPath
 	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(repoRoot, path)
 	}
+	return path
+}
+
+func loadConfig(repoRoot string) (config.Config, error) {
+	path := resolveConfigPath(repoRoot, viper.GetString("config"))
 	viper.SetConfigFile(path)
-	viper.SetConfigType("json")
 	if err := viper.ReadInConfig(); err != nil {
 		return config.Config{}, fmt.Errorf("read config: %w", err)
 	}

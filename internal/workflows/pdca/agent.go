@@ -302,10 +302,13 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 
 	// Create ExecAgent for this step
-	agentCfg := a.cfg.Agents[roleName]
-	cmd, err := normaagent.ResolveCmd(agentCfg)
+	agentCfg, err := resolvedAgentForRole(a.cfg.Agents, roleName)
 	if err != nil {
 		return nil, err
+	}
+	cmd, err := normaagent.ResolveCmd(agentCfg)
+	if err != nil {
+		return nil, fmt.Errorf("resolve command for role %q: %w", roleName, err)
 	}
 
 	log.Debug().Str("role", roleName).Interface("cmd", cmd).Msg("ADK PDCA Agent: creating ExecAgent")
@@ -510,6 +513,14 @@ func validateStepResponse(roleName string, resp *models.AgentResponse) error {
 	}
 
 	return nil
+}
+
+func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string) (config.AgentConfig, error) {
+	agentCfg, ok := agents[roleName]
+	if !ok {
+		return config.AgentConfig{}, fmt.Errorf("missing resolved agent config for role %q", roleName)
+	}
+	return agentCfg, nil
 }
 
 func (a *NormaPDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {

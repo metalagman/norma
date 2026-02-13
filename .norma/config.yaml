@@ -1,0 +1,38 @@
+profile: default
+
+agents:
+  codex_primary:
+    type: codex
+    model: gpt-5.2-codex
+  gemini_flash:
+    type: gemini
+    model: gemini-3-flash-preview
+  opencode_exec_agent:
+    type: opencode
+    model: opencode/big-pickle
+
+profiles:
+  default:
+    pdca:
+      plan: codex_primary
+      do: gemini_flash
+      check: codex_primary
+      act: codex_primary
+  opencode:
+    pdca:
+      plan: opencode_exec_agent
+      do: opencode_exec_agent
+      check: opencode_exec_agent
+      act: opencode_exec_agent
+  gemini:
+    pdca:
+      plan: gemini_flash
+      do: gemini_flash
+      check: gemini_flash
+      act: gemini_flash
+
+budgets:
+  max_iterations: 5
+retention:
+  keep_last: 50
+  keep_days: 30
