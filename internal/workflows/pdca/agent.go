@@ -8,6 +8,7 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,11 +125,13 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
 					if resp.Act.Decision == "close" {
 						log.Info().Msg("ADK PDCA Sub-agent: act decision is close, stopping loop")
 						_ = ctx.Session().State().Set("stop", true)
+						ctx.EndInvocation()
 					}
 				}
 				if resp.Status != "ok" {
 					log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("ADK PDCA Sub-agent: non-ok status, stopping loop")
 					_ = ctx.Session().State().Set("stop", true)
+					ctx.EndInvocation()
 				}
 			}
 		},
@@ -141,6 +144,11 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
 
 func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
+		if ctx.Ended() || a.shouldStop(ctx) {
+			log.Info().Msg("ADK PDCA Agent: invocation already stopped")
+			return
+		}
+
 		iteration, err := ctx.Session().State().Get("iteration")
 		itNum, ok := iteration.(int)
 		if err != nil || !ok {
@@ -192,6 +200,10 @@ func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 				return
 			}
 		}
+		if ctx.Ended() || a.shouldStop(ctx) {
+			log.Info().Msg("ADK PDCA Agent: stopping after Act step")
+			return
+		}
 
 		// Increment iteration for next run
 		log.Info().Int("iteration", itNum).Msg("ADK PDCA Agent: iteration finished")
@@ -201,10 +213,15 @@ func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 
 func (a *NormaPDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
 	stop, err := ctx.Session().State().Get("stop")
-	if err == nil {
-		if s, ok := stop.(bool); ok && s {
-			return true
-		}
+	if err != nil {
+		return false
+	}
+	if b, ok := stop.(bool); ok {
+		return b
+	}
+	if s, ok := stop.(string); ok {
+		parsed, parseErr := strconv.ParseBool(strings.TrimSpace(s))
+		return parseErr == nil && parsed
 	}
 	return false
 }
