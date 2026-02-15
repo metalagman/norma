@@ -9,8 +9,6 @@ import (
 )
 
 func TestResolvePlannerAgent_PrefersBacklogRefinerPlanner(t *testing.T) {
-	t.Parallel()
-
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	viper.Set("profile", "default")

@@ -37,6 +37,14 @@ All contributors MUST:
 - **Pass quality gates**: `go test ./...` and `go tool golangci-lint run` must pass before submission.
 - **Sync via merge (no rebase)**: Use merge-based pulls when updating from origin (`git pull --no-rebase` or `git pull --merge`). Do not rebase shared branches.
 
+## 0.3) Logging policy
+
+To ensure consistent and high-quality logging across all components:
+- **Zerolog only**: All components MUST use `github.com/rs/zerolog` for logging.
+- **Prohibited libraries**: Usage of `logrus`, `zap`, `slog`, or the standard `log` package is strictly prohibited.
+- **Global configuration**: Use the global logger initialized via `internal/logging.Init()`.
+- **Structured logging**: Prefer structured logging (e.g., `log.Info().Str("key", value).Msg("message")`) over formatted strings.
+
 ---
 
 ## 1) Directory layout

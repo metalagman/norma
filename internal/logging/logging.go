@@ -19,10 +19,10 @@ func Init(debug bool) {
 		level = zerolog.DebugLevel
 	}
 	zerolog.SetGlobalLevel(level)
-	log.Logger = log.Output(zerolog.ConsoleWriter{
+	log.Logger = zerolog.New(zerolog.ConsoleWriter{
 		Out:        os.Stderr,
 		TimeFormat: time.RFC3339,
-	})
+	}).With().Timestamp().Str("app", "norma").Logger()
 }
 
 // DebugEnabled reports whether debug logging is enabled.

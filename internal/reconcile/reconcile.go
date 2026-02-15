@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 var stepDirPattern = regexp.MustCompile(`^(\d+)-([a-z]+)$`)
@@ -100,6 +102,7 @@ func ensureStepRecord(ctx context.Context, db *sql.DB, runID string, stepIndex i
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	summary := "reconciled missing step record"
+	log.Info().Str("run_id", runID).Int("step_index", stepIndex).Str("role", role).Msg("reconciling missing step record from disk")
 	if _, err := tx.ExecContext(ctx, `INSERT INTO steps(run_id, step_index, role, iteration, status, step_dir, started_at, ended_at, summary)
 		VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 		runID, stepIndex, role, iteration, "fail", stepDir, now, summary); err != nil {

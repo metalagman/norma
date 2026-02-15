@@ -8,8 +8,6 @@ import (
 )
 
 func TestDefaultConfigYAML_IsLoadable(t *testing.T) {
-	t.Parallel()
-
 	repoRoot := t.TempDir()
 	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), defaultConfigYAML); err != nil {
 		t.Fatalf("write default config: %v", err)

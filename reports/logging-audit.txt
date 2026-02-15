@@ -1,0 +1,8 @@
+Logging Audit Report - 2026-02-15
+
+No non-zerolog logging imports or call sites were found in the project code (.go files).
+Prohibited libraries (logrus, zap, slog, log) are present in go.mod only as indirect dependencies, primarily brought in by golangci-lint and other tools.
+
+Verified with:
+- grep -rE "logrus|zap|slog|\"log\"" --exclude-dir={.git,.beads,.norma,vendor,reports} .
+- go mod why

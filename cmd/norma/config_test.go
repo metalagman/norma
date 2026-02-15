@@ -24,8 +24,6 @@ func TestResolveConfigPath_DefaultYAMLPreferred(t *testing.T) {
 }
 
 func TestLoadConfig_UsesYAML(t *testing.T) {
-	t.Parallel()
-
 	repoRoot := t.TempDir()
 	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `profile: default
 agents:
