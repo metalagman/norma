@@ -110,20 +110,20 @@ func (a *runtime) runRoleLoop(roleName string) func(ctx agent.InvocationContext)
 				itNum = 1
 			}
 
-			l.Info().Int("iteration", itNum).Msg("pdca sub-agent: starting step")
+			l.Info().Int("iteration", itNum).Msg("starting step")
 			resp, err := a.runStep(ctx, itNum, roleName)
 			if err != nil {
-				l.Error().Err(err).Msg("pdca sub-agent: step failed")
+				l.Error().Err(err).Msg("step failed")
 				yield(nil, err)
 				return
 			}
 			if err := validateStepResponse(roleName, resp); err != nil {
-				l.Error().Err(err).Msg("pdca sub-agent: invalid step response")
+				l.Error().Err(err).Msg("invalid step response")
 				yield(nil, err)
 				return
 			}
 
-			l.Debug().Str("status", resp.Status).Msg("pdca sub-agent: step completed")
+			l.Debug().Str("status", resp.Status).Msg("step completed")
 
 			a.processRoleResult(ctx, yield, roleName, resp, itNum)
 		}
@@ -139,20 +139,20 @@ func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*ses
 
 	// Communicate results via session state
 	if roleName == RoleCheck && resp.Check != nil {
-		l.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("pdca sub-agent: setting check verdict in state")
+		l.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("setting check verdict in state")
 		if err := ctx.Session().State().Set("verdict", resp.Check.Verdict.Status); err != nil {
 			yield(nil, fmt.Errorf("set verdict in session state: %w", err))
 			return
 		}
 	}
 	if roleName == RoleAct && resp.Act != nil {
-		l.Debug().Str("decision", resp.Act.Decision).Msg("pdca sub-agent: setting act decision in state")
+		l.Debug().Str("decision", resp.Act.Decision).Msg("setting act decision in state")
 		if err := ctx.Session().State().Set("decision", resp.Act.Decision); err != nil {
 			yield(nil, fmt.Errorf("set decision in session state: %w", err))
 			return
 		}
 		if resp.Act.Decision == "close" {
-			l.Info().Msg("pdca sub-agent: act decision is close, stopping loop")
+			l.Info().Msg("act decision is close, stopping loop")
 			if err := ctx.Session().State().Set("stop", true); err != nil {
 				yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 				return
@@ -168,7 +168,7 @@ func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*ses
 		}
 	}
 	if resp.Status != "ok" {
-		l.Warn().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: non-ok status, stopping loop")
+		l.Warn().Str("role", roleName).Str("status", resp.Status).Msg("non-ok status, stopping loop")
 		if err := ctx.Session().State().Set("stop", true); err != nil {
 			yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 			return
@@ -267,14 +267,14 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 
 	workspaceDir := filepath.Join(stepDir, "workspace")
 	branchName := fmt.Sprintf("norma/task/%s", a.runInput.TaskID)
-	l.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("pdca agent: mounting worktree")
+	l.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("mounting worktree")
 	if _, err := git.MountWorktree(ctx, a.runInput.GitRoot, workspaceDir, branchName, a.baseBranch); err != nil {
 		return nil, fmt.Errorf("mount worktree: %w", err)
 	}
 	defer func() {
-		l.Debug().Str("workspace", workspaceDir).Msg("pdca agent: removing worktree")
+		l.Debug().Str("workspace", workspaceDir).Msg("removing worktree")
 		if err := git.RemoveWorktree(ctx, a.runInput.GitRoot, workspaceDir); err != nil {
-			l.Warn().Err(err).Str("workspace", workspaceDir).Msg("pdca agent: failed to remove worktree")
+			l.Warn().Err(err).Str("workspace", workspaceDir).Msg("failed to remove worktree")
 		}
 	}()
 
@@ -320,7 +320,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	if err != nil {
 		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
 	}
-	l.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("pdca agent: running step runner")
+	l.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("running step runner")
 
 	// Prepare log files
 	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
