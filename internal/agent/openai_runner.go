@@ -17,16 +17,26 @@ import (
 
 type openAIRunner struct {
 	role   contracts.Role
-	client *openaiapi.Client
+	client completionClient
+}
+
+type completionClient interface {
+	Complete(ctx context.Context, req openaiapi.CompletionRequest) (openaiapi.CompletionResponse, error)
+}
+
+var newOpenAICompletionClient = func(cfg openaiapi.Config) (completionClient, error) {
+	return openaiapi.NewClient(cfg, nil)
 }
 
 func newOpenAIRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
-	client, err := openaiapi.NewClient(openaiapi.Config{
+	openAICfg := openaiapi.Config{
 		Model:   cfg.Model,
 		BaseURL: cfg.BaseURL,
 		APIKey:  cfg.APIKey,
 		Timeout: time.Duration(cfg.Timeout) * time.Second,
-	}, nil)
+	}
+
+	client, err := newOpenAICompletionClient(openAICfg)
 	if err != nil {
 		return nil, err
 	}

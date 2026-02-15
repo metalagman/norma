@@ -5,49 +5,59 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestClientComplete_SendsExpectedPayloadAndParsesOutput(t *testing.T) {
 	var gotAuth string
 	var gotPath string
 	var gotBody map[string]any
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotPath = r.URL.Path
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			gotPath = req.URL.Path
 
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read request body: %v", err)
-		}
-		if err := json.Unmarshal(body, &gotBody); err != nil {
-			t.Fatalf("unmarshal request body: %v", err)
-		}
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("read request body: %v", err)
+			}
+			if err := json.Unmarshal(body, &gotBody); err != nil {
+				t.Fatalf("unmarshal request body: %v", err)
+			}
 
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"error": {"code": "", "message": ""},
-			"output": [
-				{
-					"type": "message",
-					"role": "assistant",
-					"content": [
-						{"type": "output_text", "text": "{\"status\":\"ok\"}", "annotations": []}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+					"error": {"code": "", "message": ""},
+					"output": [
+						{
+							"type": "message",
+							"role": "assistant",
+							"content": [
+								{"type": "output_text", "text": "{\"status\":\"ok\"}", "annotations": []}
+							]
+						}
 					]
-				}
-			]
-		}`))
-	}))
-	t.Cleanup(srv.Close)
+				}`)),
+				Request: req,
+			}, nil
+		}),
+	}
 
 	client, err := NewClient(Config{
 		Model:   "gpt-5",
-		BaseURL: srv.URL,
+		BaseURL: "https://api.example.test",
 		APIKey:  "test-api-key",
-	}, srv.Client())
+	}, httpClient)
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
@@ -91,20 +101,25 @@ func TestNewClient_ReturnsErrorWhenAPIKeyMissing(t *testing.T) {
 }
 
 func TestClientComplete_ReturnsErrorWhenOutputTextMissing(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"error": {"code": "", "message": ""},
-			"output": []
-		}`))
-	}))
-	t.Cleanup(srv.Close)
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+					"error": {"code": "", "message": ""},
+					"output": []
+				}`)),
+				Request: req,
+			}, nil
+		}),
+	}
 
 	client, err := NewClient(Config{
 		Model:   "gpt-5",
-		BaseURL: srv.URL,
+		BaseURL: "https://api.example.test",
 		APIKey:  "test-api-key",
-	}, srv.Client())
+	}, httpClient)
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}

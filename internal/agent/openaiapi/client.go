@@ -19,30 +19,29 @@ type Client struct {
 
 // NewClient constructs a new OpenAI API client.
 func NewClient(cfg Config, httpClient *http.Client) (*Client, error) {
-	model := strings.TrimSpace(cfg.Model)
-	if model == "" {
+	cfg.Model = strings.TrimSpace(cfg.Model)
+	if cfg.Model == "" {
 		return nil, fmt.Errorf("openai model is required")
 	}
 
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	if apiKey == "" {
+	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
+	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("openai api key is required (set api_key)")
 	}
 
-	baseURL := strings.TrimSpace(cfg.BaseURL)
-	if baseURL == "" {
-		baseURL = defaultBaseURL
+	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = defaultBaseURL
 	}
 
-	timeout := cfg.Timeout
-	if timeout <= 0 {
-		timeout = defaultTimeout
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = defaultTimeout
 	}
 
 	opts := []option.RequestOption{
-		option.WithAPIKey(apiKey),
-		option.WithBaseURL(baseURL),
-		option.WithRequestTimeout(timeout),
+		option.WithAPIKey(cfg.APIKey),
+		option.WithBaseURL(cfg.BaseURL),
+		option.WithRequestTimeout(cfg.Timeout),
 	}
 	if httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(httpClient))
@@ -50,9 +49,9 @@ func NewClient(cfg Config, httpClient *http.Client) (*Client, error) {
 
 	return &Client{
 		cfg: Config{
-			Model:   model,
-			BaseURL: baseURL,
-			Timeout: timeout,
+			Model:   cfg.Model,
+			BaseURL: cfg.BaseURL,
+			Timeout: cfg.Timeout,
 		},
 		client: openai.NewClient(opts...),
 	}, nil
