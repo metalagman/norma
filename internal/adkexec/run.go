@@ -1,41 +1,16 @@
-package workflows
+package adkexec
 
 import (
 	"context"
 	"fmt"
-
-	"github.com/metalagman/norma/internal/task"
 
 	"google.golang.org/adk/agent"
 	adkrunner "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 )
 
-// Workflow defines the interface for a task execution workflow.
-type Workflow interface {
-	Name() string
-	Run(ctx context.Context, input RunInput) (RunResult, error)
-}
-
-// RunInput contains the parameters for starting a workflow run.
+// RunInput defines shared execution parameters for running an ADK agent.
 type RunInput struct {
-	RunID              string
-	Goal               string
-	AcceptanceCriteria []task.AcceptanceCriterion
-	TaskID             string
-	RunDir             string
-	GitRoot            string
-	BaseBranch         string
-}
-
-// RunResult summarizes the outcome of a workflow run.
-type RunResult struct {
-	Status  string
-	Verdict *string
-}
-
-// ADKRunInput defines shared execution parameters for running an ADK agent.
-type ADKRunInput struct {
 	AppName      string
 	UserID       string
 	Agent        agent.Agent
@@ -43,8 +18,8 @@ type ADKRunInput struct {
 	OnEvent      func(*session.Event)
 }
 
-// RunADK executes an ADK agent and returns the final session state.
-func RunADK(ctx context.Context, input ADKRunInput) (session.Session, error) {
+// Run executes an ADK agent and returns the final session state.
+func Run(ctx context.Context, input RunInput) (session.Session, error) {
 	if input.Agent == nil {
 		return nil, fmt.Errorf("agent is required")
 	}

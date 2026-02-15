@@ -18,7 +18,6 @@ import (
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows"
 	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 
@@ -31,7 +30,7 @@ type PDCAAgent struct {
 	cfg        config.Config
 	store      *db.Store
 	tracker    task.Tracker
-	runInput   workflows.RunInput
+	runInput   AgentInput
 	stepIndex  *int // Shared step index across iterations.
 	baseBranch string
 
@@ -42,7 +41,7 @@ type PDCAAgent struct {
 }
 
 // NewPDCAAgent creates and configures the pdca iteration agent.
-func NewPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
+func NewPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
 	orchestrator := &PDCAAgent{
 		cfg:        cfg,
 		store:      store,
@@ -241,6 +240,9 @@ func (a *PDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
 func (a *PDCAAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
 	*a.stepIndex++
 	index := *a.stepIndex
+	if err := ctx.Session().State().Set("current_step_index", index); err != nil {
+		return nil, fmt.Errorf("set current_step_index in session state: %w", err)
+	}
 
 	role := GetRole(roleName)
 	if role == nil {

@@ -130,7 +130,7 @@ func TestSelectNextTaskNoRunnableTasks(t *testing.T) {
 			{ID: "norma-feature", Type: "feature"},
 		},
 	}
-	w := &Workflow{tracker: tracker}
+	w := &AgentLoop{tracker: tracker}
 
 	_, _, err := w.selectNextTask(context.Background())
 	if !errors.Is(err, errNoTasks) {
@@ -157,7 +157,7 @@ func TestRunTaskByIDPass(t *testing.T) {
 			Status: statusPassed,
 		},
 	}
-	w := &Workflow{
+	w := &AgentLoop{
 		tracker:    tracker,
 		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
 		taskRunner: runner,
@@ -189,7 +189,7 @@ func TestRunTaskByIDRunnerErrorMarksFailed(t *testing.T) {
 		},
 	}
 	runner := &mockTaskRunner{err: errors.New("runner failed")}
-	w := &Workflow{
+	w := &AgentLoop{
 		tracker:    tracker,
 		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
 		taskRunner: runner,

@@ -7,10 +7,10 @@ import (
 	"iter"
 	"strings"
 
+	"github.com/metalagman/norma/internal/adkexec"
 	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -39,8 +39,8 @@ type runStatusStore interface {
 	GetRunStatus(ctx context.Context, runID string) (string, error)
 }
 
-// Workflow orchestrates repeated task execution for `norma loop`.
-type Workflow struct {
+// AgentLoop orchestrates repeated task execution for `norma loop`.
+type AgentLoop struct {
 	tracker        task.Tracker
 	runStore       runStatusStore
 	taskRunner     taskRunner
@@ -48,9 +48,9 @@ type Workflow struct {
 	policy         task.SelectionPolicy
 }
 
-// NewWorkflow constructs the normaloop ADK workflow.
-func NewWorkflow(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.Runner, continueOnFail bool, policy task.SelectionPolicy) *Workflow {
-	return &Workflow{
+// NewAgentLoop constructs the normaloop ADK loop agent runtime.
+func NewAgentLoop(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.Runner, continueOnFail bool, policy task.SelectionPolicy) *AgentLoop {
+	return &AgentLoop{
 		tracker:        tracker,
 		runStore:       runStore,
 		taskRunner:     taskRunner,
@@ -60,7 +60,7 @@ func NewWorkflow(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.Ru
 }
 
 // Run executes the normaloop ADK agent until stop conditions are met.
-func (w *Workflow) Run(ctx context.Context) error {
+func (w *AgentLoop) Run(ctx context.Context) error {
 	iterationAgent, err := w.newIterationAgent()
 	if err != nil {
 		return fmt.Errorf("create normaloop iteration agent: %w", err)
@@ -70,7 +70,7 @@ func (w *Workflow) Run(ctx context.Context) error {
 		return fmt.Errorf("create normaloop loop agent: %w", err)
 	}
 
-	_, err = workflows.RunADK(ctx, workflows.ADKRunInput{
+	_, err = adkexec.Run(ctx, adkexec.RunInput{
 		AppName: "norma",
 		UserID:  "norma-user",
 		Agent:   loopAgent,
@@ -85,7 +85,7 @@ func (w *Workflow) Run(ctx context.Context) error {
 	return nil
 }
 
-func (w *Workflow) newIterationAgent() (agent.Agent, error) {
+func (w *AgentLoop) newIterationAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
 		Name:        "NormaLoopIteration",
 		Description: "Runs a single normaloop iteration.",
@@ -93,7 +93,7 @@ func (w *Workflow) newIterationAgent() (agent.Agent, error) {
 	})
 }
 
-func (w *Workflow) newLoopAgent(iterationAgent agent.Agent) (agent.Agent, error) {
+func (w *AgentLoop) newLoopAgent(iterationAgent agent.Agent) (agent.Agent, error) {
 	return loopagent.New(loopagent.Config{
 		MaxIterations: maxLoopIterations,
 		AgentConfig: agent.Config{
@@ -104,7 +104,7 @@ func (w *Workflow) newLoopAgent(iterationAgent agent.Agent) (agent.Agent, error)
 	})
 }
 
-func (w *Workflow) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (w *AgentLoop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() {
 			return
@@ -160,7 +160,7 @@ func (w *Workflow) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.
 	}
 }
 
-func (w *Workflow) selectNextTask(ctx context.Context) (task.Task, string, error) {
+func (w *AgentLoop) selectNextTask(ctx context.Context) (task.Task, string, error) {
 	status := statusTodo
 	items, err := w.tracker.List(ctx, &status)
 	if err != nil {
@@ -180,7 +180,7 @@ func (w *Workflow) selectNextTask(ctx context.Context) (task.Task, string, error
 	return selected, reason, nil
 }
 
-func (w *Workflow) runTaskByID(ctx context.Context, id string) error {
+func (w *AgentLoop) runTaskByID(ctx context.Context, id string) error {
 	item, err := w.tracker.Task(ctx, id)
 	if err != nil {
 		return err

@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metalagman/norma/internal/adkexec"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/reconcile"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows"
 	"github.com/rs/zerolog/log"
 )
 
@@ -38,7 +38,7 @@ type Runner struct {
 	cfg      config.Config
 	store    *db.Store
 	tracker  task.Tracker
-	workflow workflows.Workflow
+	factory  AgentFactory
 }
 
 // Result summarizes a completed run.
@@ -48,7 +48,7 @@ type Result struct {
 }
 
 // NewADKRunner constructs a Runner with an ADK-based PDCA workflow.
-func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker, wf workflows.Workflow) (*Runner, error) {
+func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker, factory AgentFactory) (*Runner, error) {
 	absRoot, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute repo root: %w", err)
@@ -60,7 +60,7 @@ func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker t
 		cfg:      cfg,
 		store:    store,
 		tracker:  tracker,
-		workflow: wf,
+		factory:  factory,
 	}, nil
 }
 
@@ -133,24 +133,45 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		return res, fmt.Errorf("create run in store: %w", err)
 	}
 
-	input := workflows.RunInput{
-		RunID:              runID,
+	meta := RunMeta{
+		RunID:      runID,
+		RunDir:     runDir,
+		GitRoot:    r.repoRoot,
+		BaseBranch: baseBranch,
+	}
+	payload := TaskPayload{
+		ID:                 taskID,
 		Goal:               goal,
 		AcceptanceCriteria: ac,
-		TaskID:             taskID,
-		RunDir:             runDir,
-		GitRoot:            r.repoRoot,
-		BaseBranch:         baseBranch,
 	}
 
-	wfRes, err := r.workflow.Run(ctx, input)
+	build, err := r.factory.Build(ctx, meta, payload)
 	if err != nil {
-		return res, fmt.Errorf("execute workflow: %w", err)
+		return res, fmt.Errorf("build run agent: %w", err)
+	}
+	if build.Agent == nil {
+		return res, fmt.Errorf("build run agent: nil agent")
 	}
 
-	res.Status = wfRes.Status
+	finalSession, err := adkexec.Run(ctx, adkexec.RunInput{
+		AppName:      "norma",
+		UserID:       "norma-user",
+		Agent:        build.Agent,
+		InitialState: build.InitialState,
+		OnEvent:      build.OnEvent,
+	})
+	if err != nil {
+		return res, fmt.Errorf("execute ADK agent: %w", err)
+	}
 
-	if wfRes.Verdict != nil && *wfRes.Verdict == "PASS" {
+	outcome, err := r.factory.Finalize(ctx, meta, payload, finalSession)
+	if err != nil {
+		return res, fmt.Errorf("finalize run: %w", err)
+	}
+
+	res.Status = outcome.Status
+
+	if outcome.Verdict != nil && *outcome.Verdict == "PASS" {
 		log.Info().Msg("verdict is PASS, applying changes")
 		err = r.applyChanges(ctx, runID, goal, taskID)
 		if err != nil {

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/workflows"
 	"github.com/metalagman/norma/internal/workflows/pdca/models"
 
 	"google.golang.org/adk/agent"
@@ -172,7 +171,7 @@ func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 	t.Parallel()
 
 	agent := &PDCAAgent{
-		runInput: workflows.RunInput{
+		runInput: AgentInput{
 			TaskID: "norma-95b",
 			RunID:  "run-default",
 		},
@@ -576,7 +575,7 @@ func TestNewPDCAAgentRegistersRoleSubAgents(t *testing.T) {
 		config.Config{},
 		nil,
 		nil,
-		workflows.RunInput{},
+		AgentInput{},
 		&stepIndex,
 		"",
 	)

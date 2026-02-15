@@ -11,8 +11,8 @@ import (
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
+	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows"
 	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 
@@ -21,8 +21,8 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// Workflow implements the ADK-based pdca workflow.
-type Workflow struct {
+// AgentFactory builds and finalizes PDCA ADK agents.
+type AgentFactory struct {
 	cfg     config.Config
 	store   *db.Store
 	tracker task.Tracker
@@ -30,34 +30,44 @@ type Workflow struct {
 
 const actDecisionClose = "close"
 
-// NewWorkflow builds the pdca workflow runtime.
-func NewWorkflow(cfg config.Config, store *db.Store, tracker task.Tracker) *Workflow {
-	return &Workflow{
+// NewAgentFactory constructs a PDCA agent factory.
+func NewAgentFactory(cfg config.Config, store *db.Store, tracker task.Tracker) *AgentFactory {
+	return &AgentFactory{
 		cfg:     cfg,
 		store:   store,
 		tracker: tracker,
 	}
 }
 
-func (w *Workflow) Name() string {
+func (w *AgentFactory) Name() string {
 	return "pdca"
 }
 
-func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows.RunResult, error) {
+func (w *AgentFactory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.TaskPayload) (runpkg.AgentBuild, error) {
+	input := AgentInput{
+		RunID:              meta.RunID,
+		Goal:               task.Goal,
+		AcceptanceCriteria: task.AcceptanceCriteria,
+		TaskID:             task.ID,
+		RunDir:             meta.RunDir,
+		GitRoot:            meta.GitRoot,
+		BaseBranch:         meta.BaseBranch,
+	}
+
 	stepsDir := filepath.Join(input.RunDir, "steps")
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
-		return workflows.RunResult{}, err
+		return runpkg.AgentBuild{}, err
 	}
 
 	taskItem, err := w.tracker.Task(ctx, input.TaskID)
 	if err != nil {
-		return workflows.RunResult{}, err
+		return runpkg.AgentBuild{}, err
 	}
 
 	state := models.TaskState{}
 	if taskItem.Notes != "" {
 		if err := json.Unmarshal([]byte(taskItem.Notes), &state); err != nil {
-			return workflows.RunResult{}, fmt.Errorf("parse task notes state: %w", err)
+			return runpkg.AgentBuild{}, fmt.Errorf("parse task notes state: %w", err)
 		}
 	}
 
@@ -66,12 +76,12 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	// Create the custom pdca iteration agent.
 	loopIterationAgent, err := NewPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
 	if err != nil {
-		return workflows.RunResult{}, fmt.Errorf("create pdca iteration agent: %w", err)
+		return runpkg.AgentBuild{}, fmt.Errorf("create pdca iteration agent: %w", err)
 	}
 
 	la, err := newLoopAgent(w.cfg.Budgets.MaxIterations, loopIterationAgent)
 	if err != nil {
-		return workflows.RunResult{}, fmt.Errorf("create loop agent: %w", err)
+		return runpkg.AgentBuild{}, fmt.Errorf("create loop agent: %w", err)
 	}
 
 	// Setup initial state
@@ -79,10 +89,9 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 		"iteration":  1,
 		"task_state": &state,
 	}
-	log.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("pdca workflow: starting ADK runner")
-	finalSession, err := workflows.RunADK(ctx, workflows.ADKRunInput{
-		AppName:      "norma",
-		UserID:       "norma-user",
+	log.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("pdca: built ADK loop agent")
+
+	return runpkg.AgentBuild{
 		Agent:        la,
 		InitialState: initialState,
 		OnEvent: func(ev *session.Event) {
@@ -93,22 +102,29 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 				log.Debug().Str("part", p.Text).Msg("ADK event part")
 			}
 		},
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("ADK execution error")
-		return workflows.RunResult{Status: "failed"}, err
-	}
+	}, nil
+}
 
+func (w *AgentFactory) Finalize(ctx context.Context, meta runpkg.RunMeta, _ runpkg.TaskPayload, finalSession session.Session) (runpkg.AgentOutcome, error) {
+	if finalSession == nil {
+		return runpkg.AgentOutcome{}, fmt.Errorf("final session is required")
+	}
 	verdict, decision, finalIteration, err := parseFinalState(finalSession.State())
 	if err != nil {
-		return workflows.RunResult{Status: "failed"}, fmt.Errorf("parse final session state: %w", err)
+		return runpkg.AgentOutcome{Status: "failed"}, fmt.Errorf("parse final session state: %w", err)
 	}
+
+	stepIndex, err := stateNonNegativeInt(finalSession.State(), "current_step_index", 0)
+	if err != nil {
+		return runpkg.AgentOutcome{Status: "failed"}, fmt.Errorf("read final step index: %w", err)
+	}
+
 	status, effectiveVerdict := deriveFinalOutcome(verdict, decision)
 	log.Info().
 		Str("verdict", verdict).
 		Str("decision", decision).
 		Str("effective_verdict", effectiveVerdict).
-		Msg("pdca workflow: final outcome")
+		Msg("pdca agent: final outcome")
 
 	if w.store != nil {
 		update := db.Update{
@@ -124,12 +140,12 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			Type:    "verdict",
 			Message: fmt.Sprintf("workflow completed with status=%s verdict=%s decision=%s", status, effectiveVerdict, decision),
 		}
-		if err := w.store.UpdateRun(ctx, input.RunID, update, event); err != nil {
-			return workflows.RunResult{}, fmt.Errorf("persist final run status: %w", err)
+		if err := w.store.UpdateRun(ctx, meta.RunID, update, event); err != nil {
+			return runpkg.AgentOutcome{}, fmt.Errorf("persist final run status: %w", err)
 		}
 	}
 
-	res := workflows.RunResult{
+	res := runpkg.AgentOutcome{
 		Status: status,
 	}
 	if effectiveVerdict != "" {
@@ -246,4 +262,23 @@ func statePositiveInt(state session.State, key string, defaultValue int) (int, e
 		return 0, fmt.Errorf("session state key %q must be > 0; got %d", key, iteration)
 	}
 	return iteration, nil
+}
+
+func stateNonNegativeInt(state session.State, key string, defaultValue int) (int, error) {
+	value, err := state.Get(key)
+	if err != nil {
+		if errors.Is(err, session.ErrStateKeyNotExist) {
+			return defaultValue, nil
+		}
+		return 0, fmt.Errorf("read session state key %q: %w", key, err)
+	}
+
+	parsed, ok := value.(int)
+	if !ok {
+		return 0, fmt.Errorf("session state key %q has type %T; want int", key, value)
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("session state key %q must be >= 0; got %d", key, parsed)
+	}
+	return parsed, nil
 }

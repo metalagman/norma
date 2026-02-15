@@ -36,8 +36,8 @@ func runCmd() *cobra.Command {
 
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
-			wf := pdca.NewWorkflow(cfg, runStore, tracker)
-			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, wf)
+			pdcaFactory := pdca.NewAgentFactory(cfg, runStore, tracker)
+			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaFactory)
 			if err != nil {
 				return err
 			}

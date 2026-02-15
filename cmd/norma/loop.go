@@ -43,8 +43,8 @@ func loopCmd() *cobra.Command {
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
 
-			pdcaWorkflow := pdca.NewWorkflow(cfg, runStore, tracker)
-			taskRunner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaWorkflow)
+			pdcaFactory := pdca.NewAgentFactory(cfg, runStore, tracker)
+			taskRunner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaFactory)
 			if err != nil {
 				return err
 			}
@@ -58,9 +58,9 @@ func loopCmd() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
-			loopWorkflow := normaloop.NewWorkflow(tracker, runStore, taskRunner, continueOnFail, policy)
+			loopAgent := normaloop.NewAgentLoop(tracker, runStore, taskRunner, continueOnFail, policy)
 			fmt.Println("Running tasks using Google ADK Loop Agent...")
-			return loopWorkflow.Run(cmd.Context())
+			return loopAgent.Run(cmd.Context())
 		},
 	}
 	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running ready tasks after a failure")
