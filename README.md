@@ -82,7 +82,7 @@ agents:
   openai_primary:
     type: openai
     model: gpt-5
-    api_key_env: OPENAI_API_KEY
+    api_key: ${OPENAI_API_KEY}
     timeout: 60
 
 profiles:
@@ -127,7 +127,7 @@ agents:
   openai_primary:
     type: openai
     model: gpt-5
-    api_key_env: ${OPENAI_API_KEY}
+    api_key: ${OPENAI_API_KEY}
 ```
 
 If a referenced variable is missing, config expansion fails fast and reports the missing variable name(s).
