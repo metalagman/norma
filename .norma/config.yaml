@@ -13,7 +13,7 @@ agents:
   openai_primary:
     type: openai
     model: gpt-5
-    api_key_env: OPENAI_API_KEY
+    api_key: sample
     timeout: 60
 
 profiles:

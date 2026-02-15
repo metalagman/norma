@@ -69,7 +69,7 @@ func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseB
 		MaxIterations: uint(maxIterations),
 		AgentConfig: agent.Config{
 			Name:        "PDCALoop",
-			Description: "ADK loop agent for pdca",
+			Description: "ADK loop agent for PDCA",
 			SubAgents:   []agent.Agent{planAgent, doAgent, checkAgent, actAgent},
 		},
 	})
@@ -80,9 +80,22 @@ func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseB
 }
 
 func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
+	pascalName := ""
+	switch roleName {
+	case RolePlan:
+		pascalName = "Plan"
+	case RoleDo:
+		pascalName = "Do"
+	case RoleCheck:
+		pascalName = "Check"
+	case RoleAct:
+		pascalName = "Act"
+	default:
+		pascalName = strings.Title(roleName) //nolint:staticcheck // fallback for unknown roles
+	}
 	ag, err := agent.New(agent.Config{
-		Name:        roleName,
-		Description: fmt.Sprintf("Norma %s agent", roleName),
+		Name:        pascalName,
+		Description: fmt.Sprintf("Norma %s agent", pascalName),
 		Run:         a.runRoleLoop(roleName),
 	})
 	if err != nil {

@@ -449,7 +449,7 @@ func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 	for _, subAgent := range subAgents {
 		gotNames = append(gotNames, subAgent.Name())
 	}
-	wantNames := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
+	wantNames := []string{"Plan", "Do", "Check", "Act"}
 	for _, want := range wantNames {
 		if !slices.Contains(gotNames, want) {
 			t.Fatalf("missing subagent %q, got %v", want, gotNames)
