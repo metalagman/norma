@@ -69,6 +69,56 @@ retention:
 	}
 }
 
+func TestLoadRawConfig_ExpandsEnvValues(t *testing.T) {
+	repoRoot := t.TempDir()
+
+	t.Setenv("NORMA_PROFILE", "default")
+	t.Setenv("NORMA_AGENT_TYPE", "exec")
+	t.Setenv("NORMA_AGENT_CMD", "ainvoke")
+	t.Setenv("NORMA_MAX_ITERATIONS", "3")
+
+	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `profile: ${NORMA_PROFILE}
+agents:
+  local_exec:
+    type: ${NORMA_AGENT_TYPE}
+    cmd:
+      - ${NORMA_AGENT_CMD}
+profiles:
+  default:
+    pdca:
+      plan: local_exec
+      do: local_exec
+      check: local_exec
+      act: local_exec
+budgets:
+  max_iterations: ${NORMA_MAX_ITERATIONS}
+`); err != nil {
+		t.Fatalf("write yaml config: %v", err)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("config", defaultConfigPath)
+
+	cfg, err := loadRawConfig(repoRoot)
+	if err != nil {
+		t.Fatalf("load raw config: %v", err)
+	}
+	if cfg.Profile != "default" {
+		t.Fatalf("profile = %q, want %q", cfg.Profile, "default")
+	}
+	if cfg.Budgets.MaxIterations != 3 {
+		t.Fatalf("budgets.max_iterations = %d, want %d", cfg.Budgets.MaxIterations, 3)
+	}
+	agent := cfg.Agents["local_exec"]
+	if agent.Type != "exec" {
+		t.Fatalf("agents.local_exec.type = %q, want %q", agent.Type, "exec")
+	}
+	if len(agent.Cmd) != 1 || agent.Cmd[0] != "ainvoke" {
+		t.Fatalf("agents.local_exec.cmd = %v, want %v", agent.Cmd, []string{"ainvoke"})
+	}
+}
+
 func writeTestFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
