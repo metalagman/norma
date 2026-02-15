@@ -16,8 +16,6 @@ import (
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/workflowagents/loopagent"
 	"google.golang.org/adk/session"
 )
 
@@ -73,13 +71,8 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 
 	stepIndex := 0
 
-	// Create the custom pdca iteration agent.
-	loopIterationAgent, err := NewIterationAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
-	if err != nil {
-		return runpkg.AgentBuild{}, fmt.Errorf("create pdca iteration agent: %w", err)
-	}
-
-	la, err := newLoopAgent(w.cfg.Budgets.MaxIterations, loopIterationAgent)
+	// Create the pdca loop agent with plan/do/check/act as direct sub-agents.
+	la, err := NewLoopAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch, w.cfg.Budgets.MaxIterations)
 	if err != nil {
 		return runpkg.AgentBuild{}, fmt.Errorf("create loop agent: %w", err)
 	}
@@ -153,17 +146,6 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, _ runpkg.Ta
 	}
 
 	return res, nil
-}
-
-func newLoopAgent(maxIterations int, loopIterationAgent agent.Agent) (agent.Agent, error) {
-	return loopagent.New(loopagent.Config{
-		MaxIterations: uint(maxIterations),
-		AgentConfig: agent.Config{
-			Name:        "PDCALoop",
-			Description: "ADK loop agent for pdca",
-			SubAgents:   []agent.Agent{loopIterationAgent},
-		},
-	})
 }
 
 func parseFinalState(state session.State) (string, string, int, error) {

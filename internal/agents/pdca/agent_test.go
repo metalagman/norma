@@ -170,7 +170,7 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 	t.Parallel()
 
-	agent := &IterationAgent{
+	agent := &runtime{
 		runInput: AgentInput{
 			TaskID: "norma-95b",
 			RunID:  "run-default",
@@ -331,7 +331,7 @@ func TestRunStopsAfterActWhenStopFlagSet(t *testing.T) {
 
 	var planCalls, doCalls, checkCalls, actCalls int
 
-	orchestrator := &IterationAgent{
+	orchestrator := &runtime{
 		planAgent: newTestSubAgent(t, "plan", func(agent.InvocationContext) { planCalls++ }),
 		doAgent:   newTestSubAgent(t, "do", func(agent.InvocationContext) { doCalls++ }),
 		checkAgent: newTestSubAgent(t, "check", func(agent.InvocationContext) {
@@ -388,7 +388,7 @@ func TestRunExitsImmediatelyWhenAlreadyStopped(t *testing.T) {
 
 	var called int
 	sub := newTestSubAgent(t, "sub", func(agent.InvocationContext) { called++ })
-	orchestrator := &IterationAgent{
+	orchestrator := &runtime{
 		planAgent:  sub,
 		doAgent:    sub,
 		checkAgent: sub,
@@ -567,20 +567,21 @@ func TestValidateStepResponse(t *testing.T) {
 	}
 }
 
-func TestNewIterationAgentRegistersRoleSubAgents(t *testing.T) {
+func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 	t.Parallel()
 
 	stepIndex := 0
-	loopAgent, err := NewIterationAgent(
+	loopAgent, err := NewLoopAgent(
 		config.Config{},
 		nil,
 		nil,
 		AgentInput{},
 		&stepIndex,
 		"",
+		3,
 	)
 	if err != nil {
-		t.Fatalf("NewIterationAgent() error = %v", err)
+		t.Fatalf("NewLoopAgent() error = %v", err)
 	}
 
 	subAgents := loopAgent.SubAgents()

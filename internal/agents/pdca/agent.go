@@ -22,11 +22,12 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/agent/workflowagents/loopagent"
 	"google.golang.org/adk/session"
 )
 
-// IterationAgent is a custom ADK agent that orchestrates one workflow iteration.
-type IterationAgent struct {
+// runtime holds PDCA step execution state used by role sub-agents.
+type runtime struct {
 	cfg        config.Config
 	store      *db.Store
 	tracker    task.Tracker
@@ -40,9 +41,9 @@ type IterationAgent struct {
 	actAgent   agent.Agent
 }
 
-// NewIterationAgent creates and configures the pdca iteration agent.
-func NewIterationAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
-	orchestrator := &IterationAgent{
+// NewLoopAgent creates and configures the PDCA loop agent with role sub-agents.
+func NewLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, stepIndex *int, baseBranch string, maxIterations int) (agent.Agent, error) {
+	rt := &runtime{
 		cfg:        cfg,
 		store:      store,
 		tracker:    tracker,
@@ -52,30 +53,30 @@ func NewIterationAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	}
 
 	var err error
-	orchestrator.planAgent, err = orchestrator.createSubAgent(RolePlan)
+	rt.planAgent, err = rt.createSubAgent(RolePlan)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RolePlan, err)
 	}
-	orchestrator.doAgent, err = orchestrator.createSubAgent(RoleDo)
+	rt.doAgent, err = rt.createSubAgent(RoleDo)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RoleDo, err)
 	}
-	orchestrator.checkAgent, err = orchestrator.createSubAgent(RoleCheck)
+	rt.checkAgent, err = rt.createSubAgent(RoleCheck)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RoleCheck, err)
 	}
-	orchestrator.actAgent, err = orchestrator.createSubAgent(RoleAct)
+	rt.actAgent, err = rt.createSubAgent(RoleAct)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RoleAct, err)
 	}
 
-	subAgents := []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent}
-
-	ag, err := agent.New(agent.Config{
-		Name:        "IterationAgent",
-		Description: "Orchestrates one pdca iteration.",
-		SubAgents:   subAgents,
-		Run:         orchestrator.Run,
+	ag, err := loopagent.New(loopagent.Config{
+		MaxIterations: uint(maxIterations),
+		AgentConfig: agent.Config{
+			Name:        "PDCALoop",
+			Description: "ADK loop agent for pdca",
+			SubAgents:   []agent.Agent{rt.planAgent, rt.doAgent, rt.checkAgent, rt.actAgent},
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -83,12 +84,16 @@ func NewIterationAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	return ag, nil
 }
 
-func (a *IterationAgent) createSubAgent(roleName string) (agent.Agent, error) {
+func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
 	ag, err := agent.New(agent.Config{
 		Name:        roleName,
 		Description: fmt.Sprintf("Norma %s agent", roleName),
 		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(yield func(*session.Event, error) bool) {
+				if ctx.Ended() || a.shouldStop(ctx) {
+					return
+				}
+
 				iteration, err := ctx.Session().State().Get("iteration")
 				itNum, ok := iteration.(int)
 				if err != nil || !ok {
@@ -130,7 +135,14 @@ func (a *IterationAgent) createSubAgent(roleName string) (agent.Agent, error) {
 							yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 							return
 						}
-						ctx.EndInvocation()
+						ev := session.NewEvent(ctx.InvocationID())
+						ev.Actions.Escalate = true
+						_ = yield(ev, nil)
+						return
+					}
+					if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
+						yield(nil, fmt.Errorf("update iteration in session state: %w", err))
+						return
 					}
 				}
 				if resp.Status != "ok" {
@@ -139,7 +151,10 @@ func (a *IterationAgent) createSubAgent(roleName string) (agent.Agent, error) {
 						yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 						return
 					}
-					ctx.EndInvocation()
+					ev := session.NewEvent(ctx.InvocationID())
+					ev.Actions.Escalate = true
+					_ = yield(ev, nil)
+					return
 				}
 			}
 		},
@@ -150,7 +165,7 @@ func (a *IterationAgent) createSubAgent(roleName string) (agent.Agent, error) {
 	return ag, nil
 }
 
-func (a *IterationAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (a *runtime) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() || a.shouldStop(ctx) {
 			log.Info().Msg("pdca agent: invocation already stopped")
@@ -222,7 +237,7 @@ func (a *IterationAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 	}
 }
 
-func (a *IterationAgent) shouldStop(ctx agent.InvocationContext) bool {
+func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 	stop, err := ctx.Session().State().Get("stop")
 	if err != nil {
 		return false
@@ -237,7 +252,7 @@ func (a *IterationAgent) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *IterationAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
+func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
 	*a.stepIndex++
 	index := *a.stepIndex
 	if err := ctx.Session().State().Set("current_step_index", index); err != nil {
@@ -431,7 +446,7 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
-func (a *IterationAgent) baseRequest(iteration, index int, role string) models.AgentRequest {
+func (a *runtime) baseRequest(iteration, index int, role string) models.AgentRequest {
 	return models.AgentRequest{
 		Run: models.RunInfo{
 			ID:        a.runInput.RunID,
@@ -505,7 +520,7 @@ func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string)
 	return agentCfg, nil
 }
 
-func (a *IterationAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
+func (a *runtime) getTaskState(ctx agent.InvocationContext) *models.TaskState {
 	s, err := ctx.Session().State().Get("task_state")
 	if err != nil {
 		return &models.TaskState{}
@@ -540,7 +555,7 @@ func coerceTaskState(value any) *models.TaskState {
 	}
 }
 
-func (a *IterationAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
+func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
@@ -615,7 +630,7 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 	return nil
 }
 
-func (a *IterationAgent) reconstructProgress(dir string, state *models.TaskState) error {
+func (a *runtime) reconstructProgress(dir string, state *models.TaskState) error {
 	path := filepath.Join(dir, "artifacts", "progress.md")
 	var sb strings.Builder
 	for _, entry := range state.Journal {
