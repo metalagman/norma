@@ -69,10 +69,8 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 		}
 	}
 
-	stepIndex := 0
-
 	// Create the pdca loop agent with plan/do/check/act as direct sub-agents.
-	la, err := NewLoopAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch, w.cfg.Budgets.MaxIterations)
+	la, err := NewLoopAgent(w.cfg, w.store, input, input.BaseBranch, w.cfg.Budgets.MaxIterations)
 	if err != nil {
 		return runpkg.AgentBuild{}, fmt.Errorf("create loop agent: %w", err)
 	}
@@ -86,6 +84,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 
 	return runpkg.AgentBuild{
 		Agent:        la,
+		SessionID:    input.TaskID,
 		InitialState: initialState,
 		OnEvent: func(ev *session.Event) {
 			if ev.Content == nil {
@@ -98,10 +97,22 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 	}, nil
 }
 
-func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, _ runpkg.TaskPayload, finalSession session.Session) (runpkg.AgentOutcome, error) {
+func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload runpkg.TaskPayload, finalSession session.Session) (runpkg.AgentOutcome, error) {
 	if finalSession == nil {
 		return runpkg.AgentOutcome{}, fmt.Errorf("final session is required")
 	}
+
+	// Persist final task state to tracker from session.
+	taskStateVal, err := stateAny(finalSession.State(), "task_state")
+	if err == nil && taskStateVal != nil {
+		data, err := json.MarshalIndent(taskStateVal, "", "  ")
+		if err == nil {
+			if err := w.tracker.SetNotes(ctx, payload.ID, string(data)); err != nil {
+				log.Warn().Err(err).Str("task_id", payload.ID).Msg("pdca agent: failed to persist task state to tracker in finalize")
+			}
+		}
+	}
+
 	verdict, decision, finalIteration, err := parseFinalState(finalSession.State())
 	if err != nil {
 		return runpkg.AgentOutcome{Status: "failed"}, fmt.Errorf("parse final session state: %w", err)

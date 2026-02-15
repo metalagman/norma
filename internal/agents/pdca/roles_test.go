@@ -40,12 +40,12 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 				CheckSteps:     []do.DoCheckStep{},
 				StopTriggers:   []string{},
 			},
-			AcceptanceCriteriaEffective: []do.DoEffectiveAC{
+			AcceptanceCriteriaEffective: []do.DoEffectiveAcceptanceCriteria{
 				{
 					Id:     "AC-1",
 					Origin: "baseline",
 					Text:   "ok",
-					Checks: []do.DoACCheck{
+					Checks: []do.DoAcceptanceCriteriaCheck{
 						{Id: "CHK-1", Cmd: "true", ExpectExitCodes: []int64{0}},
 					},
 				},

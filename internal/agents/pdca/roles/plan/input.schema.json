@@ -23,7 +23,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "title": "PlanAcceptanceCriterion",
+            "title": "PlanAcceptanceCriteria",
             "properties": {
               "id": { "type": "string" },
               "text": { "type": "string" },

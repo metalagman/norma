@@ -8,8 +8,8 @@ import (
 	"errors"
 )
 
-// CheckAcceptanceCriterion
-type CheckAcceptanceCriterion struct {
+// CheckAcceptanceCriteria
+type CheckAcceptanceCriteria struct {
 	Id   string `json:"id"`
 	Text string `json:"text"`
 }
@@ -47,8 +47,8 @@ type CheckDoStep struct {
 	Text string `json:"text"`
 }
 
-// CheckEffectiveAC
-type CheckEffectiveAC struct {
+// CheckEffectiveAcceptanceCriteria
+type CheckEffectiveAcceptanceCriteria struct {
 	Id     string `json:"id"`
 	Origin string `json:"origin"`
 	Text   string `json:"text"`
@@ -56,9 +56,9 @@ type CheckEffectiveAC struct {
 
 // CheckInput
 type CheckInput struct {
-	AcceptanceCriteriaEffective []CheckEffectiveAC `json:"acceptance_criteria_effective"`
-	DoExecution                 *CheckDoExecution  `json:"do_execution"`
-	WorkPlan                    *CheckWorkPlan     `json:"work_plan"`
+	AcceptanceCriteriaEffective []CheckEffectiveAcceptanceCriteria `json:"acceptance_criteria_effective"`
+	DoExecution                 *CheckDoExecution                  `json:"do_execution"`
+	WorkPlan                    *CheckWorkPlan                     `json:"work_plan"`
 }
 
 // CheckPaths
@@ -94,10 +94,10 @@ type CheckStep struct {
 
 // CheckTask
 type CheckTask struct {
-	AcceptanceCriteria []CheckAcceptanceCriterion `json:"acceptance_criteria"`
-	Description        string                     `json:"description"`
-	Id                 string                     `json:"id"`
-	Title              string                     `json:"title"`
+	AcceptanceCriteria []CheckAcceptanceCriteria `json:"acceptance_criteria"`
+	Description        string                    `json:"description"`
+	Id                 string                    `json:"id"`
+	Title              string                    `json:"title"`
 }
 
 // CheckWorkPlan
@@ -112,7 +112,7 @@ type CheckWorkPlan struct {
 type Facts struct {
 }
 
-func (strct *CheckAcceptanceCriterion) MarshalJSON() ([]byte, error) {
+func (strct *CheckAcceptanceCriteria) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -148,7 +148,7 @@ func (strct *CheckAcceptanceCriterion) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *CheckAcceptanceCriterion) UnmarshalJSON(b []byte) error {
+func (strct *CheckAcceptanceCriteria) UnmarshalJSON(b []byte) error {
 	idReceived := false
 	textReceived := false
 	var jsonMap map[string]json.RawMessage
@@ -487,7 +487,7 @@ func (strct *CheckDoStep) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (strct *CheckEffectiveAC) MarshalJSON() ([]byte, error) {
+func (strct *CheckEffectiveAcceptanceCriteria) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -536,7 +536,7 @@ func (strct *CheckEffectiveAC) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *CheckEffectiveAC) UnmarshalJSON(b []byte) error {
+func (strct *CheckEffectiveAcceptanceCriteria) UnmarshalJSON(b []byte) error {
 	idReceived := false
 	originReceived := false
 	textReceived := false

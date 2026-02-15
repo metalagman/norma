@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-viper/mapstructure/v2"
+
 	normaagent "github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
@@ -22,7 +24,6 @@ import (
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
-	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -34,42 +35,32 @@ import (
 type runtime struct {
 	cfg        config.Config
 	store      *db.Store
-	tracker    task.Tracker
 	runInput   AgentInput
-	stepIndex  *int // Shared step index across iterations.
 	baseBranch string
-
-	planAgent  agent.Agent
-	doAgent    agent.Agent
-	checkAgent agent.Agent
-	actAgent   agent.Agent
 }
 
 // NewLoopAgent creates and configures the PDCA loop agent with role sub-agents.
-func NewLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, stepIndex *int, baseBranch string, maxIterations int) (agent.Agent, error) {
+func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseBranch string, maxIterations int) (agent.Agent, error) {
 	rt := &runtime{
 		cfg:        cfg,
 		store:      store,
-		tracker:    tracker,
 		runInput:   runInput,
-		stepIndex:  stepIndex,
 		baseBranch: baseBranch,
 	}
 
-	var err error
-	rt.planAgent, err = rt.createSubAgent(RolePlan)
+	planAgent, err := rt.createSubAgent(RolePlan)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RolePlan, err)
 	}
-	rt.doAgent, err = rt.createSubAgent(RoleDo)
+	doAgent, err := rt.createSubAgent(RoleDo)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RoleDo, err)
 	}
-	rt.checkAgent, err = rt.createSubAgent(RoleCheck)
+	checkAgent, err := rt.createSubAgent(RoleCheck)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RoleCheck, err)
 	}
-	rt.actAgent, err = rt.createSubAgent(RoleAct)
+	actAgent, err := rt.createSubAgent(RoleAct)
 	if err != nil {
 		return nil, fmt.Errorf("create %s sub-agent: %w", RoleAct, err)
 	}
@@ -79,7 +70,7 @@ func NewLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runI
 		AgentConfig: agent.Config{
 			Name:        "PDCALoop",
 			Description: "ADK loop agent for pdca",
-			SubAgents:   []agent.Agent{rt.planAgent, rt.doAgent, rt.checkAgent, rt.actAgent},
+			SubAgents:   []agent.Agent{planAgent, doAgent, checkAgent, actAgent},
 		},
 	})
 	if err != nil {
@@ -92,76 +83,7 @@ func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
 	ag, err := agent.New(agent.Config{
 		Name:        roleName,
 		Description: fmt.Sprintf("Norma %s agent", roleName),
-		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
-			return func(yield func(*session.Event, error) bool) {
-				if ctx.Ended() || a.shouldStop(ctx) {
-					return
-				}
-
-				iteration, err := ctx.Session().State().Get("iteration")
-				itNum, ok := iteration.(int)
-				if err != nil || !ok {
-					itNum = 1
-				}
-
-				log.Info().Str("role", roleName).Int("iteration", itNum).Msg("pdca sub-agent: starting step")
-				resp, err := a.runStep(ctx, itNum, roleName)
-				if err != nil {
-					log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: step failed")
-					yield(nil, err)
-					return
-				}
-				if err := validateStepResponse(roleName, resp); err != nil {
-					log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: invalid step response")
-					yield(nil, err)
-					return
-				}
-
-				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: step completed")
-
-				// Communicate results via session state
-				if roleName == RoleCheck && resp.Check != nil {
-					log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("pdca sub-agent: setting check verdict in state")
-					if err := ctx.Session().State().Set("verdict", resp.Check.Verdict.Status); err != nil {
-						yield(nil, fmt.Errorf("set verdict in session state: %w", err))
-						return
-					}
-				}
-				if roleName == RoleAct && resp.Act != nil {
-					log.Debug().Str("decision", resp.Act.Decision).Msg("pdca sub-agent: setting act decision in state")
-					if err := ctx.Session().State().Set("decision", resp.Act.Decision); err != nil {
-						yield(nil, fmt.Errorf("set decision in session state: %w", err))
-						return
-					}
-					if resp.Act.Decision == "close" {
-						log.Info().Msg("pdca sub-agent: act decision is close, stopping loop")
-						if err := ctx.Session().State().Set("stop", true); err != nil {
-							yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
-							return
-						}
-						ev := session.NewEvent(ctx.InvocationID())
-						ev.Actions.Escalate = true
-						_ = yield(ev, nil)
-						return
-					}
-					if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
-						yield(nil, fmt.Errorf("update iteration in session state: %w", err))
-						return
-					}
-				}
-				if resp.Status != "ok" {
-					log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: non-ok status, stopping loop")
-					if err := ctx.Session().State().Set("stop", true); err != nil {
-						yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
-						return
-					}
-					ev := session.NewEvent(ctx.InvocationID())
-					ev.Actions.Escalate = true
-					_ = yield(ev, nil)
-					return
-				}
-			}
-		},
+		Run:         a.runRoleLoop(roleName),
 	})
 	if err != nil {
 		return nil, err
@@ -169,75 +91,80 @@ func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
 	return ag, nil
 }
 
-func (a *runtime) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
-	return func(yield func(*session.Event, error) bool) {
-		if ctx.Ended() || a.shouldStop(ctx) {
-			log.Info().Msg("pdca agent: invocation already stopped")
-			return
-		}
-
-		iteration, err := ctx.Session().State().Get("iteration")
-		itNum, ok := iteration.(int)
-		if err != nil || !ok {
-			itNum = 1
-		}
-
-		log.Info().Int("iteration", itNum).Msg("pdca agent: starting iteration")
-
-		// 1. PLAN
-		log.Debug().Msg("pdca agent: invoking plan agent")
-		for event, err := range a.planAgent.Run(ctx) {
-			if !yield(event, err) {
+func (a *runtime) runRoleLoop(roleName string) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+	return func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			if ctx.Ended() || a.shouldStop(ctx) {
 				return
 			}
-		}
-		if a.shouldStop(ctx) {
-			log.Info().Msg("pdca agent: stopping after plan step")
-			return
-		}
 
-		// 2. DO
-		log.Debug().Msg("pdca agent: invoking do agent")
-		for event, err := range a.doAgent.Run(ctx) {
-			if !yield(event, err) {
+			iteration, err := ctx.Session().State().Get("iteration")
+			itNum, ok := iteration.(int)
+			if err != nil || !ok {
+				itNum = 1
+			}
+
+			log.Info().Str("role", roleName).Int("iteration", itNum).Msg("pdca sub-agent: starting step")
+			resp, err := a.runStep(ctx, itNum, roleName)
+			if err != nil {
+				log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: step failed")
+				yield(nil, err)
 				return
 			}
-		}
-		if a.shouldStop(ctx) {
-			log.Info().Msg("pdca agent: stopping after do step")
-			return
-		}
-
-		// 3. CHECK
-		log.Debug().Msg("pdca agent: invoking check agent")
-		for event, err := range a.checkAgent.Run(ctx) {
-			if !yield(event, err) {
+			if err := validateStepResponse(roleName, resp); err != nil {
+				log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: invalid step response")
+				yield(nil, err)
 				return
 			}
+
+			log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: step completed")
+
+			a.processRoleResult(ctx, yield, roleName, resp, itNum)
 		}
-		if a.shouldStop(ctx) {
-			log.Info().Msg("pdca agent: stopping after check step")
+	}
+}
+
+func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*session.Event, error) bool, roleName string, resp *contracts.AgentResponse, itNum int) {
+	// Communicate results via session state
+	if roleName == RoleCheck && resp.Check != nil {
+		log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("pdca sub-agent: setting check verdict in state")
+		if err := ctx.Session().State().Set("verdict", resp.Check.Verdict.Status); err != nil {
+			yield(nil, fmt.Errorf("set verdict in session state: %w", err))
 			return
 		}
-
-		// 4. ACT
-		log.Debug().Msg("pdca agent: invoking act agent")
-		for event, err := range a.actAgent.Run(ctx) {
-			if !yield(event, err) {
+	}
+	if roleName == RoleAct && resp.Act != nil {
+		log.Debug().Str("decision", resp.Act.Decision).Msg("pdca sub-agent: setting act decision in state")
+		if err := ctx.Session().State().Set("decision", resp.Act.Decision); err != nil {
+			yield(nil, fmt.Errorf("set decision in session state: %w", err))
+			return
+		}
+		if resp.Act.Decision == "close" {
+			log.Info().Msg("pdca sub-agent: act decision is close, stopping loop")
+			if err := ctx.Session().State().Set("stop", true); err != nil {
+				yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 				return
 			}
-		}
-		if ctx.Ended() || a.shouldStop(ctx) {
-			log.Info().Msg("pdca agent: stopping after act step")
+			ev := session.NewEvent(ctx.InvocationID())
+			ev.Actions.Escalate = true
+			_ = yield(ev, nil)
 			return
 		}
-
-		// Increment iteration for next run
-		log.Info().Int("iteration", itNum).Msg("pdca agent: iteration finished")
 		if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
 			yield(nil, fmt.Errorf("update iteration in session state: %w", err))
 			return
 		}
+	}
+	if resp.Status != "ok" {
+		log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: non-ok status, stopping loop")
+		if err := ctx.Session().State().Set("stop", true); err != nil {
+			yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
+			return
+		}
+		ev := session.NewEvent(ctx.InvocationID())
+		ev.Actions.Escalate = true
+		_ = yield(ev, nil)
+		return
 	}
 }
 
@@ -257,8 +184,15 @@ func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 }
 
 func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*contracts.AgentResponse, error) {
-	*a.stepIndex++
-	index := *a.stepIndex
+	idxVal, err := ctx.Session().State().Get("current_step_index")
+	index := 0
+	if err == nil && idxVal != nil {
+		if i, ok := idxVal.(int); ok {
+			index = i
+		}
+	}
+	index++
+
 	if err := ctx.Session().State().Set("current_step_index", index); err != nil {
 		return nil, fmt.Errorf("set current_step_index in session state: %w", err)
 	}
@@ -523,9 +457,9 @@ func planWorkPlanToDo(src *plan.PlanWorkPlan) *do.DoWorkPlan {
 	doSteps := make([]do.DoDoStep, 0, len(src.DoSteps))
 	for _, step := range src.DoSteps {
 		doSteps = append(doSteps, do.DoDoStep{
-			Id:           step.Id,
-			TargetsAcIds: step.TargetsAcIds,
-			Text:         step.Text,
+			Id:                           step.Id,
+			TargetsAcceptanceCriteriaIds: step.TargetsAcceptanceCriteriaIds,
+			Text:                         step.Text,
 		})
 	}
 	checkSteps := make([]do.DoCheckStep, 0, len(src.CheckSteps))
@@ -544,18 +478,18 @@ func planWorkPlanToDo(src *plan.PlanWorkPlan) *do.DoWorkPlan {
 	}
 }
 
-func planEffectiveToDo(src []plan.EffectiveAC) []do.DoEffectiveAC {
-	out := make([]do.DoEffectiveAC, 0, len(src))
+func planEffectiveToDo(src []plan.EffectiveAcceptanceCriteria) []do.DoEffectiveAcceptanceCriteria {
+	out := make([]do.DoEffectiveAcceptanceCriteria, 0, len(src))
 	for _, ac := range src {
-		checks := make([]do.DoACCheck, 0, len(ac.Checks))
+		checks := make([]do.DoAcceptanceCriteriaCheck, 0, len(ac.Checks))
 		for _, c := range ac.Checks {
-			checks = append(checks, do.DoACCheck{
+			checks = append(checks, do.DoAcceptanceCriteriaCheck{
 				Id:              c.Id,
 				Cmd:             c.Cmd,
 				ExpectExitCodes: c.ExpectExitCodes,
 			})
 		}
-		out = append(out, do.DoEffectiveAC{
+		out = append(out, do.DoEffectiveAcceptanceCriteria{
 			Id:      ac.Id,
 			Origin:  ac.Origin,
 			Refines: ac.Refines,
@@ -594,10 +528,10 @@ func planWorkPlanToCheck(src *plan.PlanWorkPlan) *check.CheckWorkPlan {
 	}
 }
 
-func planEffectiveToCheck(src []plan.EffectiveAC) []check.CheckEffectiveAC {
-	out := make([]check.CheckEffectiveAC, 0, len(src))
+func planEffectiveToCheck(src []plan.EffectiveAcceptanceCriteria) []check.CheckEffectiveAcceptanceCriteria {
+	out := make([]check.CheckEffectiveAcceptanceCriteria, 0, len(src))
 	for _, ac := range src {
-		out = append(out, check.CheckEffectiveAC{
+		out = append(out, check.CheckEffectiveAcceptanceCriteria{
 			Id:     ac.Id,
 			Origin: ac.Origin,
 			Text:   ac.Text,
@@ -673,18 +607,21 @@ func coerceTaskState(value any) *contracts.TaskState {
 	case contracts.TaskState:
 		copied := state
 		return &copied
-	case map[string]any:
-		raw, err := json.Marshal(state)
+	default:
+		var result contracts.TaskState
+		cfg := &mapstructure.DecoderConfig{
+			Metadata: nil,
+			Result:   &result,
+			TagName:  "json",
+		}
+		decoder, err := mapstructure.NewDecoder(cfg)
 		if err != nil {
 			return &contracts.TaskState{}
 		}
-		var decoded contracts.TaskState
-		if err := json.Unmarshal(raw, &decoded); err != nil {
+		if err := decoder.Decode(value); err != nil {
 			return &contracts.TaskState{}
 		}
-		return &decoded
-	default:
-		return &contracts.TaskState{}
+		return &result
 	}
 }
 
@@ -698,15 +635,6 @@ func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *contracts.A
 
 	if err := ctx.Session().State().Set("task_state", state); err != nil {
 		return fmt.Errorf("set task state in session: %w", err)
-	}
-
-	// Persist to Beads
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal task state: %w", err)
-	}
-	if err := a.tracker.SetNotes(ctx, a.runInput.TaskID, string(data)); err != nil {
-		return fmt.Errorf("persist task state to task notes: %w", err)
 	}
 
 	return nil

@@ -26,6 +26,7 @@ type TaskPayload struct {
 // AgentBuild describes an ADK agent build for a task run.
 type AgentBuild struct {
 	Agent        agent.Agent
+	SessionID    string
 	InitialState map[string]any
 	OnEvent      func(*session.Event)
 }

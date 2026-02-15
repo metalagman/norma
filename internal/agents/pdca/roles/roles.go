@@ -1,4 +1,4 @@
-package registry
+package roles
 
 import (
 	"encoding/json"
@@ -33,13 +33,13 @@ type planRole struct {
 
 //nolint:dupl // Typed generated requests require repeated field mapping.
 func (r *planRole) MapRequest(req contracts.AgentRequest) (any, error) {
-	acs := make([]plan.PlanAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
+	acs := make([]plan.PlanAcceptanceCriteria, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
 		if hints == nil {
 			hints = []string{}
 		}
-		acs = append(acs, plan.PlanAcceptanceCriterion{
+		acs = append(acs, plan.PlanAcceptanceCriteria{
 			Id:          ac.ID,
 			Text:        ac.Text,
 			VerifyHints: hints,
@@ -92,13 +92,13 @@ type doRole struct {
 }
 
 func (r *doRole) MapRequest(req contracts.AgentRequest) (any, error) {
-	acs := make([]do.DoAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
+	acs := make([]do.DoAcceptanceCriteria, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
 		if hints == nil {
 			hints = []string{}
 		}
-		acs = append(acs, do.DoAcceptanceCriterion{
+		acs = append(acs, do.DoAcceptanceCriteria{
 			Id:          ac.ID,
 			Text:        ac.Text,
 			VerifyHints: hints,
@@ -156,9 +156,9 @@ type checkRole struct {
 
 //nolint:dupl // Typed generated requests require repeated field mapping.
 func (r *checkRole) MapRequest(req contracts.AgentRequest) (any, error) {
-	acs := make([]check.CheckAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
+	acs := make([]check.CheckAcceptanceCriteria, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
-		acs = append(acs, check.CheckAcceptanceCriterion{
+		acs = append(acs, check.CheckAcceptanceCriteria{
 			Id:   ac.ID,
 			Text: ac.Text,
 		})
@@ -267,20 +267,20 @@ func normalizeDoInput(input *do.DoInput) *do.DoInput {
 	}
 
 	out := &do.DoInput{
-		AcceptanceCriteriaEffective: make([]do.DoEffectiveAC, 0, len(input.AcceptanceCriteriaEffective)),
+		AcceptanceCriteriaEffective: make([]do.DoEffectiveAcceptanceCriteria, 0, len(input.AcceptanceCriteriaEffective)),
 	}
 
 	if input.WorkPlan != nil {
 		doSteps := make([]do.DoDoStep, 0, len(input.WorkPlan.DoSteps))
 		for _, step := range input.WorkPlan.DoSteps {
-			targets := step.TargetsAcIds
+			targets := step.TargetsAcceptanceCriteriaIds
 			if targets == nil {
 				targets = []string{}
 			}
 			doSteps = append(doSteps, do.DoDoStep{
-				Id:           step.Id,
-				TargetsAcIds: targets,
-				Text:         step.Text,
+				Id:                           step.Id,
+				TargetsAcceptanceCriteriaIds: targets,
+				Text:                         step.Text,
 			})
 		}
 
@@ -305,10 +305,10 @@ func normalizeDoInput(input *do.DoInput) *do.DoInput {
 		if refines == nil {
 			refines = []string{}
 		}
-		checks := make([]do.DoACCheck, 0, len(ac.Checks))
+		checks := make([]do.DoAcceptanceCriteriaCheck, 0, len(ac.Checks))
 		checks = append(checks, ac.Checks...)
 
-		out.AcceptanceCriteriaEffective = append(out.AcceptanceCriteriaEffective, do.DoEffectiveAC{
+		out.AcceptanceCriteriaEffective = append(out.AcceptanceCriteriaEffective, do.DoEffectiveAcceptanceCriteria{
 			Id:      ac.Id,
 			Origin:  ac.Origin,
 			Refines: refines,

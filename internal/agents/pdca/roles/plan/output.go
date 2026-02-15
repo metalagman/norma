@@ -8,26 +8,21 @@ import (
 	"errors"
 )
 
-// ACCheck
-type ACCheck struct {
+// CriterionCheck
+type CriterionCheck struct {
 	Cmd             string  `json:"cmd"`
 	ExpectExitCodes []int64 `json:"expect_exit_codes"`
 	Id              string  `json:"id"`
 }
 
-// EffectiveAC
-type EffectiveAC struct {
-	Checks  []ACCheck `json:"checks"`
-	Id      string    `json:"id"`
-	Origin  string    `json:"origin"`
-	Reason  string    `json:"reason,omitempty"`
-	Refines []string  `json:"refines,omitempty"`
-	Text    string    `json:"text"`
-}
-
-// PlanAcceptanceCriteria
-type PlanAcceptanceCriteria struct {
-	Effective []EffectiveAC `json:"effective"`
+// EffectiveAcceptanceCriteria
+type EffectiveAcceptanceCriteria struct {
+	Checks  []CriterionCheck `json:"checks"`
+	Id      string           `json:"id"`
+	Origin  string           `json:"origin"`
+	Reason  string           `json:"reason,omitempty"`
+	Refines []string         `json:"refines,omitempty"`
+	Text    string           `json:"text"`
 }
 
 // PlanCheckStep
@@ -39,15 +34,20 @@ type PlanCheckStep struct {
 
 // PlanDoStep
 type PlanDoStep struct {
-	Id           string   `json:"id"`
-	TargetsAcIds []string `json:"targets_ac_ids"`
-	Text         string   `json:"text"`
+	Id                           string   `json:"id"`
+	TargetsAcceptanceCriteriaIds []string `json:"targets_acceptance_criteria_ids"`
+	Text                         string   `json:"text"`
 }
 
 // PlanOutput
 type PlanOutput struct {
-	AcceptanceCriteria *PlanAcceptanceCriteria `json:"acceptance_criteria"`
-	WorkPlan           *PlanWorkPlan           `json:"work_plan"`
+	AcceptanceCriteria *PlanOutputAcceptanceCriteria `json:"acceptance_criteria"`
+	WorkPlan           *PlanWorkPlan                 `json:"work_plan"`
+}
+
+// PlanOutputAcceptanceCriteria
+type PlanOutputAcceptanceCriteria struct {
+	Effective []EffectiveAcceptanceCriteria `json:"effective"`
 }
 
 // PlanProgress
@@ -78,7 +78,7 @@ type PlanWorkPlan struct {
 	TimeboxMinutes int64           `json:"timebox_minutes"`
 }
 
-func (strct *ACCheck) MarshalJSON() ([]byte, error) {
+func (strct *CriterionCheck) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -127,7 +127,7 @@ func (strct *ACCheck) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *ACCheck) UnmarshalJSON(b []byte) error {
+func (strct *CriterionCheck) UnmarshalJSON(b []byte) error {
 	cmdReceived := false
 	expect_exit_codesReceived := false
 	idReceived := false
@@ -170,7 +170,7 @@ func (strct *ACCheck) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (strct *EffectiveAC) MarshalJSON() ([]byte, error) {
+func (strct *EffectiveAcceptanceCriteria) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -254,7 +254,7 @@ func (strct *EffectiveAC) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *EffectiveAC) UnmarshalJSON(b []byte) error {
+func (strct *EffectiveAcceptanceCriteria) UnmarshalJSON(b []byte) error {
 	checksReceived := false
 	idReceived := false
 	originReceived := false
@@ -311,52 +311,6 @@ func (strct *EffectiveAC) UnmarshalJSON(b []byte) error {
 	// check if text (a required property) was received
 	if !textReceived {
 		return errors.New("\"text\" is required but was not present")
-	}
-	return nil
-}
-
-func (strct *PlanAcceptanceCriteria) MarshalJSON() ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0))
-	buf.WriteString("{")
-	comma := false
-	// "Effective" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "effective" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"effective\": ")
-	if tmp, err := json.Marshal(strct.Effective); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-
-	buf.WriteString("}")
-	rv := buf.Bytes()
-	return rv, nil
-}
-
-func (strct *PlanAcceptanceCriteria) UnmarshalJSON(b []byte) error {
-	effectiveReceived := false
-	var jsonMap map[string]json.RawMessage
-	if err := json.Unmarshal(b, &jsonMap); err != nil {
-		return err
-	}
-	// parse all the defined properties
-	for k, v := range jsonMap {
-		switch k {
-		case "effective":
-			if err := json.Unmarshal([]byte(v), &strct.Effective); err != nil {
-				return err
-			}
-			effectiveReceived = true
-		}
-	}
-	// check if effective (a required property) was received
-	if !effectiveReceived {
-		return errors.New("\"effective\" is required but was not present")
 	}
 	return nil
 }
@@ -470,14 +424,14 @@ func (strct *PlanDoStep) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
-	// "TargetsAcIds" field is required
+	// "TargetsAcceptanceCriteriaIds" field is required
 	// only required object types supported for marshal checking (for now)
-	// Marshal the "targets_ac_ids" field
+	// Marshal the "targets_acceptance_criteria_ids" field
 	if comma {
 		buf.WriteString(",")
 	}
-	buf.WriteString("\"targets_ac_ids\": ")
-	if tmp, err := json.Marshal(strct.TargetsAcIds); err != nil {
+	buf.WriteString("\"targets_acceptance_criteria_ids\": ")
+	if tmp, err := json.Marshal(strct.TargetsAcceptanceCriteriaIds); err != nil {
 		return nil, err
 	} else {
 		buf.Write(tmp)
@@ -504,7 +458,7 @@ func (strct *PlanDoStep) MarshalJSON() ([]byte, error) {
 
 func (strct *PlanDoStep) UnmarshalJSON(b []byte) error {
 	idReceived := false
-	targets_ac_idsReceived := false
+	targets_acceptance_criteria_idsReceived := false
 	textReceived := false
 	var jsonMap map[string]json.RawMessage
 	if err := json.Unmarshal(b, &jsonMap); err != nil {
@@ -518,11 +472,11 @@ func (strct *PlanDoStep) UnmarshalJSON(b []byte) error {
 				return err
 			}
 			idReceived = true
-		case "targets_ac_ids":
-			if err := json.Unmarshal([]byte(v), &strct.TargetsAcIds); err != nil {
+		case "targets_acceptance_criteria_ids":
+			if err := json.Unmarshal([]byte(v), &strct.TargetsAcceptanceCriteriaIds); err != nil {
 				return err
 			}
-			targets_ac_idsReceived = true
+			targets_acceptance_criteria_idsReceived = true
 		case "text":
 			if err := json.Unmarshal([]byte(v), &strct.Text); err != nil {
 				return err
@@ -534,9 +488,9 @@ func (strct *PlanDoStep) UnmarshalJSON(b []byte) error {
 	if !idReceived {
 		return errors.New("\"id\" is required but was not present")
 	}
-	// check if targets_ac_ids (a required property) was received
-	if !targets_ac_idsReceived {
-		return errors.New("\"targets_ac_ids\" is required but was not present")
+	// check if targets_acceptance_criteria_ids (a required property) was received
+	if !targets_acceptance_criteria_idsReceived {
+		return errors.New("\"targets_acceptance_criteria_ids\" is required but was not present")
 	}
 	// check if text (a required property) was received
 	if !textReceived {
@@ -614,6 +568,52 @@ func (strct *PlanOutput) UnmarshalJSON(b []byte) error {
 	// check if work_plan (a required property) was received
 	if !work_planReceived {
 		return errors.New("\"work_plan\" is required but was not present")
+	}
+	return nil
+}
+
+func (strct *PlanOutputAcceptanceCriteria) MarshalJSON() ([]byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0))
+	buf.WriteString("{")
+	comma := false
+	// "Effective" field is required
+	// only required object types supported for marshal checking (for now)
+	// Marshal the "effective" field
+	if comma {
+		buf.WriteString(",")
+	}
+	buf.WriteString("\"effective\": ")
+	if tmp, err := json.Marshal(strct.Effective); err != nil {
+		return nil, err
+	} else {
+		buf.Write(tmp)
+	}
+	comma = true
+
+	buf.WriteString("}")
+	rv := buf.Bytes()
+	return rv, nil
+}
+
+func (strct *PlanOutputAcceptanceCriteria) UnmarshalJSON(b []byte) error {
+	effectiveReceived := false
+	var jsonMap map[string]json.RawMessage
+	if err := json.Unmarshal(b, &jsonMap); err != nil {
+		return err
+	}
+	// parse all the defined properties
+	for k, v := range jsonMap {
+		switch k {
+		case "effective":
+			if err := json.Unmarshal([]byte(v), &strct.Effective); err != nil {
+				return err
+			}
+			effectiveReceived = true
+		}
+	}
+	// check if effective (a required property) was received
+	if !effectiveReceived {
+		return errors.New("\"effective\" is required but was not present")
 	}
 	return nil
 }

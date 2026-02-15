@@ -23,7 +23,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "title": "CheckAcceptanceCriterion",
+            "title": "CheckAcceptanceCriteria",
             "properties": {
               "id": { "type": "string" },
               "text": { "type": "string" }
@@ -115,7 +115,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "title": "CheckEffectiveAC",
+            "title": "CheckEffectiveAcceptanceCriteria",
             "properties": {
               "id": { "type": "string" },
               "origin": { "type": "string" },

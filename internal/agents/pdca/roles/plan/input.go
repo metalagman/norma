@@ -8,8 +8,8 @@ import (
 	"errors"
 )
 
-// PlanAcceptanceCriterion
-type PlanAcceptanceCriterion struct {
+// PlanAcceptanceCriteria
+type PlanAcceptanceCriteria struct {
 	Id          string   `json:"id"`
 	Text        string   `json:"text"`
 	VerifyHints []string `json:"verify_hints,omitempty"`
@@ -71,10 +71,10 @@ type PlanStep struct {
 
 // PlanTask
 type PlanTask struct {
-	AcceptanceCriteria []PlanAcceptanceCriterion `json:"acceptance_criteria"`
-	Description        string                    `json:"description"`
-	Id                 string                    `json:"id"`
-	Title              string                    `json:"title"`
+	AcceptanceCriteria []PlanAcceptanceCriteria `json:"acceptance_criteria"`
+	Description        string                   `json:"description"`
+	Id                 string                   `json:"id"`
+	Title              string                   `json:"title"`
 }
 
 // PlanTaskID
@@ -82,7 +82,7 @@ type PlanTaskID struct {
 	Id string `json:"id"`
 }
 
-func (strct *PlanAcceptanceCriterion) MarshalJSON() ([]byte, error) {
+func (strct *PlanAcceptanceCriteria) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -129,7 +129,7 @@ func (strct *PlanAcceptanceCriterion) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *PlanAcceptanceCriterion) UnmarshalJSON(b []byte) error {
+func (strct *PlanAcceptanceCriteria) UnmarshalJSON(b []byte) error {
 	idReceived := false
 	textReceived := false
 	var jsonMap map[string]json.RawMessage

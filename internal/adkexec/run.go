@@ -13,6 +13,7 @@ import (
 type RunInput struct {
 	AppName      string
 	UserID       string
+	SessionID    string
 	Agent        agent.Agent
 	InitialState map[string]any
 	OnEvent      func(*session.Event)
@@ -44,9 +45,10 @@ func Run(ctx context.Context, input RunInput) (session.Session, error) {
 	}
 
 	created, err := sessionService.Create(ctx, &session.CreateRequest{
-		AppName: appName,
-		UserID:  userID,
-		State:   input.InitialState,
+		AppName:   appName,
+		UserID:    userID,
+		SessionID: input.SessionID,
+		State:     input.InitialState,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create ADK session: %w", err)

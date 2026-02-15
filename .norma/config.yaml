@@ -3,10 +3,13 @@ profile: default
 agents:
   codex_primary:
     type: codex
-    model: gpt-5.2-codex
+    model: gpt-5.3-codex
   gemini_flash:
     type: gemini
     model: gemini-3-flash-preview
+  gemini_pro:
+    type: gemini
+    model: gemini-3-pro-preview
   opencode_exec_agent:
     type: opencode
     model: opencode/big-pickle
@@ -21,6 +24,12 @@ profiles:
     pdca:
       plan: codex_primary
       do: gemini_flash
+      check: codex_primary
+      act: codex_primary
+  codex:
+    pdca:
+      plan: codex_primary
+      do: codex_primary
       check: codex_primary
       act: codex_primary
   opencode:

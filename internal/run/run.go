@@ -156,6 +156,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	finalSession, err := adkexec.Run(ctx, adkexec.RunInput{
 		AppName:      "norma",
 		UserID:       "norma-user",
+		SessionID:    build.SessionID,
 		Agent:        build.Agent,
 		InitialState: build.InitialState,
 		OnEvent:      build.OnEvent,
