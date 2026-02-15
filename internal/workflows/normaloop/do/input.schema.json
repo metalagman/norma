@@ -91,22 +91,9 @@
                 "properties": {
                   "id": { "type": "string" },
                   "text": { "type": "string" },
-                  "commands": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "title": "DoCommand",
-                      "properties": {
-                        "id": { "type": "string" },
-                        "cmd": { "type": "string" },
-                        "expect_exit_codes": { "type": "array", "items": { "type": "integer" } }
-                      },
-                      "required": ["id", "cmd", "expect_exit_codes"]
-                    }
-                  },
                   "targets_ac_ids": { "type": "array", "items": { "type": "string" } }
                 },
-                "required": ["id", "text", "commands", "targets_ac_ids"]
+                "required": ["id", "text", "targets_ac_ids"]
               }
             },
             "check_steps": {

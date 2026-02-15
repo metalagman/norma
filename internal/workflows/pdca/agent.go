@@ -354,7 +354,6 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	if err != nil {
 		return nil, fmt.Errorf("map response: %w", err)
 	}
-	resp.Timing.WallTimeMS = time.Since(startTime).Milliseconds()
 
 	// Persist output.json
 	respJSON, err := json.MarshalIndent(resp, "", "  ")

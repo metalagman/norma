@@ -39,8 +39,6 @@ func newOpenAIRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 }
 
 func (r *openAIRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	startTime := time.Now()
-
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
@@ -90,7 +88,6 @@ func (r *openAIRunner) Run(ctx context.Context, req models.AgentRequest, stdout,
 		return nil, nil, 0, fmt.Errorf("parse agent response: %w", err)
 	}
 
-	agentResp.Timing.WallTimeMS = time.Since(startTime).Milliseconds()
 	normalizedOut, err := json.Marshal(agentResp)
 	if err != nil {
 		return rawOut, nil, 0, fmt.Errorf("marshal agent response: %w", err)

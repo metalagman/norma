@@ -114,9 +114,7 @@ type IDInfo struct {
 type AgentResponse struct {
 	Status     string          `json:"status"` // "ok", "stop", "error"
 	StopReason string          `json:"stop_reason,omitempty"`
-	Escalate   bool            `json:"escalate,omitempty"`
 	Summary    ResponseSummary `json:"summary"`
-	Timing     ResponseTiming  `json:"timing"`
 	Progress   StepProgress    `json:"progress"`
 
 	// Role-specific outputs
@@ -128,35 +126,23 @@ type AgentResponse struct {
 
 // ResponseSummary captures the outcome of an agent's task.
 type ResponseSummary struct {
-	Text     string   `json:"text"`
-	Warnings []string `json:"warnings"`
-	Errors   []string `json:"errors"`
-}
-
-// ResponseTiming records the duration of an agent's execution.
-type ResponseTiming struct {
-	WallTimeMS int64 `json:"wall_time_ms"`
+	Text string `json:"text"`
 }
 
 // StepProgress captures highlights for the run journal.
 type StepProgress struct {
-	Title   string            `json:"title"`
-	Details []string          `json:"details"`
-	Links   map[string]string `json:"links"`
+	Title   string   `json:"title"`
+	Details []string `json:"details"`
 }
 
 // PlanOutput is the primary output from the plan agent.
 type PlanOutput struct {
-	TaskID             string                 `json:"task_id"`
-	Goal               string                 `json:"goal"`
-	Constraints        []string               `json:"constraints"`
 	AcceptanceCriteria EffectiveCriteriaGroup `json:"acceptance_criteria"`
 	WorkPlan           WorkPlan               `json:"work_plan"`
 }
 
 // EffectiveCriteriaGroup groups baseline and extended acceptance criteria.
 type EffectiveCriteriaGroup struct {
-	Baseline  []task.AcceptanceCriterion     `json:"baseline"`
 	Effective []EffectiveAcceptanceCriterion `json:"effective"`
 }
 
@@ -170,17 +156,9 @@ type WorkPlan struct {
 
 // DoStep defines an implementation step.
 type DoStep struct {
-	ID           string    `json:"id"`
-	Text         string    `json:"text"`
-	Commands     []Command `json:"commands"`
-	TargetsACIDs []string  `json:"targets_ac_ids"`
-}
-
-// Command represents a single shell command to be executed.
-type Command struct {
-	ID              string `json:"id"`
-	Cmd             string `json:"cmd"`
-	ExpectExitCodes []int  `json:"expect_exit_codes"`
+	ID           string   `json:"id"`
+	Text         string   `json:"text"`
+	TargetsACIDs []string `json:"targets_ac_ids"`
 }
 
 // CheckStep defines a verification step.
@@ -193,50 +171,18 @@ type CheckStep struct {
 // DoOutput is the primary output from the do agent.
 type DoOutput struct {
 	Execution DoExecution `json:"execution"`
-	Blockers  []Blocker   `json:"blockers"`
 }
 
-// DoExecution records the outcome of executed steps and commands.
+// DoExecution records the outcome of executed steps.
 type DoExecution struct {
-	ExecutedStepIDs []string        `json:"executed_step_ids"`
-	SkippedStepIDs  []string        `json:"skipped_step_ids"`
-	Commands        []CommandResult `json:"commands"`
-}
-
-// CommandResult captures the result of a single command execution.
-type CommandResult struct {
-	ID       string `json:"id"`
-	Cmd      string `json:"cmd"`
-	ExitCode int    `json:"exit_code"`
-}
-
-// Blocker describes an issue that prevented progress.
-type Blocker struct {
-	Kind                string `json:"kind"` // "dependency", "env", "unknown"
-	Text                string `json:"text"`
-	SuggestedStopReason string `json:"suggested_stop_reason"`
+	ExecutedStepIDs []string `json:"executed_step_ids"`
+	SkippedStepIDs  []string `json:"skipped_step_ids"`
 }
 
 // CheckOutput is the primary output from the check agent.
 type CheckOutput struct {
-	PlanMatch         PlanMatch          `json:"plan_match"`
 	AcceptanceResults []AcceptanceResult `json:"acceptance_results"`
 	Verdict           CheckVerdict       `json:"verdict"`
-	ProcessNotes      []ProcessNote      `json:"process_notes"`
-}
-
-// PlanMatch compares planned vs actual execution.
-type PlanMatch struct {
-	DoSteps  MatchResult `json:"do_steps"`
-	Commands MatchResult `json:"commands"`
-}
-
-// MatchResult details the differences between planned and executed IDs.
-type MatchResult struct {
-	PlannedIDs    []string `json:"planned_ids"`
-	ExecutedIDs   []string `json:"executed_ids"`
-	MissingIDs    []string `json:"missing_ids"`
-	UnexpectedIDs []string `json:"unexpected_ids"`
 }
 
 // AcceptanceResult records the pass/fail result for a single AC.
@@ -259,25 +205,9 @@ type Basis struct {
 	AllAcceptancePassed bool   `json:"all_acceptance_passed"`
 }
 
-// ProcessNote provides meta-feedback on the run process.
-type ProcessNote struct {
-	Kind                string `json:"kind"` // "plan_mismatch", "missing_verification"
-	Severity            string `json:"severity"`
-	Text                string `json:"text"`
-	SuggestedStopReason string `json:"suggested_stop_reason"`
-}
-
 // ActOutput is the primary output from the act agent.
 type ActOutput struct {
-	Decision  string     `json:"decision"` // "close", "replan", "rollback", "continue"
-	Rationale string     `json:"rationale"`
-	Next      NextAction `json:"next"`
-}
-
-// NextAction describes what should happen in the next iteration.
-type NextAction struct {
-	Recommended bool   `json:"recommended"`
-	Notes       string `json:"notes"`
+	Decision string `json:"decision"` // "close", "replan", "rollback", "continue"
 }
 
 // TaskState is stored in task notes to persist step outputs and journal across runs.

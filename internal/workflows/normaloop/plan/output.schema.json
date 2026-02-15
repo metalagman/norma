@@ -9,9 +9,7 @@
       "type": "object",
       "title": "PlanSummary",
       "properties": {
-        "text": { "type": "string" },
-        "warnings": { "type": "array", "items": { "type": "string" } },
-        "errors": { "type": "array", "items": { "type": "string" } }
+        "text": { "type": "string" }
       },
       "required": ["text"]
     },
@@ -24,45 +22,14 @@
       },
       "required": ["title", "details"]
     },
-    "logs": {
-      "type": "object",
-      "title": "PlanLogs",
-      "properties": {
-        "stdout_path": { "type": "string" },
-        "stderr_path": { "type": "string" }
-      }
-    },
-    "timing": {
-      "type": "object",
-      "title": "PlanTiming",
-      "properties": {
-        "wall_time_ms": { "type": "integer" }
-      }
-    },
     "plan_output": {
       "type": "object",
       "title": "PlanOutput",
       "properties": {
-        "task_id": { "type": "string" },
-        "goal": { "type": "string" },
-        "constraints": { "type": "array", "items": { "type": "string" } },
         "acceptance_criteria": {
           "type": "object",
           "title": "PlanAcceptanceCriteria",
           "properties": {
-            "baseline": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "BaselineAC",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" },
-                  "verify_hints": { "type": "array", "items": { "type": "string" } }
-                },
-                "required": ["id", "text"]
-              }
-            },
             "effective": {
               "type": "array",
               "items": {
@@ -92,7 +59,7 @@
               }
             }
           },
-          "required": ["baseline", "effective"]
+          "required": ["effective"]
         },
         "work_plan": {
           "type": "object",
@@ -107,22 +74,9 @@
                 "properties": {
                   "id": { "type": "string" },
                   "text": { "type": "string" },
-                  "commands": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "title": "PlanCommand",
-                      "properties": {
-                        "id": { "type": "string" },
-                        "cmd": { "type": "string" },
-                        "expect_exit_codes": { "type": "array", "items": { "type": "integer" } }
-                      },
-                      "required": ["id", "cmd", "expect_exit_codes"]
-                    }
-                  },
                   "targets_ac_ids": { "type": "array", "items": { "type": "string" } }
                 },
-                "required": ["id", "text", "commands", "targets_ac_ids"]
+                "required": ["id", "text", "targets_ac_ids"]
               }
             },
             "check_steps": {
@@ -143,7 +97,7 @@
           "required": ["timebox_minutes", "do_steps", "check_steps", "stop_triggers"]
         }
       },
-      "required": ["task_id", "goal", "acceptance_criteria", "work_plan"]
+      "required": ["acceptance_criteria", "work_plan"]
     }
   },
   "required": ["status", "summary", "progress", "plan_output"]

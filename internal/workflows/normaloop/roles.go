@@ -3,7 +3,6 @@ package normaloop
 import (
 	"encoding/json"
 
-	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows/normaloop/act"
 	"github.com/metalagman/norma/internal/workflows/normaloop/check"
 	"github.com/metalagman/norma/internal/workflows/normaloop/do"
@@ -70,26 +69,27 @@ func (r *planRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.PlanOutput != nil {
-		res.Plan = &models.PlanOutput{
-			TaskID:      roleResp.PlanOutput.TaskId,
-			Goal:        roleResp.PlanOutput.Goal,
-			Constraints: roleResp.PlanOutput.Constraints,
-		}
+		res.Plan = &models.PlanOutput{}
 		if roleResp.PlanOutput.WorkPlan != nil {
 			res.Plan.WorkPlan = models.WorkPlan{
 				TimeboxMinutes: int(roleResp.PlanOutput.WorkPlan.TimeboxMinutes),
 				StopTriggers:   roleResp.PlanOutput.WorkPlan.StopTriggers,
 			}
 			for _, s := range roleResp.PlanOutput.WorkPlan.DoSteps {
+				targetsACIDs := s.TargetsAcIds
+				if targetsACIDs == nil {
+					targetsACIDs = []string{}
+				}
 				res.Plan.WorkPlan.DoSteps = append(res.Plan.WorkPlan.DoSteps, models.DoStep{
-					ID:   s.Id,
-					Text: s.Text,
+					ID:           s.Id,
+					Text:         s.Text,
+					TargetsACIDs: targetsACIDs,
 				})
 			}
 			for _, s := range roleResp.PlanOutput.WorkPlan.CheckSteps {
@@ -101,23 +101,37 @@ func (r *planRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 			}
 		}
 		if roleResp.PlanOutput.AcceptanceCriteria != nil {
-			for _, b := range roleResp.PlanOutput.AcceptanceCriteria.Baseline {
-				res.Plan.AcceptanceCriteria.Baseline = append(res.Plan.AcceptanceCriteria.Baseline, task.AcceptanceCriterion{
-					ID:   b.Id,
-					Text: b.Text,
-				})
-			}
 			for _, e := range roleResp.PlanOutput.AcceptanceCriteria.Effective {
+				refines := e.Refines
+				if refines == nil {
+					refines = []string{}
+				}
+				checks := make([]models.Check, 0, len(e.Checks))
+				for _, c := range e.Checks {
+					exitCodes := c.ExpectExitCodes
+					if exitCodes == nil {
+						exitCodes = []int64{}
+					}
+					mappedExitCodes := make([]int, 0, len(exitCodes))
+					for _, ec := range exitCodes {
+						mappedExitCodes = append(mappedExitCodes, int(ec))
+					}
+					checks = append(checks, models.Check{
+						ID:              c.Id,
+						Cmd:             c.Cmd,
+						ExpectExitCodes: mappedExitCodes,
+					})
+				}
 				res.Plan.AcceptanceCriteria.Effective = append(res.Plan.AcceptanceCriteria.Effective, models.EffectiveAcceptanceCriterion{
-					ID:     e.Id,
-					Origin: e.Origin,
-					Text:   e.Text,
+					ID:      e.Id,
+					Origin:  e.Origin,
+					Refines: refines,
+					Text:    e.Text,
+					Checks:  checks,
+					Reason:  e.Reason,
 				})
 			}
 		}
-	}
-	if roleResp.Timing != nil {
-		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }
@@ -173,22 +187,6 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 
 	doSteps := make([]do.DoDoStep, 0, len(req.Do.WorkPlan.DoSteps))
 	for _, s := range req.Do.WorkPlan.DoSteps {
-		commands := make([]do.DoCommand, 0, len(s.Commands))
-		for _, c := range s.Commands {
-			exitCodes := c.ExpectExitCodes
-			if exitCodes == nil {
-				exitCodes = []int{}
-			}
-			mappedExitCodes := make([]int64, 0, len(exitCodes))
-			for _, ec := range exitCodes {
-				mappedExitCodes = append(mappedExitCodes, int64(ec))
-			}
-			commands = append(commands, do.DoCommand{
-				Id:              c.ID,
-				Cmd:             c.Cmd,
-				ExpectExitCodes: mappedExitCodes,
-			})
-		}
 		targetsACIDs := s.TargetsACIDs
 		if targetsACIDs == nil {
 			targetsACIDs = []string{}
@@ -196,7 +194,6 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 		doSteps = append(doSteps, do.DoDoStep{
 			Id:           s.ID,
 			Text:         s.Text,
-			Commands:     commands,
 			TargetsAcIds: targetsACIDs,
 		})
 	}
@@ -257,7 +254,7 @@ func (r *doRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
@@ -269,24 +266,7 @@ func (r *doRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 				ExecutedStepIDs: roleResp.DoOutput.Execution.ExecutedStepIds,
 				SkippedStepIDs:  roleResp.DoOutput.Execution.SkippedStepIds,
 			}
-			for _, c := range roleResp.DoOutput.Execution.Commands {
-				res.Do.Execution.Commands = append(res.Do.Execution.Commands, models.CommandResult{
-					ID:       c.Id,
-					Cmd:      c.Cmd,
-					ExitCode: int(c.ExitCode),
-				})
-			}
 		}
-		for _, b := range roleResp.DoOutput.Blockers {
-			res.Do.Blockers = append(res.Do.Blockers, models.Blocker{
-				Kind:                b.Kind,
-				Text:                b.Text,
-				SuggestedStopReason: b.SuggestedStopReason,
-			})
-		}
-	}
-	if roleResp.Timing != nil {
-		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }
@@ -309,14 +289,6 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 			Id:     ac.ID,
 			Origin: ac.Origin,
 			Text:   ac.Text,
-		})
-	}
-	commands := make([]check.CheckCommandResult, 0, len(req.Check.DoExecution.Commands))
-	for _, c := range req.Check.DoExecution.Commands {
-		commands = append(commands, check.CheckCommandResult{
-			Id:       c.ID,
-			Cmd:      c.Cmd,
-			ExitCode: int64(c.ExitCode),
 		})
 	}
 	doSteps := make([]check.CheckDoStep, 0, len(req.Check.WorkPlan.DoSteps))
@@ -381,7 +353,6 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 			DoExecution: &check.CheckDoExecution{
 				ExecutedStepIds: executedStepIDs,
 				SkippedStepIds:  skippedStepIDs,
-				Commands:        commands,
 			},
 		},
 	}, nil
@@ -397,31 +368,13 @@ func (r *checkRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.CheckOutput != nil {
 		res.Check = &models.CheckOutput{}
-		if roleResp.CheckOutput.PlanMatch != nil {
-			if roleResp.CheckOutput.PlanMatch.DoSteps != nil {
-				res.Check.PlanMatch.DoSteps = models.MatchResult{
-					PlannedIDs:    roleResp.CheckOutput.PlanMatch.DoSteps.PlannedIds,
-					ExecutedIDs:   roleResp.CheckOutput.PlanMatch.DoSteps.ExecutedIds,
-					MissingIDs:    roleResp.CheckOutput.PlanMatch.DoSteps.MissingIds,
-					UnexpectedIDs: roleResp.CheckOutput.PlanMatch.DoSteps.UnexpectedIds,
-				}
-			}
-			if roleResp.CheckOutput.PlanMatch.Commands != nil {
-				res.Check.PlanMatch.Commands = models.MatchResult{
-					PlannedIDs:    roleResp.CheckOutput.PlanMatch.Commands.PlannedIds,
-					ExecutedIDs:   roleResp.CheckOutput.PlanMatch.Commands.ExecutedIds,
-					MissingIDs:    roleResp.CheckOutput.PlanMatch.Commands.MissingIds,
-					UnexpectedIDs: roleResp.CheckOutput.PlanMatch.Commands.UnexpectedIds,
-				}
-			}
-		}
 		if roleResp.CheckOutput.Verdict != nil {
 			res.Check.Verdict = models.CheckVerdict{
 				Status:         roleResp.CheckOutput.Verdict.Status,
@@ -441,17 +394,6 @@ func (r *checkRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 				Notes:  ar.Notes,
 			})
 		}
-		for _, n := range roleResp.CheckOutput.ProcessNotes {
-			res.Check.ProcessNotes = append(res.Check.ProcessNotes, models.ProcessNote{
-				Kind:                n.Kind,
-				Severity:            n.Severity,
-				Text:                n.Text,
-				SuggestedStopReason: n.SuggestedStopReason,
-			})
-		}
-	}
-	if roleResp.Timing != nil {
-		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }
@@ -518,25 +460,15 @@ func (r *actRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text, Warnings: roleResp.Summary.Warnings, Errors: roleResp.Summary.Errors}
+		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	if roleResp.ActOutput != nil {
 		res.Act = &models.ActOutput{
-			Decision:  roleResp.ActOutput.Decision,
-			Rationale: roleResp.ActOutput.Rationale,
+			Decision: roleResp.ActOutput.Decision,
 		}
-		if roleResp.ActOutput.Next != nil {
-			res.Act.Next = models.NextAction{
-				Recommended: roleResp.ActOutput.Next.Recommended,
-				Notes:       roleResp.ActOutput.Next.Notes,
-			}
-		}
-	}
-	if roleResp.Timing != nil {
-		res.Timing = models.ResponseTiming{WallTimeMS: roleResp.Timing.WallTimeMs}
 	}
 	return res, nil
 }

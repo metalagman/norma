@@ -3,9 +3,9 @@
 package do
 
 import (
-    "errors"
     "bytes"
     "encoding/json"
+    "errors"
 )
 
 // DoACCheck 
@@ -36,13 +36,6 @@ type DoCheckStep struct {
   Text string `json:"text"`
 }
 
-// DoCommand 
-type DoCommand struct {
-  Cmd string `json:"cmd"`
-  ExpectExitCodes []int64 `json:"expect_exit_codes"`
-  Id string `json:"id"`
-}
-
 // DoContext 
 type DoContext struct {
   Attempt int64 `json:"attempt,omitempty"`
@@ -52,7 +45,6 @@ type DoContext struct {
 
 // DoDoStep 
 type DoDoStep struct {
-  Commands []DoCommand `json:"commands"`
   Id string `json:"id"`
   TargetsAcIds []string `json:"targets_ac_ids"`
   Text string `json:"text"`
@@ -469,115 +461,10 @@ func (strct *DoCheckStep) UnmarshalJSON(b []byte) error {
     return nil
 }
 
-func (strct *DoCommand) MarshalJSON() ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0))
-	buf.WriteString("{")
-    comma := false
-    // "Cmd" field is required
-    // only required object types supported for marshal checking (for now)
-    // Marshal the "cmd" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"cmd\": ")
-	if tmp, err := json.Marshal(strct.Cmd); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // "ExpectExitCodes" field is required
-    // only required object types supported for marshal checking (for now)
-    // Marshal the "expect_exit_codes" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"expect_exit_codes\": ")
-	if tmp, err := json.Marshal(strct.ExpectExitCodes); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-    // "Id" field is required
-    // only required object types supported for marshal checking (for now)
-    // Marshal the "id" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"id\": ")
-	if tmp, err := json.Marshal(strct.Id); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
-
-	buf.WriteString("}")
-	rv := buf.Bytes()
-	return rv, nil
-}
-
-func (strct *DoCommand) UnmarshalJSON(b []byte) error {
-    cmdReceived := false
-    expect_exit_codesReceived := false
-    idReceived := false
-    var jsonMap map[string]json.RawMessage
-    if err := json.Unmarshal(b, &jsonMap); err != nil {
-        return err
-    }
-    // parse all the defined properties
-    for k, v := range jsonMap {
-        switch k {
-        case "cmd":
-            if err := json.Unmarshal([]byte(v), &strct.Cmd); err != nil {
-                return err
-             }
-            cmdReceived = true
-        case "expect_exit_codes":
-            if err := json.Unmarshal([]byte(v), &strct.ExpectExitCodes); err != nil {
-                return err
-             }
-            expect_exit_codesReceived = true
-        case "id":
-            if err := json.Unmarshal([]byte(v), &strct.Id); err != nil {
-                return err
-             }
-            idReceived = true
-        }
-    }
-    // check if cmd (a required property) was received
-    if !cmdReceived {
-        return errors.New("\"cmd\" is required but was not present")
-    }
-    // check if expect_exit_codes (a required property) was received
-    if !expect_exit_codesReceived {
-        return errors.New("\"expect_exit_codes\" is required but was not present")
-    }
-    // check if id (a required property) was received
-    if !idReceived {
-        return errors.New("\"id\" is required but was not present")
-    }
-    return nil
-}
-
 func (strct *DoDoStep) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
     comma := false
-    // "Commands" field is required
-    // only required object types supported for marshal checking (for now)
-    // Marshal the "commands" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"commands\": ")
-	if tmp, err := json.Marshal(strct.Commands); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
     // "Id" field is required
     // only required object types supported for marshal checking (for now)
     // Marshal the "id" field
@@ -624,7 +511,6 @@ func (strct *DoDoStep) MarshalJSON() ([]byte, error) {
 }
 
 func (strct *DoDoStep) UnmarshalJSON(b []byte) error {
-    commandsReceived := false
     idReceived := false
     targets_ac_idsReceived := false
     textReceived := false
@@ -635,11 +521,6 @@ func (strct *DoDoStep) UnmarshalJSON(b []byte) error {
     // parse all the defined properties
     for k, v := range jsonMap {
         switch k {
-        case "commands":
-            if err := json.Unmarshal([]byte(v), &strct.Commands); err != nil {
-                return err
-             }
-            commandsReceived = true
         case "id":
             if err := json.Unmarshal([]byte(v), &strct.Id); err != nil {
                 return err
@@ -656,10 +537,6 @@ func (strct *DoDoStep) UnmarshalJSON(b []byte) error {
              }
             textReceived = true
         }
-    }
-    // check if commands (a required property) was received
-    if !commandsReceived {
-        return errors.New("\"commands\" is required but was not present")
     }
     // check if id (a required property) was received
     if !idReceived {

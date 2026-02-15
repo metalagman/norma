@@ -11,7 +11,6 @@ import (
 // ActAcceptanceResult 
 type ActAcceptanceResult struct {
   AcId string `json:"ac_id"`
-  LogRef string `json:"log_ref,omitempty"`
   Notes string `json:"notes,omitempty"`
   Result string `json:"result"`
 }
@@ -109,17 +108,6 @@ func (strct *ActAcceptanceResult) MarshalJSON() ([]byte, error) {
  		buf.Write(tmp)
 	}
 	comma = true
-    // Marshal the "log_ref" field
-    if comma {
-        buf.WriteString(",")
-    }
-    buf.WriteString("\"log_ref\": ")
-	if tmp, err := json.Marshal(strct.LogRef); err != nil {
-		return nil, err
- 	} else {
- 		buf.Write(tmp)
-	}
-	comma = true
     // Marshal the "notes" field
     if comma {
         buf.WriteString(",")
@@ -165,10 +153,6 @@ func (strct *ActAcceptanceResult) UnmarshalJSON(b []byte) error {
                 return err
              }
             ac_idReceived = true
-        case "log_ref":
-            if err := json.Unmarshal([]byte(v), &strct.LogRef); err != nil {
-                return err
-             }
         case "notes":
             if err := json.Unmarshal([]byte(v), &strct.Notes); err != nil {
                 return err

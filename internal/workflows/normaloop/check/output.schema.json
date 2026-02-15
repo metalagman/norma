@@ -9,9 +9,7 @@
       "type": "object",
       "title": "CheckSummary",
       "properties": {
-        "text": { "type": "string" },
-        "warnings": { "type": "array", "items": { "type": "string" } },
-        "errors": { "type": "array", "items": { "type": "string" } }
+        "text": { "type": "string" }
       },
       "required": ["text"]
     },
@@ -24,51 +22,10 @@
       },
       "required": ["title", "details"]
     },
-    "logs": {
-      "type": "object",
-      "title": "CheckLogs",
-      "properties": {
-        "stdout_path": { "type": "string" },
-        "stderr_path": { "type": "string" }
-      }
-    },
-    "timing": {
-      "type": "object",
-      "title": "CheckTiming",
-      "properties": {
-        "wall_time_ms": { "type": "integer" }
-      }
-    },
     "check_output": {
       "type": "object",
       "title": "CheckOutput",
       "properties": {
-        "plan_match": {
-          "type": "object",
-          "title": "CheckPlanMatch",
-          "properties": {
-            "do_steps": {
-              "type": "object",
-              "title": "CheckMatchResult",
-              "properties": {
-                "planned_ids": { "type": "array", "items": { "type": "string" } },
-                "executed_ids": { "type": "array", "items": { "type": "string" } },
-                "missing_ids": { "type": "array", "items": { "type": "string" } },
-                "unexpected_ids": { "type": "array", "items": { "type": "string" } }
-              }
-            },
-            "commands": {
-              "type": "object",
-              "title": "CheckMatchResult",
-              "properties": {
-                "planned_ids": { "type": "array", "items": { "type": "string" } },
-                "executed_ids": { "type": "array", "items": { "type": "string" } },
-                "missing_ids": { "type": "array", "items": { "type": "string" } },
-                "unexpected_ids": { "type": "array", "items": { "type": "string" } }
-              }
-            }
-          }
-        },
         "acceptance_results": {
           "type": "array",
           "items": {
@@ -77,8 +34,7 @@
             "properties": {
               "ac_id": { "type": "string" },
               "result": { "type": "string", "enum": ["PASS", "FAIL"] },
-              "notes": { "type": "string" },
-              "log_ref": { "type": "string" }
+              "notes": { "type": "string" }
             },
             "required": ["ac_id", "result"]
           }
@@ -99,23 +55,9 @@
             }
           },
           "required": ["status", "recommendation", "basis"]
-        },
-        "process_notes": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "title": "CheckProcessNote",
-            "properties": {
-              "kind": { "type": "string" },
-              "severity": { "type": "string" },
-              "text": { "type": "string" },
-              "suggested_stop_reason": { "type": "string" }
-            },
-            "required": ["kind", "severity", "text"]
-          }
         }
       },
-      "required": ["plan_match", "acceptance_results", "verdict"]
+      "required": ["acceptance_results", "verdict"]
     }
   },
   "required": ["status", "summary", "progress", "check_output"]

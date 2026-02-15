@@ -24,12 +24,7 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 			Details: []string{"Decision close"},
 		},
 		Act: &models.ActOutput{
-			Decision:  "close",
-			Rationale: "all checks passed",
-			Next: models.NextAction{
-				Recommended: true,
-				Notes:       "no follow-up needed",
-			},
+			Decision: "close",
 		},
 	}
 
@@ -78,8 +73,7 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 			Details: []string{"no explicit title"},
 		},
 		Act: &models.ActOutput{
-			Decision:  "replan",
-			Rationale: "partial verification",
+			Decision: "replan",
 		},
 	}
 

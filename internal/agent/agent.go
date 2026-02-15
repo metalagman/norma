@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/metalagman/ainvoke/adk"
 	"github.com/metalagman/norma/internal/config"
@@ -89,8 +88,6 @@ type adkRunner struct {
 }
 
 func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
-	startTime := time.Now()
-
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
@@ -180,7 +177,6 @@ func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, st
 	// Parse role-specific response and map back to models.AgentResponse
 	agentResp, err := r.role.MapResponse(lastOutBytes)
 	if err == nil {
-		agentResp.Timing.WallTimeMS = time.Since(startTime).Milliseconds()
 		// Re-marshal it to ensure consistency
 		newOut, mErr := json.Marshal(agentResp)
 		if mErr == nil {

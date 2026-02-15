@@ -8,9 +8,7 @@
     "summary": {
       "type": "object",
       "properties": {
-        "text": { "type": "string" },
-        "warnings": { "type": "array", "items": { "type": "string" } },
-        "errors": { "type": "array", "items": { "type": "string" } }
+        "text": { "type": "string" }
       },
       "required": ["text"]
     },
@@ -22,33 +20,12 @@
       },
       "required": ["title", "details"]
     },
-    "logs": {
-      "type": "object",
-      "properties": {
-        "stdout_path": { "type": "string" },
-        "stderr_path": { "type": "string" }
-      }
-    },
-    "timing": {
-      "type": "object",
-      "properties": {
-        "wall_time_ms": { "type": "integer" }
-      }
-    },
     "act_output": {
       "type": "object",
       "properties": {
-        "decision": { "type": "string", "enum": ["close", "replan", "rollback", "continue"] },
-        "rationale": { "type": "string" },
-        "next": {
-          "type": "object",
-          "properties": {
-            "recommended": { "type": "boolean" },
-            "notes": { "type": "string" }
-          }
-        }
+        "decision": { "type": "string", "enum": ["close", "replan", "rollback", "continue"] }
       },
-      "required": ["decision", "rationale"]
+      "required": ["decision"]
     }
   },
   "required": ["status", "summary", "progress", "act_output"]

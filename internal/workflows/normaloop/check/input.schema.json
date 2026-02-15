@@ -129,22 +129,9 @@
           "title": "CheckDoExecution",
           "properties": {
             "executed_step_ids": { "type": "array", "items": { "type": "string" } },
-            "skipped_step_ids": { "type": "array", "items": { "type": "string" } },
-            "commands": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "CheckCommandResult",
-                "properties": {
-                  "id": { "type": "string" },
-                  "cmd": { "type": "string" },
-                  "exit_code": { "type": "integer" }
-                },
-                "required": ["id", "cmd", "exit_code"]
-              }
-            }
+            "skipped_step_ids": { "type": "array", "items": { "type": "string" } }
           },
-          "required": ["executed_step_ids", "skipped_step_ids", "commands"]
+          "required": ["executed_step_ids", "skipped_step_ids"]
         }
       },
       "required": ["work_plan", "acceptance_criteria_effective", "do_execution"]
