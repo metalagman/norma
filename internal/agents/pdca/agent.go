@@ -31,7 +31,7 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// runtime holds PDCA step execution state used by role sub-agents.
+// runtime holds PDCA step execution state used by role subagents.
 type runtime struct {
 	cfg        config.Config
 	store      *db.Store
@@ -39,7 +39,7 @@ type runtime struct {
 	baseBranch string
 }
 
-// NewLoopAgent creates and configures the PDCA loop agent with role sub-agents.
+// NewLoopAgent creates and configures the PDCA loop agent with role subagents.
 func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseBranch string, maxIterations int) (agent.Agent, error) {
 	rt := &runtime{
 		cfg:        cfg,
@@ -50,19 +50,19 @@ func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseB
 
 	planAgent, err := rt.createSubAgent(RolePlan)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", RolePlan, err)
+		return nil, fmt.Errorf("create %s subagent: %w", RolePlan, err)
 	}
 	doAgent, err := rt.createSubAgent(RoleDo)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", RoleDo, err)
+		return nil, fmt.Errorf("create %s subagent: %w", RoleDo, err)
 	}
 	checkAgent, err := rt.createSubAgent(RoleCheck)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", RoleCheck, err)
+		return nil, fmt.Errorf("create %s subagent: %w", RoleCheck, err)
 	}
 	actAgent, err := rt.createSubAgent(RoleAct)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", RoleAct, err)
+		return nil, fmt.Errorf("create %s subagent: %w", RoleAct, err)
 	}
 
 	ag, err := loopagent.New(loopagent.Config{

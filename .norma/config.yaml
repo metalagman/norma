@@ -1,18 +1,15 @@
 profile: default
 
 agents:
-  codex_primary:
-    type: codex
-    model: gpt-5.3-codex
-  gemini_flash:
-    type: gemini
-    model: gemini-3-flash-preview
-  gemini_pro:
-    type: gemini
-    model: gemini-3-pro-preview
-  opencode_exec_agent:
-    type: opencode
-    model: opencode/big-pickle
+  ainvoke_codex_agent:
+    type: exec
+    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "codex"]
+  ainvoke_gemini_agent:
+    type: exec
+    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "gemini"]
+  ainvoke_opencode_agent:
+    type: exec
+    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "opencode"]
   openai_primary:
     type: openai
     model: gpt-5
@@ -22,28 +19,28 @@ agents:
 profiles:
   default:
     pdca:
-      plan: codex_primary
-      do: gemini_flash
-      check: codex_primary
-      act: codex_primary
+      plan: ainvoke_opencode_agent
+      do: ainvoke_opencode_agent
+      check: ainvoke_codex_agent
+      act: ainvoke_codex_agent
   codex:
     pdca:
-      plan: codex_primary
-      do: codex_primary
-      check: codex_primary
-      act: codex_primary
+      plan: ainvoke_codex_agent
+      do: ainvoke_codex_agent
+      check: ainvoke_codex_agent
+      act: ainvoke_codex_agent
   opencode:
     pdca:
-      plan: opencode_exec_agent
-      do: opencode_exec_agent
-      check: opencode_exec_agent
-      act: opencode_exec_agent
+      plan: ainvoke_opencode_agent
+      do: ainvoke_opencode_agent
+      check: ainvoke_opencode_agent
+      act: ainvoke_opencode_agent
   gemini:
     pdca:
-      plan: gemini_flash
-      do: gemini_flash
-      check: gemini_flash
-      act: gemini_flash
+      plan: ainvoke_gemini_agent
+      do: ainvoke_gemini_agent
+      check: ainvoke_gemini_agent
+      act: ainvoke_gemini_agent
   openai:
     pdca:
       plan: openai_primary

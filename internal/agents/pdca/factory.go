@@ -69,7 +69,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 		}
 	}
 
-	// Create the pdca loop agent with plan/do/check/act as direct sub-agents.
+	// Create the pdca loop agent with plan/do/check/act as direct subagents.
 	la, err := NewLoopAgent(w.cfg, w.store, input, input.BaseBranch, w.cfg.Budgets.MaxIterations)
 	if err != nil {
 		return runpkg.AgentBuild{}, fmt.Errorf("create loop agent: %w", err)

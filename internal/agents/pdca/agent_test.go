@@ -278,8 +278,6 @@ func TestCoerceTaskStateFromMap(t *testing.T) {
 	}
 }
 
-
-
 func TestValidateStepResponse(t *testing.T) {
 	t.Parallel()
 
@@ -454,7 +452,7 @@ func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 	wantNames := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
 	for _, want := range wantNames {
 		if !slices.Contains(gotNames, want) {
-			t.Fatalf("missing sub-agent %q, got %v", want, gotNames)
+			t.Fatalf("missing subagent %q, got %v", want, gotNames)
 		}
 	}
 }
