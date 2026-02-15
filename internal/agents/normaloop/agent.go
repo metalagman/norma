@@ -106,8 +106,8 @@ func (w *Loop) newLoopAgent(selectorAgent, iterationAgent agent.Agent) (agent.Ag
 
 func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	l := w.logger.With().
-		Str("agent_name", "Selector").
-		Str("agent_id", ctx.InvocationID()).
+		Str("agent_name", ctx.Agent().Name()).
+		Str("invocation_id", ctx.InvocationID()).
 		Logger()
 
 	return func(yield func(*session.Event, error) bool) {
@@ -145,8 +145,8 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 
 func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	l := w.logger.With().
-		Str("agent_name", "NormaLoopIteration").
-		Str("agent_id", ctx.InvocationID()).
+		Str("agent_name", ctx.Agent().Name()).
+		Str("invocation_id", ctx.InvocationID()).
 		Logger()
 
 	return func(yield func(*session.Event, error) bool) {

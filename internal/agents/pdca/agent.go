@@ -95,8 +95,8 @@ func (a *runtime) runRoleLoop(roleName string) func(ctx agent.InvocationContext)
 	return func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		l := log.With().
 			Str("component", "pdca").
-			Str("agent_name", roleName).
-			Str("agent_id", ctx.InvocationID()).
+			Str("agent_name", ctx.Agent().Name()).
+			Str("invocation_id", ctx.InvocationID()).
 			Logger()
 
 		return func(yield func(*session.Event, error) bool) {
