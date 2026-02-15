@@ -4,7 +4,6 @@ import "time"
 
 const (
 	defaultBaseURL   = "https://api.openai.com/v1"
-	defaultAPIKeyEnv = "OPENAI_API_KEY"
 	defaultTimeout   = 60 * time.Second
 )
 
@@ -13,7 +12,6 @@ type Config struct {
 	Model     string
 	BaseURL   string
 	APIKey    string
-	APIKeyEnv string
 	Timeout   time.Duration
 }
 

@@ -72,10 +72,6 @@
           "type": "string",
           "minLength": 1
         },
-        "api_key_env": {
-          "type": "string",
-          "minLength": 1
-        },
         "api_key": {
           "type": "string",
           "minLength": 1
@@ -139,15 +135,7 @@
             }
           },
           "then": {
-            "required": ["model"],
-            "oneOf": [
-              {
-                "required": ["api_key_env"]
-              },
-              {
-                "required": ["api_key"]
-              }
-            ]
+            "required": ["model", "api_key"]
           }
         }
       ]

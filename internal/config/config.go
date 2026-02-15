@@ -21,7 +21,6 @@ type AgentConfig struct {
 	Cmd           []string      `json:"cmd,omitempty"            mapstructure:"cmd"`
 	Model         string        `json:"model,omitempty"          mapstructure:"model"`
 	BaseURL       string        `json:"base_url,omitempty"       mapstructure:"base_url"`
-	APIKeyEnv     string        `json:"api_key_env,omitempty"    mapstructure:"api_key_env"`
 	APIKey        string        `json:"api_key,omitempty"        mapstructure:"api_key"`
 	Timeout       int           `json:"timeout,omitempty"        mapstructure:"timeout"`
 	Path          string        `json:"path,omitempty"           mapstructure:"path"`

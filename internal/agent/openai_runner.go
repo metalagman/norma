@@ -22,11 +22,10 @@ type openAIRunner struct {
 
 func newOpenAIRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 	client, err := openaiapi.NewClient(openaiapi.Config{
-		Model:     cfg.Model,
-		BaseURL:   cfg.BaseURL,
-		APIKey:    cfg.APIKey,
-		APIKeyEnv: cfg.APIKeyEnv,
-		Timeout:   time.Duration(cfg.Timeout) * time.Second,
+		Model:   cfg.Model,
+		BaseURL: cfg.BaseURL,
+		APIKey:  cfg.APIKey,
+		Timeout: time.Duration(cfg.Timeout) * time.Second,
 	}, nil)
 	if err != nil {
 		return nil, err

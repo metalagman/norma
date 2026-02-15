@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/openai/openai-go"
@@ -27,14 +26,7 @@ func NewClient(cfg Config, httpClient *http.Client) (*Client, error) {
 
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if apiKey == "" {
-		envKey := strings.TrimSpace(cfg.APIKeyEnv)
-		if envKey == "" {
-			envKey = defaultAPIKeyEnv
-		}
-		apiKey = strings.TrimSpace(os.Getenv(envKey))
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("openai api key is required (set api_key or api_key_env)")
+		return nil, fmt.Errorf("openai api key is required (set api_key)")
 	}
 
 	baseURL := strings.TrimSpace(cfg.BaseURL)

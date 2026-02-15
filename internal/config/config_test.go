@@ -209,7 +209,7 @@ func TestResolveFeatureAgents_ReturnsErrorForMissingFeature(t *testing.T) {
 	}
 }
 
-func TestValidateSettings_AllowsOpenAIAgentWithAPIKeyEnv(t *testing.T) {
+func TestValidateSettings_AllowsOpenAIAgentWithAPIKey(t *testing.T) {
 	t.Parallel()
 
 	settings := map[string]any{
@@ -218,7 +218,7 @@ func TestValidateSettings_AllowsOpenAIAgentWithAPIKeyEnv(t *testing.T) {
 			"openai_primary": map[string]any{
 				"type":        AgentTypeOpenAI,
 				"model":       "gpt-5",
-				"api_key_env": "OPENAI_API_KEY",
+				"api_key":     "test-api-key",
 				"timeout":     45,
 			},
 		},

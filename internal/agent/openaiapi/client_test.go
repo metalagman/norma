@@ -6,15 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestClientComplete_SendsExpectedPayloadAndParsesOutput(t *testing.T) {
-	const envKey = "NORMA_OPENAI_TEST_KEY"
-	t.Setenv(envKey, "test-api-key")
-
 	var gotAuth string
 	var gotPath string
 	var gotBody map[string]any
@@ -48,9 +44,9 @@ func TestClientComplete_SendsExpectedPayloadAndParsesOutput(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client, err := NewClient(Config{
-		Model:     "gpt-5",
-		BaseURL:   srv.URL,
-		APIKeyEnv: envKey,
+		Model:   "gpt-5",
+		BaseURL: srv.URL,
+		APIKey:  "test-api-key",
 	}, srv.Client())
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
@@ -85,15 +81,9 @@ func TestClientComplete_SendsExpectedPayloadAndParsesOutput(t *testing.T) {
 }
 
 func TestNewClient_ReturnsErrorWhenAPIKeyMissing(t *testing.T) {
-	const envKey = "NORMA_OPENAI_MISSING_KEY"
-	if err := os.Unsetenv(envKey); err != nil {
-		t.Fatalf("unset env: %v", err)
-	}
-
 	_, err := NewClient(Config{
-		Model:     "gpt-5",
-		BaseURL:   "http://127.0.0.1",
-		APIKeyEnv: envKey,
+		Model:   "gpt-5",
+		BaseURL: "http://127.0.0.1",
 	}, nil)
 	if err == nil {
 		t.Fatal("NewClient returned nil error, want error")
