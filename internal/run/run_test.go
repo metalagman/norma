@@ -108,7 +108,7 @@ func runGit(t *testing.T, ctx context.Context, repoRoot string, args ...string) 
 func TestBuildApplyCommitMessageUsesFixForBugGoals(t *testing.T) {
 	t.Parallel()
 
-	msg := buildApplyCommitMessage("Fix panic in workflow", "run-123", 7, "norma-agf")
+	msg := BuildApplyCommitMessage("Fix panic in workflow", "run-123", 7, "norma-agf")
 
 	if !strings.HasPrefix(msg, "fix: Fix panic in workflow") {
 		t.Fatalf("unexpected commit subject: %q", msg)
@@ -127,7 +127,7 @@ func TestBuildApplyCommitMessageUsesFixForBugGoals(t *testing.T) {
 func TestBuildApplyCommitMessageUsesFeatForNonFixGoals(t *testing.T) {
 	t.Parallel()
 
-	msg := buildApplyCommitMessage("Implement dashboard endpoint", "run-321", 3, "norma-x")
+	msg := BuildApplyCommitMessage("Implement dashboard endpoint", "run-321", 3, "norma-x")
 
 	if !strings.HasPrefix(msg, "feat: Implement dashboard endpoint") {
 		t.Fatalf("unexpected commit subject: %q", msg)

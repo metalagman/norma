@@ -2,14 +2,20 @@ package normaloop
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"iter"
 	"slices"
 	"testing"
 
-	"github.com/rs/zerolog"
+	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/rs/zerolog"
+
+	"google.golang.org/adk/agent"
+	"google.golang.org/adk/session"
 )
 
 type mockTracker struct {
@@ -84,17 +90,32 @@ func (m *mockRunStore) GetRunStatus(_ context.Context, runID string) (string, er
 	}
 	return m.statusByRunID[runID], nil
 }
+func (m *mockRunStore) CreateRun(context.Context, string, string, string, int) error { return nil }
+func (m *mockRunStore) UpdateRun(context.Context, string, db.Update, *db.Event) error { return nil }
+func (m *mockRunStore) DB() *sql.DB                                                 { return nil }
 
-type mockTaskRunner struct {
-	result runpkg.Result
-	err    error
+type mockFactory struct {
+	outcome runpkg.AgentOutcome
+	err     error
 }
 
-func (m *mockTaskRunner) Run(context.Context, string, []task.AcceptanceCriterion, string) (runpkg.Result, error) {
+func (m *mockFactory) Name() string { return "mock" }
+func (m *mockFactory) Build(context.Context, runpkg.RunMeta, runpkg.TaskPayload) (runpkg.AgentBuild, error) {
 	if m.err != nil {
-		return runpkg.Result{}, m.err
+		return runpkg.AgentBuild{}, m.err
 	}
-	return m.result, nil
+	ag, _ := agent.New(agent.Config{
+		Name: "mock",
+		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {
+				// dummy run
+			}
+		},
+	})
+	return runpkg.AgentBuild{Agent: ag}, nil
+}
+func (m *mockFactory) Finalize(context.Context, runpkg.RunMeta, runpkg.TaskPayload, session.Session) (runpkg.AgentOutcome, error) {
+	return m.outcome, m.err
 }
 
 func TestIsRunnableTask(t *testing.T) {
@@ -152,28 +173,29 @@ func TestRunTaskByIDPass(t *testing.T) {
 			},
 		},
 	}
-	runner := &mockTaskRunner{
-		result: runpkg.Result{
-			RunID:  "run-1",
-			Status: statusPassed,
-		},
-	}
+	tmp := t.TempDir()
+	v := "PASS"
 	w := &Loop{
-		logger:     zerolog.Nop(),
-		tracker:    tracker,
-		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
-		taskRunner: runner,
+		logger:   zerolog.Nop(),
+		repoRoot: "", // skip git
+		normaDir: tmp,
+		tracker:  tracker,
+		runStore: &mockRunStore{statusByRunID: map[string]string{}},
+		factory: &mockFactory{
+			outcome: runpkg.AgentOutcome{Status: "passed", Verdict: &v},
+		},
 	}
 
 	if err := w.runTaskByID(context.Background(), taskID); err != nil {
 		t.Fatalf("runTaskByID() error = %v", err)
 	}
 
-	if len(tracker.markStatusCalls) != 1 || tracker.markStatusCalls[0] != statusPlanning {
-		t.Fatalf("mark status calls = %v, want [%q]", tracker.markStatusCalls, statusPlanning)
+	wantCalls := []string{statusPlanning, "done"}
+	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
+		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
 	}
-	if len(tracker.setRunCalls) != 1 || tracker.setRunCalls[0] != "run-1" {
-		t.Fatalf("set run calls = %v, want [run-1]", tracker.setRunCalls)
+	if len(tracker.setRunCalls) != 1 {
+		t.Fatalf("set run calls = %v, want 1 call", tracker.setRunCalls)
 	}
 }
 
@@ -190,12 +212,16 @@ func TestRunTaskByIDRunnerErrorMarksFailed(t *testing.T) {
 			},
 		},
 	}
-	runner := &mockTaskRunner{err: errors.New("runner failed")}
+	tmp := t.TempDir()
 	w := &Loop{
-		logger:     zerolog.Nop(),
-		tracker:    tracker,
-		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
-		taskRunner: runner,
+		logger:   zerolog.Nop(),
+		repoRoot: "", // skip git
+		normaDir: tmp,
+		tracker:  tracker,
+		runStore: &mockRunStore{statusByRunID: map[string]string{}},
+		factory: &mockFactory{
+			err: errors.New("runner failed"),
+		},
 	}
 
 	err := w.runTaskByID(context.Background(), taskID)
@@ -203,7 +229,7 @@ func TestRunTaskByIDRunnerErrorMarksFailed(t *testing.T) {
 		t.Fatal("runTaskByID() error = nil, want error")
 	}
 
-	wantCalls := []string{statusPlanning, statusFailed}
+	wantCalls := []string{statusPlanning, runpkg.StatusFailed}
 	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
 		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
 	}

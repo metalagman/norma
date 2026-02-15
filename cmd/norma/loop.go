@@ -9,7 +9,6 @@ import (
 	"github.com/metalagman/norma/internal/agents/pdca"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
-	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -46,10 +45,6 @@ func loopCmd() *cobra.Command {
 			runStore := db.NewStore(storeDB)
 
 			pdcaFactory := pdca.NewFactory(cfg, runStore, tracker)
-			taskRunner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaFactory)
-			if err != nil {
-				return err
-			}
 
 			normaDir := filepath.Join(repoRoot, ".norma")
 			if err := recoverDoingTasks(cmd.Context(), tracker, runStore, normaDir); err != nil {
@@ -60,7 +55,7 @@ func loopCmd() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
-			loopAgent, err := normaloop.NewLoop(log.Logger, tracker, runStore, taskRunner, continueOnFail, policy)
+			loopAgent, err := normaloop.NewLoop(log.Logger, cfg, repoRoot, tracker, runStore, pdcaFactory, continueOnFail, policy)
 			if err != nil {
 				return err
 			}

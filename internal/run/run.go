@@ -23,10 +23,10 @@ import (
 )
 
 const (
-	statusError   = "error"
-	statusFailed  = "failed"
-	statusPassed  = "passed"
-	statusStopped = "stopped"
+	StatusError   = "error"
+	StatusFailed  = "failed"
+	StatusPassed  = "passed"
+	StatusStopped = "stopped"
 )
 
 var taskIDPattern = regexp.MustCompile(`^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`)
@@ -84,7 +84,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	defer func() {
 		status := res.Status
 		if status == "" && err != nil {
-			status = statusError
+			status = StatusError
 		}
 		event := log.Info().
 			Str("run_id", runID).
@@ -183,7 +183,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		if err := r.tracker.MarkStatus(ctx, taskID, "done"); err != nil {
 			log.Warn().Err(err).Msg("failed to mark task as done in beads")
 		}
-		res.Status = statusPassed
+		res.Status = StatusPassed
 	}
 
 	return res, nil
@@ -195,7 +195,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	if err != nil {
 		return err
 	}
-	commitMsg := buildApplyCommitMessage(goal, runID, stepIndex, taskID)
+	commitMsg := BuildApplyCommitMessage(goal, runID, stepIndex, taskID)
 
 	log.Info().Str("branch", branchName).Msg("applying changes from workspace")
 
@@ -309,8 +309,8 @@ func (r *Runner) currentStepIndex(ctx context.Context, runID string) (int, error
 	return stepIndex, nil
 }
 
-func buildApplyCommitMessage(goal, runID string, stepIndex int, taskID string) string {
-	commitType := commitTypeForGoal(goal)
+func BuildApplyCommitMessage(goal, runID string, stepIndex int, taskID string) string {
+	commitType := CommitTypeForGoal(goal)
 	summary := strings.TrimSpace(goal)
 	if summary == "" {
 		summary = "apply workspace changes"
@@ -318,7 +318,7 @@ func buildApplyCommitMessage(goal, runID string, stepIndex int, taskID string) s
 	return fmt.Sprintf("%s: %s\n\nrun_id: %s\nstep_index: %d\ntask_id: %s", commitType, summary, runID, stepIndex, taskID)
 }
 
-func commitTypeForGoal(goal string) string {
+func CommitTypeForGoal(goal string) string {
 	normalizedGoal := strings.ToLower(goal)
 	fixHints := []string{"fix", "bug", "error", "fail", "failure", "issue", "regression"}
 	for _, hint := range fixHints {
