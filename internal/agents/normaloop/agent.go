@@ -105,6 +105,11 @@ func (w *Loop) newLoopAgent(selectorAgent, iterationAgent agent.Agent) (agent.Ag
 }
 
 func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+	l := w.logger.With().
+		Str("agent_name", "Selector").
+		Str("agent_id", ctx.InvocationID()).
+		Logger()
+
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() {
 			return
@@ -113,7 +118,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 		selected, reason, err := w.selectNextTask(ctx)
 		if err != nil {
 			if errors.Is(err, errNoTasks) {
-				w.logger.Debug().Msg("no runnable tasks left, sleeping 10s...")
+				l.Debug().Msg("no runnable tasks left, sleeping 10s...")
 				_ = ctx.Session().State().Set("selected_task_id", "")
 				time.Sleep(10 * time.Second)
 				return
@@ -122,7 +127,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 			return
 		}
 
-		w.logger.Info().
+		l.Info().
 			Str("task_id", selected.ID).
 			Str("selection_reason", reason).
 			Msg("selector picked task")
@@ -139,6 +144,11 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 }
 
 func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+	l := w.logger.With().
+		Str("agent_name", "NormaLoopIteration").
+		Str("agent_id", ctx.InvocationID()).
+		Logger()
+
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() {
 			return
@@ -161,7 +171,7 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 			}
 		}
 
-		w.logger.Info().
+		l.Info().
 			Int("iteration", iteration).
 			Str("task_id", taskID).
 			Msg("starting iteration")
@@ -172,7 +182,7 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 				yield(nil, err)
 				return
 			}
-			w.logger.Error().Err(err).Str("task_id", taskID).Msg("task failed, continuing loop")
+			l.Error().Err(err).Str("task_id", taskID).Msg("task failed, continuing loop")
 		}
 
 		if err := ctx.Session().State().Set("iteration", iteration+1); err != nil {

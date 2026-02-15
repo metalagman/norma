@@ -80,7 +80,8 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 		"iteration":  1,
 		"task_state": &state,
 	}
-	log.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("pdca: built ADK loop agent")
+	l := log.With().Str("component", "pdca").Logger()
+	l.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("built ADK loop agent")
 
 	return runpkg.AgentBuild{
 		Agent:        la,
@@ -91,7 +92,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 				return
 			}
 			for _, p := range ev.Content.Parts {
-				log.Debug().Str("part", p.Text).Msg("ADK event part")
+				l.Debug().Str("part", p.Text).Msg("ADK event part")
 			}
 		},
 	}, nil
@@ -102,13 +103,15 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 		return runpkg.AgentOutcome{}, fmt.Errorf("final session is required")
 	}
 
+	l := log.With().Str("component", "pdca").Logger()
+
 	// Persist final task state to tracker from session.
 	taskStateVal, err := stateAny(finalSession.State(), "task_state")
 	if err == nil && taskStateVal != nil {
 		data, err := json.MarshalIndent(taskStateVal, "", "  ")
 		if err == nil {
 			if err := w.tracker.SetNotes(ctx, payload.ID, string(data)); err != nil {
-				log.Warn().Err(err).Str("task_id", payload.ID).Msg("pdca agent: failed to persist task state to tracker in finalize")
+				l.Warn().Err(err).Str("task_id", payload.ID).Msg("failed to persist task state to tracker in finalize")
 			}
 		}
 	}
@@ -124,11 +127,11 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 	}
 
 	status, effectiveVerdict := deriveFinalOutcome(verdict, decision)
-	log.Info().
+	l.Info().
 		Str("verdict", verdict).
 		Str("decision", decision).
 		Str("effective_verdict", effectiveVerdict).
-		Msg("pdca agent: final outcome")
+		Msg("final outcome")
 
 	if w.store != nil {
 		update := db.Update{

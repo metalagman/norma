@@ -93,6 +93,12 @@ func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
 
 func (a *runtime) runRoleLoop(roleName string) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		l := log.With().
+			Str("component", "pdca").
+			Str("agent_name", roleName).
+			Str("agent_id", ctx.InvocationID()).
+			Logger()
+
 		return func(yield func(*session.Event, error) bool) {
 			if ctx.Ended() || a.shouldStop(ctx) {
 				return
@@ -104,20 +110,20 @@ func (a *runtime) runRoleLoop(roleName string) func(ctx agent.InvocationContext)
 				itNum = 1
 			}
 
-			log.Info().Str("role", roleName).Int("iteration", itNum).Msg("pdca sub-agent: starting step")
+			l.Info().Int("iteration", itNum).Msg("pdca sub-agent: starting step")
 			resp, err := a.runStep(ctx, itNum, roleName)
 			if err != nil {
-				log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: step failed")
+				l.Error().Err(err).Msg("pdca sub-agent: step failed")
 				yield(nil, err)
 				return
 			}
 			if err := validateStepResponse(roleName, resp); err != nil {
-				log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: invalid step response")
+				l.Error().Err(err).Msg("pdca sub-agent: invalid step response")
 				yield(nil, err)
 				return
 			}
 
-			log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: step completed")
+			l.Debug().Str("status", resp.Status).Msg("pdca sub-agent: step completed")
 
 			a.processRoleResult(ctx, yield, roleName, resp, itNum)
 		}
