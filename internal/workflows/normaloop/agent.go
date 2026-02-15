@@ -26,15 +26,14 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// NormaPDCAAgent is a custom ADK agent that orchestrates one iteration of the PDCA loop.
-type NormaPDCAAgent struct {
-	cfg            config.Config
-	store          *db.Store
-	tracker        task.Tracker
-	runInput       workflows.RunInput
-	stepIndex      *int // Shared step index across iterations
-	baseBranch     string
-	sessionService session.Service
+// NormaLoopAgent is a custom ADK agent that orchestrates one workflow iteration.
+type NormaLoopAgent struct {
+	cfg        config.Config
+	store      *db.Store
+	tracker    task.Tracker
+	runInput   workflows.RunInput
+	stepIndex  *int // Shared step index across iterations.
+	baseBranch string
 
 	planAgent  agent.Agent
 	doAgent    agent.Agent
@@ -42,16 +41,15 @@ type NormaPDCAAgent struct {
 	actAgent   agent.Agent
 }
 
-// NewNormaPDCAAgent creates and configures the entire custom agent workflow.
-func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string, sessionService session.Service) (agent.Agent, error) {
-	orchestrator := &NormaPDCAAgent{
-		cfg:            cfg,
-		store:          store,
-		tracker:        tracker,
-		runInput:       runInput,
-		stepIndex:      stepIndex,
-		baseBranch:     baseBranch,
-		sessionService: sessionService,
+// NewNormaLoopAgent creates and configures the normaloop iteration agent.
+func NewNormaLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
+	orchestrator := &NormaLoopAgent{
+		cfg:        cfg,
+		store:      store,
+		tracker:    tracker,
+		runInput:   runInput,
+		stepIndex:  stepIndex,
+		baseBranch: baseBranch,
 	}
 
 	var err error
@@ -75,8 +73,8 @@ func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	subAgents := []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent}
 
 	ag, err := agent.New(agent.Config{
-		Name:        "NormaPDCAAgent",
-		Description: "Orchestrates story generation, critique, revision, and checks.",
+		Name:        "NormaLoopAgent",
+		Description: "Orchestrates one normaloop iteration.",
 		SubAgents:   subAgents,
 		Run:         orchestrator.Run,
 	})
@@ -86,7 +84,7 @@ func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	return ag, nil
 }
 
-func (a *NormaPDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
+func (a *NormaLoopAgent) createSubAgent(roleName string) (agent.Agent, error) {
 	ag, err := agent.New(agent.Config{
 		Name:        roleName,
 		Description: fmt.Sprintf("Norma %s agent", roleName),
@@ -98,38 +96,50 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
 					itNum = 1
 				}
 
-				log.Info().Str("role", roleName).Int("iteration", itNum).Msg("ADK PDCA Sub-agent: starting step")
-				resp, err := a.runStep(ctx, itNum, roleName, yield)
+				log.Info().Str("role", roleName).Int("iteration", itNum).Msg("normaloop sub-agent: starting step")
+				resp, err := a.runStep(ctx, itNum, roleName)
 				if err != nil {
-					log.Error().Err(err).Str("role", roleName).Msg("ADK PDCA Sub-agent: step failed")
+					log.Error().Err(err).Str("role", roleName).Msg("normaloop sub-agent: step failed")
 					yield(nil, err)
 					return
 				}
 				if err := validateStepResponse(roleName, resp); err != nil {
-					log.Error().Err(err).Str("role", roleName).Msg("ADK PDCA Sub-agent: invalid step response")
+					log.Error().Err(err).Str("role", roleName).Msg("normaloop sub-agent: invalid step response")
 					yield(nil, err)
 					return
 				}
 
-				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("ADK PDCA Sub-agent: step completed")
+				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("normaloop sub-agent: step completed")
 
 				// Communicate results via session state
 				if roleName == RoleCheck && resp.Check != nil {
-					log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("ADK PDCA Sub-agent: setting check verdict in state")
-					_ = ctx.Session().State().Set("verdict", resp.Check.Verdict.Status)
+					log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("normaloop sub-agent: setting check verdict in state")
+					if err := ctx.Session().State().Set("verdict", resp.Check.Verdict.Status); err != nil {
+						yield(nil, fmt.Errorf("set verdict in session state: %w", err))
+						return
+					}
 				}
 				if roleName == RoleAct && resp.Act != nil {
-					log.Debug().Str("decision", resp.Act.Decision).Msg("ADK PDCA Sub-agent: setting act decision in state")
-					_ = ctx.Session().State().Set("decision", resp.Act.Decision)
+					log.Debug().Str("decision", resp.Act.Decision).Msg("normaloop sub-agent: setting act decision in state")
+					if err := ctx.Session().State().Set("decision", resp.Act.Decision); err != nil {
+						yield(nil, fmt.Errorf("set decision in session state: %w", err))
+						return
+					}
 					if resp.Act.Decision == "close" {
-						log.Info().Msg("ADK PDCA Sub-agent: act decision is close, stopping loop")
-						_ = ctx.Session().State().Set("stop", true)
+						log.Info().Msg("normaloop sub-agent: act decision is close, stopping loop")
+						if err := ctx.Session().State().Set("stop", true); err != nil {
+							yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
+							return
+						}
 						ctx.EndInvocation()
 					}
 				}
 				if resp.Status != "ok" {
-					log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("ADK PDCA Sub-agent: non-ok status, stopping loop")
-					_ = ctx.Session().State().Set("stop", true)
+					log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("normaloop sub-agent: non-ok status, stopping loop")
+					if err := ctx.Session().State().Set("stop", true); err != nil {
+						yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
+						return
+					}
 					ctx.EndInvocation()
 				}
 			}
@@ -141,10 +151,10 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
 	return ag, nil
 }
 
-func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (a *NormaLoopAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() || a.shouldStop(ctx) {
-			log.Info().Msg("ADK PDCA Agent: invocation already stopped")
+			log.Info().Msg("normaloop agent: invocation already stopped")
 			return
 		}
 
@@ -154,63 +164,66 @@ func (a *NormaPDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 			itNum = 1
 		}
 
-		log.Info().Int("iteration", itNum).Msg("ADK PDCA Agent: starting iteration")
+		log.Info().Int("iteration", itNum).Msg("normaloop agent: starting iteration")
 
 		// 1. PLAN
-		log.Debug().Msg("ADK PDCA Agent: invoking plan agent")
+		log.Debug().Msg("normaloop agent: invoking plan agent")
 		for event, err := range a.planAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
-			log.Info().Msg("ADK PDCA Agent: stopping after Plan step")
+			log.Info().Msg("normaloop agent: stopping after plan step")
 			return
 		}
 
 		// 2. DO
-		log.Debug().Msg("ADK PDCA Agent: invoking do agent")
+		log.Debug().Msg("normaloop agent: invoking do agent")
 		for event, err := range a.doAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
-			log.Info().Msg("ADK PDCA Agent: stopping after Do step")
+			log.Info().Msg("normaloop agent: stopping after do step")
 			return
 		}
 
 		// 3. CHECK
-		log.Debug().Msg("ADK PDCA Agent: invoking check agent")
+		log.Debug().Msg("normaloop agent: invoking check agent")
 		for event, err := range a.checkAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
-			log.Info().Msg("ADK PDCA Agent: stopping after Check step")
+			log.Info().Msg("normaloop agent: stopping after check step")
 			return
 		}
 
 		// 4. ACT
-		log.Debug().Msg("ADK PDCA Agent: invoking act agent")
+		log.Debug().Msg("normaloop agent: invoking act agent")
 		for event, err := range a.actAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if ctx.Ended() || a.shouldStop(ctx) {
-			log.Info().Msg("ADK PDCA Agent: stopping after Act step")
+			log.Info().Msg("normaloop agent: stopping after act step")
 			return
 		}
 
 		// Increment iteration for next run
-		log.Info().Int("iteration", itNum).Msg("ADK PDCA Agent: iteration finished")
-		_ = ctx.Session().State().Set("iteration", itNum+1)
+		log.Info().Int("iteration", itNum).Msg("normaloop agent: iteration finished")
+		if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
+			yield(nil, fmt.Errorf("update iteration in session state: %w", err))
+			return
+		}
 	}
 }
 
-func (a *NormaPDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
+func (a *NormaLoopAgent) shouldStop(ctx agent.InvocationContext) bool {
 	stop, err := ctx.Session().State().Get("stop")
 	if err != nil {
 		return false
@@ -225,7 +238,7 @@ func (a *NormaPDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string, yield func(*session.Event, error) bool) (*models.AgentResponse, error) {
+func (a *NormaLoopAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
 	*a.stepIndex++
 	index := *a.stepIndex
 
@@ -281,18 +294,29 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 
 	workspaceDir := filepath.Join(stepDir, "workspace")
 	branchName := fmt.Sprintf("norma/task/%s", a.runInput.TaskID)
-	log.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("ADK PDCA Agent: mounting worktree")
+	log.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("normaloop agent: mounting worktree")
 	if _, err := git.MountWorktree(ctx, a.runInput.GitRoot, workspaceDir, branchName, a.baseBranch); err != nil {
 		return nil, fmt.Errorf("mount worktree: %w", err)
 	}
 	defer func() {
-		log.Debug().Str("workspace", workspaceDir).Msg("ADK PDCA Agent: removing worktree")
-		_ = git.RemoveWorktree(ctx, a.runInput.GitRoot, workspaceDir)
+		log.Debug().Str("workspace", workspaceDir).Msg("normaloop agent: removing worktree")
+		if err := git.RemoveWorktree(ctx, a.runInput.GitRoot, workspaceDir); err != nil {
+			log.Warn().Err(err).Str("workspace", workspaceDir).Msg("normaloop agent: failed to remove worktree")
+		}
 	}()
 
-	progressPath, _ := filepath.Abs(filepath.Join(stepDir, "artifacts", "progress.md"))
-	absStepDir, _ := filepath.Abs(stepDir)
-	absWorkspaceDir, _ := filepath.Abs(workspaceDir)
+	progressPath, err := filepath.Abs(filepath.Join(stepDir, "artifacts", "progress.md"))
+	if err != nil {
+		return nil, fmt.Errorf("resolve progress artifact path: %w", err)
+	}
+	absStepDir, err := filepath.Abs(stepDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve step dir path: %w", err)
+	}
+	absWorkspaceDir, err := filepath.Abs(workspaceDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace dir path: %w", err)
+	}
 
 	req.Paths = models.RequestPaths{
 		WorkspaceDir: absWorkspaceDir,
@@ -323,7 +347,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	if err != nil {
 		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
 	}
-	log.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("ADK PDCA Agent: running step runner")
+	log.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("normaloop agent: running step runner")
 
 	// Prepare log files
 	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -345,7 +369,6 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	if err != nil {
 		return nil, fmt.Errorf("run role %q agent (exit code %d): %w", roleName, exitCode, err)
 	}
-	_ = yield
 	endTime := time.Now()
 
 	// Parse response
@@ -406,7 +429,7 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
-func (a *NormaPDCAAgent) baseRequest(iteration, index int, role string) models.AgentRequest {
+func (a *NormaLoopAgent) baseRequest(iteration, index int, role string) models.AgentRequest {
 	return models.AgentRequest{
 		Run: models.RunInfo{
 			ID:        a.runInput.RunID,
@@ -480,7 +503,7 @@ func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string)
 	return agentCfg, nil
 }
 
-func (a *NormaPDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
+func (a *NormaLoopAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
 	s, err := ctx.Session().State().Get("task_state")
 	if err != nil {
 		return &models.TaskState{}
@@ -515,7 +538,7 @@ func coerceTaskState(value any) *models.TaskState {
 	}
 }
 
-func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
+func (a *NormaLoopAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
@@ -569,7 +592,11 @@ func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentRe
 }
 
 func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID string, stepIndex int) error {
-	status := strings.TrimSpace(git.RunCmd(ctx, workspaceDir, "git", "status", "--porcelain"))
+	statusOut, err := git.RunCmdOutput(ctx, workspaceDir, "git", "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("read workspace status: %w", err)
+	}
+	status := strings.TrimSpace(statusOut)
 	if status == "" {
 		return nil
 	}
@@ -586,7 +613,7 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 	return nil
 }
 
-func (a *NormaPDCAAgent) reconstructProgress(dir string, state *models.TaskState) error {
+func (a *NormaLoopAgent) reconstructProgress(dir string, state *models.TaskState) error {
 	path := filepath.Join(dir, "artifacts", "progress.md")
 	var sb strings.Builder
 	for _, entry := range state.Journal {

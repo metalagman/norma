@@ -72,6 +72,21 @@ func TestCommitWorkspaceChangesNoopForCleanWorkspace(t *testing.T) {
 	}
 }
 
+func TestCommitWorkspaceChangesReturnsErrorWhenStatusFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	nonRepoDir := t.TempDir()
+
+	err := commitWorkspaceChanges(ctx, nonRepoDir, "run-3", "norma-8sl", 4)
+	if err == nil {
+		t.Fatal("commitWorkspaceChanges() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "read workspace status") {
+		t.Fatalf("error = %q, want read workspace status context", err)
+	}
+}
+
 func initTestRepo(t *testing.T, ctx context.Context, repoRoot string) {
 	t.Helper()
 	runGit(t, ctx, repoRoot, "init")

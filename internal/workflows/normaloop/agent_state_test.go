@@ -90,7 +90,7 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 	t.Parallel()
 
-	agent := &NormaPDCAAgent{
+	agent := &NormaLoopAgent{
 		runInput: workflows.RunInput{
 			TaskID: "norma-95b",
 			RunID:  "run-default",

@@ -16,7 +16,7 @@ func TestNewLoopAgentUsesOnlyOrchestratorSubAgent(t *testing.T) {
 	t.Parallel()
 
 	orchestrator, err := agent.New(agent.Config{
-		Name:        "NormaPDCAAgent",
+		Name:        "NormaLoopAgent",
 		Description: "test orchestrator",
 		Run: func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(func(*session.Event, error) bool) {}
@@ -40,26 +40,25 @@ func TestNewLoopAgentUsesOnlyOrchestratorSubAgent(t *testing.T) {
 	}
 }
 
-func TestNewNormaPDCAAgentRegistersRoleSubAgents(t *testing.T) {
+func TestNewNormaLoopAgentRegistersRoleSubAgents(t *testing.T) {
 	t.Parallel()
 
 	stepIndex := 0
-	pdcaAgent, err := NewNormaPDCAAgent(
+	loopAgent, err := NewNormaLoopAgent(
 		config.Config{},
 		nil,
 		nil,
 		workflows.RunInput{},
 		&stepIndex,
 		"",
-		session.InMemoryService(),
 	)
 	if err != nil {
-		t.Fatalf("NewNormaPDCAAgent() error = %v", err)
+		t.Fatalf("NewNormaLoopAgent() error = %v", err)
 	}
 
-	subAgents := pdcaAgent.SubAgents()
+	subAgents := loopAgent.SubAgents()
 	if len(subAgents) != 4 {
-		t.Fatalf("len(pdcaAgent.SubAgents()) = %d, want 4", len(subAgents))
+		t.Fatalf("len(loopAgent.SubAgents()) = %d, want 4", len(subAgents))
 	}
 
 	gotNames := make([]string, 0, len(subAgents))

@@ -1,4 +1,4 @@
-// Package normaloop implements the standard PDCA workflow.
+// Package models defines shared request/response contracts for normaloop.
 package models
 
 import (

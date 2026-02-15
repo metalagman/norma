@@ -2,6 +2,7 @@ package check
 
 //go:generate go tool schema-generate -p check -o input.go input.schema.json
 //go:generate go tool schema-generate -p check -o output.go output.schema.json
+//go:generate gofmt -w input.go output.go
 
 import _ "embed"
 

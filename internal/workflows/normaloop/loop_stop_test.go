@@ -62,7 +62,7 @@ func TestRunStopsAfterActWhenStopFlagSet(t *testing.T) {
 
 	var planCalls, doCalls, checkCalls, actCalls int
 
-	orchestrator := &NormaPDCAAgent{
+	orchestrator := &NormaLoopAgent{
 		planAgent: newTestSubAgent(t, "plan", func(agent.InvocationContext) { planCalls++ }),
 		doAgent:   newTestSubAgent(t, "do", func(agent.InvocationContext) { doCalls++ }),
 		checkAgent: newTestSubAgent(t, "check", func(agent.InvocationContext) {
@@ -70,7 +70,9 @@ func TestRunStopsAfterActWhenStopFlagSet(t *testing.T) {
 		}),
 		actAgent: newTestSubAgent(t, "act", func(ic agent.InvocationContext) {
 			actCalls++
-			_ = ic.Session().State().Set("stop", true)
+			if err := ic.Session().State().Set("stop", true); err != nil {
+				t.Fatalf("set stop flag: %v", err)
+			}
 		}),
 	}
 
@@ -117,7 +119,7 @@ func TestRunExitsImmediatelyWhenAlreadyStopped(t *testing.T) {
 
 	var called int
 	sub := newTestSubAgent(t, "sub", func(agent.InvocationContext) { called++ })
-	orchestrator := &NormaPDCAAgent{
+	orchestrator := &NormaLoopAgent{
 		planAgent:  sub,
 		doAgent:    sub,
 		checkAgent: sub,

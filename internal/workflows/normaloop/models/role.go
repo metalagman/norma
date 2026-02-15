@@ -8,6 +8,4 @@ type Role interface {
 	Prompt(req AgentRequest) (string, error)
 	MapRequest(req AgentRequest) (any, error)
 	MapResponse(outBytes []byte) (AgentResponse, error)
-	SetRunner(runner any)
-	Runner() any
 }

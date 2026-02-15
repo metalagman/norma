@@ -47,7 +47,6 @@ type baseRole struct {
 	outputSchema string
 	baseTmpl     *template.Template
 	roleTmpl     *template.Template
-	runner       any
 }
 
 func newBaseRole(name, inputSchema, outputSchema, roleTmplStr string) *baseRole {
@@ -65,8 +64,6 @@ func newBaseRole(name, inputSchema, outputSchema, roleTmplStr string) *baseRole 
 func (r *baseRole) Name() string         { return r.name }
 func (r *baseRole) InputSchema() string  { return r.inputSchema }
 func (r *baseRole) OutputSchema() string { return r.outputSchema }
-func (r *baseRole) SetRunner(runner any) { r.runner = runner }
-func (r *baseRole) Runner() any          { return r.runner }
 
 func (r *baseRole) Prompt(req models.AgentRequest) (string, error) {
 	var baseBuf bytes.Buffer
