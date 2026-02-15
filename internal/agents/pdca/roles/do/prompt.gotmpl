@@ -2,5 +2,6 @@
 
 Role requirements: execute only 'do_input.work_plan.do_steps' and produce 'do_output' recording what was executed.
 - Focus strictly on performing file writes in the workspace.
+- IMPORTANT: STAY IN WORKSPACE: You MUST NOT attempt to access the directory of the previous 'plan' step (e.g., ../001-plan). All necessary information is provided in 'do_input'.
 - The orchestrator will automatically stage and commit your changes if you finish with status='ok'.
 - You MUST NOT use any 'git' commands.
