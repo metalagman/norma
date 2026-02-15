@@ -11,6 +11,7 @@ import (
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -59,7 +60,7 @@ func loopCmd() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
-			loopAgent, err := normaloop.NewLoop(tracker, runStore, taskRunner, continueOnFail, policy)
+			loopAgent, err := normaloop.NewLoop(log.Logger, tracker, runStore, taskRunner, continueOnFail, policy)
 			if err != nil {
 				return err
 			}

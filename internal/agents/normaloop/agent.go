@@ -10,7 +10,7 @@ import (
 
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/workflowagents/loopagent"
@@ -41,6 +41,7 @@ type runStatusStore interface {
 // Loop orchestrates repeated task execution for `norma loop`.
 type Loop struct {
 	agent.Agent
+	logger         zerolog.Logger
 	tracker        task.Tracker
 	runStore       runStatusStore
 	taskRunner     taskRunner
@@ -49,8 +50,9 @@ type Loop struct {
 }
 
 // NewLoop constructs the normaloop ADK loop agent runtime.
-func NewLoop(tracker task.Tracker, runStore runStatusStore, taskRunner taskRunner, continueOnFail bool, policy task.SelectionPolicy) (*Loop, error) {
+func NewLoop(logger zerolog.Logger, tracker task.Tracker, runStore runStatusStore, taskRunner taskRunner, continueOnFail bool, policy task.SelectionPolicy) (*Loop, error) {
 	w := &Loop{
+		logger:         logger,
 		tracker:        tracker,
 		runStore:       runStore,
 		taskRunner:     taskRunner,
@@ -111,7 +113,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 		selected, reason, err := w.selectNextTask(ctx)
 		if err != nil {
 			if errors.Is(err, errNoTasks) {
-				log.Debug().Msg("normaloop: no runnable tasks left, sleeping 10s...")
+				w.logger.Debug().Msg("normaloop: no runnable tasks left, sleeping 10s...")
 				_ = ctx.Session().State().Set("selected_task_id", "")
 				time.Sleep(10 * time.Second)
 				return
@@ -120,7 +122,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 			return
 		}
 
-		log.Info().
+		w.logger.Info().
 			Str("task_id", selected.ID).
 			Str("selection_reason", reason).
 			Msg("normaloop: selector picked task")
@@ -159,7 +161,7 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 			}
 		}
 
-		log.Info().
+		w.logger.Info().
 			Int("iteration", iteration).
 			Str("task_id", taskID).
 			Msg("normaloop: starting iteration")
@@ -170,7 +172,7 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 				yield(nil, err)
 				return
 			}
-			log.Error().Err(err).Str("task_id", taskID).Msg("normaloop: task failed, continuing loop")
+			w.logger.Error().Err(err).Str("task_id", taskID).Msg("normaloop: task failed, continuing loop")
 		}
 
 		if err := ctx.Session().State().Set("iteration", iteration+1); err != nil {
@@ -244,7 +246,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 
 	switch result.Status {
 	case statusPassed:
-		log.Info().Str("task_id", id).Str("run_id", result.RunID).Msg("normaloop: task passed")
+		w.logger.Info().Str("task_id", id).Str("run_id", result.RunID).Msg("normaloop: task passed")
 		return nil
 	case statusFailed:
 		return fmt.Errorf("task %s failed (run %s)", id, result.RunID)

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/rs/zerolog"
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
 )
@@ -130,7 +131,7 @@ func TestSelectNextTaskNoRunnableTasks(t *testing.T) {
 			{ID: "norma-feature", Type: "feature"},
 		},
 	}
-	w := &Loop{tracker: tracker}
+	w := &Loop{logger: zerolog.Nop(), tracker: tracker}
 
 	_, _, err := w.selectNextTask(context.Background())
 	if !errors.Is(err, errNoTasks) {
@@ -158,6 +159,7 @@ func TestRunTaskByIDPass(t *testing.T) {
 		},
 	}
 	w := &Loop{
+		logger:     zerolog.Nop(),
 		tracker:    tracker,
 		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
 		taskRunner: runner,
@@ -190,6 +192,7 @@ func TestRunTaskByIDRunnerErrorMarksFailed(t *testing.T) {
 	}
 	runner := &mockTaskRunner{err: errors.New("runner failed")}
 	w := &Loop{
+		logger:     zerolog.Nop(),
 		tracker:    tracker,
 		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
 		taskRunner: runner,
