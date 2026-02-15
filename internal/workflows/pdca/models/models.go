@@ -1,4 +1,4 @@
-// Package models defines shared request/response contracts for normaloop.
+// Package models defines shared request/response contracts for pdca.
 package models
 
 import (

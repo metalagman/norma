@@ -1,11 +1,11 @@
-package normaloop
+package pdca
 
 import (
 	"encoding/json"
 	"testing"
 
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
 )
 
 func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {

@@ -1,4 +1,4 @@
-package normaloop
+package pdca
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows"
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -41,7 +41,7 @@ type NormaLoopAgent struct {
 	actAgent   agent.Agent
 }
 
-// NewNormaLoopAgent creates and configures the normaloop iteration agent.
+// NewNormaLoopAgent creates and configures the pdca iteration agent.
 func NewNormaLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
 	orchestrator := &NormaLoopAgent{
 		cfg:        cfg,
@@ -74,7 +74,7 @@ func NewNormaLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 
 	ag, err := agent.New(agent.Config{
 		Name:        "NormaLoopAgent",
-		Description: "Orchestrates one normaloop iteration.",
+		Description: "Orchestrates one pdca iteration.",
 		SubAgents:   subAgents,
 		Run:         orchestrator.Run,
 	})
@@ -96,37 +96,37 @@ func (a *NormaLoopAgent) createSubAgent(roleName string) (agent.Agent, error) {
 					itNum = 1
 				}
 
-				log.Info().Str("role", roleName).Int("iteration", itNum).Msg("normaloop sub-agent: starting step")
+				log.Info().Str("role", roleName).Int("iteration", itNum).Msg("pdca sub-agent: starting step")
 				resp, err := a.runStep(ctx, itNum, roleName)
 				if err != nil {
-					log.Error().Err(err).Str("role", roleName).Msg("normaloop sub-agent: step failed")
+					log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: step failed")
 					yield(nil, err)
 					return
 				}
 				if err := validateStepResponse(roleName, resp); err != nil {
-					log.Error().Err(err).Str("role", roleName).Msg("normaloop sub-agent: invalid step response")
+					log.Error().Err(err).Str("role", roleName).Msg("pdca sub-agent: invalid step response")
 					yield(nil, err)
 					return
 				}
 
-				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("normaloop sub-agent: step completed")
+				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: step completed")
 
 				// Communicate results via session state
 				if roleName == RoleCheck && resp.Check != nil {
-					log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("normaloop sub-agent: setting check verdict in state")
+					log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("pdca sub-agent: setting check verdict in state")
 					if err := ctx.Session().State().Set("verdict", resp.Check.Verdict.Status); err != nil {
 						yield(nil, fmt.Errorf("set verdict in session state: %w", err))
 						return
 					}
 				}
 				if roleName == RoleAct && resp.Act != nil {
-					log.Debug().Str("decision", resp.Act.Decision).Msg("normaloop sub-agent: setting act decision in state")
+					log.Debug().Str("decision", resp.Act.Decision).Msg("pdca sub-agent: setting act decision in state")
 					if err := ctx.Session().State().Set("decision", resp.Act.Decision); err != nil {
 						yield(nil, fmt.Errorf("set decision in session state: %w", err))
 						return
 					}
 					if resp.Act.Decision == "close" {
-						log.Info().Msg("normaloop sub-agent: act decision is close, stopping loop")
+						log.Info().Msg("pdca sub-agent: act decision is close, stopping loop")
 						if err := ctx.Session().State().Set("stop", true); err != nil {
 							yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 							return
@@ -135,7 +135,7 @@ func (a *NormaLoopAgent) createSubAgent(roleName string) (agent.Agent, error) {
 					}
 				}
 				if resp.Status != "ok" {
-					log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("normaloop sub-agent: non-ok status, stopping loop")
+					log.Warn().Str("role", roleName).Str("status", resp.Status).Msg("pdca sub-agent: non-ok status, stopping loop")
 					if err := ctx.Session().State().Set("stop", true); err != nil {
 						yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 						return
@@ -154,7 +154,7 @@ func (a *NormaLoopAgent) createSubAgent(roleName string) (agent.Agent, error) {
 func (a *NormaLoopAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() || a.shouldStop(ctx) {
-			log.Info().Msg("normaloop agent: invocation already stopped")
+			log.Info().Msg("pdca agent: invocation already stopped")
 			return
 		}
 
@@ -164,58 +164,58 @@ func (a *NormaLoopAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 			itNum = 1
 		}
 
-		log.Info().Int("iteration", itNum).Msg("normaloop agent: starting iteration")
+		log.Info().Int("iteration", itNum).Msg("pdca agent: starting iteration")
 
 		// 1. PLAN
-		log.Debug().Msg("normaloop agent: invoking plan agent")
+		log.Debug().Msg("pdca agent: invoking plan agent")
 		for event, err := range a.planAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
-			log.Info().Msg("normaloop agent: stopping after plan step")
+			log.Info().Msg("pdca agent: stopping after plan step")
 			return
 		}
 
 		// 2. DO
-		log.Debug().Msg("normaloop agent: invoking do agent")
+		log.Debug().Msg("pdca agent: invoking do agent")
 		for event, err := range a.doAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
-			log.Info().Msg("normaloop agent: stopping after do step")
+			log.Info().Msg("pdca agent: stopping after do step")
 			return
 		}
 
 		// 3. CHECK
-		log.Debug().Msg("normaloop agent: invoking check agent")
+		log.Debug().Msg("pdca agent: invoking check agent")
 		for event, err := range a.checkAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if a.shouldStop(ctx) {
-			log.Info().Msg("normaloop agent: stopping after check step")
+			log.Info().Msg("pdca agent: stopping after check step")
 			return
 		}
 
 		// 4. ACT
-		log.Debug().Msg("normaloop agent: invoking act agent")
+		log.Debug().Msg("pdca agent: invoking act agent")
 		for event, err := range a.actAgent.Run(ctx) {
 			if !yield(event, err) {
 				return
 			}
 		}
 		if ctx.Ended() || a.shouldStop(ctx) {
-			log.Info().Msg("normaloop agent: stopping after act step")
+			log.Info().Msg("pdca agent: stopping after act step")
 			return
 		}
 
 		// Increment iteration for next run
-		log.Info().Int("iteration", itNum).Msg("normaloop agent: iteration finished")
+		log.Info().Int("iteration", itNum).Msg("pdca agent: iteration finished")
 		if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
 			yield(nil, fmt.Errorf("update iteration in session state: %w", err))
 			return
@@ -294,14 +294,14 @@ func (a *NormaLoopAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 
 	workspaceDir := filepath.Join(stepDir, "workspace")
 	branchName := fmt.Sprintf("norma/task/%s", a.runInput.TaskID)
-	log.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("normaloop agent: mounting worktree")
+	log.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("pdca agent: mounting worktree")
 	if _, err := git.MountWorktree(ctx, a.runInput.GitRoot, workspaceDir, branchName, a.baseBranch); err != nil {
 		return nil, fmt.Errorf("mount worktree: %w", err)
 	}
 	defer func() {
-		log.Debug().Str("workspace", workspaceDir).Msg("normaloop agent: removing worktree")
+		log.Debug().Str("workspace", workspaceDir).Msg("pdca agent: removing worktree")
 		if err := git.RemoveWorktree(ctx, a.runInput.GitRoot, workspaceDir); err != nil {
-			log.Warn().Err(err).Str("workspace", workspaceDir).Msg("normaloop agent: failed to remove worktree")
+			log.Warn().Err(err).Str("workspace", workspaceDir).Msg("pdca agent: failed to remove worktree")
 		}
 	}()
 
@@ -347,7 +347,7 @@ func (a *NormaLoopAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	if err != nil {
 		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
 	}
-	log.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("normaloop agent: running step runner")
+	log.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("pdca agent: running step runner")
 
 	// Prepare log files
 	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)

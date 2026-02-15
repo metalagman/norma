@@ -1,4 +1,4 @@
-package normaloop
+package pdca
 
 import (
 	"context"
@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows"
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -22,14 +23,16 @@ import (
 	"google.golang.org/genai"
 )
 
-// Workflow implements the ADK-based normaloop workflow.
+// Workflow implements the ADK-based pdca workflow.
 type Workflow struct {
 	cfg     config.Config
 	store   *db.Store
 	tracker task.Tracker
 }
 
-// NewWorkflow builds the normaloop workflow runtime.
+const actDecisionClose = "close"
+
+// NewWorkflow builds the pdca workflow runtime.
 func NewWorkflow(cfg config.Config, store *db.Store, tracker task.Tracker) *Workflow {
 	return &Workflow{
 		cfg:     cfg,
@@ -39,7 +42,7 @@ func NewWorkflow(cfg config.Config, store *db.Store, tracker task.Tracker) *Work
 }
 
 func (w *Workflow) Name() string {
-	return "normaloop"
+	return "pdca"
 }
 
 func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows.RunResult, error) {
@@ -64,10 +67,10 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 
 	sessionService := session.InMemoryService()
 
-	// Create the custom normaloop iteration agent.
+	// Create the custom pdca iteration agent.
 	loopIterationAgent, err := NewNormaLoopAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
 	if err != nil {
-		return workflows.RunResult{}, fmt.Errorf("create normaloop iteration agent: %w", err)
+		return workflows.RunResult{}, fmt.Errorf("create pdca iteration agent: %w", err)
 	}
 
 	la, err := newLoopAgent(w.cfg.Budgets.MaxIterations, loopIterationAgent)
@@ -101,8 +104,8 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	}
 
 	// Run it
-	genaiInput := genai.NewContentFromText(fmt.Sprintf("Run normaloop workflow for task %s: %s", input.TaskID, input.Goal), genai.RoleUser)
-	log.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("normaloop workflow: starting ADK runner")
+	genaiInput := genai.NewContentFromText(fmt.Sprintf("Run pdca workflow for task %s: %s", input.TaskID, input.Goal), genai.RoleUser)
+	log.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("pdca workflow: starting ADK runner")
 	events := adkRunner.Run(ctx, userID, sess.Session.ID(), genaiInput, agent.RunConfig{})
 
 	for ev, err := range events {
@@ -118,30 +121,27 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	}
 
 	// Retrieve final state from session
-	log.Debug().Msg("normaloop workflow: retrieving final session state")
+	log.Debug().Msg("pdca workflow: retrieving final session state")
 	finalSess, err := sessionService.Get(ctx, &session.GetRequest{
 		AppName:   "norma",
 		UserID:    userID,
 		SessionID: sess.Session.ID(),
 	})
 	if err != nil {
-		log.Error().Err(err).Msg("normaloop workflow: failed to retrieve final session state")
+		log.Error().Err(err).Msg("pdca workflow: failed to retrieve final session state")
 		return workflows.RunResult{Status: "failed"}, err
 	}
 
-	verdict, finalIteration, err := parseFinalState(finalSess.Session.State())
+	verdict, decision, finalIteration, err := parseFinalState(finalSess.Session.State())
 	if err != nil {
 		return workflows.RunResult{Status: "failed"}, fmt.Errorf("parse final session state: %w", err)
 	}
-	log.Info().Str("verdict", verdict).Msg("normaloop workflow: final verdict")
-
-	status := "stopped"
-	switch verdict {
-	case "PASS":
-		status = "passed"
-	case "FAIL":
-		status = "failed"
-	}
+	status, effectiveVerdict := deriveFinalOutcome(verdict, decision)
+	log.Info().
+		Str("verdict", verdict).
+		Str("decision", decision).
+		Str("effective_verdict", effectiveVerdict).
+		Msg("pdca workflow: final outcome")
 
 	if w.store != nil {
 		update := db.Update{
@@ -149,13 +149,13 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 			Iteration:        finalIteration,
 			Status:           status,
 		}
-		if verdict != "" {
-			v := verdict
+		if effectiveVerdict != "" {
+			v := effectiveVerdict
 			update.Verdict = &v
 		}
 		event := &db.Event{
 			Type:    "verdict",
-			Message: fmt.Sprintf("workflow completed with status=%s verdict=%s", status, verdict),
+			Message: fmt.Sprintf("workflow completed with status=%s verdict=%s decision=%s", status, effectiveVerdict, decision),
 		}
 		if err := w.store.UpdateRun(ctx, input.RunID, update, event); err != nil {
 			return workflows.RunResult{}, fmt.Errorf("persist final run status: %w", err)
@@ -165,8 +165,8 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	res := workflows.RunResult{
 		Status: status,
 	}
-	if verdict != "" {
-		res.Verdict = &verdict
+	if effectiveVerdict != "" {
+		res.Verdict = &effectiveVerdict
 	}
 
 	return res, nil
@@ -177,33 +177,68 @@ func newLoopAgent(maxIterations int, loopIterationAgent agent.Agent) (agent.Agen
 		MaxIterations: uint(maxIterations),
 		AgentConfig: agent.Config{
 			Name:        "NormaLoop",
-			Description: "ADK loop agent for normaloop",
+			Description: "ADK loop agent for pdca",
 			SubAgents:   []agent.Agent{loopIterationAgent},
 		},
 	})
 }
 
-func parseFinalState(state session.State) (string, int, error) {
+func parseFinalState(state session.State) (string, string, int, error) {
 	verdict, err := stateString(state, "verdict")
 	if err != nil {
-		return "", 0, err
+		return "", "", 0, err
+	}
+
+	decision, err := stateString(state, "decision")
+	if err != nil {
+		return "", "", 0, err
 	}
 
 	iteration, err := statePositiveInt(state, "iteration", 1)
 	if err != nil {
-		return "", 0, err
+		return "", "", 0, err
 	}
 
-	return verdict, iteration, nil
+	taskState, err := stateAny(state, "task_state")
+	if err != nil {
+		return "", "", 0, err
+	}
+	if taskState != nil {
+		coerced := coerceTaskState(taskState)
+		if verdict == "" && coerced.Check != nil {
+			verdict = strings.TrimSpace(coerced.Check.Verdict.Status)
+		}
+		if decision == "" && coerced.Act != nil {
+			decision = strings.TrimSpace(coerced.Act.Decision)
+		}
+	}
+
+	return verdict, decision, iteration, nil
+}
+
+func deriveFinalOutcome(verdict, decision string) (status string, effectiveVerdict string) {
+	effectiveVerdict = strings.ToUpper(strings.TrimSpace(verdict))
+	normalizedDecision := strings.ToLower(strings.TrimSpace(decision))
+
+	if effectiveVerdict == "" && normalizedDecision == actDecisionClose {
+		effectiveVerdict = "PASS"
+	}
+
+	status = "stopped"
+	switch effectiveVerdict {
+	case "PASS":
+		status = "passed"
+	case "FAIL":
+		status = "failed"
+	}
+
+	return status, effectiveVerdict
 }
 
 func stateString(state session.State, key string) (string, error) {
-	value, err := state.Get(key)
+	value, err := stateAny(state, key)
 	if err != nil {
-		if errors.Is(err, session.ErrStateKeyNotExist) {
-			return "", nil
-		}
-		return "", fmt.Errorf("read session state key %q: %w", key, err)
+		return "", err
 	}
 	if value == nil {
 		return "", nil
@@ -214,6 +249,17 @@ func stateString(state session.State, key string) (string, error) {
 		return "", fmt.Errorf("session state key %q has type %T; want string", key, value)
 	}
 	return str, nil
+}
+
+func stateAny(state session.State, key string) (any, error) {
+	value, err := state.Get(key)
+	if err != nil {
+		if errors.Is(err, session.ErrStateKeyNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read session state key %q: %w", key, err)
+	}
+	return value, nil
 }
 
 func statePositiveInt(state session.State, key string, defaultValue int) (int, error) {

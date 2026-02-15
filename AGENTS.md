@@ -10,6 +10,7 @@ Single fixed workflow:
 ## 0) Design principles
 
 - **One workflow**; flexibility comes from swapping agents per role.
+- **Google ADK required:** all orchestrator and role agents MUST be implemented using `google.golang.org/adk`.
 - **Artifacts are files** (human-debuggable).
 - **Run/step state is in SQLite** (queryable, UI-friendly).
 - **Task state lives in Beads** (source of truth for progress and resumption).
@@ -150,16 +151,6 @@ Columns:
 - `type TEXT NOT NULL`                (e.g. `run_started`, `step_committed`, `verdict`)
 - `message TEXT NOT NULL`
 - `data_json TEXT NULL`               (optional structured payload)
-
-### 3.5 kv_run (optional)
-Primary key: `(run_id, key)`
-
-Columns:
-- `run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE`
-- `key TEXT NOT NULL`
-- `value_json TEXT NOT NULL`
-Notes:
-- `kv_run` is for run-scoped metadata only (e.g., active feature id for a run UI), not for task/backlog state.
 
 ---
 
@@ -407,14 +398,17 @@ An epic is complete when:
 
 ---
 
-## 6) Agent system
+## 6) Agent system (Google ADK)
+
+All agents in Norma MUST be authored as Google ADK agents. Backend integrations are allowed only as ADK-managed adapters or ADK-native provider integrations.
+For CLI providers (Codex, Claude, Gemini, OpenCode CLI), Norma MUST use an `ainvoke` ADK exec agent implementation.
+The OpenAI provider is a separate ADK provider path and is NOT an `ainvoke` provider.
 
 ### 6.1 Agent types (MVP)
-- `exec`  : spawn local binary, JSON on stdin/stdout
-- `codex` : run Codex CLI oneshot using a generated prompt (norma enforces JSON output)
-- `opencode` : run OpenCode CLI oneshot using a generated prompt (norma enforces JSON output)
-- `gemini` : run Gemini CLI oneshot using a generated prompt (norma enforces JSON output)
-- `claude` : run Claude CLI oneshot using a generated prompt (norma enforces JSON output)
+- `exec`  : ADK agent adapter that spawns a local binary, JSON on stdin/stdout
+- `openai` : ADK-native OpenAI provider integration
+- `ainvoke-exec` profile: `exec`-based adapter configuration that delegates CLI provider calls (Codex/OpenCode/Gemini/Claude) to `ainvoke`
+- Legacy direct CLI types (`codex`, `opencode`, `gemini`, `claude`) may exist for compatibility, but MUST NOT be used in this repo's active profiles.
 
 ### 6.2 Agent configuration (MVP)
 Stored in `.norma/config.yaml`.
@@ -424,25 +418,29 @@ Example:
 profile: default
 
 agents:
-  opencode_exec_agent:
+  ainvoke_opencode_agent:
     type: exec
-    cmd: ["./bin/norma-agent-opencode-exec"]
-  codex_agent:
-    type: codex
-    model: gpt-5-codex
+    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "opencode"]
+  ainvoke_codex_agent:
+    type: exec
+    cmd: ["./bin/norma-agent-ainvoke-exec", "--provider", "codex", "--model", "gpt-5-codex"]
+  openai_primary:
+    type: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
 
 profiles:
   default:
     pdca:
-      plan: opencode_exec_agent
-      do: opencode_exec_agent
-      check: codex_agent
-      act: codex_agent
+      plan: ainvoke_opencode_agent
+      do: ainvoke_opencode_agent
+      check: ainvoke_codex_agent
+      act: ainvoke_codex_agent
     features:
       backlog_refiner:
         agents:
-          planner: codex_agent
-          implementer: opencode_exec_agent
+          planner: ainvoke_codex_agent
+          implementer: ainvoke_opencode_agent
 
 budgets:
   max_iterations: 5
@@ -455,8 +453,12 @@ retention:
 
 Notes:
 - `cmd` is an argv array for safety.
-- For `codex`, `opencode`, `gemini`, and `claude`, `cmd` is not supported; the tool binary is fixed.
-- `codex.path`, `opencode.path`, `gemini.path`, and `claude.path` should constrain context (repo root or subdir).
+- CLI providers (`codex`, `opencode`, `gemini`, `claude`) MUST be called through `ainvoke` via the `exec` agent.
+- The `openai` provider MUST be configured as a separate ADK provider integration, not routed via `ainvoke`.
+- Do not configure active profiles with direct CLI provider types (`type: codex|opencode|gemini|claude`); use `type: exec` + `ainvoke`.
+- Provider-specific path/context constraints should be configured in the `ainvoke` invocation/options.
+- OpenAI-specific settings (`model`, `base_url`, `api_key_env`/`api_key`, `timeout`) belong on the `type: openai` agent config.
+- Every configured role agent MUST be instantiated and executed through ADK (`agent.Agent` + ADK runner); non-ADK standalone agents are out of scope.
 - `profiles.<name>.features.*.agents.*` must reference keys defined in top-level `agents`.
 - `retention.keep_last` and `retention.keep_days` control auto-pruning on each run (optional).
 
@@ -466,7 +468,7 @@ Notes:
 
 Every step is an `input.json → output.json` transformation. The agent MUST produce an `output.json` file in the assigned step directory containing the valid AgentResponse JSON.
 
-Contracts are formally defined by JSON schemas located in `internal/workflows/normaloop/<role>/*.schema.json`.
+Contracts are formally defined by JSON schemas located in `internal/workflows/pdca/<role>/*.schema.json`.
 
 ### 7.1 Common input.json (all steps)
 
@@ -791,11 +793,14 @@ Common types:
 
 ---
 
-## 11) Exec backend (MVP)
+## 11) ADK Exec adapter (MVP)
 
 ### Invocation
 - Request JSON is passed on `stdin`.
 - AgentResponse JSON must be written to `stdout`.
+- Invocation MUST be driven by an ADK agent implementation.
+- For Codex/OpenCode/Gemini/Claude usage, invocation MUST go through `ainvoke` using this exec adapter.
+- OpenAI provider usage does not use this adapter; it uses `type: openai`.
 - norma captures `stdout` and `stderr` into:
   - `logs/stdout.txt`
   - `logs/stderr.txt`
@@ -809,12 +814,12 @@ Common types:
 
 ---
 
-## 12) Codex oneshot backend (MVP)
+## 12) ADK Codex profile via ainvoke (MVP)
 
-Codex typically outputs free-form text. MVP requires deterministic output:
+Codex typically outputs free-form text. MVP requires deterministic output through `ainvoke`:
 
 ### Codex prompt policy (MUST)
-norma generates a role-specific prompt that instructs Codex to:
+norma (via `ainvoke`) generates a role-specific prompt that instructs Codex to:
 - output ONLY valid JSON for AgentResponse on stdout
 - write only inside the current step directory (or `workspace/` for `do`/`act`)
 
@@ -823,15 +828,16 @@ norma generates a role-specific prompt that instructs Codex to:
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
 - terminal mirroring of agent stdout/stderr is debug-only
+- Invocation MUST be driven by an ADK `exec` agent via `ainvoke`.
 
 ---
 
-## 13) OpenCode oneshot backend (MVP)
+## 13) ADK OpenCode profile via ainvoke (MVP)
 
-OpenCode typically outputs free-form text. MVP requires deterministic output:
+OpenCode typically outputs free-form text. MVP requires deterministic output through `ainvoke`:
 
 ### OpenCode prompt policy (MUST)
-norma generates a role-specific prompt that instructs OpenCode to:
+norma (via `ainvoke`) generates a role-specific prompt that instructs OpenCode to:
 - output ONLY valid JSON for AgentResponse on stdout
 - write only inside the current step directory (or `workspace/` for `do`/`act`)
 
@@ -840,15 +846,16 @@ norma generates a role-specific prompt that instructs OpenCode to:
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
 - terminal mirroring of agent stdout/stderr is debug-only
+- Invocation MUST be driven by an ADK `exec` agent via `ainvoke`.
 
 ---
 
-## 14) Gemini oneshot backend (MVP)
+## 14) ADK Gemini profile via ainvoke (MVP)
 
-Gemini CLI typically outputs free-form text. MVP requires deterministic output:
+Gemini CLI typically outputs free-form text. MVP requires deterministic output through `ainvoke`:
 
 ### Gemini prompt policy (MUST)
-norma generates a role-specific prompt that instructs Gemini to:
+norma (via `ainvoke`) generates a role-specific prompt that instructs Gemini to:
 - output ONLY valid JSON for AgentResponse on stdout
 - write only inside the current step directory (or `workspace/` for `do`/`act`)
 
@@ -857,21 +864,42 @@ norma generates a role-specific prompt that instructs Gemini to:
 - norma parses stdout as AgentResponse JSON
 - if parse fails → protocol error
 - terminal mirroring of agent stdout/stderr is debug-only
+- Invocation MUST be driven by an ADK `exec` agent via `ainvoke`.
 
 ---
 
-## 15) Claude oneshot backend (MVP)
+## 15) ADK Claude profile via ainvoke (MVP)
 
-Claude CLI typically outputs free-form text. MVP requires deterministic output:
+Claude CLI typically outputs free-form text. MVP requires deterministic output through `ainvoke`:
 
 ### Claude prompt policy (MUST)
-norma generates a role-specific prompt that instructs Claude to:
+norma (via `ainvoke`) generates a role-specific prompt that instructs Claude to:
 - output ONLY valid JSON for AgentResponse on stdout
 - write only inside the current step directory (or `workspace/` for `do`/`act`)
 
 ### Capturing
 - norma stores raw stdout/stderr to logs
 - norma parses stdout as AgentResponse JSON
+- if parse fails → protocol error
+- terminal mirroring of agent stdout/stderr is debug-only
+- Invocation MUST be driven by an ADK `exec` agent via `ainvoke`.
+
+---
+
+## 15.1) ADK OpenAI provider profile (MVP)
+
+OpenAI provider runs through the ADK-native `openai` agent type (not `ainvoke`).
+
+### OpenAI config policy (MUST)
+Configure OpenAI agents with:
+- `type: openai`
+- `model`
+- authentication via `api_key_env` (preferred) or `api_key`
+- optional `base_url` and `timeout`
+
+### Capturing
+- norma stores raw stdout/stderr to logs
+- norma parses the resulting output as AgentResponse JSON
 - if parse fails → protocol error
 - terminal mirroring of agent stdout/stderr is debug-only
 

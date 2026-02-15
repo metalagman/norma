@@ -12,7 +12,7 @@ import (
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

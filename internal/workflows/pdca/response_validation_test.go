@@ -1,9 +1,9 @@
-package normaloop
+package pdca
 
 import (
 	"testing"
 
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
 )
 
 func TestValidateStepResponse(t *testing.T) {
@@ -140,7 +140,6 @@ func TestValidateStepResponse(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

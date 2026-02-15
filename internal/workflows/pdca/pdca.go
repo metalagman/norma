@@ -1,4 +1,4 @@
-package normaloop
+package pdca
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
 )
 
 const (

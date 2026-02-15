@@ -1,4 +1,4 @@
-package normaloop
+package pdca
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/workflows"
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
 )
 
 func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) {

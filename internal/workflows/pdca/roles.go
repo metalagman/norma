@@ -1,13 +1,13 @@
-package normaloop
+package pdca
 
 import (
 	"encoding/json"
 
-	"github.com/metalagman/norma/internal/workflows/normaloop/act"
-	"github.com/metalagman/norma/internal/workflows/normaloop/check"
-	"github.com/metalagman/norma/internal/workflows/normaloop/do"
-	"github.com/metalagman/norma/internal/workflows/normaloop/models"
-	"github.com/metalagman/norma/internal/workflows/normaloop/plan"
+	"github.com/metalagman/norma/internal/workflows/pdca/act"
+	"github.com/metalagman/norma/internal/workflows/pdca/check"
+	"github.com/metalagman/norma/internal/workflows/pdca/do"
+	"github.com/metalagman/norma/internal/workflows/pdca/models"
+	"github.com/metalagman/norma/internal/workflows/pdca/plan"
 )
 
 func registerDefaultRoles() {
