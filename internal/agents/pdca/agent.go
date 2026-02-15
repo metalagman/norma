@@ -13,7 +13,11 @@ import (
 	"time"
 
 	normaagent "github.com/metalagman/norma/internal/agent"
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
@@ -252,7 +256,7 @@ func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
+func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*contracts.AgentResponse, error) {
 	*a.stepIndex++
 	index := *a.stepIndex
 	if err := ctx.Session().State().Set("current_step_index", index); err != nil {
@@ -270,31 +274,31 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	state := a.getTaskState(ctx)
 	switch roleName {
 	case RolePlan:
-		req.Plan = &models.PlanInput{Task: models.IDInfo{ID: a.runInput.TaskID}}
+		req.Plan = &plan.PlanInput{Task: &plan.PlanTaskID{Id: a.runInput.TaskID}}
 	case RoleDo:
 		if state.Plan == nil || state.Plan.WorkPlan == nil || state.Plan.AcceptanceCriteria == nil {
 			return nil, fmt.Errorf("missing plan for do step")
 		}
-		req.Do = &models.DoInput{
-			WorkPlan:          *state.Plan.WorkPlan,
-			EffectiveCriteria: state.Plan.AcceptanceCriteria.Effective,
+		req.Do = &do.DoInput{
+			WorkPlan:                    planWorkPlanToDo(state.Plan.WorkPlan),
+			AcceptanceCriteriaEffective: planEffectiveToDo(state.Plan.AcceptanceCriteria.Effective),
 		}
 	case RoleCheck:
 		if state.Plan == nil || state.Plan.WorkPlan == nil || state.Plan.AcceptanceCriteria == nil || state.Do == nil || state.Do.Execution == nil {
 			return nil, fmt.Errorf("missing plan or do for check step")
 		}
-		req.Check = &models.CheckInput{
-			WorkPlan:          *state.Plan.WorkPlan,
-			EffectiveCriteria: state.Plan.AcceptanceCriteria.Effective,
-			DoExecution:       *state.Do.Execution,
+		req.Check = &check.CheckInput{
+			WorkPlan:                    planWorkPlanToCheck(state.Plan.WorkPlan),
+			AcceptanceCriteriaEffective: planEffectiveToCheck(state.Plan.AcceptanceCriteria.Effective),
+			DoExecution:                 doExecutionToCheck(state.Do.Execution),
 		}
 	case RoleAct:
 		if state.Check == nil || state.Check.Verdict == nil {
 			return nil, fmt.Errorf("missing check verdict for act step")
 		}
-		req.Act = &models.ActInput{
-			CheckVerdict:      *state.Check.Verdict,
-			AcceptanceResults: state.Check.AcceptanceResults,
+		req.Act = &act.ActInput{
+			CheckVerdict:      checkVerdictToAct(state.Check.Verdict),
+			AcceptanceResults: checkAcceptanceResultsToAct(state.Check.AcceptanceResults),
 		}
 	}
 
@@ -335,7 +339,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		return nil, fmt.Errorf("resolve workspace dir path: %w", err)
 	}
 
-	req.Paths = models.RequestPaths{
+	req.Paths = contracts.RequestPaths{
 		WorkspaceDir: absWorkspaceDir,
 		RunDir:       absStepDir,
 		Progress:     progressPath,
@@ -446,23 +450,23 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
-func (a *runtime) baseRequest(iteration, index int, role string) models.AgentRequest {
-	return models.AgentRequest{
-		Run: models.RunInfo{
+func (a *runtime) baseRequest(iteration, index int, role string) contracts.AgentRequest {
+	return contracts.AgentRequest{
+		Run: contracts.RunInfo{
 			ID:        a.runInput.RunID,
 			Iteration: iteration,
 		},
-		Task: models.TaskInfo{
+		Task: contracts.TaskInfo{
 			ID:                 a.runInput.TaskID,
 			Title:              a.runInput.Goal,
 			Description:        a.runInput.Goal,
 			AcceptanceCriteria: a.runInput.AcceptanceCriteria,
 		},
-		Step: models.StepInfo{
+		Step: contracts.StepInfo{
 			Index: index,
 			Name:  role,
 		},
-		Budgets: models.Budgets{
+		Budgets: contracts.Budgets{
 			MaxIterations: a.cfg.Budgets.MaxIterations,
 		},
 		StopReasonsAllowed: []string{
@@ -474,7 +478,7 @@ func (a *runtime) baseRequest(iteration, index int, role string) models.AgentReq
 	}
 }
 
-func validateStepResponse(roleName string, resp *models.AgentResponse) error {
+func validateStepResponse(roleName string, resp *contracts.AgentResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil response for role %q", roleName)
 	}
@@ -512,6 +516,135 @@ func validateStepResponse(roleName string, resp *models.AgentResponse) error {
 	return nil
 }
 
+func planWorkPlanToDo(src *plan.PlanWorkPlan) *do.DoWorkPlan {
+	if src == nil {
+		return nil
+	}
+	doSteps := make([]do.DoDoStep, 0, len(src.DoSteps))
+	for _, step := range src.DoSteps {
+		doSteps = append(doSteps, do.DoDoStep{
+			Id:           step.Id,
+			TargetsAcIds: step.TargetsAcIds,
+			Text:         step.Text,
+		})
+	}
+	checkSteps := make([]do.DoCheckStep, 0, len(src.CheckSteps))
+	for _, step := range src.CheckSteps {
+		checkSteps = append(checkSteps, do.DoCheckStep{
+			Id:   step.Id,
+			Mode: step.Mode,
+			Text: step.Text,
+		})
+	}
+	return &do.DoWorkPlan{
+		TimeboxMinutes: src.TimeboxMinutes,
+		DoSteps:        doSteps,
+		CheckSteps:     checkSteps,
+		StopTriggers:   src.StopTriggers,
+	}
+}
+
+func planEffectiveToDo(src []plan.EffectiveAC) []do.DoEffectiveAC {
+	out := make([]do.DoEffectiveAC, 0, len(src))
+	for _, ac := range src {
+		checks := make([]do.DoACCheck, 0, len(ac.Checks))
+		for _, c := range ac.Checks {
+			checks = append(checks, do.DoACCheck{
+				Id:              c.Id,
+				Cmd:             c.Cmd,
+				ExpectExitCodes: c.ExpectExitCodes,
+			})
+		}
+		out = append(out, do.DoEffectiveAC{
+			Id:      ac.Id,
+			Origin:  ac.Origin,
+			Refines: ac.Refines,
+			Text:    ac.Text,
+			Checks:  checks,
+			Reason:  ac.Reason,
+		})
+	}
+	return out
+}
+
+func planWorkPlanToCheck(src *plan.PlanWorkPlan) *check.CheckWorkPlan {
+	if src == nil {
+		return nil
+	}
+	doSteps := make([]check.CheckDoStep, 0, len(src.DoSteps))
+	for _, step := range src.DoSteps {
+		doSteps = append(doSteps, check.CheckDoStep{
+			Id:   step.Id,
+			Text: step.Text,
+		})
+	}
+	checkSteps := make([]check.CheckCheckStep, 0, len(src.CheckSteps))
+	for _, step := range src.CheckSteps {
+		checkSteps = append(checkSteps, check.CheckCheckStep{
+			Id:   step.Id,
+			Mode: step.Mode,
+			Text: step.Text,
+		})
+	}
+	return &check.CheckWorkPlan{
+		TimeboxMinutes: src.TimeboxMinutes,
+		DoSteps:        doSteps,
+		CheckSteps:     checkSteps,
+		StopTriggers:   src.StopTriggers,
+	}
+}
+
+func planEffectiveToCheck(src []plan.EffectiveAC) []check.CheckEffectiveAC {
+	out := make([]check.CheckEffectiveAC, 0, len(src))
+	for _, ac := range src {
+		out = append(out, check.CheckEffectiveAC{
+			Id:     ac.Id,
+			Origin: ac.Origin,
+			Text:   ac.Text,
+		})
+	}
+	return out
+}
+
+func doExecutionToCheck(src *do.DoExecution) *check.CheckDoExecution {
+	if src == nil {
+		return nil
+	}
+	return &check.CheckDoExecution{
+		ExecutedStepIds: src.ExecutedStepIds,
+		SkippedStepIds:  src.SkippedStepIds,
+	}
+}
+
+func checkVerdictToAct(src *check.CheckVerdict) *act.ActCheckVerdict {
+	if src == nil {
+		return nil
+	}
+	out := &act.ActCheckVerdict{
+		Status:         src.Status,
+		Recommendation: src.Recommendation,
+	}
+	if src.Basis != nil {
+		out.Basis = &act.ActCheckVerdictBasis{
+			PlanMatch:           src.Basis.PlanMatch,
+			AllAcceptancePassed: src.Basis.AllAcceptancePassed,
+		}
+	}
+	return out
+}
+
+func checkAcceptanceResultsToAct(src []check.CheckAcceptanceResult) []act.ActAcceptanceResult {
+	out := make([]act.ActAcceptanceResult, 0, len(src))
+	for _, ar := range src {
+		out = append(out, act.ActAcceptanceResult{
+			AcId:   ar.AcId,
+			Result: ar.Result,
+			Notes:  ar.Notes,
+		})
+	}
+	return out
+}
+
 func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string) (config.AgentConfig, error) {
 	agentCfg, ok := agents[roleName]
 	if !ok {
@@ -520,42 +653,42 @@ func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string)
 	return agentCfg, nil
 }
 
-func (a *runtime) getTaskState(ctx agent.InvocationContext) *models.TaskState {
+func (a *runtime) getTaskState(ctx agent.InvocationContext) *contracts.TaskState {
 	s, err := ctx.Session().State().Get("task_state")
 	if err != nil {
-		return &models.TaskState{}
+		return &contracts.TaskState{}
 	}
 	return coerceTaskState(s)
 }
 
-func coerceTaskState(value any) *models.TaskState {
+func coerceTaskState(value any) *contracts.TaskState {
 	switch state := value.(type) {
 	case nil:
-		return &models.TaskState{}
-	case *models.TaskState:
+		return &contracts.TaskState{}
+	case *contracts.TaskState:
 		if state == nil {
-			return &models.TaskState{}
+			return &contracts.TaskState{}
 		}
 		return state
-	case models.TaskState:
+	case contracts.TaskState:
 		copied := state
 		return &copied
 	case map[string]any:
 		raw, err := json.Marshal(state)
 		if err != nil {
-			return &models.TaskState{}
+			return &contracts.TaskState{}
 		}
-		var decoded models.TaskState
+		var decoded contracts.TaskState
 		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return &models.TaskState{}
+			return &contracts.TaskState{}
 		}
 		return &decoded
 	default:
-		return &models.TaskState{}
+		return &contracts.TaskState{}
 	}
 }
 
-func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
+func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *contracts.AgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
@@ -579,7 +712,7 @@ func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *models.Agen
 	return nil
 }
 
-func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentResponse, role, runID string, iteration, index int, now time.Time) {
+func applyAgentResponseToTaskState(state *contracts.TaskState, resp *contracts.AgentResponse, role, runID string, iteration, index int, now time.Time) {
 	switch role {
 	case RolePlan:
 		state.Plan = resp.Plan
@@ -591,7 +724,7 @@ func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentRe
 		state.Act = resp.Act
 	}
 
-	entry := models.JournalEntry{
+	entry := contracts.JournalEntry{
 		Timestamp:  now.UTC().Format(time.RFC3339),
 		RunID:      runID,
 		Iteration:  iteration,
@@ -630,7 +763,7 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 	return nil
 }
 
-func (a *runtime) reconstructProgress(dir string, state *models.TaskState) error {
+func (a *runtime) reconstructProgress(dir string, state *contracts.TaskState) error {
 	path := filepath.Join(dir, "artifacts", "progress.md")
 	var sb strings.Builder
 	for _, entry := range state.Journal {

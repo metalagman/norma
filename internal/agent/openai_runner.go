@@ -10,17 +10,17 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/agent/openaiapi"
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
 )
 
 type openAIRunner struct {
-	role   models.Role
+	role   contracts.Role
 	client *openaiapi.Client
 }
 
-func newOpenAIRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
+func newOpenAIRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 	client, err := openaiapi.NewClient(openaiapi.Config{
 		Model:     cfg.Model,
 		BaseURL:   cfg.BaseURL,
@@ -38,7 +38,7 @@ func newOpenAIRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
 	}, nil
 }
 
-func (r *openAIRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+func (r *openAIRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)

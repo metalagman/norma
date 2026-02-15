@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
@@ -62,7 +62,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 		return runpkg.AgentBuild{}, err
 	}
 
-	state := models.TaskState{}
+	state := contracts.TaskState{}
 	if taskItem.Notes != "" {
 		if err := json.Unmarshal([]byte(taskItem.Notes), &state); err != nil {
 			return runpkg.AgentBuild{}, fmt.Errorf("parse task notes state: %w", err)

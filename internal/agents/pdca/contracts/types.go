@@ -1,29 +1,12 @@
-// Package models defines shared request/response contracts for pdca.
-package models
+package contracts
 
 import (
-	pdcact "github.com/metalagman/norma/internal/agents/pdca/roles/act"
-	pdcacheck "github.com/metalagman/norma/internal/agents/pdca/roles/check"
-	pdcado "github.com/metalagman/norma/internal/agents/pdca/roles/do"
-	pdcaplan "github.com/metalagman/norma/internal/agents/pdca/roles/plan"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/task"
 )
-
-// Generated contract aliases. The schema-generated structs are the source of truth.
-type EffectiveAcceptanceCriterion = pdcaplan.EffectiveAC
-type Check = pdcaplan.ACCheck
-type PlanOutput = pdcaplan.PlanOutput
-type EffectiveCriteriaGroup = pdcaplan.PlanAcceptanceCriteria
-type WorkPlan = pdcaplan.PlanWorkPlan
-type DoStep = pdcaplan.PlanDoStep
-type CheckStep = pdcaplan.PlanCheckStep
-type DoOutput = pdcado.DoOutput
-type DoExecution = pdcado.DoExecution
-type CheckOutput = pdcacheck.CheckOutput
-type AcceptanceResult = pdcacheck.CheckAcceptanceResult
-type CheckVerdict = pdcacheck.CheckVerdict
-type Basis = pdcacheck.CheckVerdictBasis
-type ActOutput = pdcact.ActOutput
 
 // Budgets defines run budgets.
 type Budgets struct {
@@ -43,11 +26,11 @@ type AgentRequest struct {
 
 	StopReasonsAllowed []string `json:"stop_reasons_allowed"`
 
-	// Role-specific inputs
-	Plan  *PlanInput  `json:"plan_input,omitempty"`
-	Do    *DoInput    `json:"do_input,omitempty"`
-	Check *CheckInput `json:"check_input,omitempty"`
-	Act   *ActInput   `json:"act_input,omitempty"`
+	// Role-specific inputs. These always use schema-generated structs.
+	Plan  *plan.PlanInput   `json:"plan_input,omitempty"`
+	Do    *do.DoInput       `json:"do_input,omitempty"`
+	Check *check.CheckInput `json:"check_input,omitempty"`
+	Act   *act.ActInput     `json:"act_input,omitempty"`
 }
 
 // RunInfo identifies the current run and its iteration.
@@ -84,35 +67,6 @@ type RequestContext struct {
 	Attempt int            `json:"attempt,omitempty"`
 }
 
-// PlanInput provides role-specific context for the plan agent.
-type PlanInput struct {
-	Task IDInfo `json:"task"`
-}
-
-// DoInput provides role-specific context for the do agent.
-type DoInput struct {
-	WorkPlan          WorkPlan                       `json:"work_plan"`
-	EffectiveCriteria []EffectiveAcceptanceCriterion `json:"acceptance_criteria_effective"`
-}
-
-// CheckInput provides role-specific context for the check agent.
-type CheckInput struct {
-	WorkPlan          WorkPlan                       `json:"work_plan"`
-	EffectiveCriteria []EffectiveAcceptanceCriterion `json:"acceptance_criteria_effective"`
-	DoExecution       DoExecution                    `json:"do_execution"`
-}
-
-// ActInput provides role-specific context for the act agent.
-type ActInput struct {
-	CheckVerdict      CheckVerdict       `json:"check_verdict"`
-	AcceptanceResults []AcceptanceResult `json:"acceptance_results,omitempty"`
-}
-
-// IDInfo contains identification info for an issue.
-type IDInfo struct {
-	ID string `json:"id"`
-}
-
 // AgentResponse is the normalized stdout response from agents.
 type AgentResponse struct {
 	Status     string          `json:"status"` // "ok", "stop", "error"
@@ -120,11 +74,11 @@ type AgentResponse struct {
 	Summary    ResponseSummary `json:"summary"`
 	Progress   StepProgress    `json:"progress"`
 
-	// Role-specific outputs
-	Plan  *PlanOutput  `json:"plan_output,omitempty"`
-	Do    *DoOutput    `json:"do_output,omitempty"`
-	Check *CheckOutput `json:"check_output,omitempty"`
-	Act   *ActOutput   `json:"act_output,omitempty"`
+	// Role-specific outputs. These always use schema-generated structs.
+	Plan  *plan.PlanOutput   `json:"plan_output,omitempty"`
+	Do    *do.DoOutput       `json:"do_output,omitempty"`
+	Check *check.CheckOutput `json:"check_output,omitempty"`
+	Act   *act.ActOutput     `json:"act_output,omitempty"`
 }
 
 // ResponseSummary captures the outcome of an agent's task.
@@ -140,11 +94,11 @@ type StepProgress struct {
 
 // TaskState is stored in task notes to persist step outputs and journal across runs.
 type TaskState struct {
-	Plan    *PlanOutput    `json:"plan,omitempty"`
-	Do      *DoOutput      `json:"do,omitempty"`
-	Check   *CheckOutput   `json:"check,omitempty"`
-	Act     *ActOutput     `json:"act,omitempty"`
-	Journal []JournalEntry `json:"journal,omitempty"`
+	Plan    *plan.PlanOutput   `json:"plan,omitempty"`
+	Do      *do.DoOutput       `json:"do,omitempty"`
+	Check   *check.CheckOutput `json:"check,omitempty"`
+	Act     *act.ActOutput     `json:"act,omitempty"`
+	Journal []JournalEntry     `json:"journal,omitempty"`
 }
 
 // JournalEntry records detailed progress for a single step.

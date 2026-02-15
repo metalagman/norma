@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/stretchr/testify/assert"
@@ -19,15 +20,15 @@ import (
 
 type dummyRole struct{}
 
-func (r *dummyRole) Name() string                                 { return "plan" }
-func (r *dummyRole) InputSchema() string                          { return "{}" }
-func (r *dummyRole) OutputSchema() string                         { return "{}" }
-func (r *dummyRole) Prompt(_ models.AgentRequest) (string, error) { return "prompt", nil }
-func (r *dummyRole) MapRequest(req models.AgentRequest) (any, error) {
+func (r *dummyRole) Name() string                                    { return "plan" }
+func (r *dummyRole) InputSchema() string                             { return "{}" }
+func (r *dummyRole) OutputSchema() string                            { return "{}" }
+func (r *dummyRole) Prompt(_ contracts.AgentRequest) (string, error) { return "prompt", nil }
+func (r *dummyRole) MapRequest(req contracts.AgentRequest) (any, error) {
 	return req, nil
 }
-func (r *dummyRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
-	var resp models.AgentResponse
+func (r *dummyRole) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
+	var resp contracts.AgentResponse
 	err := json.Unmarshal(outBytes, &resp)
 	return resp, err
 }
@@ -38,8 +39,8 @@ type failingMapRole struct {
 	dummyRole
 }
 
-func (r *failingMapRole) MapResponse(_ []byte) (models.AgentResponse, error) {
-	return models.AgentResponse{}, errors.New("map failed")
+func (r *failingMapRole) MapResponse(_ []byte) (contracts.AgentResponse, error) {
+	return contracts.AgentResponse{}, errors.New("map failed")
 }
 
 func TestNewRunner(t *testing.T) {
@@ -81,23 +82,23 @@ echo "$RESP"
 	runner, err := NewRunner(cfg, &dummyRole{})
 	require.NoError(t, err)
 
-	req := models.AgentRequest{
-		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
-		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: models.StepInfo{Index: 1, Name: "plan"},
-		Paths: models.RequestPaths{
+	req := contracts.AgentRequest{
+		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
+		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: contracts.StepInfo{Index: 1, Name: "plan"},
+		Paths: contracts.RequestPaths{
 			WorkspaceDir: repoRoot,
 			RunDir:       repoRoot,
 		},
-		Budgets: models.Budgets{
+		Budgets: contracts.Budgets{
 			MaxIterations: 1,
 		},
-		Context: models.RequestContext{
+		Context: contracts.RequestContext{
 			Facts: make(map[string]any),
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &models.PlanInput{Task: models.IDInfo{ID: "task-1"}},
+		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
 	}
 
 	ctx := context.Background()
@@ -137,23 +138,23 @@ exit 1
 	runner, err := NewRunner(cfg, &dummyRole{})
 	require.NoError(t, err)
 
-	req := models.AgentRequest{
-		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
-		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: models.StepInfo{Index: 1, Name: "plan"},
-		Paths: models.RequestPaths{
+	req := contracts.AgentRequest{
+		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
+		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: contracts.StepInfo{Index: 1, Name: "plan"},
+		Paths: contracts.RequestPaths{
 			WorkspaceDir: repoRoot,
 			RunDir:       repoRoot,
 		},
-		Budgets: models.Budgets{
+		Budgets: contracts.Budgets{
 			MaxIterations: 1,
 		},
-		Context: models.RequestContext{
+		Context: contracts.RequestContext{
 			Facts: make(map[string]any),
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &models.PlanInput{Task: models.IDInfo{ID: "task-1"}},
+		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
 	}
 
 	ctx := context.Background()
@@ -186,23 +187,23 @@ echo '{}'
 	runner, err := NewRunner(cfg, &failingMapRole{})
 	require.NoError(t, err)
 
-	req := models.AgentRequest{
-		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
-		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
-		Step: models.StepInfo{Index: 1, Name: "plan"},
-		Paths: models.RequestPaths{
+	req := contracts.AgentRequest{
+		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
+		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
+		Step: contracts.StepInfo{Index: 1, Name: "plan"},
+		Paths: contracts.RequestPaths{
 			WorkspaceDir: repoRoot,
 			RunDir:       repoRoot,
 		},
-		Budgets: models.Budgets{
+		Budgets: contracts.Budgets{
 			MaxIterations: 1,
 		},
-		Context: models.RequestContext{
+		Context: contracts.RequestContext{
 			Facts: make(map[string]any),
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Plan:               &models.PlanInput{Task: models.IDInfo{ID: "task-1"}},
+		Plan:               &plan.PlanInput{Task: &plan.PlanTaskID{Id: "task-1"}},
 	}
 
 	_, _, exitCode, err := runner.Run(context.Background(), req, io.Discard, io.Discard)

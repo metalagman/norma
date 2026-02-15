@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,8 +46,8 @@ func TestOpenAIRunner_Run(t *testing.T) {
 	}, &dummyRole{})
 	require.NoError(t, err)
 
-	req := models.AgentRequest{
-		Paths: models.RequestPaths{
+	req := contracts.AgentRequest{
+		Paths: contracts.RequestPaths{
 			RunDir: t.TempDir(),
 		},
 	}
@@ -60,7 +60,7 @@ func TestOpenAIRunner_Run(t *testing.T) {
 	assert.Empty(t, stderr.String())
 	assert.Contains(t, stdout.String(), `"status":"ok"`)
 
-	var resp models.AgentResponse
+	var resp contracts.AgentResponse
 	require.NoError(t, json.Unmarshal(outBytes, &resp))
 	assert.Equal(t, "ok", resp.Status)
 	assert.Equal(t, "success", resp.Summary.Text)

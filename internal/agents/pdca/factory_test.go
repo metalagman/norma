@@ -5,7 +5,9 @@ import (
 	"iter"
 	"testing"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
 	"google.golang.org/adk/session"
 )
 
@@ -144,13 +146,13 @@ func TestParseFinalState(t *testing.T) {
 			state: stubState{
 				values: map[string]any{
 					"iteration": 5,
-					"task_state": &models.TaskState{
-						Check: &models.CheckOutput{
-							Verdict: &models.CheckVerdict{
+					"task_state": &contracts.TaskState{
+						Check: &check.CheckOutput{
+							Verdict: &check.CheckVerdict{
 								Status: "PASS",
 							},
 						},
-						Act: &models.ActOutput{
+						Act: &act.ActOutput{
 							Decision: "close",
 						},
 					},
@@ -167,13 +169,13 @@ func TestParseFinalState(t *testing.T) {
 					"verdict":   "FAIL",
 					"decision":  "rollback",
 					"iteration": 6,
-					"task_state": &models.TaskState{
-						Check: &models.CheckOutput{
-							Verdict: &models.CheckVerdict{
+					"task_state": &contracts.TaskState{
+						Check: &check.CheckOutput{
+							Verdict: &check.CheckVerdict{
 								Status: "PASS",
 							},
 						},
-						Act: &models.ActOutput{
+						Act: &act.ActOutput{
 							Decision: "close",
 						},
 					},

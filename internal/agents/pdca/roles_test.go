@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
 	"github.com/metalagman/norma/internal/task"
 )
 
@@ -14,37 +15,37 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 		t.Fatal("GetRole(RoleDo) returned nil")
 	}
 
-	req := models.AgentRequest{
-		Run:  models.RunInfo{ID: "run-1", Iteration: 1},
-		Task: models.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{}},
-		Step: models.StepInfo{Index: 2, Name: RoleDo},
-		Paths: models.RequestPaths{
+	req := contracts.AgentRequest{
+		Run:  contracts.RunInfo{ID: "run-1", Iteration: 1},
+		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{}},
+		Step: contracts.StepInfo{Index: 2, Name: RoleDo},
+		Paths: contracts.RequestPaths{
 			WorkspaceDir: "/tmp",
 			RunDir:       "/tmp",
 		},
-		Budgets: models.Budgets{
+		Budgets: contracts.Budgets{
 			MaxIterations:      1,
 			MaxWallTimeMinutes: 10,
 			MaxFailedChecks:    1,
 		},
-		Context: models.RequestContext{
+		Context: contracts.RequestContext{
 			Facts: map[string]any{},
 			Links: []string{},
 		},
 		StopReasonsAllowed: []string{"budget_exceeded"},
-		Do: &models.DoInput{
-			WorkPlan: models.WorkPlan{
+		Do: &do.DoInput{
+			WorkPlan: &do.DoWorkPlan{
 				TimeboxMinutes: 10,
-				DoSteps:        []models.DoStep{},
-				CheckSteps:     []models.CheckStep{},
+				DoSteps:        []do.DoDoStep{},
+				CheckSteps:     []do.DoCheckStep{},
 				StopTriggers:   []string{},
 			},
-			EffectiveCriteria: []models.EffectiveAcceptanceCriterion{
+			AcceptanceCriteriaEffective: []do.DoEffectiveAC{
 				{
 					Id:     "AC-1",
 					Origin: "baseline",
 					Text:   "ok",
-					Checks: []models.Check{
+					Checks: []do.DoACCheck{
 						{Id: "CHK-1", Cmd: "true", ExpectExitCodes: []int64{0}},
 					},
 				},

@@ -3,7 +3,7 @@ package registry
 import (
 	"encoding/json"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
@@ -18,8 +18,8 @@ const (
 )
 
 // DefaultRoles returns the built-in PDCA role implementations keyed by role name.
-func DefaultRoles() map[string]models.Role {
-	return map[string]models.Role{
+func DefaultRoles() map[string]contracts.Role {
+	return map[string]contracts.Role{
 		rolePlan:  &planRole{baseRole: *newBaseRole(rolePlan, plan.InputSchema, plan.OutputSchema, plan.PromptTemplate)},
 		roleDo:    &doRole{baseRole: *newBaseRole(roleDo, do.InputSchema, do.OutputSchema, do.PromptTemplate)},
 		roleCheck: &checkRole{baseRole: *newBaseRole(roleCheck, check.InputSchema, check.OutputSchema, check.PromptTemplate)},
@@ -31,7 +31,8 @@ type planRole struct {
 	baseRole
 }
 
-func (r *planRole) MapRequest(req models.AgentRequest) (any, error) {
+//nolint:dupl // Typed generated requests require repeated field mapping.
+func (r *planRole) MapRequest(req contracts.AgentRequest) (any, error) {
 	acs := make([]plan.PlanAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
@@ -63,26 +64,24 @@ func (r *planRole) MapRequest(req models.AgentRequest) (any, error) {
 			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
-		PlanInput: &plan.PlanInput{
-			Task: &plan.PlanTaskID{Id: req.Plan.Task.ID},
-		},
+		PlanInput:          req.Plan,
 	}, nil
 }
 
-func (r *planRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
+func (r *planRole) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
 	var roleResp plan.PlanResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return models.AgentResponse{}, err
+		return contracts.AgentResponse{}, err
 	}
-	res := models.AgentResponse{
+	res := contracts.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	res.Plan = roleResp.PlanOutput
 	return res, nil
@@ -92,7 +91,7 @@ type doRole struct {
 	baseRole
 }
 
-func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
+func (r *doRole) MapRequest(req contracts.AgentRequest) (any, error) {
 	acs := make([]do.DoAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
@@ -105,61 +104,13 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 			VerifyHints: hints,
 		})
 	}
-	effective := make([]do.DoEffectiveAC, 0, len(req.Do.EffectiveCriteria))
-	for _, ac := range req.Do.EffectiveCriteria {
-		refines := ac.Refines
-		if refines == nil {
-			refines = []string{}
-		}
-		checks := make([]do.DoACCheck, 0, len(ac.Checks))
-		for _, c := range ac.Checks {
-			checks = append(checks, do.DoACCheck{
-				Id:              c.Id,
-				Cmd:             c.Cmd,
-				ExpectExitCodes: c.ExpectExitCodes,
-			})
-		}
-		effective = append(effective, do.DoEffectiveAC{
-			Id:      ac.Id,
-			Origin:  ac.Origin,
-			Refines: refines,
-			Text:    ac.Text,
-			Checks:  checks,
-			Reason:  ac.Reason,
-		})
-	}
-
-	doSteps := make([]do.DoDoStep, 0, len(req.Do.WorkPlan.DoSteps))
-	for _, s := range req.Do.WorkPlan.DoSteps {
-		targetsACIDs := s.TargetsAcIds
-		if targetsACIDs == nil {
-			targetsACIDs = []string{}
-		}
-		doSteps = append(doSteps, do.DoDoStep{
-			Id:           s.Id,
-			Text:         s.Text,
-			TargetsAcIds: targetsACIDs,
-		})
-	}
-
-	checkSteps := make([]do.DoCheckStep, 0, len(req.Do.WorkPlan.CheckSteps))
-	for _, s := range req.Do.WorkPlan.CheckSteps {
-		checkSteps = append(checkSteps, do.DoCheckStep{
-			Id:   s.Id,
-			Text: s.Text,
-			Mode: s.Mode,
-		})
-	}
-
-	stopTriggers := req.Do.WorkPlan.StopTriggers
-	if stopTriggers == nil {
-		stopTriggers = []string{}
-	}
 
 	links := req.Context.Links
 	if links == nil {
 		links = []string{}
 	}
+
+	doInput := normalizeDoInput(req.Do)
 
 	return &do.DoRequest{
 		Run:   &do.DoRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
@@ -176,32 +127,24 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
-		DoInput: &do.DoInput{
-			WorkPlan: &do.DoWorkPlan{
-				TimeboxMinutes: req.Do.WorkPlan.TimeboxMinutes,
-				DoSteps:        doSteps,
-				CheckSteps:     checkSteps,
-				StopTriggers:   stopTriggers,
-			},
-			AcceptanceCriteriaEffective: effective,
-		},
+		DoInput:            doInput,
 	}, nil
 }
 
-func (r *doRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
+func (r *doRole) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
 	var roleResp do.DoResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return models.AgentResponse{}, err
+		return contracts.AgentResponse{}, err
 	}
-	res := models.AgentResponse{
+	res := contracts.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	res.Do = roleResp.DoOutput
 	return res, nil
@@ -211,51 +154,14 @@ type checkRole struct {
 	baseRole
 }
 
-func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
+//nolint:dupl // Typed generated requests require repeated field mapping.
+func (r *checkRole) MapRequest(req contracts.AgentRequest) (any, error) {
 	acs := make([]check.CheckAcceptanceCriterion, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		acs = append(acs, check.CheckAcceptanceCriterion{
 			Id:   ac.ID,
 			Text: ac.Text,
 		})
-	}
-	effective := make([]check.CheckEffectiveAC, 0, len(req.Check.EffectiveCriteria))
-	for _, ac := range req.Check.EffectiveCriteria {
-		effective = append(effective, check.CheckEffectiveAC{
-			Id:     ac.Id,
-			Origin: ac.Origin,
-			Text:   ac.Text,
-		})
-	}
-	doSteps := make([]check.CheckDoStep, 0, len(req.Check.WorkPlan.DoSteps))
-	for _, s := range req.Check.WorkPlan.DoSteps {
-		doSteps = append(doSteps, check.CheckDoStep{
-			Id:   s.Id,
-			Text: s.Text,
-		})
-	}
-	checkSteps := make([]check.CheckCheckStep, 0, len(req.Check.WorkPlan.CheckSteps))
-	for _, s := range req.Check.WorkPlan.CheckSteps {
-		checkSteps = append(checkSteps, check.CheckCheckStep{
-			Id:   s.Id,
-			Text: s.Text,
-			Mode: s.Mode,
-		})
-	}
-
-	stopTriggers := req.Check.WorkPlan.StopTriggers
-	if stopTriggers == nil {
-		stopTriggers = []string{}
-	}
-
-	executedStepIDs := req.Check.DoExecution.ExecutedStepIds
-	if executedStepIDs == nil {
-		executedStepIDs = []string{}
-	}
-
-	skippedStepIDs := req.Check.DoExecution.SkippedStepIds
-	if skippedStepIDs == nil {
-		skippedStepIDs = []string{}
 	}
 
 	links := req.Context.Links
@@ -278,36 +184,24 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
-		CheckInput: &check.CheckInput{
-			WorkPlan: &check.CheckWorkPlan{
-				TimeboxMinutes: req.Check.WorkPlan.TimeboxMinutes,
-				DoSteps:        doSteps,
-				CheckSteps:     checkSteps,
-				StopTriggers:   stopTriggers,
-			},
-			AcceptanceCriteriaEffective: effective,
-			DoExecution: &check.CheckDoExecution{
-				ExecutedStepIds: executedStepIDs,
-				SkippedStepIds:  skippedStepIDs,
-			},
-		},
+		CheckInput:         req.Check,
 	}, nil
 }
 
-func (r *checkRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
+func (r *checkRole) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
 	var roleResp check.CheckResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return models.AgentResponse{}, err
+		return contracts.AgentResponse{}, err
 	}
-	res := models.AgentResponse{
+	res := contracts.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	res.Check = roleResp.CheckOutput
 	return res, nil
@@ -317,18 +211,11 @@ type actRole struct {
 	baseRole
 }
 
-func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
+//nolint:dupl // Typed generated requests require repeated field mapping.
+func (r *actRole) MapRequest(req contracts.AgentRequest) (any, error) {
 	acs := make([]any, 0, len(req.Task.AcceptanceCriteria))
 	for _, ac := range req.Task.AcceptanceCriteria {
 		acs = append(acs, ac)
-	}
-	acceptanceResults := make([]act.ActAcceptanceResult, 0, len(req.Act.AcceptanceResults))
-	for _, ar := range req.Act.AcceptanceResults {
-		acceptanceResults = append(acceptanceResults, act.ActAcceptanceResult{
-			AcId:   ar.AcId,
-			Result: ar.Result,
-			Notes:  ar.Notes,
-		})
 	}
 
 	links := req.Context.Links
@@ -336,7 +223,7 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 		links = []string{}
 	}
 
-	actReq := &act.ActRequest{
+	return &act.ActRequest{
 		Run:   &act.ActRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &act.ActTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
 		Step:  &act.ActStep{Index: int64(req.Step.Index), Name: req.Step.Name},
@@ -351,38 +238,85 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 			Links:   links,
 		},
 		StopReasonsAllowed: req.StopReasonsAllowed,
-		ActInput: &act.ActInput{
-			CheckVerdict: &act.ActCheckVerdict{
-				Status:         req.Act.CheckVerdict.Status,
-				Recommendation: req.Act.CheckVerdict.Recommendation,
-			},
-			AcceptanceResults: acceptanceResults,
-		},
-	}
-	if req.Act.CheckVerdict.Basis != nil {
-		actReq.ActInput.CheckVerdict.Basis = &act.ActCheckVerdictBasis{
-			PlanMatch:           req.Act.CheckVerdict.Basis.PlanMatch,
-			AllAcceptancePassed: req.Act.CheckVerdict.Basis.AllAcceptancePassed,
-		}
-	}
-	return actReq, nil
+		ActInput:           req.Act,
+	}, nil
 }
 
-func (r *actRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
+func (r *actRole) MapResponse(outBytes []byte) (contracts.AgentResponse, error) {
 	var roleResp act.ActResponse
 	if err := json.Unmarshal(outBytes, &roleResp); err != nil {
-		return models.AgentResponse{}, err
+		return contracts.AgentResponse{}, err
 	}
-	res := models.AgentResponse{
+	res := contracts.AgentResponse{
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
 	if roleResp.Summary != nil {
-		res.Summary = models.ResponseSummary{Text: roleResp.Summary.Text}
+		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
 	}
 	if roleResp.Progress != nil {
-		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
+		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
 	res.Act = roleResp.ActOutput
 	return res, nil
+}
+
+func normalizeDoInput(input *do.DoInput) *do.DoInput {
+	if input == nil {
+		return nil
+	}
+
+	out := &do.DoInput{
+		AcceptanceCriteriaEffective: make([]do.DoEffectiveAC, 0, len(input.AcceptanceCriteriaEffective)),
+	}
+
+	if input.WorkPlan != nil {
+		doSteps := make([]do.DoDoStep, 0, len(input.WorkPlan.DoSteps))
+		for _, step := range input.WorkPlan.DoSteps {
+			targets := step.TargetsAcIds
+			if targets == nil {
+				targets = []string{}
+			}
+			doSteps = append(doSteps, do.DoDoStep{
+				Id:           step.Id,
+				TargetsAcIds: targets,
+				Text:         step.Text,
+			})
+		}
+
+		checkSteps := make([]do.DoCheckStep, 0, len(input.WorkPlan.CheckSteps))
+		checkSteps = append(checkSteps, input.WorkPlan.CheckSteps...)
+
+		stopTriggers := input.WorkPlan.StopTriggers
+		if stopTriggers == nil {
+			stopTriggers = []string{}
+		}
+
+		out.WorkPlan = &do.DoWorkPlan{
+			TimeboxMinutes: input.WorkPlan.TimeboxMinutes,
+			DoSteps:        doSteps,
+			CheckSteps:     checkSteps,
+			StopTriggers:   stopTriggers,
+		}
+	}
+
+	for _, ac := range input.AcceptanceCriteriaEffective {
+		refines := ac.Refines
+		if refines == nil {
+			refines = []string{}
+		}
+		checks := make([]do.DoACCheck, 0, len(ac.Checks))
+		checks = append(checks, ac.Checks...)
+
+		out.AcceptanceCriteriaEffective = append(out.AcceptanceCriteriaEffective, do.DoEffectiveAC{
+			Id:      ac.Id,
+			Origin:  ac.Origin,
+			Refines: refines,
+			Text:    ac.Text,
+			Checks:  checks,
+			Reason:  ac.Reason,
+		})
+	}
+
+	return out
 }

@@ -12,7 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/config"
 
 	"google.golang.org/adk/agent"
@@ -94,15 +98,15 @@ func TestAgentOutputWritersDebug(t *testing.T) {
 func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) {
 	t.Parallel()
 
-	state := &models.TaskState{}
-	resp := &models.AgentResponse{
+	state := &contracts.TaskState{}
+	resp := &contracts.AgentResponse{
 		Status:     "ok",
 		StopReason: "none",
-		Progress: models.StepProgress{
+		Progress: contracts.StepProgress{
 			Title:   "Act decision applied",
 			Details: []string{"Decision close"},
 		},
-		Act: &models.ActOutput{
+		Act: &act.ActOutput{
 			Decision: "close",
 		},
 	}
@@ -144,14 +148,14 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 	t.Parallel()
 
-	state := &models.TaskState{}
-	resp := &models.AgentResponse{
+	state := &contracts.TaskState{}
+	resp := &contracts.AgentResponse{
 		Status:     "ok",
 		StopReason: "none",
-		Progress: models.StepProgress{
+		Progress: contracts.StepProgress{
 			Details: []string{"no explicit title"},
 		},
-		Act: &models.ActOutput{
+		Act: &act.ActOutput{
 			Decision: "replan",
 		},
 	}
@@ -182,8 +186,8 @@ func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 		t.Fatalf("create artifacts dir: %v", err)
 	}
 
-	state := &models.TaskState{
-		Journal: []models.JournalEntry{
+	state := &contracts.TaskState{
+		Journal: []contracts.JournalEntry{
 			{
 				Timestamp:  "2026-02-12T10:00:00Z",
 				RunID:      "run-abc",
@@ -224,16 +228,16 @@ func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 func TestCoerceTaskStatePointerAndValue(t *testing.T) {
 	t.Parallel()
 
-	original := &models.TaskState{
-		Act: &models.ActOutput{Decision: "close"},
+	original := &contracts.TaskState{
+		Act: &act.ActOutput{Decision: "close"},
 	}
 	gotPtr := coerceTaskState(original)
 	if gotPtr != original {
 		t.Fatalf("coerceTaskState(pointer) should return same pointer")
 	}
 
-	value := models.TaskState{
-		Act: &models.ActOutput{Decision: "replan"},
+	value := contracts.TaskState{
+		Act: &act.ActOutput{Decision: "replan"},
 	}
 	gotVal := coerceTaskState(value)
 	if gotVal == nil || gotVal.Act == nil {
@@ -425,22 +429,22 @@ func TestValidateStepResponse(t *testing.T) {
 	tests := []struct {
 		name    string
 		role    string
-		resp    *models.AgentResponse
+		resp    *contracts.AgentResponse
 		wantErr bool
 	}{
 		{
 			name: "plan ok with payload",
 			role: RolePlan,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
-				Plan:   &models.PlanOutput{},
+				Plan:   &plan.PlanOutput{},
 			},
 			wantErr: false,
 		},
 		{
 			name: "plan ok missing payload",
 			role: RolePlan,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -448,7 +452,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "plan stop without payload",
 			role: RolePlan,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "stop",
 			},
 			wantErr: false,
@@ -456,7 +460,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "plan error status",
 			role: RolePlan,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "error",
 			},
 			wantErr: false,
@@ -464,16 +468,16 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "do ok with payload",
 			role: RoleDo,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
-				Do:     &models.DoOutput{},
+				Do:     &do.DoOutput{},
 			},
 			wantErr: false,
 		},
 		{
 			name: "do ok missing payload",
 			role: RoleDo,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -481,7 +485,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "do stop without payload",
 			role: RoleDo,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "stop",
 			},
 			wantErr: false,
@@ -489,7 +493,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "do error status",
 			role: RoleDo,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "error",
 			},
 			wantErr: false,
@@ -497,16 +501,16 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "check ok with payload",
 			role: RoleCheck,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
-				Check:  &models.CheckOutput{},
+				Check:  &check.CheckOutput{},
 			},
 			wantErr: false,
 		},
 		{
 			name: "check ok missing payload",
 			role: RoleCheck,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -514,7 +518,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "check error status",
 			role: RoleCheck,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "error",
 			},
 			wantErr: false,
@@ -522,16 +526,16 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "act ok with payload",
 			role: RoleAct,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
-				Act:    &models.ActOutput{},
+				Act:    &act.ActOutput{},
 			},
 			wantErr: false,
 		},
 		{
 			name: "act ok missing payload",
 			role: RoleAct,
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,
@@ -539,7 +543,7 @@ func TestValidateStepResponse(t *testing.T) {
 		{
 			name: "unknown role",
 			role: "unknown",
-			resp: &models.AgentResponse{
+			resp: &contracts.AgentResponse{
 				Status: "ok",
 			},
 			wantErr: true,

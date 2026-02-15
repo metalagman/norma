@@ -3,7 +3,7 @@ package pdca
 import (
 	"sync"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/registry"
 )
 
@@ -15,7 +15,7 @@ const (
 )
 
 var (
-	roles    = make(map[string]models.Role)
+	roles    = make(map[string]contracts.Role)
 	initOnce sync.Once
 )
 
@@ -28,7 +28,7 @@ func initializeRoles() {
 }
 
 // GetRole returns the role implementation by name.
-func GetRole(name string) models.Role {
+func GetRole(name string) contracts.Role {
 	initializeRoles()
 	return roles[name]
 }

@@ -1,4 +1,4 @@
-package models
+package contracts
 
 // Role defines the interface for a workflow step implementation.
 type Role interface {

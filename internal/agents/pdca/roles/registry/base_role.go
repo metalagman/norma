@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 )
 
 //go:embed common.gotmpl
@@ -36,16 +36,16 @@ func (r *baseRole) Name() string         { return r.name }
 func (r *baseRole) InputSchema() string  { return r.inputSchema }
 func (r *baseRole) OutputSchema() string { return r.outputSchema }
 
-func (r *baseRole) Prompt(req models.AgentRequest) (string, error) {
+func (r *baseRole) Prompt(req contracts.AgentRequest) (string, error) {
 	var baseBuf bytes.Buffer
 	if err := r.baseTmpl.Execute(&baseBuf, struct {
-		Request models.AgentRequest
+		Request contracts.AgentRequest
 	}{Request: req}); err != nil {
 		return "", fmt.Errorf("execute base prompt template: %w", err)
 	}
 
 	data := struct {
-		Request      models.AgentRequest
+		Request      contracts.AgentRequest
 		CommonPrompt string
 	}{
 		Request:      req,

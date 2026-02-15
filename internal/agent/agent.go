@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/metalagman/ainvoke/adk"
-	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
 
@@ -22,11 +22,11 @@ import (
 
 // Runner executes an agent with a normalized request.
 type Runner interface {
-	Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
+	Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
 }
 
 // NewRunner constructs a runner for the given agent config and role.
-func NewRunner(cfg config.AgentConfig, role models.Role) (Runner, error) {
+func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 	if cfg.Type == config.AgentTypeOpenAI {
 		return newOpenAIRunner(cfg, role)
 	}
@@ -83,11 +83,11 @@ func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 
 type adkRunner struct {
 	cfg  config.AgentConfig
-	role models.Role
+	role contracts.Role
 	cmd  []string
 }
 
-func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
+func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) ([]byte, []byte, int, error) {
 	prompt, err := r.role.Prompt(req)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("generate prompt: %w", err)
@@ -174,7 +174,7 @@ func (r *adkRunner) Run(ctx context.Context, req models.AgentRequest, stdout, st
 		return nil, nil, 0, fmt.Errorf("no output from exec agent")
 	}
 
-	// Parse role-specific response and map back to models.AgentResponse
+	// Parse role-specific response and map back to normalized AgentResponse.
 	agentResp, err := r.role.MapResponse(lastOutBytes)
 	if err == nil {
 		// Re-marshal it to ensure consistency
