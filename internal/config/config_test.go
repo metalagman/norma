@@ -1,7 +1,6 @@
 package config
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -279,16 +278,15 @@ func TestValidateSettings_RejectsOpenAIAgentWithoutAPIKey(t *testing.T) {
 	}
 }
 
-func TestValidateSettings_ShowsMigrationHintForAPIKeyEnv(t *testing.T) {
+func TestValidateSettings_AllowsOpenAIAgentWithSubstitutedAPIKey(t *testing.T) {
 	t.Parallel()
 
 	settings := map[string]any{
 		"agents": map[string]any{
 			"openai_primary": map[string]any{
-				"type":        AgentTypeOpenAI,
-				"model":       "gpt-5",
-				"api_key":     "test-api-key",
-				"api_key_env": "OPENAI_API_KEY",
+				"type":    AgentTypeOpenAI,
+				"model":   "gpt-5",
+				"api_key": "${OPENAI_API_KEY}",
 			},
 		},
 		"profiles": map[string]any{
@@ -306,19 +304,7 @@ func TestValidateSettings_ShowsMigrationHintForAPIKeyEnv(t *testing.T) {
 		},
 	}
 
-	err := ValidateSettings(settings)
-	if err == nil {
-		t.Fatal("ValidateSettings returned nil error, want error")
-	}
-
-	for _, expected := range []string{
-		"agents.openai_primary.api_key_env",
-		"no longer supported",
-		"migrate to api_key",
-		"OPENAI_API_KEY",
-	} {
-		if !strings.Contains(err.Error(), expected) {
-			t.Fatalf("ValidateSettings error = %q, want substring %q", err.Error(), expected)
-		}
+	if err := ValidateSettings(settings); err != nil {
+		t.Fatalf("ValidateSettings returned error: %v", err)
 	}
 }

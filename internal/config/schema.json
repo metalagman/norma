@@ -76,10 +76,6 @@
           "type": "string",
           "minLength": 1
         },
-        "api_key_env": {
-          "type": "string",
-          "minLength": 1
-        },
         "timeout": {
           "type": "integer",
           "minimum": 1
@@ -139,10 +135,7 @@
             }
           },
           "then": {
-            "required": ["model", "api_key"],
-            "not": {
-              "required": ["api_key_env"]
-            }
+            "required": ["model", "api_key"]
           }
         }
       ]
