@@ -1,4 +1,4 @@
-package pdca
+package normaloop
 
 import (
 	"context"
@@ -19,7 +19,6 @@ import (
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 	"github.com/rs/zerolog/log"
 
@@ -56,21 +55,21 @@ func NewNormaPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	}
 
 	var err error
-	orchestrator.planAgent, err = orchestrator.createSubAgent(normaloop.RolePlan)
+	orchestrator.planAgent, err = orchestrator.createSubAgent(RolePlan)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RolePlan, err)
+		return nil, fmt.Errorf("create %s sub-agent: %w", RolePlan, err)
 	}
-	orchestrator.doAgent, err = orchestrator.createSubAgent(normaloop.RoleDo)
+	orchestrator.doAgent, err = orchestrator.createSubAgent(RoleDo)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RoleDo, err)
+		return nil, fmt.Errorf("create %s sub-agent: %w", RoleDo, err)
 	}
-	orchestrator.checkAgent, err = orchestrator.createSubAgent(normaloop.RoleCheck)
+	orchestrator.checkAgent, err = orchestrator.createSubAgent(RoleCheck)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RoleCheck, err)
+		return nil, fmt.Errorf("create %s sub-agent: %w", RoleCheck, err)
 	}
-	orchestrator.actAgent, err = orchestrator.createSubAgent(normaloop.RoleAct)
+	orchestrator.actAgent, err = orchestrator.createSubAgent(RoleAct)
 	if err != nil {
-		return nil, fmt.Errorf("create %s sub-agent: %w", normaloop.RoleAct, err)
+		return nil, fmt.Errorf("create %s sub-agent: %w", RoleAct, err)
 	}
 
 	subAgents := []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent}
@@ -115,11 +114,11 @@ func (a *NormaPDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
 				log.Debug().Str("role", roleName).Str("status", resp.Status).Msg("ADK PDCA Sub-agent: step completed")
 
 				// Communicate results via session state
-				if roleName == normaloop.RoleCheck && resp.Check != nil {
+				if roleName == RoleCheck && resp.Check != nil {
 					log.Debug().Str("verdict", resp.Check.Verdict.Status).Msg("ADK PDCA Sub-agent: setting check verdict in state")
 					_ = ctx.Session().State().Set("verdict", resp.Check.Verdict.Status)
 				}
-				if roleName == normaloop.RoleAct && resp.Act != nil {
+				if roleName == RoleAct && resp.Act != nil {
 					log.Debug().Str("decision", resp.Act.Decision).Msg("ADK PDCA Sub-agent: setting act decision in state")
 					_ = ctx.Session().State().Set("decision", resp.Act.Decision)
 					if resp.Act.Decision == "close" {
@@ -230,7 +229,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	*a.stepIndex++
 	index := *a.stepIndex
 
-	role := normaloop.GetRole(roleName)
+	role := GetRole(roleName)
 	if role == nil {
 		return nil, fmt.Errorf("unknown role %q", roleName)
 	}
@@ -240,9 +239,9 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	// Enrich request based on role and current state
 	state := a.getTaskState(ctx)
 	switch roleName {
-	case normaloop.RolePlan:
+	case RolePlan:
 		req.Plan = &models.PlanInput{Task: models.IDInfo{ID: a.runInput.TaskID}}
-	case normaloop.RoleDo:
+	case RoleDo:
 		if state.Plan == nil {
 			return nil, fmt.Errorf("missing plan for do step")
 		}
@@ -250,7 +249,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 			WorkPlan:          state.Plan.WorkPlan,
 			EffectiveCriteria: state.Plan.AcceptanceCriteria.Effective,
 		}
-	case normaloop.RoleCheck:
+	case RoleCheck:
 		if state.Plan == nil || state.Do == nil {
 			return nil, fmt.Errorf("missing plan or do for check step")
 		}
@@ -259,7 +258,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 			EffectiveCriteria: state.Plan.AcceptanceCriteria.Effective,
 			DoExecution:       state.Do.Execution,
 		}
-	case normaloop.RoleAct:
+	case RoleAct:
 		if state.Check == nil {
 			return nil, fmt.Errorf("missing check verdict for act step")
 		}
@@ -365,7 +364,7 @@ func (a *NormaPDCAAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	}
 
 	// Persist Do workspace changes before worktree cleanup.
-	if roleName == normaloop.RoleDo && resp.Status == "ok" {
+	if roleName == RoleDo && resp.Status == "ok" {
 		if err := commitWorkspaceChanges(ctx, workspaceDir, a.runInput.RunID, a.runInput.TaskID, index); err != nil {
 			return nil, err
 		}
@@ -416,6 +415,7 @@ func (a *NormaPDCAAgent) baseRequest(iteration, index int, role string) models.A
 		Task: models.TaskInfo{
 			ID:                 a.runInput.TaskID,
 			Title:              a.runInput.Goal,
+			Description:        a.runInput.Goal,
 			AcceptanceCriteria: a.runInput.AcceptanceCriteria,
 		},
 		Step: models.StepInfo{
@@ -440,28 +440,28 @@ func validateStepResponse(roleName string, resp *models.AgentResponse) error {
 	}
 
 	switch resp.Status {
-	case "ok", "stop":
+	case "ok", "stop", "error":
 	default:
 		return fmt.Errorf("%s step returned non-ok status %q", roleName, resp.Status)
 	}
-	if resp.Status == "stop" {
+	if resp.Status == "stop" || resp.Status == "error" {
 		return nil
 	}
 
 	switch roleName {
-	case normaloop.RolePlan:
+	case RolePlan:
 		if resp.Plan == nil {
 			return fmt.Errorf("plan step returned status ok without plan output")
 		}
-	case normaloop.RoleDo:
+	case RoleDo:
 		if resp.Do == nil {
 			return fmt.Errorf("do step returned status ok without do output")
 		}
-	case normaloop.RoleCheck:
+	case RoleCheck:
 		if resp.Check == nil {
 			return fmt.Errorf("check step returned status ok without check output")
 		}
-	case normaloop.RoleAct:
+	case RoleAct:
 		if resp.Act == nil {
 			return fmt.Errorf("act step returned status ok without act output")
 		}
@@ -541,13 +541,13 @@ func (a *NormaPDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *mode
 
 func applyAgentResponseToTaskState(state *models.TaskState, resp *models.AgentResponse, role, runID string, iteration, index int, now time.Time) {
 	switch role {
-	case normaloop.RolePlan:
+	case RolePlan:
 		state.Plan = resp.Plan
-	case normaloop.RoleDo:
+	case RoleDo:
 		state.Do = resp.Do
-	case normaloop.RoleCheck:
+	case RoleCheck:
 		state.Check = resp.Check
-	case normaloop.RoleAct:
+	case RoleAct:
 		state.Act = resp.Act
 	}
 

@@ -1,4 +1,4 @@
-package pdca
+package normaloop
 
 import (
 	"os"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/workflows"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 )
 
@@ -29,7 +28,7 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 	}
 
 	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
-	applyAgentResponseToTaskState(state, resp, normaloop.RoleAct, "run-1", 2, 4, ts)
+	applyAgentResponseToTaskState(state, resp, RoleAct, "run-1", 2, 4, ts)
 
 	if state.Act == nil {
 		t.Fatalf("state.Act = nil, want persisted act output")
@@ -42,8 +41,8 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 		t.Fatalf("len(state.Journal) = %d, want 1", len(state.Journal))
 	}
 	entry := state.Journal[0]
-	if entry.Role != normaloop.RoleAct {
-		t.Fatalf("journal role = %q, want %q", entry.Role, normaloop.RoleAct)
+	if entry.Role != RoleAct {
+		t.Fatalf("journal role = %q, want %q", entry.Role, RoleAct)
 	}
 	if entry.StepIndex != 4 {
 		t.Fatalf("journal step index = %d, want 4", entry.StepIndex)
@@ -78,7 +77,7 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 	}
 
 	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
-	applyAgentResponseToTaskState(state, resp, normaloop.RoleAct, "run-2", 3, 5, ts)
+	applyAgentResponseToTaskState(state, resp, RoleAct, "run-2", 3, 5, ts)
 
 	if len(state.Journal) != 1 {
 		t.Fatalf("len(state.Journal) = %d, want 1", len(state.Journal))

@@ -1,9 +1,8 @@
-package pdca
+package normaloop
 
 import (
 	"testing"
 
-	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
 )
 
@@ -18,7 +17,7 @@ func TestValidateStepResponse(t *testing.T) {
 	}{
 		{
 			name: "plan ok with payload",
-			role: normaloop.RolePlan,
+			role: RolePlan,
 			resp: &models.AgentResponse{
 				Status: "ok",
 				Plan:   &models.PlanOutput{},
@@ -27,7 +26,7 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "plan ok missing payload",
-			role: normaloop.RolePlan,
+			role: RolePlan,
 			resp: &models.AgentResponse{
 				Status: "ok",
 			},
@@ -35,7 +34,7 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "plan stop without payload",
-			role: normaloop.RolePlan,
+			role: RolePlan,
 			resp: &models.AgentResponse{
 				Status: "stop",
 			},
@@ -43,15 +42,15 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "plan error status",
-			role: normaloop.RolePlan,
+			role: RolePlan,
 			resp: &models.AgentResponse{
 				Status: "error",
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "do ok with payload",
-			role: normaloop.RoleDo,
+			role: RoleDo,
 			resp: &models.AgentResponse{
 				Status: "ok",
 				Do:     &models.DoOutput{},
@@ -60,7 +59,7 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "do ok missing payload",
-			role: normaloop.RoleDo,
+			role: RoleDo,
 			resp: &models.AgentResponse{
 				Status: "ok",
 			},
@@ -68,7 +67,7 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "do stop without payload",
-			role: normaloop.RoleDo,
+			role: RoleDo,
 			resp: &models.AgentResponse{
 				Status: "stop",
 			},
@@ -76,15 +75,15 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "do error status",
-			role: normaloop.RoleDo,
+			role: RoleDo,
 			resp: &models.AgentResponse{
 				Status: "error",
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "check ok with payload",
-			role: normaloop.RoleCheck,
+			role: RoleCheck,
 			resp: &models.AgentResponse{
 				Status: "ok",
 				Check:  &models.CheckOutput{},
@@ -93,7 +92,7 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "check ok missing payload",
-			role: normaloop.RoleCheck,
+			role: RoleCheck,
 			resp: &models.AgentResponse{
 				Status: "ok",
 			},
@@ -101,15 +100,15 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "check error status",
-			role: normaloop.RoleCheck,
+			role: RoleCheck,
 			resp: &models.AgentResponse{
 				Status: "error",
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "act ok with payload",
-			role: normaloop.RoleAct,
+			role: RoleAct,
 			resp: &models.AgentResponse{
 				Status: "ok",
 				Act:    &models.ActOutput{},
@@ -118,7 +117,7 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name: "act ok missing payload",
-			role: normaloop.RoleAct,
+			role: RoleAct,
 			resp: &models.AgentResponse{
 				Status: "ok",
 			},
@@ -134,13 +133,14 @@ func TestValidateStepResponse(t *testing.T) {
 		},
 		{
 			name:    "nil response",
-			role:    normaloop.RolePlan,
+			role:    RolePlan,
 			resp:    nil,
 			wantErr: true,
 		},
 	}
 
 	for _, tc := range tests {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

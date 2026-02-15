@@ -6,7 +6,6 @@ import (
 
 	"github.com/metalagman/norma/internal/task"
 	"github.com/metalagman/norma/internal/workflows/normaloop/models"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
@@ -51,25 +50,43 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 	}
 
 	mapped, err := role.MapRequest(req)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("role.MapRequest() error = %v", err)
+	}
 
 	data, err := json.Marshal(mapped)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("json.Marshal(mapped) error = %v", err)
+	}
 
 	var payload map[string]any
-	require.NoError(t, json.Unmarshal(data, &payload))
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(data) error = %v", err)
+	}
 
 	doInput, ok := payload["do_input"].(map[string]any)
-	require.True(t, ok)
+	if !ok {
+		t.Fatalf("payload[\"do_input\"] type = %T, want map[string]any", payload["do_input"])
+	}
 
 	effectiveAny, ok := doInput["acceptance_criteria_effective"].([]any)
-	require.True(t, ok)
-	require.Len(t, effectiveAny, 1)
+	if !ok {
+		t.Fatalf("do_input[\"acceptance_criteria_effective\"] type = %T, want []any", doInput["acceptance_criteria_effective"])
+	}
+	if len(effectiveAny) != 1 {
+		t.Fatalf("len(effectiveAny) = %d, want 1", len(effectiveAny))
+	}
 
 	ac, ok := effectiveAny[0].(map[string]any)
-	require.True(t, ok)
+	if !ok {
+		t.Fatalf("effectiveAny[0] type = %T, want map[string]any", effectiveAny[0])
+	}
 
 	refines, ok := ac["refines"].([]any)
-	require.True(t, ok, "refines should be an array, not null")
-	require.Len(t, refines, 0)
+	if !ok {
+		t.Fatalf("ac[\"refines\"] type = %T, want []any (array, not null)", ac["refines"])
+	}
+	if len(refines) != 0 {
+		t.Fatalf("len(refines) = %d, want 0", len(refines))
+	}
 }

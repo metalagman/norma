@@ -1,4 +1,4 @@
-package pdca
+package normaloop
 
 import (
 	"context"
@@ -33,7 +33,7 @@ func newTestSubAgent(t *testing.T, name string, run func(agent.InvocationContext
 		Name:        name,
 		Description: "test sub-agent",
 		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
-			return func(yield func(*session.Event, error) bool) {
+			return func(func(*session.Event, error) bool) {
 				run(ctx)
 			}
 		},
@@ -44,7 +44,7 @@ func newTestSubAgent(t *testing.T, name string, run func(agent.InvocationContext
 	return ag
 }
 
-func TestRun_StopsAfterActWhenStopFlagSet(t *testing.T) {
+func TestRunStopsAfterActWhenStopFlagSet(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -98,7 +98,7 @@ func TestRun_StopsAfterActWhenStopFlagSet(t *testing.T) {
 	}
 }
 
-func TestRun_ExitsImmediatelyWhenAlreadyStopped(t *testing.T) {
+func TestRunExitsImmediatelyWhenAlreadyStopped(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()

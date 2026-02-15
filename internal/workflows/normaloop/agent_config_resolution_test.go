@@ -1,4 +1,4 @@
-package pdca
+package normaloop
 
 import (
 	"strings"
@@ -7,7 +7,7 @@ import (
 	"github.com/metalagman/norma/internal/config"
 )
 
-func TestResolvedAgentForRole_ReturnsConfig(t *testing.T) {
+func TestResolvedAgentForRoleReturnsConfig(t *testing.T) {
 	t.Parallel()
 
 	agents := map[string]config.AgentConfig{
@@ -23,7 +23,7 @@ func TestResolvedAgentForRole_ReturnsConfig(t *testing.T) {
 	}
 }
 
-func TestResolvedAgentForRole_ReturnsRoleSpecificError(t *testing.T) {
+func TestResolvedAgentForRoleReturnsRoleSpecificError(t *testing.T) {
 	t.Parallel()
 
 	_, err := resolvedAgentForRole(map[string]config.AgentConfig{}, "act")

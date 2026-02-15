@@ -1,11 +1,11 @@
-package pdca
+package normaloop
 
 import (
 	"bytes"
 	"testing"
 )
 
-func TestAgentOutputWriters_NoDebug(t *testing.T) {
+func TestAgentOutputWritersNoDebug(t *testing.T) {
 	t.Parallel()
 
 	var stdoutLog bytes.Buffer
@@ -20,7 +20,7 @@ func TestAgentOutputWriters_NoDebug(t *testing.T) {
 	}
 }
 
-func TestAgentOutputWriters_Debug(t *testing.T) {
+func TestAgentOutputWritersDebug(t *testing.T) {
 	t.Parallel()
 
 	var stdoutLog bytes.Buffer

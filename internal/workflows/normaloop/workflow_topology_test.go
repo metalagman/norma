@@ -1,4 +1,4 @@
-package pdca
+package normaloop
 
 import (
 	"iter"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/workflows"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
@@ -67,7 +66,7 @@ func TestNewNormaPDCAAgentRegistersRoleSubAgents(t *testing.T) {
 	for _, subAgent := range subAgents {
 		gotNames = append(gotNames, subAgent.Name())
 	}
-	wantNames := []string{normaloop.RolePlan, normaloop.RoleDo, normaloop.RoleCheck, normaloop.RoleAct}
+	wantNames := []string{RolePlan, RoleDo, RoleCheck, RoleAct}
 	for _, want := range wantNames {
 		if !slices.Contains(gotNames, want) {
 			t.Fatalf("missing sub-agent %q, got %v", want, gotNames)
