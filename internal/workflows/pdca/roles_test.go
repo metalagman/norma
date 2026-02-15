@@ -9,7 +9,10 @@ import (
 )
 
 func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
-	role := &doRole{}
+	role := GetRole(RoleDo)
+	if role == nil {
+		t.Fatal("GetRole(RoleDo) returned nil")
+	}
 
 	req := models.AgentRequest{
 		Run:  models.RunInfo{ID: "run-1", Iteration: 1},

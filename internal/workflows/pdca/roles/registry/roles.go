@@ -1,4 +1,4 @@
-package pdca
+package registry
 
 import (
 	"encoding/json"
@@ -10,11 +10,21 @@ import (
 	"github.com/metalagman/norma/internal/workflows/pdca/roles/plan"
 )
 
-func registerDefaultRoles() {
-	mustRegister(&planRole{baseRole: *newBaseRole(RolePlan, plan.InputSchema, plan.OutputSchema, plan.PromptTemplate)})
-	mustRegister(&doRole{baseRole: *newBaseRole(RoleDo, do.InputSchema, do.OutputSchema, do.PromptTemplate)})
-	mustRegister(&checkRole{baseRole: *newBaseRole(RoleCheck, check.InputSchema, check.OutputSchema, check.PromptTemplate)})
-	mustRegister(&actRole{baseRole: *newBaseRole(RoleAct, act.InputSchema, act.OutputSchema, act.PromptTemplate)})
+const (
+	rolePlan  = "plan"
+	roleDo    = "do"
+	roleCheck = "check"
+	roleAct   = "act"
+)
+
+// DefaultRoles returns the built-in PDCA role implementations keyed by role name.
+func DefaultRoles() map[string]models.Role {
+	return map[string]models.Role{
+		rolePlan:  &planRole{baseRole: *newBaseRole(rolePlan, plan.InputSchema, plan.OutputSchema, plan.PromptTemplate)},
+		roleDo:    &doRole{baseRole: *newBaseRole(roleDo, do.InputSchema, do.OutputSchema, do.PromptTemplate)},
+		roleCheck: &checkRole{baseRole: *newBaseRole(roleCheck, check.InputSchema, check.OutputSchema, check.PromptTemplate)},
+		roleAct:   &actRole{baseRole: *newBaseRole(roleAct, act.InputSchema, act.OutputSchema, act.PromptTemplate)},
+	}
 }
 
 type planRole struct {
