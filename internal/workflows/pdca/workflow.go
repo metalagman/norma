@@ -68,7 +68,7 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 	sessionService := session.InMemoryService()
 
 	// Create the custom pdca iteration agent.
-	loopIterationAgent, err := NewNormaLoopAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
+	loopIterationAgent, err := NewPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
 	if err != nil {
 		return workflows.RunResult{}, fmt.Errorf("create pdca iteration agent: %w", err)
 	}
@@ -176,7 +176,7 @@ func newLoopAgent(maxIterations int, loopIterationAgent agent.Agent) (agent.Agen
 	return loopagent.New(loopagent.Config{
 		MaxIterations: uint(maxIterations),
 		AgentConfig: agent.Config{
-			Name:        "NormaLoop",
+			Name:        "PDCALoop",
 			Description: "ADK loop agent for pdca",
 			SubAgents:   []agent.Agent{loopIterationAgent},
 		},

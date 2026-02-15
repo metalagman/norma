@@ -3,24 +3,27 @@ package models
 
 import (
 	"github.com/metalagman/norma/internal/task"
+	pdcact "github.com/metalagman/norma/internal/workflows/pdca/roles/act"
+	pdcacheck "github.com/metalagman/norma/internal/workflows/pdca/roles/check"
+	pdcado "github.com/metalagman/norma/internal/workflows/pdca/roles/do"
+	pdcaplan "github.com/metalagman/norma/internal/workflows/pdca/roles/plan"
 )
 
-// EffectiveAcceptanceCriterion represents ACs refined by the Plan agent.
-type EffectiveAcceptanceCriterion struct {
-	ID      string   `json:"id"`
-	Origin  string   `json:"origin"` // "baseline" or "extended"
-	Refines []string `json:"refines,omitempty"`
-	Text    string   `json:"text"`
-	Checks  []Check  `json:"checks"`
-	Reason  string   `json:"reason,omitempty"`
-}
-
-// Check defines a specific verification command.
-type Check struct {
-	ID              string `json:"id"`
-	Cmd             string `json:"cmd"`
-	ExpectExitCodes []int  `json:"expect_exit_codes"`
-}
+// Generated contract aliases. The schema-generated structs are the source of truth.
+type EffectiveAcceptanceCriterion = pdcaplan.EffectiveAC
+type Check = pdcaplan.ACCheck
+type PlanOutput = pdcaplan.PlanOutput
+type EffectiveCriteriaGroup = pdcaplan.PlanAcceptanceCriteria
+type WorkPlan = pdcaplan.PlanWorkPlan
+type DoStep = pdcaplan.PlanDoStep
+type CheckStep = pdcaplan.PlanCheckStep
+type DoOutput = pdcado.DoOutput
+type DoExecution = pdcado.DoExecution
+type CheckOutput = pdcacheck.CheckOutput
+type AcceptanceResult = pdcacheck.CheckAcceptanceResult
+type CheckVerdict = pdcacheck.CheckVerdict
+type Basis = pdcacheck.CheckVerdictBasis
+type ActOutput = pdcact.ActOutput
 
 // Budgets defines run budgets.
 type Budgets struct {
@@ -133,81 +136,6 @@ type ResponseSummary struct {
 type StepProgress struct {
 	Title   string   `json:"title"`
 	Details []string `json:"details"`
-}
-
-// PlanOutput is the primary output from the plan agent.
-type PlanOutput struct {
-	AcceptanceCriteria EffectiveCriteriaGroup `json:"acceptance_criteria"`
-	WorkPlan           WorkPlan               `json:"work_plan"`
-}
-
-// EffectiveCriteriaGroup groups baseline and extended acceptance criteria.
-type EffectiveCriteriaGroup struct {
-	Effective []EffectiveAcceptanceCriterion `json:"effective"`
-}
-
-// WorkPlan outlines the steps for implementing and verifying a task.
-type WorkPlan struct {
-	TimeboxMinutes int         `json:"timebox_minutes"`
-	DoSteps        []DoStep    `json:"do_steps"`
-	CheckSteps     []CheckStep `json:"check_steps"`
-	StopTriggers   []string    `json:"stop_triggers"`
-}
-
-// DoStep defines an implementation step.
-type DoStep struct {
-	ID           string   `json:"id"`
-	Text         string   `json:"text"`
-	TargetsACIDs []string `json:"targets_ac_ids"`
-}
-
-// CheckStep defines a verification step.
-type CheckStep struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
-	Mode string `json:"mode"` // "acceptance_criteria"
-}
-
-// DoOutput is the primary output from the do agent.
-type DoOutput struct {
-	Execution DoExecution `json:"execution"`
-}
-
-// DoExecution records the outcome of executed steps.
-type DoExecution struct {
-	ExecutedStepIDs []string `json:"executed_step_ids"`
-	SkippedStepIDs  []string `json:"skipped_step_ids"`
-}
-
-// CheckOutput is the primary output from the check agent.
-type CheckOutput struct {
-	AcceptanceResults []AcceptanceResult `json:"acceptance_results"`
-	Verdict           CheckVerdict       `json:"verdict"`
-}
-
-// AcceptanceResult records the pass/fail result for a single AC.
-type AcceptanceResult struct {
-	ACID   string `json:"ac_id"`
-	Result string `json:"result"` // "PASS", "FAIL"
-	Notes  string `json:"notes"`
-}
-
-// CheckVerdict summarizes the outcome of the Check step.
-type CheckVerdict struct {
-	Status         string `json:"status"`         // "PASS", "FAIL", "PARTIAL"
-	Recommendation string `json:"recommendation"` // "standardize", "replan", "rollback", "continue"
-	Basis          Basis  `json:"basis"`
-}
-
-// Basis explains the rationale for a verdict.
-type Basis struct {
-	PlanMatch           string `json:"plan_match"` // "MATCH", "MISMATCH"
-	AllAcceptancePassed bool   `json:"all_acceptance_passed"`
-}
-
-// ActOutput is the primary output from the act agent.
-type ActOutput struct {
-	Decision string `json:"decision"` // "close", "replan", "rollback", "continue"
 }
 
 // TaskState is stored in task notes to persist step outputs and journal across runs.

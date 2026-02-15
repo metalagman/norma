@@ -3,11 +3,11 @@ package pdca
 import (
 	"encoding/json"
 
-	"github.com/metalagman/norma/internal/workflows/pdca/act"
-	"github.com/metalagman/norma/internal/workflows/pdca/check"
-	"github.com/metalagman/norma/internal/workflows/pdca/do"
 	"github.com/metalagman/norma/internal/workflows/pdca/models"
-	"github.com/metalagman/norma/internal/workflows/pdca/plan"
+	"github.com/metalagman/norma/internal/workflows/pdca/roles/act"
+	"github.com/metalagman/norma/internal/workflows/pdca/roles/check"
+	"github.com/metalagman/norma/internal/workflows/pdca/roles/do"
+	"github.com/metalagman/norma/internal/workflows/pdca/roles/plan"
 )
 
 func registerDefaultRoles() {
@@ -74,65 +74,7 @@ func (r *planRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
-	if roleResp.PlanOutput != nil {
-		res.Plan = &models.PlanOutput{}
-		if roleResp.PlanOutput.WorkPlan != nil {
-			res.Plan.WorkPlan = models.WorkPlan{
-				TimeboxMinutes: int(roleResp.PlanOutput.WorkPlan.TimeboxMinutes),
-				StopTriggers:   roleResp.PlanOutput.WorkPlan.StopTriggers,
-			}
-			for _, s := range roleResp.PlanOutput.WorkPlan.DoSteps {
-				targetsACIDs := s.TargetsAcIds
-				if targetsACIDs == nil {
-					targetsACIDs = []string{}
-				}
-				res.Plan.WorkPlan.DoSteps = append(res.Plan.WorkPlan.DoSteps, models.DoStep{
-					ID:           s.Id,
-					Text:         s.Text,
-					TargetsACIDs: targetsACIDs,
-				})
-			}
-			for _, s := range roleResp.PlanOutput.WorkPlan.CheckSteps {
-				res.Plan.WorkPlan.CheckSteps = append(res.Plan.WorkPlan.CheckSteps, models.CheckStep{
-					ID:   s.Id,
-					Text: s.Text,
-					Mode: s.Mode,
-				})
-			}
-		}
-		if roleResp.PlanOutput.AcceptanceCriteria != nil {
-			for _, e := range roleResp.PlanOutput.AcceptanceCriteria.Effective {
-				refines := e.Refines
-				if refines == nil {
-					refines = []string{}
-				}
-				checks := make([]models.Check, 0, len(e.Checks))
-				for _, c := range e.Checks {
-					exitCodes := c.ExpectExitCodes
-					if exitCodes == nil {
-						exitCodes = []int64{}
-					}
-					mappedExitCodes := make([]int, 0, len(exitCodes))
-					for _, ec := range exitCodes {
-						mappedExitCodes = append(mappedExitCodes, int(ec))
-					}
-					checks = append(checks, models.Check{
-						ID:              c.Id,
-						Cmd:             c.Cmd,
-						ExpectExitCodes: mappedExitCodes,
-					})
-				}
-				res.Plan.AcceptanceCriteria.Effective = append(res.Plan.AcceptanceCriteria.Effective, models.EffectiveAcceptanceCriterion{
-					ID:      e.Id,
-					Origin:  e.Origin,
-					Refines: refines,
-					Text:    e.Text,
-					Checks:  checks,
-					Reason:  e.Reason,
-				})
-			}
-		}
-	}
+	res.Plan = roleResp.PlanOutput
 	return res, nil
 }
 
@@ -161,22 +103,14 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 		}
 		checks := make([]do.DoACCheck, 0, len(ac.Checks))
 		for _, c := range ac.Checks {
-			exitCodes := c.ExpectExitCodes
-			if exitCodes == nil {
-				exitCodes = []int{}
-			}
-			mappedExitCodes := make([]int64, 0, len(exitCodes))
-			for _, ec := range exitCodes {
-				mappedExitCodes = append(mappedExitCodes, int64(ec))
-			}
 			checks = append(checks, do.DoACCheck{
-				Id:              c.ID,
+				Id:              c.Id,
 				Cmd:             c.Cmd,
-				ExpectExitCodes: mappedExitCodes,
+				ExpectExitCodes: c.ExpectExitCodes,
 			})
 		}
 		effective = append(effective, do.DoEffectiveAC{
-			Id:      ac.ID,
+			Id:      ac.Id,
 			Origin:  ac.Origin,
 			Refines: refines,
 			Text:    ac.Text,
@@ -187,12 +121,12 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 
 	doSteps := make([]do.DoDoStep, 0, len(req.Do.WorkPlan.DoSteps))
 	for _, s := range req.Do.WorkPlan.DoSteps {
-		targetsACIDs := s.TargetsACIDs
+		targetsACIDs := s.TargetsAcIds
 		if targetsACIDs == nil {
 			targetsACIDs = []string{}
 		}
 		doSteps = append(doSteps, do.DoDoStep{
-			Id:           s.ID,
+			Id:           s.Id,
 			Text:         s.Text,
 			TargetsAcIds: targetsACIDs,
 		})
@@ -201,7 +135,7 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 	checkSteps := make([]do.DoCheckStep, 0, len(req.Do.WorkPlan.CheckSteps))
 	for _, s := range req.Do.WorkPlan.CheckSteps {
 		checkSteps = append(checkSteps, do.DoCheckStep{
-			Id:   s.ID,
+			Id:   s.Id,
 			Text: s.Text,
 			Mode: s.Mode,
 		})
@@ -234,7 +168,7 @@ func (r *doRole) MapRequest(req models.AgentRequest) (any, error) {
 		StopReasonsAllowed: req.StopReasonsAllowed,
 		DoInput: &do.DoInput{
 			WorkPlan: &do.DoWorkPlan{
-				TimeboxMinutes: int64(req.Do.WorkPlan.TimeboxMinutes),
+				TimeboxMinutes: req.Do.WorkPlan.TimeboxMinutes,
 				DoSteps:        doSteps,
 				CheckSteps:     checkSteps,
 				StopTriggers:   stopTriggers,
@@ -259,15 +193,7 @@ func (r *doRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
-	if roleResp.DoOutput != nil {
-		res.Do = &models.DoOutput{}
-		if roleResp.DoOutput.Execution != nil {
-			res.Do.Execution = models.DoExecution{
-				ExecutedStepIDs: roleResp.DoOutput.Execution.ExecutedStepIds,
-				SkippedStepIDs:  roleResp.DoOutput.Execution.SkippedStepIds,
-			}
-		}
-	}
+	res.Do = roleResp.DoOutput
 	return res, nil
 }
 
@@ -286,7 +212,7 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 	effective := make([]check.CheckEffectiveAC, 0, len(req.Check.EffectiveCriteria))
 	for _, ac := range req.Check.EffectiveCriteria {
 		effective = append(effective, check.CheckEffectiveAC{
-			Id:     ac.ID,
+			Id:     ac.Id,
 			Origin: ac.Origin,
 			Text:   ac.Text,
 		})
@@ -294,14 +220,14 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 	doSteps := make([]check.CheckDoStep, 0, len(req.Check.WorkPlan.DoSteps))
 	for _, s := range req.Check.WorkPlan.DoSteps {
 		doSteps = append(doSteps, check.CheckDoStep{
-			Id:   s.ID,
+			Id:   s.Id,
 			Text: s.Text,
 		})
 	}
 	checkSteps := make([]check.CheckCheckStep, 0, len(req.Check.WorkPlan.CheckSteps))
 	for _, s := range req.Check.WorkPlan.CheckSteps {
 		checkSteps = append(checkSteps, check.CheckCheckStep{
-			Id:   s.ID,
+			Id:   s.Id,
 			Text: s.Text,
 			Mode: s.Mode,
 		})
@@ -312,12 +238,12 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 		stopTriggers = []string{}
 	}
 
-	executedStepIDs := req.Check.DoExecution.ExecutedStepIDs
+	executedStepIDs := req.Check.DoExecution.ExecutedStepIds
 	if executedStepIDs == nil {
 		executedStepIDs = []string{}
 	}
 
-	skippedStepIDs := req.Check.DoExecution.SkippedStepIDs
+	skippedStepIDs := req.Check.DoExecution.SkippedStepIds
 	if skippedStepIDs == nil {
 		skippedStepIDs = []string{}
 	}
@@ -344,7 +270,7 @@ func (r *checkRole) MapRequest(req models.AgentRequest) (any, error) {
 		StopReasonsAllowed: req.StopReasonsAllowed,
 		CheckInput: &check.CheckInput{
 			WorkPlan: &check.CheckWorkPlan{
-				TimeboxMinutes: int64(req.Check.WorkPlan.TimeboxMinutes),
+				TimeboxMinutes: req.Check.WorkPlan.TimeboxMinutes,
 				DoSteps:        doSteps,
 				CheckSteps:     checkSteps,
 				StopTriggers:   stopTriggers,
@@ -373,28 +299,7 @@ func (r *checkRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
-	if roleResp.CheckOutput != nil {
-		res.Check = &models.CheckOutput{}
-		if roleResp.CheckOutput.Verdict != nil {
-			res.Check.Verdict = models.CheckVerdict{
-				Status:         roleResp.CheckOutput.Verdict.Status,
-				Recommendation: roleResp.CheckOutput.Verdict.Recommendation,
-			}
-			if roleResp.CheckOutput.Verdict.Basis != nil {
-				res.Check.Verdict.Basis = models.Basis{
-					PlanMatch:           roleResp.CheckOutput.Verdict.Basis.PlanMatch,
-					AllAcceptancePassed: roleResp.CheckOutput.Verdict.Basis.AllAcceptancePassed,
-				}
-			}
-		}
-		for _, ar := range roleResp.CheckOutput.AcceptanceResults {
-			res.Check.AcceptanceResults = append(res.Check.AcceptanceResults, models.AcceptanceResult{
-				ACID:   ar.AcId,
-				Result: ar.Result,
-				Notes:  ar.Notes,
-			})
-		}
-	}
+	res.Check = roleResp.CheckOutput
 	return res, nil
 }
 
@@ -410,7 +315,7 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 	acceptanceResults := make([]act.ActAcceptanceResult, 0, len(req.Act.AcceptanceResults))
 	for _, ar := range req.Act.AcceptanceResults {
 		acceptanceResults = append(acceptanceResults, act.ActAcceptanceResult{
-			AcId:   ar.ACID,
+			AcId:   ar.AcId,
 			Result: ar.Result,
 			Notes:  ar.Notes,
 		})
@@ -421,7 +326,7 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 		links = []string{}
 	}
 
-	return &act.ActRequest{
+	actReq := &act.ActRequest{
 		Run:   &act.ActRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &act.ActTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
 		Step:  &act.ActStep{Index: int64(req.Step.Index), Name: req.Step.Name},
@@ -440,14 +345,17 @@ func (r *actRole) MapRequest(req models.AgentRequest) (any, error) {
 			CheckVerdict: &act.ActCheckVerdict{
 				Status:         req.Act.CheckVerdict.Status,
 				Recommendation: req.Act.CheckVerdict.Recommendation,
-				Basis: &act.ActCheckVerdictBasis{
-					PlanMatch:           req.Act.CheckVerdict.Basis.PlanMatch,
-					AllAcceptancePassed: req.Act.CheckVerdict.Basis.AllAcceptancePassed,
-				},
 			},
 			AcceptanceResults: acceptanceResults,
 		},
-	}, nil
+	}
+	if req.Act.CheckVerdict.Basis != nil {
+		actReq.ActInput.CheckVerdict.Basis = &act.ActCheckVerdictBasis{
+			PlanMatch:           req.Act.CheckVerdict.Basis.PlanMatch,
+			AllAcceptancePassed: req.Act.CheckVerdict.Basis.AllAcceptancePassed,
+		}
+	}
+	return actReq, nil
 }
 
 func (r *actRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
@@ -465,10 +373,6 @@ func (r *actRole) MapResponse(outBytes []byte) (models.AgentResponse, error) {
 	if roleResp.Progress != nil {
 		res.Progress = models.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
 	}
-	if roleResp.ActOutput != nil {
-		res.Act = &models.ActOutput{
-			Decision: roleResp.ActOutput.Decision,
-		}
-	}
+	res.Act = roleResp.ActOutput
 	return res, nil
 }

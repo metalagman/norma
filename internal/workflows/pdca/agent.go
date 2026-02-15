@@ -26,8 +26,8 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// NormaLoopAgent is a custom ADK agent that orchestrates one workflow iteration.
-type NormaLoopAgent struct {
+// PDCAAgent is a custom ADK agent that orchestrates one workflow iteration.
+type PDCAAgent struct {
 	cfg        config.Config
 	store      *db.Store
 	tracker    task.Tracker
@@ -41,9 +41,9 @@ type NormaLoopAgent struct {
 	actAgent   agent.Agent
 }
 
-// NewNormaLoopAgent creates and configures the pdca iteration agent.
-func NewNormaLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
-	orchestrator := &NormaLoopAgent{
+// NewPDCAAgent creates and configures the pdca iteration agent.
+func NewPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput workflows.RunInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
+	orchestrator := &PDCAAgent{
 		cfg:        cfg,
 		store:      store,
 		tracker:    tracker,
@@ -73,7 +73,7 @@ func NewNormaLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	subAgents := []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent}
 
 	ag, err := agent.New(agent.Config{
-		Name:        "NormaLoopAgent",
+		Name:        "PDCAAgent",
 		Description: "Orchestrates one pdca iteration.",
 		SubAgents:   subAgents,
 		Run:         orchestrator.Run,
@@ -84,7 +84,7 @@ func NewNormaLoopAgent(cfg config.Config, store *db.Store, tracker task.Tracker,
 	return ag, nil
 }
 
-func (a *NormaLoopAgent) createSubAgent(roleName string) (agent.Agent, error) {
+func (a *PDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
 	ag, err := agent.New(agent.Config{
 		Name:        roleName,
 		Description: fmt.Sprintf("Norma %s agent", roleName),
@@ -151,7 +151,7 @@ func (a *NormaLoopAgent) createSubAgent(roleName string) (agent.Agent, error) {
 	return ag, nil
 }
 
-func (a *NormaLoopAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (a *PDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() || a.shouldStop(ctx) {
 			log.Info().Msg("pdca agent: invocation already stopped")
@@ -223,7 +223,7 @@ func (a *NormaLoopAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Eve
 	}
 }
 
-func (a *NormaLoopAgent) shouldStop(ctx agent.InvocationContext) bool {
+func (a *PDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
 	stop, err := ctx.Session().State().Get("stop")
 	if err != nil {
 		return false
@@ -238,7 +238,7 @@ func (a *NormaLoopAgent) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *NormaLoopAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
+func (a *PDCAAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
 	*a.stepIndex++
 	index := *a.stepIndex
 
@@ -255,28 +255,28 @@ func (a *NormaLoopAgent) runStep(ctx agent.InvocationContext, iteration int, rol
 	case RolePlan:
 		req.Plan = &models.PlanInput{Task: models.IDInfo{ID: a.runInput.TaskID}}
 	case RoleDo:
-		if state.Plan == nil {
+		if state.Plan == nil || state.Plan.WorkPlan == nil || state.Plan.AcceptanceCriteria == nil {
 			return nil, fmt.Errorf("missing plan for do step")
 		}
 		req.Do = &models.DoInput{
-			WorkPlan:          state.Plan.WorkPlan,
+			WorkPlan:          *state.Plan.WorkPlan,
 			EffectiveCriteria: state.Plan.AcceptanceCriteria.Effective,
 		}
 	case RoleCheck:
-		if state.Plan == nil || state.Do == nil {
+		if state.Plan == nil || state.Plan.WorkPlan == nil || state.Plan.AcceptanceCriteria == nil || state.Do == nil || state.Do.Execution == nil {
 			return nil, fmt.Errorf("missing plan or do for check step")
 		}
 		req.Check = &models.CheckInput{
-			WorkPlan:          state.Plan.WorkPlan,
+			WorkPlan:          *state.Plan.WorkPlan,
 			EffectiveCriteria: state.Plan.AcceptanceCriteria.Effective,
-			DoExecution:       state.Do.Execution,
+			DoExecution:       *state.Do.Execution,
 		}
 	case RoleAct:
-		if state.Check == nil {
+		if state.Check == nil || state.Check.Verdict == nil {
 			return nil, fmt.Errorf("missing check verdict for act step")
 		}
 		req.Act = &models.ActInput{
-			CheckVerdict:      state.Check.Verdict,
+			CheckVerdict:      *state.Check.Verdict,
 			AcceptanceResults: state.Check.AcceptanceResults,
 		}
 	}
@@ -429,7 +429,7 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
-func (a *NormaLoopAgent) baseRequest(iteration, index int, role string) models.AgentRequest {
+func (a *PDCAAgent) baseRequest(iteration, index int, role string) models.AgentRequest {
 	return models.AgentRequest{
 		Run: models.RunInfo{
 			ID:        a.runInput.RunID,
@@ -503,7 +503,7 @@ func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string)
 	return agentCfg, nil
 }
 
-func (a *NormaLoopAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
+func (a *PDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
 	s, err := ctx.Session().State().Get("task_state")
 	if err != nil {
 		return &models.TaskState{}
@@ -538,7 +538,7 @@ func coerceTaskState(value any) *models.TaskState {
 	}
 }
 
-func (a *NormaLoopAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
+func (a *PDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
@@ -613,7 +613,7 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 	return nil
 }
 
-func (a *NormaLoopAgent) reconstructProgress(dir string, state *models.TaskState) error {
+func (a *PDCAAgent) reconstructProgress(dir string, state *models.TaskState) error {
 	path := filepath.Join(dir, "artifacts", "progress.md")
 	var sb strings.Builder
 	for _, entry := range state.Journal {

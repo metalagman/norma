@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/metalagman/norma/internal/workflows/pdca/models"
+	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
 )
 
@@ -146,7 +147,7 @@ func TestParseFinalState(t *testing.T) {
 					"iteration": 5,
 					"task_state": &models.TaskState{
 						Check: &models.CheckOutput{
-							Verdict: models.CheckVerdict{
+							Verdict: &models.CheckVerdict{
 								Status: "PASS",
 							},
 						},
@@ -169,7 +170,7 @@ func TestParseFinalState(t *testing.T) {
 					"iteration": 6,
 					"task_state": &models.TaskState{
 						Check: &models.CheckOutput{
-							Verdict: models.CheckVerdict{
+							Verdict: &models.CheckVerdict{
 								Status: "PASS",
 							},
 						},
@@ -264,5 +265,33 @@ func TestDeriveFinalOutcome(t *testing.T) {
 				t.Fatalf("effectiveVerdict = %q, want %q", gotEffectiveVerdict, tc.wantEffectiveState)
 			}
 		})
+	}
+}
+
+func TestNewLoopAgentUsesOnlyOrchestratorSubAgent(t *testing.T) {
+	t.Parallel()
+
+	orchestrator, err := agent.New(agent.Config{
+		Name:        "PDCAAgent",
+		Description: "test orchestrator",
+		Run: func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(func(*session.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("create orchestrator: %v", err)
+	}
+
+	loop, err := newLoopAgent(3, orchestrator)
+	if err != nil {
+		t.Fatalf("newLoopAgent() error = %v", err)
+	}
+
+	subAgents := loop.SubAgents()
+	if len(subAgents) != 1 {
+		t.Fatalf("len(loop.SubAgents()) = %d, want 1", len(subAgents))
+	}
+	if subAgents[0].Name() != orchestrator.Name() {
+		t.Fatalf("loop sub-agent = %q, want %q", subAgents[0].Name(), orchestrator.Name())
 	}
 }

@@ -38,11 +38,11 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 			},
 			EffectiveCriteria: []models.EffectiveAcceptanceCriterion{
 				{
-					ID:     "AC-1",
+					Id:     "AC-1",
 					Origin: "baseline",
 					Text:   "ok",
 					Checks: []models.Check{
-						{ID: "CHK-1", Cmd: "true", ExpectExitCodes: []int{0}},
+						{Id: "CHK-1", Cmd: "true", ExpectExitCodes: []int64{0}},
 					},
 				},
 			},
