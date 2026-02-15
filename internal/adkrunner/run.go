@@ -1,11 +1,11 @@
-package adkexec
+package adkrunner
 
 import (
 	"context"
 	"fmt"
 
 	"google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
+	adk "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 )
 
@@ -35,7 +35,7 @@ func Run(ctx context.Context, input RunInput) (session.Session, error) {
 	}
 
 	sessionService := session.InMemoryService()
-	r, err := adkrunner.New(adkrunner.Config{
+	r, err := adk.New(adk.Config{
 		AppName:        appName,
 		Agent:          input.Agent,
 		SessionService: sessionService,

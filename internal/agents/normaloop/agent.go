@@ -7,7 +7,7 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/metalagman/norma/internal/adkexec"
+	"github.com/metalagman/norma/internal/adkrunner"
 	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
@@ -70,7 +70,7 @@ func (w *Loop) Run(ctx context.Context) error {
 		return fmt.Errorf("create normaloop loop agent: %w", err)
 	}
 
-	_, err = adkexec.Run(ctx, adkexec.RunInput{
+	_, err = adkrunner.Run(ctx, adkrunner.RunInput{
 		AppName: "norma",
 		UserID:  "norma-user",
 		Agent:   loopAgent,

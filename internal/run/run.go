@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/metalagman/norma/internal/adkexec"
+	"github.com/metalagman/norma/internal/adkrunner"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
@@ -153,7 +153,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		return res, fmt.Errorf("build run agent: nil agent")
 	}
 
-	finalSession, err := adkexec.Run(ctx, adkexec.RunInput{
+	finalSession, err := adkrunner.Run(ctx, adkrunner.RunInput{
 		AppName:      "norma",
 		UserID:       "norma-user",
 		SessionID:    build.SessionID,
