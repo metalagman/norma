@@ -8,6 +8,7 @@ import (
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/metalagman/norma/internal/workflows/normaloop"
 	"github.com/metalagman/norma/internal/workflows/pdca"
 	"github.com/spf13/cobra"
 )
@@ -42,9 +43,8 @@ func loopCmd() *cobra.Command {
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
 
-			// Use pdca workflow with ADK-backed execution.
-			wf := pdca.NewWorkflow(cfg, runStore, tracker)
-			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, wf)
+			pdcaWorkflow := pdca.NewWorkflow(cfg, runStore, tracker)
+			taskRunner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaWorkflow)
 			if err != nil {
 				return err
 			}
@@ -58,8 +58,9 @@ func loopCmd() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
+			loopWorkflow := normaloop.NewWorkflow(tracker, runStore, taskRunner, continueOnFail, policy)
 			fmt.Println("Running tasks using Google ADK Loop Agent...")
-			return runTasks(cmd.Context(), tracker, runStore, runner, continueOnFail, policy)
+			return loopWorkflow.Run(cmd.Context())
 		},
 	}
 	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running ready tasks after a failure")

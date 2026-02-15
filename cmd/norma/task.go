@@ -200,35 +200,6 @@ func runTaskByID(ctx context.Context, tracker task.Tracker, runStore *db.Store, 
 	}
 }
 
-func runTasks(ctx context.Context, tracker task.Tracker, runStore *db.Store, runner *run.Runner, continueOnFail bool, policy task.SelectionPolicy) error {
-	for {
-		status := statusTodo
-		tasks, err := tracker.List(ctx, &status)
-		if err != nil {
-			return err
-		}
-		tasks = filterRunnableTasks(tasks)
-		if len(tasks) == 0 {
-			log.Info().Msg("no tasks")
-			return nil
-		}
-
-		selected, _, err := task.SelectNextReady(ctx, tracker, tasks, policy)
-		if err != nil {
-			return err
-		}
-		log.Info().Str("about", taskAbout(selected)).Str("task_id", selected.ID).Msg("task selected")
-
-		if err := runTaskByID(ctx, tracker, runStore, runner, selected.ID); err != nil {
-			if continueOnFail {
-				log.Error().Err(err).Str("task_id", selected.ID).Msg("task failed")
-				continue
-			}
-			return err
-		}
-	}
-}
-
 func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *db.Store, normaDir string) error {
 	lock, ok, err := run.TryAcquireRunLock(normaDir)
 	if err != nil {
@@ -264,32 +235,4 @@ func recoverDoingTasks(ctx context.Context, tracker task.Tracker, runStore *db.S
 		}
 	}
 	return nil
-}
-
-func taskAbout(item task.Task) string {
-	title := strings.TrimSpace(item.Title)
-	if title != "" {
-		return title
-	}
-	return strings.TrimSpace(item.Goal)
-}
-
-func filterRunnableTasks(items []task.Task) []task.Task {
-	out := make([]task.Task, 0, len(items))
-	for _, item := range items {
-		if isRunnableTask(item) {
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
-func isRunnableTask(item task.Task) bool {
-	typ := strings.ToLower(strings.TrimSpace(item.Type))
-	switch typ {
-	case "epic", "feature":
-		return false
-	default:
-		return true
-	}
 }
