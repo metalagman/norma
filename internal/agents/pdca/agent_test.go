@@ -170,7 +170,7 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 	t.Parallel()
 
-	agent := &PDCAAgent{
+	agent := &IterationAgent{
 		runInput: AgentInput{
 			TaskID: "norma-95b",
 			RunID:  "run-default",
@@ -331,7 +331,7 @@ func TestRunStopsAfterActWhenStopFlagSet(t *testing.T) {
 
 	var planCalls, doCalls, checkCalls, actCalls int
 
-	orchestrator := &PDCAAgent{
+	orchestrator := &IterationAgent{
 		planAgent: newTestSubAgent(t, "plan", func(agent.InvocationContext) { planCalls++ }),
 		doAgent:   newTestSubAgent(t, "do", func(agent.InvocationContext) { doCalls++ }),
 		checkAgent: newTestSubAgent(t, "check", func(agent.InvocationContext) {
@@ -388,7 +388,7 @@ func TestRunExitsImmediatelyWhenAlreadyStopped(t *testing.T) {
 
 	var called int
 	sub := newTestSubAgent(t, "sub", func(agent.InvocationContext) { called++ })
-	orchestrator := &PDCAAgent{
+	orchestrator := &IterationAgent{
 		planAgent:  sub,
 		doAgent:    sub,
 		checkAgent: sub,
@@ -567,11 +567,11 @@ func TestValidateStepResponse(t *testing.T) {
 	}
 }
 
-func TestNewPDCAAgentRegistersRoleSubAgents(t *testing.T) {
+func TestNewIterationAgentRegistersRoleSubAgents(t *testing.T) {
 	t.Parallel()
 
 	stepIndex := 0
-	loopAgent, err := NewPDCAAgent(
+	loopAgent, err := NewIterationAgent(
 		config.Config{},
 		nil,
 		nil,
@@ -580,7 +580,7 @@ func TestNewPDCAAgentRegistersRoleSubAgents(t *testing.T) {
 		"",
 	)
 	if err != nil {
-		t.Fatalf("NewPDCAAgent() error = %v", err)
+		t.Fatalf("NewIterationAgent() error = %v", err)
 	}
 
 	subAgents := loopAgent.SubAgents()

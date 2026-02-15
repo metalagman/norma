@@ -74,7 +74,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 	stepIndex := 0
 
 	// Create the custom pdca iteration agent.
-	loopIterationAgent, err := NewPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
+	loopIterationAgent, err := NewIterationAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
 	if err != nil {
 		return runpkg.AgentBuild{}, fmt.Errorf("create pdca iteration agent: %w", err)
 	}

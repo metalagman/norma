@@ -272,7 +272,7 @@ func TestNewLoopAgentUsesOnlyOrchestratorSubAgent(t *testing.T) {
 	t.Parallel()
 
 	orchestrator, err := agent.New(agent.Config{
-		Name:        "PDCAAgent",
+		Name:        "IterationAgent",
 		Description: "test orchestrator",
 		Run: func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(func(*session.Event, error) bool) {}

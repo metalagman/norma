@@ -25,8 +25,8 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// PDCAAgent is a custom ADK agent that orchestrates one workflow iteration.
-type PDCAAgent struct {
+// IterationAgent is a custom ADK agent that orchestrates one workflow iteration.
+type IterationAgent struct {
 	cfg        config.Config
 	store      *db.Store
 	tracker    task.Tracker
@@ -40,9 +40,9 @@ type PDCAAgent struct {
 	actAgent   agent.Agent
 }
 
-// NewPDCAAgent creates and configures the pdca iteration agent.
-func NewPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
-	orchestrator := &PDCAAgent{
+// NewIterationAgent creates and configures the pdca iteration agent.
+func NewIterationAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runInput AgentInput, stepIndex *int, baseBranch string) (agent.Agent, error) {
+	orchestrator := &IterationAgent{
 		cfg:        cfg,
 		store:      store,
 		tracker:    tracker,
@@ -72,7 +72,7 @@ func NewPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runI
 	subAgents := []agent.Agent{orchestrator.planAgent, orchestrator.doAgent, orchestrator.checkAgent, orchestrator.actAgent}
 
 	ag, err := agent.New(agent.Config{
-		Name:        "PDCAAgent",
+		Name:        "IterationAgent",
 		Description: "Orchestrates one pdca iteration.",
 		SubAgents:   subAgents,
 		Run:         orchestrator.Run,
@@ -83,7 +83,7 @@ func NewPDCAAgent(cfg config.Config, store *db.Store, tracker task.Tracker, runI
 	return ag, nil
 }
 
-func (a *PDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
+func (a *IterationAgent) createSubAgent(roleName string) (agent.Agent, error) {
 	ag, err := agent.New(agent.Config{
 		Name:        roleName,
 		Description: fmt.Sprintf("Norma %s agent", roleName),
@@ -150,7 +150,7 @@ func (a *PDCAAgent) createSubAgent(roleName string) (agent.Agent, error) {
 	return ag, nil
 }
 
-func (a *PDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (a *IterationAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() || a.shouldStop(ctx) {
 			log.Info().Msg("pdca agent: invocation already stopped")
@@ -222,7 +222,7 @@ func (a *PDCAAgent) Run(ctx agent.InvocationContext) iter.Seq2[*session.Event, e
 	}
 }
 
-func (a *PDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
+func (a *IterationAgent) shouldStop(ctx agent.InvocationContext) bool {
 	stop, err := ctx.Session().State().Get("stop")
 	if err != nil {
 		return false
@@ -237,7 +237,7 @@ func (a *PDCAAgent) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *PDCAAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
+func (a *IterationAgent) runStep(ctx agent.InvocationContext, iteration int, roleName string) (*models.AgentResponse, error) {
 	*a.stepIndex++
 	index := *a.stepIndex
 	if err := ctx.Session().State().Set("current_step_index", index); err != nil {
@@ -431,7 +431,7 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
-func (a *PDCAAgent) baseRequest(iteration, index int, role string) models.AgentRequest {
+func (a *IterationAgent) baseRequest(iteration, index int, role string) models.AgentRequest {
 	return models.AgentRequest{
 		Run: models.RunInfo{
 			ID:        a.runInput.RunID,
@@ -505,7 +505,7 @@ func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string)
 	return agentCfg, nil
 }
 
-func (a *PDCAAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
+func (a *IterationAgent) getTaskState(ctx agent.InvocationContext) *models.TaskState {
 	s, err := ctx.Session().State().Get("task_state")
 	if err != nil {
 		return &models.TaskState{}
@@ -540,7 +540,7 @@ func coerceTaskState(value any) *models.TaskState {
 	}
 }
 
-func (a *PDCAAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
+func (a *IterationAgent) updateTaskState(ctx agent.InvocationContext, resp *models.AgentResponse, role string, iteration, index int) error {
 	if resp == nil {
 		return fmt.Errorf("nil agent response for role %q", role)
 	}
@@ -615,7 +615,7 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 	return nil
 }
 
-func (a *PDCAAgent) reconstructProgress(dir string, state *models.TaskState) error {
+func (a *IterationAgent) reconstructProgress(dir string, state *models.TaskState) error {
 	path := filepath.Join(dir, "artifacts", "progress.md")
 	var sb strings.Builder
 	for _, entry := range state.Journal {
