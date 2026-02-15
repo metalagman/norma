@@ -36,11 +36,6 @@ func TestExpandEnvSubstitution(t *testing.T) {
 			input:    "value: regular_text",
 			expected: "value: regular_text",
 		},
-		{
-			name:     "unset variable",
-			input:    "value: $UNSET_VAR",
-			expected: "value: ",
-		},
 	}
 
 	for _, tt := range tests {
@@ -50,4 +45,23 @@ func TestExpandEnvSubstitution(t *testing.T) {
 			assert.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+func TestExpandEnvSubstitution_RejectsMissingVariables(t *testing.T) {
+	const missingVar = "NORMA_TEST_MISSING_VAR"
+
+	err := os.Setenv("NORMA_TEST_VAR", "expanded_value")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("NORMA_TEST_VAR")
+		require.NoError(t, err)
+	}()
+
+	err = os.Unsetenv(missingVar)
+	require.NoError(t, err)
+
+	got, err := ExpandEnv("value: $NORMA_TEST_VAR and ${NORMA_TEST_MISSING_VAR}")
+	require.Error(t, err)
+	assert.Empty(t, got)
+	assert.Contains(t, err.Error(), missingVar)
 }
