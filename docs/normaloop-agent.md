@@ -2,6 +2,23 @@
 
 This document describes how the loop command orchestrates tasks with the PDCA workflow agent.
 
+## Config env substitution
+
+`norma loop` uses the same config env substitution behavior as the rest of norma config loading.
+Both `$VAR` and `${VAR}` placeholders are supported (envsubst-style), and substitution is evaluated during config load before YAML parsing.
+
+Example:
+
+```yaml
+agents:
+  openai_primary:
+    type: openai
+    model: gpt-5
+    api_key_env: ${OPENAI_API_KEY}
+```
+
+If any referenced variable is missing, config expansion fails and reports the missing variable name(s).
+
 ## What It Does
 
 For each cycle, `norma loop`:
