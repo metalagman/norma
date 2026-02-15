@@ -3,8 +3,8 @@ package pdca
 import (
 	"sync"
 
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
-	"github.com/metalagman/norma/internal/workflows/pdca/roles/registry"
+	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/registry"
 )
 
 const (

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/metalagman/norma/internal/agents/pdca"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows/pdca"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +36,7 @@ func runCmd() *cobra.Command {
 
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
-			pdcaFactory := pdca.NewAgentFactory(cfg, runStore, tracker)
+			pdcaFactory := pdca.NewFactory(cfg, runStore, tracker)
 			runner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaFactory)
 			if err != nil {
 				return err

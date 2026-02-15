@@ -21,7 +21,8 @@ For each cycle, `norma loop`:
 - Creates:
   - Beads tracker: `task.NewBeadsTracker("")`
   - run store: `db.NewStore(...)`
-  - workflow: `pdca.NewWorkflow(...)`
+  - PDCA agent factory: `pdca.NewFactory(...)`
+  - normaloop loop agent: `normaloop.NewLoop(...)`
   - runner: `run.NewADKRunner(...)`
 
 ### 2) Read tasks from Beads
@@ -43,8 +44,8 @@ For each cycle, `norma loop`:
 
 Inside PDCA agent execution:
 
-- Check step writes verdict into session state key `verdict`: `internal/workflows/pdca/agent.go`
-- Act step writes decision into session state key `decision`: `internal/workflows/pdca/agent.go`
+- Check step writes verdict into session state key `verdict`: `internal/agents/pdca/agent.go`
+- Act step writes decision into session state key `decision`: `internal/agents/pdca/agent.go`
 
 Workflow finalization:
 
@@ -52,7 +53,7 @@ Workflow finalization:
 - derives final status/verdict (`passed|failed|stopped`)
 - persists final run status to DB
 
-Code: `internal/workflows/pdca/workflow.go`
+Code: `internal/agents/pdca/factory.go`
 
 ### 6) Perform verdict change
 
@@ -85,5 +86,5 @@ After workflow returns:
 - `internal/task/beads_tracker.go`
 - `internal/task/scheduler.go`
 - `internal/run/run.go`
-- `internal/workflows/pdca/agent.go`
-- `internal/workflows/pdca/workflow.go`
+- `internal/agents/pdca/agent.go`
+- `internal/agents/pdca/factory.go`

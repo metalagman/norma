@@ -5,7 +5,7 @@ import (
 	"iter"
 	"testing"
 
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
 )

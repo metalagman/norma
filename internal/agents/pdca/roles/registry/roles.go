@@ -3,11 +3,11 @@ package registry
 import (
 	"encoding/json"
 
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
-	"github.com/metalagman/norma/internal/workflows/pdca/roles/act"
-	"github.com/metalagman/norma/internal/workflows/pdca/roles/check"
-	"github.com/metalagman/norma/internal/workflows/pdca/roles/do"
-	"github.com/metalagman/norma/internal/workflows/pdca/roles/plan"
+	"github.com/metalagman/norma/internal/agents/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/do"
+	"github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 )
 
 const (

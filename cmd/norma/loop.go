@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/metalagman/norma/internal/agents/normaloop"
+	"github.com/metalagman/norma/internal/agents/pdca"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows/normaloop"
-	"github.com/metalagman/norma/internal/workflows/pdca"
 	"github.com/spf13/cobra"
 )
 
@@ -43,7 +43,7 @@ func loopCmd() *cobra.Command {
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
 
-			pdcaFactory := pdca.NewAgentFactory(cfg, runStore, tracker)
+			pdcaFactory := pdca.NewFactory(cfg, runStore, tracker)
 			taskRunner, err := run.NewADKRunner(repoRoot, cfg, runStore, tracker, pdcaFactory)
 			if err != nil {
 				return err
@@ -58,7 +58,7 @@ func loopCmd() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
-			loopAgent := normaloop.NewAgentLoop(tracker, runStore, taskRunner, continueOnFail, policy)
+			loopAgent := normaloop.NewLoop(tracker, runStore, taskRunner, continueOnFail, policy)
 			fmt.Println("Running tasks using Google ADK Loop Agent...")
 			return loopAgent.Run(cmd.Context())
 		},

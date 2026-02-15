@@ -2,11 +2,11 @@
 package models
 
 import (
+	pdcact "github.com/metalagman/norma/internal/agents/pdca/roles/act"
+	pdcacheck "github.com/metalagman/norma/internal/agents/pdca/roles/check"
+	pdcado "github.com/metalagman/norma/internal/agents/pdca/roles/do"
+	pdcaplan "github.com/metalagman/norma/internal/agents/pdca/roles/plan"
 	"github.com/metalagman/norma/internal/task"
-	pdcact "github.com/metalagman/norma/internal/workflows/pdca/roles/act"
-	pdcacheck "github.com/metalagman/norma/internal/workflows/pdca/roles/check"
-	pdcado "github.com/metalagman/norma/internal/workflows/pdca/roles/do"
-	pdcaplan "github.com/metalagman/norma/internal/workflows/pdca/roles/plan"
 )
 
 // Generated contract aliases. The schema-generated structs are the source of truth.

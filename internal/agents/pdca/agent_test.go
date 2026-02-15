@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"

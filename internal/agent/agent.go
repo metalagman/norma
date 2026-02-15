@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 
 	"github.com/metalagman/ainvoke/adk"
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"

@@ -468,7 +468,7 @@ Notes:
 
 Every step is an `input.json → output.json` transformation. The agent MUST produce an `output.json` file in the assigned step directory containing the valid AgentResponse JSON.
 
-Contracts are formally defined by JSON schemas located in `internal/workflows/pdca/<role>/*.schema.json`.
+Contracts are formally defined by JSON schemas located in `internal/agents/pdca/roles/<role>/*.schema.json`.
 
 ### 7.1 Common input.json (all steps)
 

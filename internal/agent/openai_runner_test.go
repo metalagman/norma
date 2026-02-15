@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

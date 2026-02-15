@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 )
 
 //go:embed common.gotmpl

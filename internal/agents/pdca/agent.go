@@ -13,12 +13,12 @@ import (
 	"time"
 
 	normaagent "github.com/metalagman/norma/internal/agent"
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"

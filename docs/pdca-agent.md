@@ -110,7 +110,7 @@ Stop reason must be represented in step output (`status=stop` with concrete `sto
 
 - Canonical workflow and contracts: `AGENTS.md`
 - Schemas:
-  - `internal/workflows/pdca/plan/*.schema.json`
-  - `internal/workflows/pdca/do/*.schema.json`
-  - `internal/workflows/pdca/check/*.schema.json`
-  - `internal/workflows/pdca/act/*.schema.json`
+  - `internal/agents/pdca/roles/plan/*.schema.json`
+  - `internal/agents/pdca/roles/do/*.schema.json`
+  - `internal/agents/pdca/roles/check/*.schema.json`
+  - `internal/agents/pdca/roles/act/*.schema.json`

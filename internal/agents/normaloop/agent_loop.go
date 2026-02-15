@@ -39,8 +39,8 @@ type runStatusStore interface {
 	GetRunStatus(ctx context.Context, runID string) (string, error)
 }
 
-// AgentLoop orchestrates repeated task execution for `norma loop`.
-type AgentLoop struct {
+// Loop orchestrates repeated task execution for `norma loop`.
+type Loop struct {
 	tracker        task.Tracker
 	runStore       runStatusStore
 	taskRunner     taskRunner
@@ -48,9 +48,9 @@ type AgentLoop struct {
 	policy         task.SelectionPolicy
 }
 
-// NewAgentLoop constructs the normaloop ADK loop agent runtime.
-func NewAgentLoop(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.Runner, continueOnFail bool, policy task.SelectionPolicy) *AgentLoop {
-	return &AgentLoop{
+// NewLoop constructs the normaloop ADK loop agent runtime.
+func NewLoop(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.Runner, continueOnFail bool, policy task.SelectionPolicy) *Loop {
+	return &Loop{
 		tracker:        tracker,
 		runStore:       runStore,
 		taskRunner:     taskRunner,
@@ -60,7 +60,7 @@ func NewAgentLoop(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.R
 }
 
 // Run executes the normaloop ADK agent until stop conditions are met.
-func (w *AgentLoop) Run(ctx context.Context) error {
+func (w *Loop) Run(ctx context.Context) error {
 	iterationAgent, err := w.newIterationAgent()
 	if err != nil {
 		return fmt.Errorf("create normaloop iteration agent: %w", err)
@@ -85,7 +85,7 @@ func (w *AgentLoop) Run(ctx context.Context) error {
 	return nil
 }
 
-func (w *AgentLoop) newIterationAgent() (agent.Agent, error) {
+func (w *Loop) newIterationAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
 		Name:        "NormaLoopIteration",
 		Description: "Runs a single normaloop iteration.",
@@ -93,7 +93,7 @@ func (w *AgentLoop) newIterationAgent() (agent.Agent, error) {
 	})
 }
 
-func (w *AgentLoop) newLoopAgent(iterationAgent agent.Agent) (agent.Agent, error) {
+func (w *Loop) newLoopAgent(iterationAgent agent.Agent) (agent.Agent, error) {
 	return loopagent.New(loopagent.Config{
 		MaxIterations: maxLoopIterations,
 		AgentConfig: agent.Config{
@@ -104,7 +104,7 @@ func (w *AgentLoop) newLoopAgent(iterationAgent agent.Agent) (agent.Agent, error
 	})
 }
 
-func (w *AgentLoop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
 		if ctx.Ended() {
 			return
@@ -160,7 +160,7 @@ func (w *AgentLoop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session
 	}
 }
 
-func (w *AgentLoop) selectNextTask(ctx context.Context) (task.Task, string, error) {
+func (w *Loop) selectNextTask(ctx context.Context) (task.Task, string, error) {
 	status := statusTodo
 	items, err := w.tracker.List(ctx, &status)
 	if err != nil {
@@ -180,7 +180,7 @@ func (w *AgentLoop) selectNextTask(ctx context.Context) (task.Task, string, erro
 	return selected, reason, nil
 }
 
-func (w *AgentLoop) runTaskByID(ctx context.Context, id string) error {
+func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	item, err := w.tracker.Task(ctx, id)
 	if err != nil {
 		return err

@@ -31,7 +31,7 @@ const (
 
 var taskIDPattern = regexp.MustCompile(`^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 
-// Runner executes a workflow for a task.
+// Runner executes an ADK agent run for a task.
 type Runner struct {
 	repoRoot string
 	normaDir string
@@ -47,7 +47,7 @@ type Result struct {
 	Status string
 }
 
-// NewADKRunner constructs a Runner with an ADK-based PDCA workflow.
+// NewADKRunner constructs a Runner with an ADK agent factory.
 func NewADKRunner(repoRoot string, cfg config.Config, store *db.Store, tracker task.Tracker, factory AgentFactory) (*Runner, error) {
 	absRoot, err := filepath.Abs(repoRoot)
 	if err != nil {

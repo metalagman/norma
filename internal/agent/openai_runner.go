@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/metalagman/norma/internal/agent/openaiapi"
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 	"github.com/metalagman/norma/internal/config"
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 )
 

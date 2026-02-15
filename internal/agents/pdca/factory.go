@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/metalagman/norma/internal/agents/pdca/models"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
-	"github.com/metalagman/norma/internal/workflows/pdca/models"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -21,8 +21,8 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// AgentFactory builds and finalizes PDCA ADK agents.
-type AgentFactory struct {
+// Factory builds and finalizes PDCA ADK agents.
+type Factory struct {
 	cfg     config.Config
 	store   *db.Store
 	tracker task.Tracker
@@ -30,20 +30,20 @@ type AgentFactory struct {
 
 const actDecisionClose = "close"
 
-// NewAgentFactory constructs a PDCA agent factory.
-func NewAgentFactory(cfg config.Config, store *db.Store, tracker task.Tracker) *AgentFactory {
-	return &AgentFactory{
+// NewFactory constructs a PDCA agent factory.
+func NewFactory(cfg config.Config, store *db.Store, tracker task.Tracker) *Factory {
+	return &Factory{
 		cfg:     cfg,
 		store:   store,
 		tracker: tracker,
 	}
 }
 
-func (w *AgentFactory) Name() string {
+func (w *Factory) Name() string {
 	return "pdca"
 }
 
-func (w *AgentFactory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.TaskPayload) (runpkg.AgentBuild, error) {
+func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.TaskPayload) (runpkg.AgentBuild, error) {
 	input := AgentInput{
 		RunID:              meta.RunID,
 		Goal:               task.Goal,
@@ -105,7 +105,7 @@ func (w *AgentFactory) Build(ctx context.Context, meta runpkg.RunMeta, task runp
 	}, nil
 }
 
-func (w *AgentFactory) Finalize(ctx context.Context, meta runpkg.RunMeta, _ runpkg.TaskPayload, finalSession session.Session) (runpkg.AgentOutcome, error) {
+func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, _ runpkg.TaskPayload, finalSession session.Session) (runpkg.AgentOutcome, error) {
 	if finalSession == nil {
 		return runpkg.AgentOutcome{}, fmt.Errorf("final session is required")
 	}
@@ -138,7 +138,7 @@ func (w *AgentFactory) Finalize(ctx context.Context, meta runpkg.RunMeta, _ runp
 		}
 		event := &db.Event{
 			Type:    "verdict",
-			Message: fmt.Sprintf("workflow completed with status=%s verdict=%s decision=%s", status, effectiveVerdict, decision),
+			Message: fmt.Sprintf("pdca agent run completed with status=%s verdict=%s decision=%s", status, effectiveVerdict, decision),
 		}
 		if err := w.store.UpdateRun(ctx, meta.RunID, update, event); err != nil {
 			return runpkg.AgentOutcome{}, fmt.Errorf("persist final run status: %w", err)
