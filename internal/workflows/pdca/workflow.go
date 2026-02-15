@@ -18,9 +18,7 @@ import (
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/workflowagents/loopagent"
-	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
-	"google.golang.org/genai"
 )
 
 // Workflow implements the ADK-based pdca workflow.
@@ -65,8 +63,6 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 
 	stepIndex := 0
 
-	sessionService := session.InMemoryService()
-
 	// Create the custom pdca iteration agent.
 	loopIterationAgent, err := NewPDCAAgent(w.cfg, w.store, w.tracker, input, &stepIndex, input.BaseBranch)
 	if err != nil {
@@ -78,61 +74,32 @@ func (w *Workflow) Run(ctx context.Context, input workflows.RunInput) (workflows
 		return workflows.RunResult{}, fmt.Errorf("create loop agent: %w", err)
 	}
 
-	// Create an ADK Runner to execute the loop
-	adkRunner, err := runner.New(runner.Config{
-		AppName:        "norma",
-		Agent:          la,
-		SessionService: sessionService,
-	})
-	if err != nil {
-		return workflows.RunResult{}, err
-	}
-
 	// Setup initial state
 	initialState := map[string]any{
 		"iteration":  1,
 		"task_state": &state,
 	}
-	userID := "norma-user"
-	sess, err := sessionService.Create(ctx, &session.CreateRequest{
-		AppName: "norma",
-		UserID:  userID,
-		State:   initialState,
-	})
-	if err != nil {
-		return workflows.RunResult{}, err
-	}
-
-	// Run it
-	genaiInput := genai.NewContentFromText(fmt.Sprintf("Run pdca workflow for task %s: %s", input.TaskID, input.Goal), genai.RoleUser)
 	log.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("pdca workflow: starting ADK runner")
-	events := adkRunner.Run(ctx, userID, sess.Session.ID(), genaiInput, agent.RunConfig{})
-
-	for ev, err := range events {
-		if err != nil {
-			log.Error().Err(err).Msg("ADK execution error")
-			return workflows.RunResult{Status: "failed"}, err
-		}
-		if ev.Content != nil {
+	finalSession, err := workflows.RunADK(ctx, workflows.ADKRunInput{
+		AppName:      "norma",
+		UserID:       "norma-user",
+		Agent:        la,
+		InitialState: initialState,
+		OnEvent: func(ev *session.Event) {
+			if ev.Content == nil {
+				return
+			}
 			for _, p := range ev.Content.Parts {
 				log.Debug().Str("part", p.Text).Msg("ADK event part")
 			}
-		}
-	}
-
-	// Retrieve final state from session
-	log.Debug().Msg("pdca workflow: retrieving final session state")
-	finalSess, err := sessionService.Get(ctx, &session.GetRequest{
-		AppName:   "norma",
-		UserID:    userID,
-		SessionID: sess.Session.ID(),
+		},
 	})
 	if err != nil {
-		log.Error().Err(err).Msg("pdca workflow: failed to retrieve final session state")
+		log.Error().Err(err).Msg("ADK execution error")
 		return workflows.RunResult{Status: "failed"}, err
 	}
 
-	verdict, decision, finalIteration, err := parseFinalState(finalSess.Session.State())
+	verdict, decision, finalIteration, err := parseFinalState(finalSession.State())
 	if err != nil {
 		return workflows.RunResult{Status: "failed"}, fmt.Errorf("parse final session state: %w", err)
 	}

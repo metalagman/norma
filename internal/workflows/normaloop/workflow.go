@@ -10,13 +10,12 @@ import (
 	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
+	"github.com/metalagman/norma/internal/workflows"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/workflowagents/loopagent"
-	adkrunner "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
-	"google.golang.org/genai"
 )
 
 const (
@@ -71,34 +70,16 @@ func (w *Workflow) Run(ctx context.Context) error {
 		return fmt.Errorf("create normaloop loop agent: %w", err)
 	}
 
-	sessionService := session.InMemoryService()
-	adkRunner, err := adkrunner.New(adkrunner.Config{
-		AppName:        "norma",
-		Agent:          loopAgent,
-		SessionService: sessionService,
-	})
-	if err != nil {
-		return fmt.Errorf("create ADK runner: %w", err)
-	}
-
-	userID := "norma-user"
-	sess, err := sessionService.Create(ctx, &session.CreateRequest{
+	_, err = workflows.RunADK(ctx, workflows.ADKRunInput{
 		AppName: "norma",
-		UserID:  userID,
-		State: map[string]any{
+		UserID:  "norma-user",
+		Agent:   loopAgent,
+		InitialState: map[string]any{
 			"iteration": 1,
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create ADK session: %w", err)
-	}
-
-	input := genai.NewContentFromText("Run norma task loop", genai.RoleUser)
-	events := adkRunner.Run(ctx, userID, sess.Session.ID(), input, agent.RunConfig{})
-	for _, runErr := range events {
-		if runErr != nil {
-			return runErr
-		}
+		return err
 	}
 
 	return nil
