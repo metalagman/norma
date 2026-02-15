@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/agent/workflowagents/loopagent"
 	adkrunner "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -26,6 +27,8 @@ const (
 	statusTodo     = "todo"
 	statusPlanning = "planning"
 )
+
+const maxLoopIterations uint = 1_000_000
 
 var errNoTasks = errors.New("no tasks")
 
@@ -59,9 +62,13 @@ func NewWorkflow(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.Ru
 
 // Run executes the normaloop ADK agent until stop conditions are met.
 func (w *Workflow) Run(ctx context.Context) error {
-	loopAgent, err := w.newAgent()
+	iterationAgent, err := w.newIterationAgent()
 	if err != nil {
-		return fmt.Errorf("create normaloop agent: %w", err)
+		return fmt.Errorf("create normaloop iteration agent: %w", err)
+	}
+	loopAgent, err := w.newLoopAgent(iterationAgent)
+	if err != nil {
+		return fmt.Errorf("create normaloop loop agent: %w", err)
 	}
 
 	sessionService := session.InMemoryService()
@@ -97,16 +104,31 @@ func (w *Workflow) Run(ctx context.Context) error {
 	return nil
 }
 
-func (w *Workflow) newAgent() (agent.Agent, error) {
+func (w *Workflow) newIterationAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
-		Name:        "NormaLoopAgent",
-		Description: "Reads ready tasks and runs PDCA workflow per selected task.",
-		Run:         w.run,
+		Name:        "NormaLoopIteration",
+		Description: "Runs a single normaloop iteration.",
+		Run:         w.runIteration,
 	})
 }
 
-func (w *Workflow) run(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (w *Workflow) newLoopAgent(iterationAgent agent.Agent) (agent.Agent, error) {
+	return loopagent.New(loopagent.Config{
+		MaxIterations: maxLoopIterations,
+		AgentConfig: agent.Config{
+			Name:        "NormaLoopAgent",
+			Description: "Reads ready tasks and runs PDCA workflow per selected task.",
+			SubAgents:   []agent.Agent{iterationAgent},
+		},
+	})
+}
+
+func (w *Workflow) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
+		if ctx.Ended() {
+			return
+		}
+
 		iteration := 1
 		if value, err := ctx.Session().State().Get("iteration"); err == nil {
 			if parsed, ok := value.(int); ok && parsed > 0 {
@@ -114,52 +136,45 @@ func (w *Workflow) run(ctx agent.InvocationContext) iter.Seq2[*session.Event, er
 			}
 		}
 
-		for {
-			if ctx.Ended() {
+		selected, reason, err := w.selectNextTask(ctx)
+		if err != nil {
+			if errors.Is(err, errNoTasks) {
+				log.Info().Msg("normaloop: no runnable tasks left, stopping loop")
+				_ = ctx.Session().State().Set("stop", true)
+				ctx.EndInvocation()
 				return
 			}
+			yield(nil, err)
+			return
+		}
 
-			selected, reason, err := w.selectNextTask(ctx)
-			if err != nil {
-				if errors.Is(err, errNoTasks) {
-					log.Info().Msg("normaloop: no runnable tasks left, stopping loop")
-					_ = ctx.Session().State().Set("stop", true)
-					ctx.EndInvocation()
-					return
-				}
+		log.Info().
+			Int("iteration", iteration).
+			Str("task_id", selected.ID).
+			Str("selection_reason", reason).
+			Msg("normaloop: selected task")
+
+		if err := ctx.Session().State().Set("selected_task_id", selected.ID); err != nil {
+			yield(nil, fmt.Errorf("set selected_task_id in session: %w", err))
+			return
+		}
+		if err := ctx.Session().State().Set("selection_reason", reason); err != nil {
+			yield(nil, fmt.Errorf("set selection_reason in session: %w", err))
+			return
+		}
+
+		err = w.runTaskByID(ctx, selected.ID)
+		if err != nil {
+			if !w.continueOnFail {
 				yield(nil, err)
 				return
 			}
+			log.Error().Err(err).Str("task_id", selected.ID).Msg("normaloop: task failed, continuing loop")
+		}
 
-			log.Info().
-				Int("iteration", iteration).
-				Str("task_id", selected.ID).
-				Str("selection_reason", reason).
-				Msg("normaloop: selected task")
-
-			if err := ctx.Session().State().Set("selected_task_id", selected.ID); err != nil {
-				yield(nil, fmt.Errorf("set selected_task_id in session: %w", err))
-				return
-			}
-			if err := ctx.Session().State().Set("selection_reason", reason); err != nil {
-				yield(nil, fmt.Errorf("set selection_reason in session: %w", err))
-				return
-			}
-
-			err = w.runTaskByID(ctx, selected.ID)
-			if err != nil {
-				if !w.continueOnFail {
-					yield(nil, err)
-					return
-				}
-				log.Error().Err(err).Str("task_id", selected.ID).Msg("normaloop: task failed, continuing loop")
-			}
-
-			iteration++
-			if err := ctx.Session().State().Set("iteration", iteration); err != nil {
-				yield(nil, fmt.Errorf("set iteration in session: %w", err))
-				return
-			}
+		if err := ctx.Session().State().Set("iteration", iteration+1); err != nil {
+			yield(nil, fmt.Errorf("set iteration in session: %w", err))
+			return
 		}
 	}
 }
