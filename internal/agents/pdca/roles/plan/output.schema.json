@@ -74,9 +74,9 @@
                 "properties": {
                   "id": { "type": "string" },
                   "text": { "type": "string" },
-                  "targets_acceptance_criteria_ids": { "type": "array", "items": { "type": "string" } }
+                  "targets_ac_ids": { "type": "array", "items": { "type": "string" } }
                 },
-                "required": ["id", "text"]
+                "required": ["id", "text", "targets_ac_ids"]
               }
             },
             "check_steps": {

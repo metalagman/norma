@@ -457,9 +457,9 @@ func planWorkPlanToDo(src *plan.PlanWorkPlan) *do.DoWorkPlan {
 	doSteps := make([]do.DoDoStep, 0, len(src.DoSteps))
 	for _, step := range src.DoSteps {
 		doSteps = append(doSteps, do.DoDoStep{
-			Id:                           step.Id,
-			TargetsAcceptanceCriteriaIds: step.TargetsAcceptanceCriteriaIds,
-			Text:                         step.Text,
+			Id:           step.Id,
+			TargetsAcIds: step.TargetsAcIds,
+			Text:         step.Text,
 		})
 	}
 	checkSteps := make([]do.DoCheckStep, 0, len(src.CheckSteps))

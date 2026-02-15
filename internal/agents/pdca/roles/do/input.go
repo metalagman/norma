@@ -45,9 +45,9 @@ type DoContext struct {
 
 // DoDoStep
 type DoDoStep struct {
-	Id                           string   `json:"id"`
-	TargetsAcceptanceCriteriaIds []string `json:"targets_acceptance_criteria_ids"`
-	Text                         string   `json:"text"`
+	Id           string   `json:"id"`
+	TargetsAcIds []string `json:"targets_ac_ids"`
+	Text         string   `json:"text"`
 }
 
 // DoEffectiveAcceptanceCriteria
@@ -109,7 +109,7 @@ type DoTask struct {
 type DoWorkPlan struct {
 	CheckSteps     []DoCheckStep `json:"check_steps"`
 	DoSteps        []DoDoStep    `json:"do_steps"`
-	StopTriggers   []string      `json:"stop_triggers"`
+	StopTriggers   []string      `json:"stop_triggers,omitempty"`
 	TimeboxMinutes int64         `json:"timebox_minutes"`
 }
 
@@ -478,14 +478,14 @@ func (strct *DoDoStep) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
-	// "TargetsAcceptanceCriteriaIds" field is required
+	// "TargetsAcIds" field is required
 	// only required object types supported for marshal checking (for now)
-	// Marshal the "targets_acceptance_criteria_ids" field
+	// Marshal the "targets_ac_ids" field
 	if comma {
 		buf.WriteString(",")
 	}
-	buf.WriteString("\"targets_acceptance_criteria_ids\": ")
-	if tmp, err := json.Marshal(strct.TargetsAcceptanceCriteriaIds); err != nil {
+	buf.WriteString("\"targets_ac_ids\": ")
+	if tmp, err := json.Marshal(strct.TargetsAcIds); err != nil {
 		return nil, err
 	} else {
 		buf.Write(tmp)
@@ -512,7 +512,7 @@ func (strct *DoDoStep) MarshalJSON() ([]byte, error) {
 
 func (strct *DoDoStep) UnmarshalJSON(b []byte) error {
 	idReceived := false
-	targets_acceptance_criteria_idsReceived := false
+	targets_ac_idsReceived := false
 	textReceived := false
 	var jsonMap map[string]json.RawMessage
 	if err := json.Unmarshal(b, &jsonMap); err != nil {
@@ -526,11 +526,11 @@ func (strct *DoDoStep) UnmarshalJSON(b []byte) error {
 				return err
 			}
 			idReceived = true
-		case "targets_acceptance_criteria_ids":
-			if err := json.Unmarshal([]byte(v), &strct.TargetsAcceptanceCriteriaIds); err != nil {
+		case "targets_ac_ids":
+			if err := json.Unmarshal([]byte(v), &strct.TargetsAcIds); err != nil {
 				return err
 			}
-			targets_acceptance_criteria_idsReceived = true
+			targets_ac_idsReceived = true
 		case "text":
 			if err := json.Unmarshal([]byte(v), &strct.Text); err != nil {
 				return err
@@ -542,9 +542,9 @@ func (strct *DoDoStep) UnmarshalJSON(b []byte) error {
 	if !idReceived {
 		return errors.New("\"id\" is required but was not present")
 	}
-	// check if targets_acceptance_criteria_ids (a required property) was received
-	if !targets_acceptance_criteria_idsReceived {
-		return errors.New("\"targets_acceptance_criteria_ids\" is required but was not present")
+	// check if targets_ac_ids (a required property) was received
+	if !targets_ac_idsReceived {
+		return errors.New("\"targets_ac_ids\" is required but was not present")
 	}
 	// check if text (a required property) was received
 	if !textReceived {
@@ -1337,8 +1337,6 @@ func (strct *DoWorkPlan) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
-	// "StopTriggers" field is required
-	// only required object types supported for marshal checking (for now)
 	// Marshal the "stop_triggers" field
 	if comma {
 		buf.WriteString(",")
@@ -1372,7 +1370,6 @@ func (strct *DoWorkPlan) MarshalJSON() ([]byte, error) {
 func (strct *DoWorkPlan) UnmarshalJSON(b []byte) error {
 	check_stepsReceived := false
 	do_stepsReceived := false
-	stop_triggersReceived := false
 	timebox_minutesReceived := false
 	var jsonMap map[string]json.RawMessage
 	if err := json.Unmarshal(b, &jsonMap); err != nil {
@@ -1395,7 +1392,6 @@ func (strct *DoWorkPlan) UnmarshalJSON(b []byte) error {
 			if err := json.Unmarshal([]byte(v), &strct.StopTriggers); err != nil {
 				return err
 			}
-			stop_triggersReceived = true
 		case "timebox_minutes":
 			if err := json.Unmarshal([]byte(v), &strct.TimeboxMinutes); err != nil {
 				return err
@@ -1410,10 +1406,6 @@ func (strct *DoWorkPlan) UnmarshalJSON(b []byte) error {
 	// check if do_steps (a required property) was received
 	if !do_stepsReceived {
 		return errors.New("\"do_steps\" is required but was not present")
-	}
-	// check if stop_triggers (a required property) was received
-	if !stop_triggersReceived {
-		return errors.New("\"stop_triggers\" is required but was not present")
 	}
 	// check if timebox_minutes (a required property) was received
 	if !timebox_minutesReceived {

@@ -273,14 +273,14 @@ func normalizeDoInput(input *do.DoInput) *do.DoInput {
 	if input.WorkPlan != nil {
 		doSteps := make([]do.DoDoStep, 0, len(input.WorkPlan.DoSteps))
 		for _, step := range input.WorkPlan.DoSteps {
-			targets := step.TargetsAcceptanceCriteriaIds
+			targets := step.TargetsAcIds
 			if targets == nil {
 				targets = []string{}
 			}
 			doSteps = append(doSteps, do.DoDoStep{
-				Id:                           step.Id,
-				TargetsAcceptanceCriteriaIds: targets,
-				Text:                         step.Text,
+				Id:           step.Id,
+				TargetsAcIds: targets,
+				Text:         step.Text,
 			})
 		}
 
