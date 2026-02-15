@@ -52,7 +52,7 @@ type Loop struct {
 // NewLoop constructs the normaloop ADK loop agent runtime.
 func NewLoop(logger zerolog.Logger, tracker task.Tracker, runStore runStatusStore, taskRunner taskRunner, continueOnFail bool, policy task.SelectionPolicy) (*Loop, error) {
 	w := &Loop{
-		logger:         logger,
+		logger:         logger.With().Str("component", "normaloop").Logger(),
 		tracker:        tracker,
 		runStore:       runStore,
 		taskRunner:     taskRunner,
@@ -113,7 +113,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 		selected, reason, err := w.selectNextTask(ctx)
 		if err != nil {
 			if errors.Is(err, errNoTasks) {
-				w.logger.Debug().Msg("normaloop: no runnable tasks left, sleeping 10s...")
+				w.logger.Debug().Msg("no runnable tasks left, sleeping 10s...")
 				_ = ctx.Session().State().Set("selected_task_id", "")
 				time.Sleep(10 * time.Second)
 				return
@@ -125,7 +125,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 		w.logger.Info().
 			Str("task_id", selected.ID).
 			Str("selection_reason", reason).
-			Msg("normaloop: selector picked task")
+			Msg("selector picked task")
 
 		if err := ctx.Session().State().Set("selected_task_id", selected.ID); err != nil {
 			yield(nil, fmt.Errorf("set selected_task_id in session: %w", err))
@@ -164,7 +164,7 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 		w.logger.Info().
 			Int("iteration", iteration).
 			Str("task_id", taskID).
-			Msg("normaloop: starting iteration")
+			Msg("starting iteration")
 
 		err = w.runTaskByID(ctx, taskID)
 		if err != nil {
@@ -172,7 +172,7 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 				yield(nil, err)
 				return
 			}
-			w.logger.Error().Err(err).Str("task_id", taskID).Msg("normaloop: task failed, continuing loop")
+			w.logger.Error().Err(err).Str("task_id", taskID).Msg("task failed, continuing loop")
 		}
 
 		if err := ctx.Session().State().Set("iteration", iteration+1); err != nil {
@@ -246,7 +246,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 
 	switch result.Status {
 	case statusPassed:
-		w.logger.Info().Str("task_id", id).Str("run_id", result.RunID).Msg("normaloop: task passed")
+		w.logger.Info().Str("task_id", id).Str("run_id", result.RunID).Msg("task passed")
 		return nil
 	case statusFailed:
 		return fmt.Errorf("task %s failed (run %s)", id, result.RunID)
