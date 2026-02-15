@@ -7,8 +7,6 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/metalagman/norma/internal/adkrunner"
-	"github.com/metalagman/norma/internal/db"
 	runpkg "github.com/metalagman/norma/internal/run"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/rs/zerolog/log"
@@ -41,6 +39,7 @@ type runStatusStore interface {
 
 // Loop orchestrates repeated task execution for `norma loop`.
 type Loop struct {
+	agent.Agent
 	tracker        task.Tracker
 	runStore       runStatusStore
 	taskRunner     taskRunner
@@ -49,40 +48,26 @@ type Loop struct {
 }
 
 // NewLoop constructs the normaloop ADK loop agent runtime.
-func NewLoop(tracker task.Tracker, runStore *db.Store, taskRunner *runpkg.Runner, continueOnFail bool, policy task.SelectionPolicy) *Loop {
-	return &Loop{
+func NewLoop(tracker task.Tracker, runStore runStatusStore, taskRunner taskRunner, continueOnFail bool, policy task.SelectionPolicy) (*Loop, error) {
+	w := &Loop{
 		tracker:        tracker,
 		runStore:       runStore,
 		taskRunner:     taskRunner,
 		continueOnFail: continueOnFail,
 		policy:         policy,
 	}
-}
 
-// Run executes the normaloop ADK agent until stop conditions are met.
-func (w *Loop) Run(ctx context.Context) error {
 	iterationAgent, err := w.newIterationAgent()
 	if err != nil {
-		return fmt.Errorf("create normaloop iteration agent: %w", err)
+		return nil, fmt.Errorf("create normaloop iteration agent: %w", err)
 	}
 	loopAgent, err := w.newLoopAgent(iterationAgent)
 	if err != nil {
-		return fmt.Errorf("create normaloop loop agent: %w", err)
+		return nil, fmt.Errorf("create normaloop loop agent: %w", err)
 	}
 
-	_, err = adkrunner.Run(ctx, adkrunner.RunInput{
-		AppName: "norma",
-		UserID:  "norma-user",
-		Agent:   loopAgent,
-		InitialState: map[string]any{
-			"iteration": 1,
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
+	w.Agent = loopAgent
+	return w, nil
 }
 
 func (w *Loop) newIterationAgent() (agent.Agent, error) {

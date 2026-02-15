@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/metalagman/norma/internal/adkrunner"
 	"github.com/metalagman/norma/internal/agents/normaloop"
 	"github.com/metalagman/norma/internal/agents/pdca"
 	"github.com/metalagman/norma/internal/db"
@@ -58,9 +59,21 @@ func loopCmd() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
-			loopAgent := normaloop.NewLoop(tracker, runStore, taskRunner, continueOnFail, policy)
+			loopAgent, err := normaloop.NewLoop(tracker, runStore, taskRunner, continueOnFail, policy)
+			if err != nil {
+				return err
+			}
+
 			fmt.Println("Running tasks using Google ADK Loop Agent...")
-			return loopAgent.Run(cmd.Context())
+			_, err = adkrunner.Run(cmd.Context(), adkrunner.RunInput{
+				AppName: "norma",
+				UserID:  "norma-user",
+				Agent:   loopAgent,
+				InitialState: map[string]any{
+					"iteration": 1,
+				},
+			})
+			return err
 		},
 	}
 	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running ready tasks after a failure")
