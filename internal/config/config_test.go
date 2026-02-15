@@ -275,3 +275,36 @@ func TestValidateSettings_RejectsOpenAIAgentWithoutAPIKey(t *testing.T) {
 		t.Fatal("ValidateSettings returned nil error, want error")
 	}
 }
+
+func TestValidateSettings_RejectsOpenAIAgentWithAPIKeyEnv(t *testing.T) {
+	t.Parallel()
+
+	settings := map[string]any{
+		"agents": map[string]any{
+			"openai_primary": map[string]any{
+				"type":        AgentTypeOpenAI,
+				"model":       "gpt-5",
+				"api_key":     "test-api-key",
+				"api_key_env": "OPENAI_API_KEY",
+			},
+		},
+		"profiles": map[string]any{
+			"default": map[string]any{
+				"pdca": map[string]any{
+					"plan":  "openai_primary",
+					"do":    "openai_primary",
+					"check": "openai_primary",
+					"act":   "openai_primary",
+				},
+			},
+		},
+		"budgets": map[string]any{
+			"max_iterations": 1,
+		},
+	}
+
+	err := ValidateSettings(settings)
+	if err == nil {
+		t.Fatal("ValidateSettings returned nil error, want error")
+	}
+}
