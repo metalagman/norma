@@ -13,11 +13,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-const (
-	backlogRefinerFeature = "backlog_refiner"
-	featurePlannerAgent   = "planner"
-)
-
 func planCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "plan <epic-description>",
@@ -81,24 +76,14 @@ func planCmd() *cobra.Command {
 func resolvePlannerAgent(cfg config.Config) (config.AgentConfig, error) {
 	selectedProfile := viper.GetString("profile")
 
-	_, featureAgents, featureErr := cfg.ResolveFeatureAgents(selectedProfile, backlogRefinerFeature)
-	if featureErr == nil {
-		if plannerCfg, ok := featureAgents[featurePlannerAgent]; ok {
-			return plannerCfg, nil
-		}
-	}
-
-	_, pdcaAgents, err := cfg.ResolveAgents(selectedProfile)
+	_, resolvedAgents, err := cfg.ResolveAgents(selectedProfile)
 	if err != nil {
-		if featureErr != nil {
-			return config.AgentConfig{}, fmt.Errorf("resolve planner agent: %w (feature fallback failed: %w)", err, featureErr)
-		}
 		return config.AgentConfig{}, err
 	}
 
-	plannerCfg, ok := pdcaAgents["plan"]
-	if !ok {
-		return config.AgentConfig{}, fmt.Errorf("resolved PDCA configuration is missing plan agent")
+	if plannerCfg, ok := resolvedAgents["planner"]; ok {
+		return plannerCfg, nil
 	}
-	return plannerCfg, nil
+
+	return config.AgentConfig{}, fmt.Errorf("resolved configuration is missing a 'planner' agent")
 }

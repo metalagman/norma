@@ -37,10 +37,7 @@ profiles:
       do: opencode_exec_agent
       check: opencode_exec_agent
       act: opencode_exec_agent
-    features:
-      summary:
-        agents:
-          reviewer: opencode_exec_agent
+    planner: opencode_exec_agent
 budgets:
   max_iterations: 1
 retention:

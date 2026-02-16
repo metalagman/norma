@@ -443,11 +443,7 @@ profiles:
       do: ainvoke_opencode_agent
       check: ainvoke_codex_agent
       act: ainvoke_codex_agent
-    features:
-      backlog_refiner:
-        agents:
-          planner: ainvoke_codex_agent
-          implementer: ainvoke_opencode_agent
+    planner: ainvoke_codex_agent
 
 budgets:
   max_iterations: 5

@@ -25,13 +25,7 @@ func TestResolvePlannerAgent_PrefersBacklogRefinerPlanner(t *testing.T) {
 					Check: "gemini_flash",
 					Act:   "gemini_flash",
 				},
-				Features: map[string]config.FeatureConfig{
-					"backlog_refiner": {
-						Agents: map[string]string{
-							"planner": "codex_primary",
-						},
-					},
-				},
+				Planner: "codex_primary",
 			},
 		},
 	}

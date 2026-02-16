@@ -104,35 +104,35 @@ profiles:
       do: gemini_flash
       check: codex_primary
       act: codex_primary
-    features:
-      backlog_refiner:
-        agents:
-          planner: codex_primary
-          implementer: gemini_flash
+    planner: codex_primary
   codex:
     pdca:
       plan: codex_primary
       do: codex_fast
       check: codex_fast
       act: codex_primary
+    planner: codex_primary
   gemini:
     pdca:
       plan: gemini_flash
       do: gemini_flash
       check: gemini_flash
       act: gemini_flash
+    planner: gemini_flash
   opencode:
     pdca:
       plan: opencode_exec_agent
       do: opencode_exec_agent
       check: opencode_exec_agent
       act: opencode_exec_agent
+    planner: opencode_exec_agent
   openai:
     pdca:
       plan: openai_primary
       do: openai_primary
       check: openai_primary
       act: openai_primary
+    planner: openai_primary
 budgets:
   max_iterations: 5
 retention:

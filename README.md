@@ -92,17 +92,14 @@ profiles:
       do: gemini_flash
       check: codex_primary
       act: codex_primary
+    planner: codex_primary
   openai:
     pdca:
       plan: openai_primary
       do: openai_primary
       check: openai_primary
       act: openai_primary
-    features:
-      backlog_refiner:
-        agents:
-          planner: codex_primary
-          implementer: gemini_flash
+    planner: openai_primary
 
 budgets:
   max_iterations: 5
@@ -125,14 +122,10 @@ norma loop norma-a3f2dd
 ```
 
 ### 5. Decompose a Global Epic
-Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarchy:
+Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarchy. The planner is fully interactive and will ask you clarification questions using the `human` tool.
 
 ```bash
-# Wizard mode (default): asks clarification questions first
 norma plan "Build multi-tenant billing and subscription management"
-
-# Auto mode: no interactive clarifications
-norma plan --mode auto "Build multi-tenant billing and subscription management"
 ```
 
 ---

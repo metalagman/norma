@@ -167,26 +167,9 @@
             }
           }
         },
-        "features": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/featureConfig"
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "featureConfig": {
-      "type": "object",
-      "required": ["agents"],
-      "properties": {
-        "agents": {
-          "type": "object",
-          "minProperties": 1,
-          "additionalProperties": {
-            "type": "string",
-            "minLength": 1
-          }
+        "planner": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false
