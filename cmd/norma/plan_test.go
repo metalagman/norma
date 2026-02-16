@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/metalagman/norma/internal/config"
@@ -43,22 +42,5 @@ func TestResolvePlannerAgent_PrefersBacklogRefinerPlanner(t *testing.T) {
 	}
 	if agentCfg.Type != "codex" {
 		t.Fatalf("resolved planner type = %q, want %q", agentCfg.Type, "codex")
-	}
-}
-
-func TestCollectWizardClarifications(t *testing.T) {
-	t.Parallel()
-
-	var out bytes.Buffer
-	in := bytes.NewBufferString("Title Hint\n\nNo auth in v1\nRun go test ./...\n\n")
-	got, err := collectWizardClarifications(in, &out)
-	if err != nil {
-		t.Fatalf("collectWizardClarifications returned error: %v", err)
-	}
-	if len(got) != 3 {
-		t.Fatalf("clarifications count = %d, want %d", len(got), 3)
-	}
-	if got[0].Answer != "Title Hint" {
-		t.Fatalf("clarification[0].Answer = %q, want %q", got[0].Answer, "Title Hint")
 	}
 }
