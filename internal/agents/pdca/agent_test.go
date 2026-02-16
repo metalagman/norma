@@ -177,7 +177,7 @@ func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
 	}
 
 	stepDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0o700); err != nil {
 		t.Fatalf("create artifacts dir: %v", err)
 	}
 
@@ -430,6 +430,7 @@ func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 	t.Parallel()
 
 	loopAgent, err := NewLoopAgent(
+		context.Background(),
 		config.Config{},
 		nil,
 		AgentInput{},
@@ -544,7 +545,7 @@ func initTestRepo(t *testing.T, ctx context.Context, repoRoot string) {
 
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write file %s: %v", path, err)
 	}
 }

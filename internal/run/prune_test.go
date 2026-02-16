@@ -30,13 +30,13 @@ func TestPruneRemovesOnlyStaleNormaTaskBranches(t *testing.T) {
 
 	// Norma run branch/worktree: should be removed by prune.
 	runWorkspace := filepath.Join(repoRoot, ".norma", "runs", "run-1", "steps", "001-do", "workspace")
-	if err := os.MkdirAll(filepath.Dir(runWorkspace), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(runWorkspace), 0o700); err != nil {
 		t.Fatalf("mkdir run workspace parent: %v", err)
 	}
 	runGit(t, ctx, repoRoot, "worktree", "add", "-b", "norma/task/norma-run", runWorkspace)
 
 	dbPath := filepath.Join(t.TempDir(), "norma.db")
-	database, err := internaldb.Open(dbPath)
+	database, err := internaldb.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

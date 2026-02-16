@@ -27,10 +27,10 @@ func initCmd() *cobra.Command {
 
 			normaDir := filepath.Join(repoRoot, ".norma")
 			log.Info().Str("dir", normaDir).Msg("creating norma directory")
-			if err := os.MkdirAll(filepath.Join(normaDir, "runs"), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Join(normaDir, "runs"), 0o700); err != nil {
 				return fmt.Errorf("create runs dir: %w", err)
 			}
-			if err := os.MkdirAll(filepath.Join(normaDir, "locks"), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Join(normaDir, "locks"), 0o700); err != nil {
 				return fmt.Errorf("create locks dir: %w", err)
 			}
 
@@ -39,13 +39,13 @@ func initCmd() *cobra.Command {
 				log.Info().Msg(".norma/.gitignore already exists, skipping")
 			} else {
 				log.Info().Str("path", gitignorePath).Msg("installing .norma/.gitignore")
-				if err := os.WriteFile(gitignorePath, []byte(normaGitignoreContent), 0o644); err != nil {
+				if err := os.WriteFile(gitignorePath, []byte(normaGitignoreContent), 0o600); err != nil {
 					return fmt.Errorf("write .norma/.gitignore: %w", err)
 				}
 			}
 
 			log.Info().Msg("initializing beads")
-			if err := initBeads(); err != nil {
+			if err := initBeads(cmd.Context()); err != nil {
 				return fmt.Errorf("init beads: %w", err)
 			}
 
@@ -54,7 +54,7 @@ func initCmd() *cobra.Command {
 				log.Info().Msg("config.yaml already exists, skipping")
 			} else {
 				log.Info().Str("path", configPath).Msg("installing default config")
-				if err := os.WriteFile(configPath, []byte(defaultConfigYAML), 0o644); err != nil {
+				if err := os.WriteFile(configPath, []byte(defaultConfigYAML), 0o600); err != nil {
 					return fmt.Errorf("write default config: %w", err)
 				}
 			}

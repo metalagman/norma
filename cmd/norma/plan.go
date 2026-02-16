@@ -116,7 +116,7 @@ func resolvePlannerAgent(cfg config.Config) (config.AgentConfig, error) {
 	_, pdcaAgents, err := cfg.ResolveAgents(selectedProfile)
 	if err != nil {
 		if featureErr != nil {
-			return config.AgentConfig{}, fmt.Errorf("resolve planner agent: %v (feature fallback failed: %w)", err, featureErr)
+			return config.AgentConfig{}, fmt.Errorf("resolve planner agent: %w (feature fallback failed: %w)", err, featureErr)
 		}
 		return config.AgentConfig{}, err
 	}

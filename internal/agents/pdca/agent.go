@@ -40,7 +40,7 @@ type runtime struct {
 }
 
 // NewLoopAgent creates and configures the PDCA loop agent with role subagents.
-func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseBranch string, maxIterations int) (agent.Agent, error) {
+func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, runInput AgentInput, baseBranch string, maxIterations int) (agent.Agent, error) {
 	rt := &runtime{
 		cfg:        cfg,
 		store:      store,
@@ -48,19 +48,19 @@ func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseB
 		baseBranch: baseBranch,
 	}
 
-	planAgent, err := rt.createSubAgent(RolePlan)
+	planAgent, err := rt.createSubAgent(ctx, RolePlan)
 	if err != nil {
 		return nil, fmt.Errorf("create %s subagent: %w", RolePlan, err)
 	}
-	doAgent, err := rt.createSubAgent(RoleDo)
+	doAgent, err := rt.createSubAgent(ctx, RoleDo)
 	if err != nil {
 		return nil, fmt.Errorf("create %s subagent: %w", RoleDo, err)
 	}
-	checkAgent, err := rt.createSubAgent(RoleCheck)
+	checkAgent, err := rt.createSubAgent(ctx, RoleCheck)
 	if err != nil {
 		return nil, fmt.Errorf("create %s subagent: %w", RoleCheck, err)
 	}
-	actAgent, err := rt.createSubAgent(RoleAct)
+	actAgent, err := rt.createSubAgent(ctx, RoleAct)
 	if err != nil {
 		return nil, fmt.Errorf("create %s subagent: %w", RoleAct, err)
 	}
@@ -79,7 +79,7 @@ func NewLoopAgent(cfg config.Config, store *db.Store, runInput AgentInput, baseB
 	return ag, nil
 }
 
-func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
+func (a *runtime) createSubAgent(ctx context.Context, roleName string) (agent.Agent, error) {
 	pascalName := ""
 	switch roleName {
 	case RolePlan:
@@ -96,7 +96,7 @@ func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
 	ag, err := agent.New(agent.Config{
 		Name:        pascalName,
 		Description: fmt.Sprintf("Norma %s agent", pascalName),
-		Run:         a.runRoleLoop(roleName),
+		Run:         a.runRoleLoop(ctx, roleName),
 	})
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (a *runtime) createSubAgent(roleName string) (agent.Agent, error) {
 	return ag, nil
 }
 
-func (a *runtime) runRoleLoop(roleName string) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (a *runtime) runRoleLoop(ctx context.Context, roleName string) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		l := log.With().
 			Str("component", "pdca").
@@ -265,10 +265,10 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	stepsDir := filepath.Join(a.runInput.RunDir, "steps")
 	stepDirName := fmt.Sprintf("%03d-%s", index, roleName)
 	stepDir := filepath.Join(stepsDir, stepDirName)
-	if err := os.MkdirAll(filepath.Join(stepDir, "logs"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(stepDir, "logs"), 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0o700); err != nil {
 		return nil, err
 	}
 
@@ -320,7 +320,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	if err != nil {
 		return nil, fmt.Errorf("marshal input.json: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(stepDir, "input.json"), inputData, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stepDir, "input.json"), inputData, 0o600); err != nil {
 		return nil, fmt.Errorf("write input.json: %w", err)
 	}
 
@@ -336,13 +336,13 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	l.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("running step runner")
 
 	// Prepare log files
-	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create stdout log file: %w", err)
 	}
 	defer func() { _ = stdoutFile.Close() }()
 
-	stderrFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stderr.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	stderrFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stderr.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create stderr log file: %w", err)
 	}
@@ -368,7 +368,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	if err != nil {
 		return nil, fmt.Errorf("marshal output.json: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(stepDir, "output.json"), respJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stepDir, "output.json"), respJSON, 0o600); err != nil {
 		return nil, fmt.Errorf("write output.json: %w", err)
 	}
 
@@ -757,5 +757,5 @@ func (a *runtime) reconstructProgress(dir string, state *contracts.TaskState) er
 		}
 		sb.WriteString("\n")
 	}
-	return os.WriteFile(path, []byte(sb.String()), 0o644)
+	return os.WriteFile(path, []byte(sb.String()), 0o600)
 }

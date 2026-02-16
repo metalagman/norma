@@ -27,7 +27,7 @@ func runsPruneCmd() *cobra.Command {
 		Use:   "prune",
 		Short: "Prune old runs from disk and database",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			storeDB, repoRoot, closeFn, err := openDB()
+			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
 			}

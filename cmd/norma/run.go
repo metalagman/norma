@@ -19,7 +19,7 @@ func runCmd() *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			storeDB, repoRoot, closeFn, err := openDB()
+			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
 			}

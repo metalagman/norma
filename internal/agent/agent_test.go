@@ -71,7 +71,7 @@ RESP='{"status":"ok","summary":{"text":"success"},"progress":{"title":"done","de
 echo "$RESP" > output.json
 echo "$RESP"
 `
-	err = os.WriteFile(agentScript, []byte(scriptContent), 0o755)
+	err = os.WriteFile(agentScript, []byte(scriptContent), 0o700)
 	require.NoError(t, err)
 
 	cfg := config.AgentConfig{
@@ -127,7 +127,7 @@ func TestAinvokeRunner_RunWritesErrorToStderr(t *testing.T) {
 echo "boom" 1>&2
 exit 1
 `
-	err = os.WriteFile(agentScript, []byte(scriptContent), 0o755)
+	err = os.WriteFile(agentScript, []byte(scriptContent), 0o700)
 	require.NoError(t, err)
 
 	cfg := config.AgentConfig{
@@ -176,7 +176,7 @@ cat > /dev/null # consume stdin
 echo '{}' > output.json
 echo '{}'
 	`
-	err = os.WriteFile(agentScript, []byte(scriptContent), 0o755)
+	err = os.WriteFile(agentScript, []byte(scriptContent), 0o700)
 	require.NoError(t, err)
 
 	cfg := config.AgentConfig{

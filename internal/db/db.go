@@ -2,6 +2,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 )
 
 // Open opens the SQLite database with required pragmas and migrations.
-func Open(path string) (*sql.DB, error) {
+func Open(ctx context.Context, path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -20,7 +21,7 @@ func Open(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	if err := applyPragmas(db); err != nil {
+	if err := applyPragmas(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -31,14 +32,14 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func applyPragmas(db *sql.DB) error {
+func applyPragmas(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
 		"PRAGMA foreign_keys=ON;",
 		"PRAGMA journal_mode=WAL;",
 		"PRAGMA busy_timeout=5000;",
 	}
 	for _, stmt := range stmts {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			if stmt == "PRAGMA journal_mode=WAL;" {
 				log.Warn().Err(err).Msg("sqlite: WAL mode not enabled")
 				continue

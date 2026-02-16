@@ -67,7 +67,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 		}
 	}()
 
-	if err := os.MkdirAll(w.normaDir, 0o755); err != nil {
+	if err := os.MkdirAll(w.normaDir, 0o700); err != nil {
 		return fmt.Errorf("create .norma: %w", err)
 	}
 
@@ -89,7 +89,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	}
 
 	runDir := filepath.Join(w.normaDir, "runs", runID)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return fmt.Errorf("create run dir: %w", err)
 	}
 

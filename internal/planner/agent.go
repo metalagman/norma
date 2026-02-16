@@ -124,7 +124,7 @@ func (p *ExecPlanner) Generate(ctx context.Context, req Request) (Decomposition,
 	defer closeLogs()
 
 	prompt := buildPlanPrompt()
-	if err := os.WriteFile(filepath.Join(planRunDir, "logs", "prompt.txt"), []byte(prompt), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(planRunDir, "logs", "prompt.txt"), []byte(prompt), 0o600); err != nil {
 		return Decomposition{}, "", fmt.Errorf("write prompt log: %w", err)
 	}
 
@@ -132,7 +132,7 @@ func (p *ExecPlanner) Generate(ctx context.Context, req Request) (Decomposition,
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("marshal request: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(planRunDir, "input.json"), reqJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(planRunDir, "input.json"), reqJSON, 0o600); err != nil {
 		return Decomposition{}, "", fmt.Errorf("write input.json: %w", err)
 	}
 
@@ -194,7 +194,7 @@ func (p *ExecPlanner) Generate(ctx context.Context, req Request) (Decomposition,
 
 	outJSON, err := json.MarshalIndent(out, "", "  ")
 	if err == nil {
-		if writeErr := os.WriteFile(filepath.Join(planRunDir, "output.json"), outJSON, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(filepath.Join(planRunDir, "output.json"), outJSON, 0o600); writeErr != nil {
 			log.Warn().Err(writeErr).Msg("failed to write planning output.json")
 		}
 	}
@@ -209,18 +209,18 @@ func (p *ExecPlanner) newPlanRunDir() (string, error) {
 	}
 	runID := fmt.Sprintf("%s-%s", time.Now().UTC().Format("20060102-150405"), sfx)
 	runDir := filepath.Join(p.repoRoot, ".norma", "plans", runID)
-	if err := os.MkdirAll(filepath.Join(runDir, "logs"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(runDir, "logs"), 0o700); err != nil {
 		return "", fmt.Errorf("create planning logs dir: %w", err)
 	}
 	return runDir, nil
 }
 
 func (p *ExecPlanner) openLogFiles(runDir string) (*os.File, *os.File, func(), error) {
-	stdoutFile, err := os.OpenFile(filepath.Join(runDir, "logs", "stdout.txt"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	stdoutFile, err := os.OpenFile(filepath.Join(runDir, "logs", "stdout.txt"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("open planning stdout log: %w", err)
 	}
-	stderrFile, err := os.OpenFile(filepath.Join(runDir, "logs", "stderr.txt"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	stderrFile, err := os.OpenFile(filepath.Join(runDir, "logs", "stderr.txt"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		_ = stdoutFile.Close()
 		return nil, nil, nil, fmt.Errorf("open planning stderr log: %w", err)

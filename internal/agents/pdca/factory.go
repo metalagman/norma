@@ -53,7 +53,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 	}
 
 	stepsDir := filepath.Join(input.RunDir, "steps")
-	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
+	if err := os.MkdirAll(stepsDir, 0o700); err != nil {
 		return runpkg.AgentBuild{}, err
 	}
 
@@ -70,7 +70,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 	}
 
 	// Create the pdca loop agent with plan/do/check/act as direct subagents.
-	la, err := NewLoopAgent(w.cfg, w.store, input, input.BaseBranch, w.cfg.Budgets.MaxIterations)
+	la, err := NewLoopAgent(ctx, w.cfg, w.store, input, input.BaseBranch, w.cfg.Budgets.MaxIterations)
 	if err != nil {
 		return runpkg.AgentBuild{}, fmt.Errorf("create loop agent: %w", err)
 	}
@@ -107,13 +107,15 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 
 	// Persist final task state to tracker from session.
 	taskStateVal, err := stateAny(finalSession.State(), "task_state")
-	if err == nil && taskStateVal != nil {
+	if err == nil {
 		data, err := json.MarshalIndent(taskStateVal, "", "  ")
 		if err == nil {
 			if err := w.tracker.SetNotes(ctx, payload.ID, string(data)); err != nil {
 				l.Warn().Err(err).Str("task_id", payload.ID).Msg("failed to persist task state to tracker in finalize")
 			}
 		}
+	} else if !errors.Is(err, session.ErrStateKeyNotExist) {
+		l.Warn().Err(err).Msg("failed to read task_state from session")
 	}
 
 	verdict, decision, finalIteration, err := parseFinalState(finalSession.State())
@@ -179,10 +181,10 @@ func parseFinalState(state session.State) (string, string, int, error) {
 	}
 
 	taskState, err := stateAny(state, "task_state")
-	if err != nil {
+	if err != nil && !errors.Is(err, session.ErrStateKeyNotExist) {
 		return "", "", 0, err
 	}
-	if taskState != nil {
+	if err == nil {
 		coerced := coerceTaskState(taskState)
 		if verdict == "" && coerced.Check != nil {
 			verdict = strings.TrimSpace(coerced.Check.Verdict.Status)
@@ -217,10 +219,10 @@ func deriveFinalOutcome(verdict, decision string) (status string, effectiveVerdi
 func stateString(state session.State, key string) (string, error) {
 	value, err := stateAny(state, key)
 	if err != nil {
+		if errors.Is(err, session.ErrStateKeyNotExist) {
+			return "", nil
+		}
 		return "", err
-	}
-	if value == nil {
-		return "", nil
 	}
 
 	str, ok := value.(string)
@@ -233,9 +235,6 @@ func stateString(state session.State, key string) (string, error) {
 func stateAny(state session.State, key string) (any, error) {
 	value, err := state.Get(key)
 	if err != nil {
-		if errors.Is(err, session.ErrStateKeyNotExist) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("read session state key %q: %w", key, err)
 	}
 	return value, nil

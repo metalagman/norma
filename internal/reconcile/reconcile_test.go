@@ -19,12 +19,12 @@ func TestRunInsertsMissingStepRecords(t *testing.T) {
 	runDir := filepath.Join(normaDir, "runs", runID)
 	stepDir := filepath.Join(runDir, "steps", "001-plan")
 
-	if err := os.MkdirAll(stepDir, 0o755); err != nil {
+	if err := os.MkdirAll(stepDir, 0o700); err != nil {
 		t.Fatalf("create step dir: %v", err)
 	}
 
 	dbPath := filepath.Join(normaDir, "norma.db")
-	db, err := dbpkg.Open(dbPath)
+	db, err := dbpkg.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -101,12 +101,12 @@ func TestRunSkipsStepDirsForMissingRuns(t *testing.T) {
 	normaDir := filepath.Join(rootDir, ".norma")
 	stepDir := filepath.Join(normaDir, "runs", "missing-run", "steps", "001-plan")
 
-	if err := os.MkdirAll(stepDir, 0o755); err != nil {
+	if err := os.MkdirAll(stepDir, 0o700); err != nil {
 		t.Fatalf("create step dir: %v", err)
 	}
 
 	dbPath := filepath.Join(normaDir, "norma.db")
-	db, err := dbpkg.Open(dbPath)
+	db, err := dbpkg.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

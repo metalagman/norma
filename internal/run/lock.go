@@ -15,10 +15,10 @@ type Lock struct {
 
 // AcquireRunLock tries to acquire the run lock.
 func AcquireRunLock(normaDir string) (*Lock, error) {
-	if err := os.MkdirAll(filepath.Join(normaDir, "locks"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(normaDir, "locks"), 0o700); err != nil {
 		return nil, fmt.Errorf("create locks dir: %w", err)
 	}
-	f, err := os.OpenFile(filepath.Join(normaDir, "locks", "run.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(filepath.Join(normaDir, "locks", "run.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}

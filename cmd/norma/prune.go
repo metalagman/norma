@@ -13,7 +13,7 @@ func pruneCmd() *cobra.Command {
 		Use:   "prune",
 		Short: "Prune all runs, their directories, associated worktrees, and stale norma task branches",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			storeDB, repoRoot, closeFn, err := openDB()
+			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
 			}

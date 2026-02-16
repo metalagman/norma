@@ -96,8 +96,8 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 	// Save prompt to logs/prompt.txt
 	if req.Paths.RunDir != "" {
 		promptPath := filepath.Join(req.Paths.RunDir, "logs", "prompt.txt")
-		_ = os.MkdirAll(filepath.Dir(promptPath), 0o755)
-		if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
+		_ = os.MkdirAll(filepath.Dir(promptPath), 0o700)
+		if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
 			log.Warn().Err(err).Str("path", promptPath).Msg("failed to save prompt log")
 		}
 	}

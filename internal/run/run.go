@@ -107,7 +107,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		}
 	}()
 
-	if err := os.MkdirAll(r.normaDir, 0o755); err != nil {
+	if err := os.MkdirAll(r.normaDir, 0o700); err != nil {
 		return res, fmt.Errorf("create .norma: %w", err)
 	}
 
@@ -125,7 +125,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	}
 
 	runDir := filepath.Join(r.normaDir, "runs", runID)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return res, fmt.Errorf("create run dir: %w", err)
 	}
 
@@ -228,7 +228,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	if err := git.RunCmdErr(ctx, r.repoRoot, "git", "merge", "--squash", branchName); err != nil {
 		_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
 		if restoreErr := restoreStash(); restoreErr != nil {
-			return fmt.Errorf("git merge --squash: %w (failed to restore stashed changes: %v)", err, restoreErr)
+			return fmt.Errorf("git merge --squash: %w (failed to restore stashed changes: %w)", err, restoreErr)
 		}
 		return fmt.Errorf("git merge --squash: %w", err)
 	}
@@ -236,7 +236,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 	if err := git.RunCmdErr(ctx, r.repoRoot, "git", "add", "-A"); err != nil {
 		_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
 		if restoreErr := restoreStash(); restoreErr != nil {
-			return fmt.Errorf("git add -A: %w (failed to restore stashed changes: %v)", err, restoreErr)
+			return fmt.Errorf("git add -A: %w (failed to restore stashed changes: %w)", err, restoreErr)
 		}
 		return fmt.Errorf("git add -A: %w", err)
 	}
@@ -257,7 +257,7 @@ func (r *Runner) applyChanges(ctx context.Context, runID, goal, taskID string) e
 		log.Error().Err(err).Msg("failed to commit merged changes, rolling back")
 		_ = git.RunCmdErr(ctx, r.repoRoot, "git", "reset", "--hard", beforeHash)
 		if restoreErr := restoreStash(); restoreErr != nil {
-			return fmt.Errorf("git commit: %w (failed to restore stashed changes: %v)", err, restoreErr)
+			return fmt.Errorf("git commit: %w (failed to restore stashed changes: %w)", err, restoreErr)
 		}
 		return fmt.Errorf("git commit: %w", err)
 	}

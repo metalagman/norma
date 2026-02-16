@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -44,7 +45,7 @@ func Execute() error {
 			return
 		}
 		if git.Available(cmd.Context(), repoRoot) {
-			if err := initBeads(); err != nil {
+			if err := initBeads(cmd.Context()); err != nil {
 				log.Warn().Err(err).Msg("failed to initialize beads")
 			}
 		}
@@ -59,13 +60,13 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
-func initBeads() error {
+func initBeads(ctx context.Context) error {
 	if _, err := os.Stat(".beads"); err == nil {
 		return nil
 	}
 
 	log.Info().Msg(".beads not found, initializing with prefix 'norma'")
-	cmd := exec.Command("bd", "init", "--prefix", "norma")
+	cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
