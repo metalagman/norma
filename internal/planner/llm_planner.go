@@ -18,6 +18,7 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/genai"
 )
 
 // LLMPlanner implements interactive planning using ADK llmagent.
@@ -47,7 +48,14 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 
 	// Create the Gemini LLM
-	m, err := gemini.NewModel(ctx, modelName, nil)
+	var genaiCfg *genai.ClientConfig
+	if p.cfg.APIKey != "" {
+		genaiCfg = &genai.ClientConfig{
+			APIKey: p.cfg.APIKey,
+		}
+	}
+
+	m, err := gemini.NewModel(ctx, modelName, genaiCfg)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("failed to create gemini model: %w", err)
 	}
