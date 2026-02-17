@@ -11,6 +11,12 @@ import (
 // constructor is a function that creates a new model instance.
 type constructor func(cfg ModelConfig) (model.LLM, error)
 
+var defaultAliasArgs = map[string][]string{
+	ModelTypeGemini:   {"--approval-mode", "yolo"},
+	ModelTypeCodex:    {"exec", "--sandbox", "workspace-write"},
+	ModelTypeOpenCode: {"run"},
+}
+
 var constructors = map[string]constructor{
 	ModelTypeGeminiAIStudio: NewGeminiAIStudio,
 	ModelTypeOpenAI:         NewOpenAI,
@@ -27,7 +33,7 @@ var constructors = map[string]constructor{
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
-		cmd = append(cmd, "--approval-mode", "yolo")
+		cmd = append(cmd, defaultAliasArgs[ModelTypeGemini]...)
 		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
@@ -46,11 +52,11 @@ var constructors = map[string]constructor{
 		})
 	},
 	ModelTypeCodex: func(cfg ModelConfig) (model.LLM, error) {
-		cmd := []string{"codex", "exec"}
+		cmd := []string{"codex"}
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
-		cmd = append(cmd, "--sandbox", "workspace-write")
+		cmd = append(cmd, defaultAliasArgs[ModelTypeCodex]...)
 		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
@@ -58,10 +64,11 @@ var constructors = map[string]constructor{
 		})
 	},
 	ModelTypeOpenCode: func(cfg ModelConfig) (model.LLM, error) {
-		cmd := []string{"opencode", "run"}
+		cmd := []string{"opencode"}
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
+		cmd = append(cmd, defaultAliasArgs[ModelTypeOpenCode]...)
 		cmd = append(cmd, cfg.ExtraArgs...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
