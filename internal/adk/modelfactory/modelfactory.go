@@ -17,7 +17,7 @@ var constructors = map[string]constructor{
 	ModelTypeExec: func(cfg ModelConfig) (model.LLM, error) {
 		return execmodel.New(execmodel.Config{
 			Cmd:    cfg.Cmd,
-			UseTTY: cfg.UseTTY,
+			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
 		})
 	},
 }

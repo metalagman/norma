@@ -4,6 +4,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/metalagman/norma/internal/adk/modelfactory"
 )
 
 // Config is the root configuration.
@@ -16,32 +18,11 @@ type Config struct {
 }
 
 // AgentConfig describes how to run an agent.
-type AgentConfig struct {
-	Type          string        `json:"type"                     mapstructure:"type"`
-	Cmd           []string      `json:"cmd,omitempty"            mapstructure:"cmd"`
-	Model         string        `json:"model,omitempty"          mapstructure:"model"`
-	BaseURL       string        `json:"base_url,omitempty"       mapstructure:"base_url"`
-	APIKey        string        `json:"api_key,omitempty"        mapstructure:"api_key"`
-	Timeout       int           `json:"timeout,omitempty"        mapstructure:"timeout"`
-	Path          string        `json:"path,omitempty"           mapstructure:"path"`
-	UseTTY        *bool         `json:"use_tty,omitempty"        mapstructure:"use_tty"`
-	MaxIterations int           `json:"max_iterations,omitempty" mapstructure:"max_iterations"`
-	SubAgents     []AgentConfig `json:"sub_agents,omitempty"     mapstructure:"sub_agents"`
-}
+type AgentConfig = modelfactory.ModelConfig
 
 // ToModelConfig converts AgentConfig to adk modelfactory.ModelConfig.
-func (c AgentConfig) ToModelConfig() any {
-	// We return any to avoid circular dependency if we imported modelfactory here.
-	// But we can just define a mirror struct or use mapstructure.
-	return map[string]any{
-		"type":     c.Type,
-		"model":    c.Model,
-		"api_key":  c.APIKey,
-		"base_url": c.BaseURL,
-		"cmd":      c.Cmd,
-		"use_tty":  c.UseTTY != nil && *c.UseTTY,
-		"timeout":  c.Timeout,
-	}
+func ToModelConfig(c AgentConfig) modelfactory.ModelConfig {
+	return c
 }
 
 // ProfileConfig describes an agent profile.
@@ -73,12 +54,12 @@ const defaultProfile = "default"
 
 // Supported agent types.
 const (
-	AgentTypeExec     = "exec"
+	AgentTypeExec     = modelfactory.ModelTypeExec
 	AgentTypeCodex    = "codex"
 	AgentTypeOpenCode = "opencode"
 	AgentTypeGemini   = "gemini"
 	AgentTypeClaude   = "claude"
-	AgentTypeOpenAI   = "openai"
+	AgentTypeOpenAI   = modelfactory.ModelTypeOpenAI
 )
 
 // ResolveAgents returns the agents for the selected profile.

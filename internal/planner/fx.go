@@ -40,20 +40,5 @@ func providePlannerModel(
 
 // ToFactoryConfig converts config.Config agents to modelfactory.FactoryConfig.
 func ToFactoryConfig(cfg config.Config) modelfactory.FactoryConfig {
-	fcfg := make(modelfactory.FactoryConfig)
-	for name, ac := range cfg.Agents {
-		mcfg := modelfactory.ModelConfig{
-			Type:    ac.Type,
-			Model:   ac.Model,
-			APIKey:  ac.APIKey,
-			BaseURL: ac.BaseURL,
-			Cmd:     ac.Cmd,
-			Timeout: ac.Timeout,
-		}
-		if ac.UseTTY != nil {
-			mcfg.UseTTY = *ac.UseTTY
-		}
-		fcfg[name] = mcfg
-	}
-	return fcfg
+	return modelfactory.FactoryConfig(cfg.Agents)
 }
