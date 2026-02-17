@@ -3,6 +3,7 @@ package agentfactory
 import (
 	"fmt"
 
+	"github.com/metalagman/norma/internal/agentfactory/execmodel"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
@@ -29,16 +30,16 @@ func NewFactory(config FactoryConfig) *Factory {
 
 func isSupported(agentType string) bool {
 	switch agentType {
-	case AgentTypeGeminiAIStudio, AgentTypeOpenAI:
+	case AgentTypeGeminiAIStudio, AgentTypeOpenAI, AgentTypeExec:
 		return true
 	default:
 		return false
 	}
 }
 
-// CreateLLMModel creates an LLM instance by name.
+// CreateModel creates an LLM instance by name.
 // It returns an error if the agent is not found or its type is unsupported.
-func (f *Factory) CreateLLMModel(name string) (model.LLM, error) {
+func (f *Factory) CreateModel(name string) (model.LLM, error) {
 	cfg, ok := f.registry[name]
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found or unsupported", name)
@@ -49,15 +50,21 @@ func (f *Factory) CreateLLMModel(name string) (model.LLM, error) {
 		return NewGeminiAIStudioLLM(cfg)
 	case AgentTypeOpenAI:
 		return NewOpenAILLM(cfg)
+	case AgentTypeExec:
+		return execmodel.New(execmodel.Config{
+			Name:   name,
+			Cmd:    cfg.Cmd,
+			UseTTY: cfg.UseTTY,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported agent type %q", cfg.Type)
 	}
 }
 
-// CreateLLMAgent creates an agent instance by name.
+// CreateAgent creates an agent instance by name.
 // It returns an error if the agent is not found or its type is unsupported.
-func (f *Factory) CreateLLMAgent(name string, agentName, description, instruction string) (agent.Agent, error) {
-	m, err := f.CreateLLMModel(name)
+func (f *Factory) CreateAgent(name string, agentName, description, instruction string) (agent.Agent, error) {
+	m, err := f.CreateModel(name)
 	if err != nil {
 		return nil, err
 	}

@@ -27,7 +27,7 @@ func TestModule(t *testing.T) {
 	defer app.RequireStart().RequireStop()
 
 	assert.NotNil(t, factory)
-	m, err := factory.CreateLLMModel("gemini")
+	m, err := factory.CreateModel("gemini")
 	assert.NoError(t, err)
 	assert.NotNil(t, m)
 }

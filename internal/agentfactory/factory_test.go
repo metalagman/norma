@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFactory_CreateLLMModel(t *testing.T) {
+func TestFactory_CreateModel(t *testing.T) {
 	tests := []struct {
-		name   string
-		config agentfactory.FactoryConfig
-		target string
+		name    string
+		config  agentfactory.FactoryConfig
+		target  string
 		wantErr string
 	}{
 		{
@@ -37,9 +37,22 @@ func TestFactory_CreateLLMModel(t *testing.T) {
 			target: "o1",
 		},
 		{
+			name: "exec_ok",
+			config: agentfactory.FactoryConfig{
+				"e1": {
+					Type: agentfactory.AgentTypeExec,
+					Cmd:  []string{"echo", "hello"},
+				},
+			},
+			target: "e1",
+		},
+		{
 			name: "not_found",
 			config: agentfactory.FactoryConfig{
-				"g1": {Type: agentfactory.AgentTypeGeminiAIStudio},
+				"g1": {
+					Type:  agentfactory.AgentTypeGeminiAIStudio,
+					Model: "gemini-1.5-pro",
+				},
 			},
 			target:  "other",
 			wantErr: `agent "other" not found`,
@@ -57,7 +70,7 @@ func TestFactory_CreateLLMModel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := agentfactory.NewFactory(tt.config)
-			m, err := f.CreateLLMModel(tt.target)
+			m, err := f.CreateModel(tt.target)
 
 			if tt.wantErr != "" {
 				assert.Error(t, err)
@@ -71,7 +84,7 @@ func TestFactory_CreateLLMModel(t *testing.T) {
 	}
 }
 
-func TestFactory_CreateLLMAgent(t *testing.T) {
+func TestFactory_CreateAgent(t *testing.T) {
 	config := agentfactory.FactoryConfig{
 		"g1": {
 			Type:   agentfactory.AgentTypeGeminiAIStudio,
@@ -81,7 +94,7 @@ func TestFactory_CreateLLMAgent(t *testing.T) {
 	}
 
 	f := agentfactory.NewFactory(config)
-	a, err := f.CreateLLMAgent("g1", "test-agent", "desc", "instr")
+	a, err := f.CreateAgent("g1", "test-agent", "desc", "instr")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, a)
