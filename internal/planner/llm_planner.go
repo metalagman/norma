@@ -17,6 +17,7 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/genai"
 )
 
 // LLMPlanner implements interactive planning using ADK llmagent.
@@ -75,11 +76,12 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 
 	finalSession, err := adkrunner.Run(ctx, adkrunner.RunInput{
-		AppName:      "norma-plan",
-		UserID:       "norma-user",
-		SessionID:    "plan-" + time.Now().Format("150405"),
-		Agent:        plannerAgent,
-		InitialState: initialState,
+		AppName:        "norma-plan",
+		UserID:         "norma-user",
+		SessionID:      "plan-" + time.Now().Format("150405"),
+		Agent:          plannerAgent,
+		InitialState:   initialState,
+		InitialContent: genai.NewContentFromText("Let's start planning.", genai.RoleUser),
 		OnEvent: func(ev *session.Event) {
 			if ev == nil || ev.Content == nil {
 				return

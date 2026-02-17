@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 // Factory builds and finalizes PDCA ADK agents.
@@ -84,9 +85,10 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 	l.Info().Str("task_id", input.TaskID).Str("run_id", input.RunID).Msg("built ADK loop agent")
 
 	return runpkg.AgentBuild{
-		Agent:        la,
-		SessionID:    input.TaskID,
-		InitialState: initialState,
+		Agent:          la,
+		SessionID:      input.TaskID,
+		InitialState:   initialState,
+		InitialContent: genai.NewContentFromText(input.Goal, genai.RoleUser),
 		OnEvent: func(ev *session.Event) {
 			if ev.Content == nil {
 				return

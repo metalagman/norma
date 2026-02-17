@@ -7,16 +7,18 @@ import (
 	"google.golang.org/adk/agent"
 	adk "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 // RunInput defines shared execution parameters for running an ADK agent.
 type RunInput struct {
-	AppName      string
-	UserID       string
-	SessionID    string
-	Agent        agent.Agent
-	InitialState map[string]any
-	OnEvent      func(*session.Event)
+	AppName        string
+	UserID         string
+	SessionID      string
+	Agent          agent.Agent
+	InitialState   map[string]any
+	InitialContent *genai.Content
+	OnEvent        func(*session.Event)
 }
 
 // Run executes an ADK agent and returns the final session state.
@@ -54,7 +56,7 @@ func Run(ctx context.Context, input RunInput) (session.Session, error) {
 		return nil, fmt.Errorf("create ADK session: %w", err)
 	}
 
-	events := r.Run(ctx, userID, created.Session.ID(), nil, agent.RunConfig{})
+	events := r.Run(ctx, userID, created.Session.ID(), input.InitialContent, agent.RunConfig{})
 	for ev, runErr := range events {
 		if runErr != nil {
 			return nil, runErr

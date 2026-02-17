@@ -126,12 +126,13 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	}
 
 	finalSession, err := adkrunner.Run(ctx, adkrunner.RunInput{
-		AppName:      "norma",
-		UserID:       "norma-user",
-		SessionID:    build.SessionID,
-		Agent:        build.Agent,
-		InitialState: build.InitialState,
-		OnEvent:      build.OnEvent,
+		AppName:        "norma",
+		UserID:         "norma-user",
+		SessionID:      build.SessionID,
+		Agent:          build.Agent,
+		InitialState:   build.InitialState,
+		InitialContent: build.InitialContent,
+		OnEvent:        build.OnEvent,
 	})
 	if err != nil {
 		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)

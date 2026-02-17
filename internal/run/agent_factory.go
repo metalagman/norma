@@ -6,6 +6,7 @@ import (
 	"github.com/metalagman/norma/internal/task"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 // RunMeta contains shared run metadata.
@@ -25,10 +26,11 @@ type TaskPayload struct {
 
 // AgentBuild describes an ADK agent build for a task run.
 type AgentBuild struct {
-	Agent        agent.Agent
-	SessionID    string
-	InitialState map[string]any
-	OnEvent      func(*session.Event)
+	Agent          agent.Agent
+	SessionID      string
+	InitialState   map[string]any
+	InitialContent *genai.Content
+	OnEvent        func(*session.Event)
 }
 
 // AgentOutcome summarizes the run outcome.

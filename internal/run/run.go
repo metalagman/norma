@@ -154,12 +154,13 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	}
 
 	finalSession, err := adkrunner.Run(ctx, adkrunner.RunInput{
-		AppName:      "norma",
-		UserID:       "norma-user",
-		SessionID:    build.SessionID,
-		Agent:        build.Agent,
-		InitialState: build.InitialState,
-		OnEvent:      build.OnEvent,
+		AppName:        "norma",
+		UserID:         "norma-user",
+		SessionID:      build.SessionID,
+		Agent:          build.Agent,
+		InitialState:   build.InitialState,
+		InitialContent: build.InitialContent,
+		OnEvent:        build.OnEvent,
 	})
 	if err != nil {
 		return res, fmt.Errorf("execute ADK agent: %w", err)
