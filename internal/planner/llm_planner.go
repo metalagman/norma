@@ -185,15 +185,8 @@ func handlePersistPlan(tctx tool.Context, dec Decomposition) (string, error) {
 		return "", fmt.Errorf("validation failed: %w", err)
 	}
 
-	type sessioner interface {
-		Session() session.Session
-	}
-	if s, ok := tctx.(sessioner); ok {
-		if err := s.Session().State().Set("decomposition", dec); err != nil {
-			return "", err
-		}
-	} else {
-		return "", fmt.Errorf("internal error: could not access session from tool context")
+	if err := tctx.State().Set("decomposition", dec); err != nil {
+		return "", fmt.Errorf("failed to set decomposition in state: %w", err)
 	}
 
 	return "Plan persisted successfully. You can now finish the session.", nil
