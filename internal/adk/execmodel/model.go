@@ -77,6 +77,11 @@ func (m *Model) Name() string {
 	return "exec"
 }
 
+// SetName sets the model name.
+func (m *Model) SetName(name string) {
+	m.cfg.Name = name
+}
+
 // GenerateContent executes the command using ainvoke.
 func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {

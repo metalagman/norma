@@ -14,21 +14,21 @@ import (
 	"google.golang.org/genai"
 )
 
-var _ model.LLM = (*OpenAI)(nil)
+var _ model.LLM = (*openAI)(nil)
 
-// OpenAI implements model.LLM using the OpenAI Responses API.
-type OpenAI struct {
+// openAI implements model.LLM using the OpenAI Responses API.
+type openAI struct {
 	client *openai.Client
 	model  string
 }
 
 // Name returns the model name.
-func (m *OpenAI) Name() string {
+func (m *openAI) Name() string {
 	return "openai"
 }
 
 // GenerateContent executes a request against the OpenAI Responses API.
-func (m *OpenAI) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
+func (m *openAI) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
 		if stream {
 			yield(nil, fmt.Errorf("streaming is not supported by OpenAI Responses API"))
@@ -96,7 +96,7 @@ func NewOpenAI(cfg ModelConfig) (model.LLM, error) {
 
 	client := openai.NewClient(opts...)
 
-	return &OpenAI{
+	return &openAI{
 		client: &client,
 		model:  cfg.Model,
 	}, nil

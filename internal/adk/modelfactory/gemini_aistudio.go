@@ -9,21 +9,21 @@ import (
 	"google.golang.org/genai"
 )
 
-var _ model.LLM = (*GeminiAIStudio)(nil)
+var _ model.LLM = (*geminiAIStudio)(nil)
 
-// GeminiAIStudio implements model.LLM using the Google GenAI SDK for AI Studio.
-type GeminiAIStudio struct {
+// geminiAIStudio implements model.LLM using the Google GenAI SDK for AI Studio.
+type geminiAIStudio struct {
 	client *genai.Client
 	model  string
 }
 
 // Name returns the model name.
-func (m *GeminiAIStudio) Name() string {
+func (m *geminiAIStudio) Name() string {
 	return "gemini_aistudio"
 }
 
 // GenerateContent executes a request against the Gemini AI Studio API.
-func (m *GeminiAIStudio) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
+func (m *geminiAIStudio) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
 		config := &genai.GenerateContentConfig{}
 		if req.Config != nil {
@@ -80,7 +80,7 @@ func NewGeminiAIStudio(cfg ModelConfig) (model.LLM, error) {
 		return nil, fmt.Errorf("create genai client: %w", err)
 	}
 
-	return &GeminiAIStudio{
+	return &geminiAIStudio{
 		client: client,
 		model:  cfg.Model,
 	}, nil

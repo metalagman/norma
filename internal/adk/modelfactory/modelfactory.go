@@ -1,3 +1,4 @@
+// Package modelfactory provides a registry and factory for creating ADK-compatible models.
 package modelfactory
 
 import (
@@ -6,6 +7,20 @@ import (
 	"github.com/metalagman/norma/internal/adk/execmodel"
 	"google.golang.org/adk/model"
 )
+
+// constructor is a function that creates a new model instance.
+type constructor func(cfg ModelConfig) (model.LLM, error)
+
+var constructors = map[string]constructor{
+	ModelTypeGeminiAIStudio: NewGeminiAIStudio,
+	ModelTypeOpenAI:         NewOpenAI,
+	ModelTypeExec: func(cfg ModelConfig) (model.LLM, error) {
+		return execmodel.New(execmodel.Config{
+			Cmd:    cfg.Cmd,
+			UseTTY: cfg.UseTTY,
+		})
+	},
+}
 
 // Factory is a registry of models and their configurations.
 type Factory struct {
@@ -27,12 +42,8 @@ func NewFactory(config FactoryConfig) *Factory {
 }
 
 func isSupported(modelType string) bool {
-	switch modelType {
-	case ModelTypeGeminiAIStudio, ModelTypeOpenAI, ModelTypeExec:
-		return true
-	default:
-		return false
-	}
+	_, ok := constructors[modelType]
+	return ok
 }
 
 // CreateModel creates an LLM instance by name.
@@ -43,18 +54,21 @@ func (f *Factory) CreateModel(name string) (model.LLM, error) {
 		return nil, fmt.Errorf("model %q not found or unsupported", name)
 	}
 
-	switch cfg.Type {
-	case ModelTypeGeminiAIStudio:
-		return NewGeminiAIStudio(cfg)
-	case ModelTypeOpenAI:
-		return NewOpenAI(cfg)
-	case ModelTypeExec:
-		return execmodel.New(execmodel.Config{
-			Name:   name,
-			Cmd:    cfg.Cmd,
-			UseTTY: cfg.UseTTY,
-		})
-	default:
-		return nil, fmt.Errorf("unsupported model type %q", cfg.Type)
+	create, ok := constructors[cfg.Type]
+	if !ok {
+		// Should not happen if NewFactory filters supported types correctly.
+		return nil, fmt.Errorf("unsupported model type %q for model %q", cfg.Type, name)
 	}
+
+	m, err := create(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create model %q: %w", name, err)
+	}
+
+	// Some models (like execmodel) can have their name overridden by the config key.
+	if nm, ok := m.(interface{ SetName(string) }); ok {
+		nm.SetName(name)
+	}
+
+	return m, nil
 }
