@@ -55,10 +55,10 @@ const defaultProfile = "default"
 // Supported agent types.
 const (
 	AgentTypeExec     = modelfactory.ModelTypeExec
-	AgentTypeCodex    = "codex"
-	AgentTypeOpenCode = "opencode"
-	AgentTypeGemini   = modelfactory.ModelTypeGeminiAIStudio
-	AgentTypeClaude   = "claude"
+	AgentTypeCodex    = modelfactory.ModelTypeCodex
+	AgentTypeOpenCode = modelfactory.ModelTypeOpenCode
+	AgentTypeGemini   = modelfactory.ModelTypeGemini
+	AgentTypeClaude   = modelfactory.ModelTypeClaude
 	AgentTypeOpenAI   = modelfactory.ModelTypeOpenAI
 )
 

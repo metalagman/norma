@@ -20,6 +20,48 @@ var constructors = map[string]constructor{
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
 		})
 	},
+	ModelTypeGemini: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := []string{"gemini"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		cmd = append(cmd, "--approval-mode", "yolo")
+		return execmodel.New(execmodel.Config{
+			Cmd:    cmd,
+			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
+		})
+	},
+	ModelTypeClaude: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := []string{"claude"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		return execmodel.New(execmodel.Config{
+			Cmd:    cmd,
+			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
+		})
+	},
+	ModelTypeCodex: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := []string{"codex", "exec"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		cmd = append(cmd, "--sandbox", "workspace-write")
+		return execmodel.New(execmodel.Config{
+			Cmd:    cmd,
+			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
+		})
+	},
+	ModelTypeOpenCode: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := []string{"opencode", "run"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		return execmodel.New(execmodel.Config{
+			Cmd:    cmd,
+			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
+		})
+	},
 }
 
 // Factory is a registry of models and their configurations.

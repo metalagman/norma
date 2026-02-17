@@ -21,4 +21,13 @@ const (
 	ModelTypeOpenAI = "openai"
 	// ModelTypeExec is the type for executive models.
 	ModelTypeExec = "exec"
+
+	// ModelTypeGemini is the alias for gemini CLI.
+	ModelTypeGemini = "gemini"
+	// ModelTypeClaude is the alias for claude CLI.
+	ModelTypeClaude = "claude"
+	// ModelTypeCodex is the alias for codex CLI.
+	ModelTypeCodex = "codex"
+	// ModelTypeOpenCode is the alias for opencode CLI.
+	ModelTypeOpenCode = "opencode"
 )

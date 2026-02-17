@@ -47,6 +47,46 @@ func TestFactory_CreateModel(t *testing.T) {
 			target: "e1",
 		},
 		{
+			name: "gemini_alias_ok",
+			config: modelfactory.FactoryConfig{
+				"g_alias": {
+					Type:  modelfactory.ModelTypeGemini,
+					Model: "gemini-3-flash-preview",
+				},
+			},
+			target: "g_alias",
+		},
+		{
+			name: "claude_alias_ok",
+			config: modelfactory.FactoryConfig{
+				"c_alias": {
+					Type:  modelfactory.ModelTypeClaude,
+					Model: "claude-3-opus",
+				},
+			},
+			target: "c_alias",
+		},
+		{
+			name: "codex_alias_ok",
+			config: modelfactory.FactoryConfig{
+				"cx_alias": {
+					Type:  modelfactory.ModelTypeCodex,
+					Model: "codex-v2",
+				},
+			},
+			target: "cx_alias",
+		},
+		{
+			name: "opencode_alias_ok",
+			config: modelfactory.FactoryConfig{
+				"oc_alias": {
+					Type:  modelfactory.ModelTypeOpenCode,
+					Model: "opencode-7b",
+				},
+			},
+			target: "oc_alias",
+		},
+		{
 			name: "not_found",
 			config: modelfactory.FactoryConfig{
 				"g1": {
