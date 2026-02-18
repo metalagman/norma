@@ -43,6 +43,13 @@ linters:
         - name: exported
           disabled: true
 
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: []
+
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
