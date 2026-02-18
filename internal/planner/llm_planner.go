@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/metalagman/norma/internal/adkrunner"
@@ -75,7 +76,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		"epic_description": req.EpicDescription,
 	}
 
-	finalSession, err := adkrunner.Run(ctx, adkrunner.RunInput{
+	finalSession, lastContent, err := adkrunner.Run(ctx, adkrunner.RunInput{
 		AppName:        "norma-plan",
 		UserID:         "norma-user",
 		SessionID:      "plan-" + time.Now().Format("150405"),
@@ -98,19 +99,35 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 
 	// Extract decomposition from session state
-	decVal, err := finalSession.State().Get("decomposition")
-	if err != nil {
-		return Decomposition{}, "", fmt.Errorf("decomposition not found in session state: %w", err)
-	}
-
-	decBytes, err := json.Marshal(decVal)
-	if err != nil {
-		return Decomposition{}, "", fmt.Errorf("marshal decomposition from state: %w", err)
-	}
-
 	var dec Decomposition
-	if err := json.Unmarshal(decBytes, &dec); err != nil {
-		return Decomposition{}, "", fmt.Errorf("unmarshal decomposition: %w", err)
+	decVal, err := finalSession.State().Get("decomposition")
+	if err == nil {
+		decBytes, err := json.Marshal(decVal)
+		if err != nil {
+			return Decomposition{}, "", fmt.Errorf("marshal decomposition from state: %w", err)
+		}
+		if err := json.Unmarshal(decBytes, &dec); err != nil {
+			return Decomposition{}, "", fmt.Errorf("unmarshal decomposition: %w", err)
+		}
+	} else {
+		// Fallback: try to parse from the last content received
+		if lastContent == nil {
+			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and no model response received: %w", err)
+		}
+		found := false
+		for _, part := range lastContent.Parts {
+			if part.Text != "" {
+				// Try to find JSON in the text
+				if jsonDec, parseErr := parseJSONFromText(part.Text); parseErr == nil {
+					dec = jsonDec
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and could not parse from last model response: %w", err)
+		}
 	}
 
 	if err := dec.Validate(); err != nil {
@@ -151,6 +168,7 @@ Workflow:
 4. If you need more information or clarification to create a high-quality, executable plan, use the 'human' tool again.
 5. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'persist_plan' tool to save the plan.
 6. Do NOT finish the session until you have called 'persist_plan' with a valid decomposition.
+7. If your environment does not support tool calling, output the final decomposition as a single JSON code block at the end of your response.
 
 Planning Rules:
 - Every task must be executable and include:
@@ -198,4 +216,25 @@ func randomHex(bytesLen int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func parseJSONFromText(text string) (Decomposition, error) {
+	// Try to find markdown code block
+	if start := strings.Index(text, "```json"); start != -1 {
+		content := text[start+7:]
+		if end := strings.Index(content, "```"); end != -1 {
+			text = content[:end]
+		}
+	} else if start := strings.Index(text, "{"); start != -1 {
+		// Fallback to first { and last }
+		if end := strings.LastIndex(text, "}"); end != -1 && end > start {
+			text = text[start : end+1]
+		}
+	}
+
+	var dec Decomposition
+	if err := json.Unmarshal([]byte(text), &dec); err != nil {
+		return Decomposition{}, err
+	}
+	return dec, nil
 }

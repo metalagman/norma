@@ -125,7 +125,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 		return fmt.Errorf("build run agent: %w", err)
 	}
 
-	finalSession, err := adkrunner.Run(ctx, adkrunner.RunInput{
+	finalSession, _, err := adkrunner.Run(ctx, adkrunner.RunInput{
 		AppName:        "norma",
 		UserID:         "norma-user",
 		SessionID:      build.SessionID,

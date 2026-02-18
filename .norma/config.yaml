@@ -19,7 +19,7 @@ agents:
     api_key: ${GOOGLE_API_KEY}
   openai_primary:
     type: openai
-    model: gpt-5.3-codex
+    model: gpt-5.2-codex
     api_key: ${OPENAI_API_KEY}
     timeout: 60
 
@@ -30,7 +30,7 @@ profiles:
       do: ainvoke_opencode_agent
       check: ainvoke_codex_agent
       act: ainvoke_codex_agent
-    planner: gemini_primary
+    planner: openai_primary
   codex:
     pdca:
       plan: ainvoke_codex_agent

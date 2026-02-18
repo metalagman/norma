@@ -153,7 +153,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 		return res, fmt.Errorf("build run agent: nil agent")
 	}
 
-	finalSession, err := adkrunner.Run(ctx, adkrunner.RunInput{
+	finalSession, _, err := adkrunner.Run(ctx, adkrunner.RunInput{
 		AppName:        "norma",
 		UserID:         "norma-user",
 		SessionID:      build.SessionID,
