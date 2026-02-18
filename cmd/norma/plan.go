@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -15,9 +16,9 @@ import (
 
 func planCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "plan",
-		Short:        "Interactively decompose an epic into features and tasks and persist them to Beads",
-		Args:         cobra.NoArgs,
+		Use:   "plan [epic goal]",
+		Short: "Interactively decompose an epic into features and tasks and persist them to Beads",
+		Args:  cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repoRoot, err := os.Getwd()
@@ -33,7 +34,24 @@ func planCmd() *cobra.Command {
 				return err
 			}
 
-			req := planner.Request{}
+			epicDescription := ""
+			if len(args) > 0 {
+				epicDescription = args[0]
+			} else {
+				fmt.Print("What do you want to build? Please describe the project goal (the epic): ")
+				var scanner = bufio.NewScanner(os.Stdin)
+				if scanner.Scan() {
+					epicDescription = scanner.Text()
+				}
+			}
+
+			if epicDescription == "" {
+				return fmt.Errorf("epic description is required")
+			}
+
+			req := planner.Request{
+				EpicDescription: epicDescription,
+			}
 
 			app := fx.New(
 				fx.Provide(func() context.Context { return cmd.Context() }),
