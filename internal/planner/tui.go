@@ -30,6 +30,7 @@ var (
 
 type eventMsg *session.Event
 type humanRequestMsg string
+type planFinishedMsg Decomposition
 
 type plannerModel struct {
 	viewport    viewport.Model
@@ -44,6 +45,7 @@ type plannerModel struct {
 	responseChan chan<- string
 
 	waitingForHuman bool
+	finishedPlan    *Decomposition
 	err             error
 }
 
@@ -112,6 +114,9 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.finishedPlan != nil {
+			return m, tea.Quit
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
@@ -156,6 +161,38 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 		return m, nil
 
+	case planFinishedMsg:
+		plan := Decomposition(msg)
+		m.finishedPlan = &plan
+		m.waitingForHuman = false
+		
+		// Render final plan into history
+		var sb strings.Builder
+		sb.WriteString("\n# Final Plan Generated and Persisted\n\n")
+		sb.WriteString(fmt.Sprintf("## Epic: %s\n\n%s\n\n", plan.Epic.Title, plan.Epic.Description))
+		
+		for _, f := range plan.Features {
+			sb.WriteString(fmt.Sprintf("### Feature: %s\n\n%s\n\n", f.Title, f.Description))
+			for _, t := range f.Tasks {
+				sb.WriteString(fmt.Sprintf("#### Task: %s\n", t.Title))
+				sb.WriteString(fmt.Sprintf("- **Objective:** %s\n", t.Objective))
+				sb.WriteString(fmt.Sprintf("- **Artifact:** %s\n", t.Artifact))
+				sb.WriteString("- **Verify:**\n")
+				for _, v := range t.Verify {
+					sb.WriteString(fmt.Sprintf("  - %s\n", v))
+				}
+				if t.Notes != "" {
+					sb.WriteString(fmt.Sprintf("- **Notes:** %s\n", t.Notes))
+				}
+				sb.WriteString("\n")
+			}
+		}
+
+		rendered, _ := m.renderer.Render(sb.String())
+		m.history.WriteString(rendered)
+		m.updateViewport()
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.viewport.Width = msg.Width
 		m.viewport.Height = msg.Height - 6 // leave space for header and input
@@ -186,9 +223,12 @@ func (m *plannerModel) View() string {
 	}
 
 	s := fmt.Sprintf("%s\n\n%s\n\n", titleStyle.Render("Norma Planner"), m.viewport.View())
-	if m.waitingForHuman {
+	switch {
+	case m.finishedPlan != nil:
+		s += titleStyle.Render("Plan persisted! Press any key to exit.")
+	case m.waitingForHuman:
 		s += m.textinput.View()
-	} else {
+	default:
 		s += infoStyle.Render("Thinking...")
 	}
 	return s

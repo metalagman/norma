@@ -118,15 +118,10 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 
 	// Signal end of session to TUI
 	close(p.eventChan)
-	prog.Quit()
 
 	if err != nil {
+		prog.Quit()
 		return Decomposition{}, "", fmt.Errorf("planning run failed: %w", err)
-	}
-
-	// Wait for TUI to finish
-	if tuiErr := <-tuiErrChan; tuiErr != nil {
-		return Decomposition{}, "", fmt.Errorf("TUI error: %w", tuiErr)
 	}
 
 	// Extract decomposition from session state
@@ -135,14 +130,17 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	if err == nil {
 		decBytes, err := json.Marshal(decVal)
 		if err != nil {
+			prog.Quit()
 			return Decomposition{}, "", fmt.Errorf("marshal decomposition from state: %w", err)
 		}
 		if err := json.Unmarshal(decBytes, &dec); err != nil {
+			prog.Quit()
 			return Decomposition{}, "", fmt.Errorf("unmarshal decomposition: %w", err)
 		}
 	} else {
 		// Fallback: try to parse from the last content received
 		if lastContent == nil {
+			prog.Quit()
 			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and no model response received: %w", err)
 		}
 		found := false
@@ -157,12 +155,22 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 			}
 		}
 		if !found {
+			prog.Quit()
 			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and could not parse from last model response: %w", err)
 		}
 	}
 
 	if err := dec.Validate(); err != nil {
+		prog.Quit()
 		return Decomposition{}, "", fmt.Errorf("invalid decomposition: %w", err)
+	}
+
+	// Send decomposition to TUI
+	prog.Send(planFinishedMsg(dec))
+
+	// Wait for TUI to finish
+	if tuiErr := <-tuiErrChan; tuiErr != nil {
+		return Decomposition{}, "", fmt.Errorf("TUI error: %w", tuiErr)
 	}
 
 	// Save output.json

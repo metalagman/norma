@@ -81,15 +81,7 @@ func runPlan(
 		return err
 	}
 
-	fmt.Printf("\nPlan generated and persisted to Beads.\n")
-	fmt.Printf("Epic: %s (%s)\n", applied.EpicID, applied.EpicTitle)
-	for i, feature := range applied.Features {
-		fmt.Printf("Feature %d: %s (%s)\n", i+1, feature.FeatureID, feature.FeatureTitle)
-		for _, task := range feature.Tasks {
-			fmt.Printf("  - Task: %s: %s\n", task.TaskID, task.TaskTitle)
-			fmt.Printf("    Goal: %s\n", task.TaskGoal)
-		}
-	}
+	fmt.Printf("\nPlan persisted to Beads: %s\n", applied.EpicID)
 	fmt.Printf("Planning artifacts: %s\n", runDir)
 
 	return shutdown.Shutdown()
