@@ -97,6 +97,12 @@ retention:
 
 You can override config values through environment variables with the `NORMA_` prefix.
 
+## 📖 Documentation
+
+- [Planner and Interactive Planning](docs/planner.md)
+- [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
+- [NormaLoop Orchestration](docs/normaloop-agent.md)
+
 ### 4. Create a Task & Run
 ```bash
 # Add a task to Beads

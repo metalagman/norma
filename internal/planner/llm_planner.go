@@ -67,12 +67,21 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		return Decomposition{}, "", fmt.Errorf("create persist tool: %w", err)
 	}
 
+	shell := NewShellTool(p.repoRoot)
+	shellTool, err := functiontool.New(functiontool.Config{
+		Name:        "run_shell_command",
+		Description: "Run a shell command for project inspection. Available commands: ls, grep, cat, find, tree, git, go, bd, echo. No pipes or redirects allowed.",
+	}, shell.Run)
+	if err != nil {
+		return Decomposition{}, "", fmt.Errorf("create shell tool: %w", err)
+	}
+
 	// Create the llmagent
 	plannerAgent, err := llmagent.New(llmagent.Config{
 		Name:        "NormaPlanner",
 		Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
 		Model:       p.model,
-		Tools:       []tool.Tool{humanTool, persistTool},
+		Tools:       []tool.Tool{humanTool, persistTool, shellTool},
 		Instruction: buildLLMPlanPrompt(),
 	})
 	if err != nil {
@@ -203,17 +212,24 @@ Your job is to decompose a project goal (epic) into a Beads-ready hierarchy:
 Workflow:
 1. If the project goal (epic) is provided in the first message, proceed to decomposition.
 2. If the goal is missing, empty, or too vague, you MUST use the 'human' tool to ask the user what they want to build.
-3. Decompose the goal into features and tasks.
-4. If you need more information or clarification to create a high-quality, executable plan, you MUST use the 'human' tool.
-5. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'persist_plan' tool to save the plan.
-6. Do NOT finish the session until you have called 'persist_plan' with a valid decomposition.
-7. If your environment does not support tool calling, output the final decomposition as a single JSON code block at the end of your response.
+3. Use 'run_shell_command' to inspect the current project state (files, structure, code) to make informed planning decisions.
+4. Decompose the goal into features and tasks.
+5. If you need more information or clarification to create a high-quality, executable plan, you MUST use the 'human' tool.
+6. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'persist_plan' tool to save the plan.
+7. Do NOT finish the session until you have called 'persist_plan' with a valid decomposition.
+8. If your environment does not support tool calling, output the final decomposition as a single JSON code block at the end of your response.
 
 CRITICAL RULES:
 - NEVER ask the user a question using plain text.
 - ALWAYS use the 'human' tool for ANY interaction with the user.
+- Use 'run_shell_command' to understand the codebase before planning.
 - The session MUST remain active until 'persist_plan' is successfully called.
 - If you just output text without calling a tool, the session will terminate and the plan will be lost.
+
+Tool: run_shell_command
+- Allowed commands: ls, grep, cat, find, tree, git, go, bd, echo.
+- NO pipes (|), redirects (>, >>), or command chaining (&&, ||, ;, &) allowed.
+- Use this to explore the project structure and existing code.
 
 Planning Rules:
 - Every task must be executable and include:

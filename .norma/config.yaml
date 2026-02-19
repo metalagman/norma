@@ -13,6 +13,9 @@ agents:
   ainvoke_opencode_agent:
     type: opencode
     model: opencode/big-pickle
+  ainvoke_opencode_minimax:
+    type: opencode
+    model: opencode/minimax-m2.5-free
   gemini_primary:
     type: gemini_aistudio
     model: gemini-2.5-flash-lite
@@ -47,13 +50,20 @@ profiles:
       check: ainvoke_opencode_agent
       act: ainvoke_opencode_agent
     planner: ainvoke_opencode_agent
+  minimax:
+    pdca:
+      plan: ainvoke_opencode_minimax
+      do: ainvoke_opencode_minimax
+      check: ainvoke_opencode_minimax
+      act: ainvoke_opencode_minimax
+    planner: ainvoke_opencode_minimax
   gemini:
     pdca:
-      plan: gemini_primary
-      do: gemini_primary
-      check: gemini_primary
-      act: gemini_primary
-    planner: gemini_primary
+      plan: ainvoke_gemini_agent
+      do: ainvoke_gemini_agent
+      check: ainvoke_gemini_agent
+      act: ainvoke_gemini_agent
+    planner: ainvoke_gemini_agent
   openai:
     pdca:
       plan: openai_primary
