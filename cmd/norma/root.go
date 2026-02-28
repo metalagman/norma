@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -19,9 +20,16 @@ import (
 )
 
 var (
-	cfgFile string
-	debug   bool
-	profile string
+	cfgFile      string
+	debug        bool
+	profile      string
+	runBeadsInit = func(ctx context.Context, repoRoot string) error {
+		cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
+		cmd.Dir = repoRoot
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
 	rootCmd = &cobra.Command{
 		Use:   "norma",
 		Short: "norma is a minimal agent workflow runner",
@@ -70,15 +78,25 @@ func initDotEnv() {
 }
 
 func initBeads(ctx context.Context) error {
-	if _, err := os.Stat(".beads"); err == nil {
-		return nil
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current working directory: %w", err)
 	}
 
-	log.Info().Msg(".beads not found, initializing with prefix 'norma'")
-	cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	topLevelOut, err := git.RunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--show-toplevel")
+	if err == nil {
+		repoRoot = strings.TrimSpace(topLevelOut)
+	}
+
+	beadsPath := filepath.Join(repoRoot, ".beads")
+	if _, err := os.Stat(beadsPath); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("stat beads dir %q: %w", beadsPath, err)
+	}
+
+	log.Info().Str("path", beadsPath).Msg(".beads not found, initializing with prefix 'norma'")
+	return runBeadsInit(ctx, repoRoot)
 }
 
 func initConfig() {
