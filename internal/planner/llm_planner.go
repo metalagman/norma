@@ -51,7 +51,9 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 	eventChan := make(chan *session.Event, 100)
 	questionChan := make(chan string)
+	confirmationChan := make(chan Decomposition)
 	responseChan := make(chan string)
+	confirmChan := make(chan bool)
 
 	humanTool, err := llmtools.NewHumanTool(func(question string) (string, error) {
 		select {
@@ -71,9 +73,40 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		return Decomposition{}, "", fmt.Errorf("create human tool: %w", err)
 	}
 
-	persistTool, err := llmtools.NewPersistPlanTool(p.handlePersistPlan)
+	beadsTool, err := llmtools.NewBeadsCommandTool(p.repoRoot, func(tctx tool.Context, rawPlan json.RawMessage) (string, error) {
+		var dec Decomposition
+		if err := json.Unmarshal(rawPlan, &dec); err != nil {
+			return "", fmt.Errorf("unmarshal decomposition: %w", err)
+		}
+		if err := dec.Validate(); err != nil {
+			return "", fmt.Errorf("invalid decomposition: %w", err)
+		}
+
+		// Ask for confirmation
+		select {
+		case confirmationChan <- dec:
+		case <-runCtx.Done():
+			return "", runCtx.Err()
+		}
+
+		select {
+		case confirmed := <-confirmChan:
+			if !confirmed {
+				return "User rejected the plan. Please refine it based on previous discussions or ask for clarification.", nil
+			}
+		case <-runCtx.Done():
+			return "", runCtx.Err()
+		}
+
+		// Persist to state
+		if err := tctx.State().Set("decomposition", dec); err != nil {
+			return "", fmt.Errorf("failed to set decomposition in state: %w", err)
+		}
+
+		return "Plan confirmed and staged for persistence. You can now finish the session.", nil
+	})
 	if err != nil {
-		return Decomposition{}, "", fmt.Errorf("create persist tool: %w", err)
+		return Decomposition{}, "", fmt.Errorf("create beads tool: %w", err)
 	}
 
 	shellTool, err := llmtools.NewShellCommandTool(p.repoRoot)
@@ -86,7 +119,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		Name:        "NormaPlanner",
 		Description: "Interactive Norma planning agent that decomposes epics into features and tasks.",
 		Model:       p.model,
-		Tools:       []tool.Tool{humanTool, persistTool, shellTool},
+		Tools:       []tool.Tool{humanTool, shellTool, beadsTool},
 		Instruction: buildLLMPlanPrompt(),
 	})
 	if err != nil {
@@ -94,7 +127,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 
 	// Start TUI in a goroutine
-	tuiModel, err := newPlannerModel(eventChan, questionChan, responseChan, cancel)
+	tuiModel, err := newPlannerModel(eventChan, questionChan, confirmationChan, responseChan, confirmChan, cancel)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create TUI model: %w", err)
 	}
@@ -136,7 +169,11 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	if req.EpicDescription != "" {
 		initialContent = fmt.Sprintf("Let's start planning for the following project goal: %s", req.EpicDescription)
 	}
-	var eventDecompositions []Decomposition
+	var (
+		eventDecompositions []Decomposition
+		turnText            strings.Builder
+		lastCompleteTurn    string
+	)
 
 	finalSession, lastContent, err := adkrunner.Run(runCtx, adkrunner.RunInput{
 		AppName:        "norma-plan",
@@ -149,6 +186,18 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 			if ev != nil && ev.Content != nil {
 				if dec, parseErr := extractDecompositionFromContent(ev.Content); parseErr == nil {
 					eventDecompositions = append(eventDecompositions, dec)
+				}
+				if chunk := extractTextFromContent(ev.Content); chunk != "" {
+					turnText.WriteString(chunk)
+				}
+				if ev.TurnComplete || !ev.Partial {
+					if fullTurn := strings.TrimSpace(turnText.String()); fullTurn != "" {
+						lastCompleteTurn = fullTurn
+						if dec, parseErr := parseJSONFromText(fullTurn); parseErr == nil {
+							eventDecompositions = append(eventDecompositions, dec)
+						}
+					}
+					turnText.Reset()
 				}
 			}
 			select {
@@ -196,14 +245,21 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		// Fallback 1: decode from persist_plan tool call observed in event stream.
 		dec = eventDecompositions[len(eventDecompositions)-1]
 	} else if stateErr != nil {
-		// Fallback 2: parse from last content (function call or JSON text).
-		if lastContent == nil {
+		// Fallback 2: parse from complete streamed model text when available.
+		streamRemainder := strings.TrimSpace(turnText.String())
+		lastContentText := strings.TrimSpace(extractTextFromContent(lastContent))
+		contentDec, parseErr := parseDecompositionFromCandidates(
+			lastCompleteTurn,
+			streamRemainder,
+			lastContentText,
+		)
+		switch {
+		case parseErr == nil:
+			dec = contentDec
+		case strings.TrimSpace(lastCompleteTurn) == "" && streamRemainder == "" && lastContentText == "":
 			_ = quitAndWaitTUI()
 			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and no model response received: %w", stateErr)
-		}
-		if contentDec, parseErr := extractDecompositionFromContent(lastContent); parseErr == nil {
-			dec = contentDec
-		} else {
+		default:
 			_ = quitAndWaitTUI()
 			return Decomposition{}, "", fmt.Errorf("decomposition not found in session state and could not parse from last model response (%v): %w", parseErr, stateErr)
 		}
@@ -252,25 +308,34 @@ Your job is to decompose a project goal (epic) into a Beads-ready hierarchy:
 Workflow:
 1. If the project goal (epic) is provided in the first message, proceed to decomposition.
 2. If the goal is missing, empty, or too vague, you MUST use the 'human' tool to ask the user what they want to build.
-3. Use 'run_shell_command' to inspect the current project state (files, structure, code) to make informed planning decisions.
-4. Decompose the goal into features and tasks.
-5. If you need more information or clarification to create a high-quality, executable plan, you MUST use the 'human' tool.
-6. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'persist_plan' tool to save the plan.
-7. Do NOT finish the session until you have called 'persist_plan' with a valid decomposition.
-8. If your environment does not support tool calling, output the final decomposition as a single JSON code block at the end of your response.
+3. Use the 'beads' tool to inspect the issue tracker (list, show, ready) and understand existing epics, features, and tasks.
+4. Use 'run_shell_command' to inspect the current project state (files, structure, code) to make informed planning decisions.
+5. Decompose the goal into features and tasks.
+6. If you need more information or clarification to create a high-quality, executable plan, you MUST use the 'human' tool.
+7. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'beads' tool with the 'save_plan_artifacts' operation. Pass the JSON decomposition as the first argument.
+8. The user will be asked to confirm the plan. If they reject it, the tool will return a rejection message and you MUST refine the plan or ask for more details.
+9. Do NOT finish the session until the user has confirmed the plan via 'save_plan_artifacts'.
+10. If your environment does not support tool calling, output the final decomposition as a single JSON code block at the end of your response.
 
 CRITICAL RULES:
 - NEVER ask the user a question using plain text.
 - ALWAYS use the 'human' tool for ANY interaction with the user.
+- ALWAYS use the 'beads' tool for ANY interaction with the issue tracker.
 - Use 'run_shell_command' to understand the codebase before planning.
-- The session MUST remain active until 'persist_plan' is successfully called.
+- The session MUST remain active until the plan is confirmed via 'beads' 'save_plan_artifacts'.
 - If you just output text without calling a tool, the session will terminate and the plan will be lost.
 
 Tool: run_shell_command
-- Allowed commands: ls, grep, cat, find, tree, git, go, bd, echo.
+- Allowed commands: ls, grep, cat, find, tree, git, go, echo.
 - NO pipes (|), redirects (>, >>), or command chaining (&&, ||, ;, &) allowed.
 - Use this to explore the project structure and existing code.
 
+Tool: beads
+- Operations: list, show, create, update, close, reopen, delete, ready, save_plan_artifacts.
+- Use this tool for ALL issue tracker operations.
+- For 'save_plan_artifacts', pass the JSON decomposition as the first argument.
+- Enforce --reason for close, reopen, and delete operations.
+- Always prefer this tool over running 'bd' via 'run_shell_command'.
 Planning Rules:
 - Every task must be executable and include:
   - objective (what it accomplishes)
@@ -281,16 +346,9 @@ Planning Rules:
 `
 }
 
-func (p *LLMPlanner) handlePersistPlan(tctx tool.Context, dec Decomposition) (string, error) {
-	if err := dec.Validate(); err != nil {
-		return "", fmt.Errorf("validation failed: %w", err)
-	}
-
-	if err := tctx.State().Set("decomposition", dec); err != nil {
-		return "", fmt.Errorf("failed to set decomposition in state: %w", err)
-	}
-
-	return "Plan persisted successfully. You can now finish the session.", nil
+// PlannerInstruction returns the canonical planner prompt used by Norma planner agents.
+func PlannerInstruction() string {
+	return buildLLMPlanPrompt()
 }
 
 func randomHex(bytesLen int) (string, error) {
@@ -320,6 +378,46 @@ func parseJSONFromText(text string) (Decomposition, error) {
 		return Decomposition{}, err
 	}
 	return dec, nil
+}
+
+func parseDecompositionFromCandidates(candidates ...string) (Decomposition, error) {
+	var lastErr error
+	seen := make(map[string]struct{}, len(candidates))
+
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+
+		dec, err := parseJSONFromText(candidate)
+		if err == nil {
+			return dec, nil
+		}
+		lastErr = err
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no candidate response content")
+	}
+	return Decomposition{}, lastErr
+}
+
+func extractTextFromContent(content *genai.Content) string {
+	if content == nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, part := range content.Parts {
+		if part.Text != "" {
+			sb.WriteString(part.Text)
+		}
+	}
+	return sb.String()
 }
 
 func extractDecompositionFromContent(content *genai.Content) (Decomposition, error) {
@@ -355,19 +453,27 @@ func extractDecompositionFromFunctionCall(call *genai.FunctionCall) (Decompositi
 	if call == nil {
 		return Decomposition{}, fmt.Errorf("function call is nil")
 	}
-	if !strings.EqualFold(call.Name, llmtools.PersistPlanToolName) {
-		return Decomposition{}, fmt.Errorf("function call %q is not %q", call.Name, llmtools.PersistPlanToolName)
+	if !strings.EqualFold(call.Name, llmtools.BeadsToolName) {
+		return Decomposition{}, fmt.Errorf("function call %q is not %q", call.Name, llmtools.BeadsToolName)
 	}
 	raw, err := json.Marshal(call.Args)
 	if err != nil {
 		return Decomposition{}, fmt.Errorf("marshal function args: %w", err)
 	}
+	var args llmtools.BeadsArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return Decomposition{}, fmt.Errorf("unmarshal beads tool args: %w", err)
+	}
+	if args.Op != "save_plan_artifacts" || len(args.Args) == 0 {
+		return Decomposition{}, fmt.Errorf("beads op %q is not save_plan_artifacts or missing args", args.Op)
+	}
+
 	var dec Decomposition
-	if err := json.Unmarshal(raw, &dec); err != nil {
-		return Decomposition{}, fmt.Errorf("unmarshal function args: %w", err)
+	if err := json.Unmarshal([]byte(args.Args[0]), &dec); err != nil {
+		return Decomposition{}, fmt.Errorf("unmarshal decomposition from beads args: %w", err)
 	}
 	if err := dec.Validate(); err != nil {
-		return Decomposition{}, fmt.Errorf("invalid decomposition in function args: %w", err)
+		return Decomposition{}, fmt.Errorf("invalid decomposition in beads args: %w", err)
 	}
 	return dec, nil
 }

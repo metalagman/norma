@@ -60,6 +60,8 @@ func planCmd() *cobra.Command {
 		},
 	}
 
+	cmd.AddCommand(planWebCmd())
+
 	return cmd
 }
 

@@ -30,6 +30,7 @@ var (
 
 type eventMsg *session.Event
 type humanRequestMsg string
+type planConfirmationMsg Decomposition
 type planFinishedMsg Decomposition
 type planFailedMsg string
 
@@ -41,21 +42,27 @@ type plannerModel struct {
 	renderer    *glamour.TermRenderer
 
 	// Channels for communication with the agent
-	eventChan    <-chan *session.Event
-	questionChan <-chan string
-	responseChan chan<- string
+	eventChan        <-chan *session.Event
+	questionChan     <-chan string
+	confirmationChan <-chan Decomposition
+	responseChan     chan<- string
+	confirmChan      chan<- bool
 
-	waitingForHuman bool
-	finishedPlan    *Decomposition
-	failedRunError  string
-	err             error
-	onAbort         func()
+	waitingForHuman   bool
+	waitingForConfirm bool
+	confirmingPlan    *Decomposition
+	finishedPlan      *Decomposition
+	failedRunError    string
+	err               error
+	onAbort           func()
 }
 
 func newPlannerModel(
 	eventChan <-chan *session.Event,
 	questionChan <-chan string,
+	confirmationChan <-chan Decomposition,
 	responseChan chan<- string,
+	confirmChan chan<- bool,
 	onAbort func(),
 ) (*plannerModel, error) {
 	r, err := glamour.NewTermRenderer(
@@ -77,13 +84,15 @@ func newPlannerModel(
 		Padding(0, 1)
 
 	return &plannerModel{
-		viewport:     vp,
-		textinput:    ti,
-		renderer:     r,
-		eventChan:    eventChan,
-		questionChan: questionChan,
-		responseChan: responseChan,
-		onAbort:      onAbort,
+		viewport:         vp,
+		textinput:        ti,
+		renderer:         r,
+		eventChan:        eventChan,
+		questionChan:     questionChan,
+		confirmationChan: confirmationChan,
+		responseChan:     responseChan,
+		confirmChan:      confirmChan,
+		onAbort:          onAbort,
 	}, nil
 }
 
@@ -91,6 +100,7 @@ func (m *plannerModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.waitForEvent(),
 		m.waitForQuestion(),
+		m.waitForConfirmation(),
 		textinput.Blink,
 	)
 }
@@ -112,6 +122,16 @@ func (m *plannerModel) waitForQuestion() tea.Cmd {
 			return nil
 		}
 		return humanRequestMsg(q)
+	}
+}
+
+func (m *plannerModel) waitForConfirmation() tea.Cmd {
+	return func() tea.Msg {
+		dec, ok := <-m.confirmationChan
+		if !ok {
+			return nil
+		}
+		return planConfirmationMsg(dec)
 	}
 }
 
@@ -150,6 +170,25 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.waitingForConfirm {
+			switch strings.ToLower(msg.String()) {
+			case "y":
+				m.confirmChan <- true
+				m.waitingForConfirm = false
+				m.confirmingPlan = nil
+				m.history.WriteString(infoStyle.Render("\n> Plan confirmed.\n"))
+				m.updateViewport()
+				return m, nil
+			case "n":
+				m.confirmChan <- false
+				m.waitingForConfirm = false
+				m.confirmingPlan = nil
+				m.history.WriteString(infoStyle.Render("\n> Plan rejected for refinement.\n"))
+				m.updateViewport()
+				return m, nil
+			}
+		}
+
 	case eventMsg:
 		ev := (*session.Event)(msg)
 		if ev.Content != nil {
@@ -175,6 +214,36 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history.WriteString(questionStyle.Render(fmt.Sprintf("\n[PLANNER QUESTION]: %s\n", string(msg))))
 		m.updateViewport()
 		return m, nil
+
+	case planConfirmationMsg:
+		plan := Decomposition(msg)
+		m.confirmingPlan = &plan
+		m.waitingForConfirm = true
+
+		// Render proposed plan into history
+		var sb strings.Builder
+		sb.WriteString("\n# Proposed Final Plan\n\n")
+		sb.WriteString(fmt.Sprintf("## Epic: %s\n\n%s\n\n", plan.Epic.Title, plan.Epic.Description))
+
+		for _, f := range plan.Features {
+			sb.WriteString(fmt.Sprintf("### Feature: %s\n\n%s\n\n", f.Title, f.Description))
+			for _, t := range f.Tasks {
+				sb.WriteString(fmt.Sprintf("#### Task: %s\n", t.Title))
+				sb.WriteString(fmt.Sprintf("- **Objective:** %s\n", t.Objective))
+				sb.WriteString(fmt.Sprintf("- **Artifact:** %s\n", t.Artifact))
+				sb.WriteString("- **Verify:**\n")
+				for _, v := range t.Verify {
+					sb.WriteString(fmt.Sprintf("  - %s\n", v))
+				}
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString("\n**Do you approve this plan? (y/n)**\n")
+
+		rendered, _ := m.renderer.Render(sb.String())
+		m.history.WriteString(rendered)
+		m.updateViewport()
+		return m, m.waitForConfirmation()
 
 	case planFinishedMsg:
 		plan := Decomposition(msg)

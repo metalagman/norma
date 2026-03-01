@@ -19,18 +19,25 @@ The planning agent has access to several tools to help it create accurate and ac
 ### `human`
 Used by the agent to ask the user a question. The question appears in the TUI, and the agent waits for your response.
 
+### `beads`
+Enables the agent to interact with the Beads issue tracker directly.
+
+*   **Operations:** `list`, `show`, `create`, `update`, `close`, `reopen`, `delete`, `ready`, `save_plan_artifacts`.
+*   **Rules:**
+    *   For `save_plan_artifacts`, the agent must provide the full JSON decomposition as an argument.
+    *   User confirmation is required for `save_plan_artifacts` in the interactive TUI.
+    *   Enforce `--reason` for `close`, `reopen`, and `delete` operations.
+    *   Always prefer this tool over running `bd` via `run_shell_command`.
+
 ### `run_shell_command`
 Enables the agent to inspect the codebase and project structure.
 
-*   **Allowed commands:** `ls`, `grep`, `cat`, `find`, `tree`, `git`, `go`, `bd`, `echo`.
+*   **Allowed commands:** `ls`, `grep`, `cat`, `find`, `tree`, `git`, `go`, `echo`.
 *   **Restrictions:**
     *   No pipes (`|`) or redirects (`>`, `>>`).
     *   No command chaining (`&&`, `||`, `;`, `&`).
     *   Commands are executed relative to the repository root.
     *   Timeout is 30 seconds per command.
-
-### `persist_plan`
-The final step in the planning process. The agent calls this tool with the complete `Decomposition` object (Epic, Features, and Tasks) once it has finished the planning work.
 
 ## Using the Planner
 

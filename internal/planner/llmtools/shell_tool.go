@@ -39,7 +39,7 @@ func NewShellTool(repoRoot string) *ShellTool {
 	return &ShellTool{
 		repoRoot: repoRoot,
 		allowed: []string{
-			"ls", "grep", "cat", "find", "tree", "git", "go", "bd", "echo",
+			"ls", "grep", "cat", "find", "tree", "git", "go", "echo",
 		},
 	}
 }
