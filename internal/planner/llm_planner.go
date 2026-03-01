@@ -51,9 +51,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 	eventChan := make(chan *session.Event, 100)
 	questionChan := make(chan string)
-	confirmationChan := make(chan Decomposition)
 	responseChan := make(chan string)
-	confirmChan := make(chan bool)
 
 	humanTool, err := llmtools.NewHumanTool(func(question string) (string, error) {
 		select {
@@ -73,38 +71,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		return Decomposition{}, "", fmt.Errorf("create human tool: %w", err)
 	}
 
-	beadsTool, err := llmtools.NewBeadsCommandTool(p.repoRoot, func(tctx tool.Context, rawPlan json.RawMessage) (string, error) {
-		var dec Decomposition
-		if err := json.Unmarshal(rawPlan, &dec); err != nil {
-			return "", fmt.Errorf("unmarshal decomposition: %w", err)
-		}
-		if err := dec.Validate(); err != nil {
-			return "", fmt.Errorf("invalid decomposition: %w", err)
-		}
-
-		// Ask for confirmation
-		select {
-		case confirmationChan <- dec:
-		case <-runCtx.Done():
-			return "", runCtx.Err()
-		}
-
-		select {
-		case confirmed := <-confirmChan:
-			if !confirmed {
-				return "User rejected the plan. Please refine it based on previous discussions or ask for clarification.", nil
-			}
-		case <-runCtx.Done():
-			return "", runCtx.Err()
-		}
-
-		// Persist to state
-		if err := tctx.State().Set("decomposition", dec); err != nil {
-			return "", fmt.Errorf("failed to set decomposition in state: %w", err)
-		}
-
-		return "Plan confirmed and staged for persistence. You can now finish the session.", nil
-	})
+	beadsTool, err := llmtools.NewBeadsCommandTool(p.repoRoot)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create beads tool: %w", err)
 	}
@@ -127,7 +94,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 	}
 
 	// Start TUI in a goroutine
-	tuiModel, err := newPlannerModel(eventChan, questionChan, confirmationChan, responseChan, confirmChan, cancel)
+	tuiModel, err := newPlannerModel(eventChan, questionChan, responseChan, cancel)
 	if err != nil {
 		return Decomposition{}, "", fmt.Errorf("create TUI model: %w", err)
 	}
@@ -242,7 +209,7 @@ func (p *LLMPlanner) Generate(ctx context.Context, req Request) (Decomposition, 
 		}
 	}
 	if stateErr != nil && len(eventDecompositions) > 0 {
-		// Fallback 1: decode from persist_plan tool call observed in event stream.
+		// Fallback 1: decode from beads tool call observed in event stream.
 		dec = eventDecompositions[len(eventDecompositions)-1]
 	} else if stateErr != nil {
 		// Fallback 2: parse from complete streamed model text when available.
@@ -311,18 +278,19 @@ Workflow:
 3. Use the 'beads' tool to inspect the issue tracker (list, show, ready) and understand existing epics, features, and tasks.
 4. Use 'run_shell_command' to inspect the current project state (files, structure, code) to make informed planning decisions.
 5. Decompose the goal into features and tasks.
-6. If you need more information or clarification to create a high-quality, executable plan, you MUST use the 'human' tool.
-7. Once you have a full understanding of the scope and can produce a complete decomposition, use the 'beads' tool with the 'save_plan_artifacts' operation. Pass the JSON decomposition as the first argument.
-8. The user will be asked to confirm the plan. If they reject it, the tool will return a rejection message and you MUST refine the plan or ask for more details.
-9. Do NOT finish the session until the user has confirmed the plan via 'save_plan_artifacts'.
-10. If your environment does not support tool calling, output the final decomposition as a single JSON code block at the end of your response.
+6. MANDATORY CONFIRMATION: Once you have a final plan, you MUST present it to the user using the 'human' tool and ask for approval.
+7. REFINEMENT: If the user rejects the plan or provides feedback, you MUST refine the plan and ask for approval again.
+8. PERSISTENCE: After the user explicitly approves the plan, use the 'beads' tool ('create' operation) to persist the epic, features, and tasks.
+   - Use 'beads create --type epic --title ... --description ... --json' to create the epic and get its ID.
+   - Use 'beads create --type feature --parent <epic_id> ...' for features.
+   - Use 'beads create --type task --parent <feature_id> ...' for tasks.
+9. FINISH: Once all artifacts are created in Beads, output the final decomposition as a single JSON code block and finish the session.
 
 CRITICAL RULES:
 - NEVER ask the user a question using plain text.
-- ALWAYS use the 'human' tool for ANY interaction with the user.
+- ALWAYS use the 'human' tool for ANY interaction with the user (including plan approval).
 - ALWAYS use the 'beads' tool for ANY interaction with the issue tracker.
 - Use 'run_shell_command' to understand the codebase before planning.
-- The session MUST remain active until the plan is confirmed via 'beads' 'save_plan_artifacts'.
 - If you just output text without calling a tool, the session will terminate and the plan will be lost.
 
 Tool: run_shell_command
@@ -331,11 +299,11 @@ Tool: run_shell_command
 - Use this to explore the project structure and existing code.
 
 Tool: beads
-- Operations: list, show, create, update, close, reopen, delete, ready, save_plan_artifacts.
+- Operations: list, show, create, update, close, reopen, delete, ready.
 - Use this tool for ALL issue tracker operations.
-- For 'save_plan_artifacts', pass the JSON decomposition as the first argument.
 - Enforce --reason for close, reopen, and delete operations.
 - Always prefer this tool over running 'bd' via 'run_shell_command'.
+
 Planning Rules:
 - Every task must be executable and include:
   - objective (what it accomplishes)
@@ -464,18 +432,9 @@ func extractDecompositionFromFunctionCall(call *genai.FunctionCall) (Decompositi
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return Decomposition{}, fmt.Errorf("unmarshal beads tool args: %w", err)
 	}
-	if args.Op != "save_plan_artifacts" || len(args.Args) == 0 {
-		return Decomposition{}, fmt.Errorf("beads op %q is not save_plan_artifacts or missing args", args.Op)
-	}
-
-	var dec Decomposition
-	if err := json.Unmarshal([]byte(args.Args[0]), &dec); err != nil {
-		return Decomposition{}, fmt.Errorf("unmarshal decomposition from beads args: %w", err)
-	}
-	if err := dec.Validate(); err != nil {
-		return Decomposition{}, fmt.Errorf("invalid decomposition in beads args: %w", err)
-	}
-	return dec, nil
+	// We don't have a specific operation that returns a full decomposition anymore.
+	// But the agent might still call beads for something else.
+	return Decomposition{}, fmt.Errorf("beads tool call does not contain a full decomposition")
 }
 
 func formatPlannerRunError(err error) string {

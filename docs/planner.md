@@ -22,12 +22,11 @@ Used by the agent to ask the user a question. The question appears in the TUI, a
 ### `beads`
 Enables the agent to interact with the Beads issue tracker directly.
 
-*   **Operations:** `list`, `show`, `create`, `update`, `close`, `reopen`, `delete`, `ready`, `save_plan_artifacts`.
+*   **Operations:** `list`, `show`, `create`, `update`, `close`, `reopen`, `delete`, `ready`.
 *   **Rules:**
-    *   For `save_plan_artifacts`, the agent must provide the full JSON decomposition as an argument.
-    *   User confirmation is required for `save_plan_artifacts` in the interactive TUI.
     *   Enforce `--reason` for `close`, `reopen`, and `delete` operations.
-    *   Always prefer this tool over running `bd` via `run_shell_command`.
+    *   Always use `--sandbox` and `--json` for command-line operations.
+    *   Preferred over running `bd` via `run_shell_command`.
 
 ### `run_shell_command`
 Enables the agent to inspect the codebase and project structure.

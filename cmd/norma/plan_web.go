@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -63,19 +62,7 @@ func planWebCmd() *cobra.Command {
 				return fmt.Errorf("create shell tool: %w", err)
 			}
 
-			beadsTool, err := llmtools.NewBeadsCommandTool(repoRoot, func(tctx tool.Context, rawPlan json.RawMessage) (string, error) {
-				var dec planner.Decomposition
-				if err := json.Unmarshal(rawPlan, &dec); err != nil {
-					return "", fmt.Errorf("unmarshal decomposition: %w", err)
-				}
-				if err := dec.Validate(); err != nil {
-					return "", fmt.Errorf("validation failed: %w", err)
-				}
-				if err := tctx.State().Set("decomposition", dec); err != nil {
-					return "", fmt.Errorf("failed to set decomposition in state: %w", err)
-				}
-				return "Plan confirmed and staged for persistence. You can now finish the session.", nil
-			})
+			beadsTool, err := llmtools.NewBeadsCommandTool(repoRoot)
 			if err != nil {
 				return fmt.Errorf("create beads tool: %w", err)
 			}

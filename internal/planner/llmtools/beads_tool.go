@@ -3,7 +3,6 @@ package llmtools
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,7 +15,7 @@ import (
 
 const (
 	BeadsToolName        = "beads"
-	BeadsToolDescription = "Interact with the Beads issue tracker. Operations: list, show, create, update, close, reopen, delete, ready, save_plan_artifacts. Always use --sandbox and --json."
+	BeadsToolDescription = "Interact with the Beads issue tracker. Operations: list, show, create, update, close, reopen, delete, ready. Always use --sandbox and --json."
 )
 
 // BeadsArgs defines the arguments for the beads tool.
@@ -33,26 +32,19 @@ type BeadsResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// SavePlanHandler defines the function that handles save_plan_artifacts operation.
-type SavePlanHandler func(ctx tool.Context, rawPlan json.RawMessage) (string, error)
-
 // BeadsTool provides structured access to the beads CLI.
 type BeadsTool struct {
-	repoRoot    string
-	saveHandler SavePlanHandler
+	repoRoot string
 }
 
 // NewBeadsTool constructs a new BeadsTool.
-func NewBeadsTool(repoRoot string, saveHandler SavePlanHandler) *BeadsTool {
-	return &BeadsTool{
-		repoRoot:    repoRoot,
-		saveHandler: saveHandler,
-	}
+func NewBeadsTool(repoRoot string) *BeadsTool {
+	return &BeadsTool{repoRoot: repoRoot}
 }
 
 // NewBeadsCommandTool creates the planner beads tool.
-func NewBeadsCommandTool(repoRoot string, saveHandler SavePlanHandler) (tool.Tool, error) {
-	bt := NewBeadsTool(repoRoot, saveHandler)
+func NewBeadsCommandTool(repoRoot string) (tool.Tool, error) {
+	bt := NewBeadsTool(repoRoot)
 	return functiontool.New(functiontool.Config{
 		Name:        BeadsToolName,
 		Description: BeadsToolDescription,
@@ -62,42 +54,19 @@ func NewBeadsCommandTool(repoRoot string, saveHandler SavePlanHandler) (tool.Too
 // Run executes a beads command.
 func (b *BeadsTool) Run(tctx tool.Context, args BeadsArgs) (BeadsResponse, error) {
 	allowedOps := map[string]bool{
-		"list":                true,
-		"show":                true,
-		"create":              true,
-		"update":              true,
-		"close":               true,
-		"reopen":              true,
-		"delete":              true,
-		"ready":               true,
-		"save_plan_artifacts": true,
+		"list":   true,
+		"show":   true,
+		"create": true,
+		"update": true,
+		"close":  true,
+		"reopen": true,
+		"delete": true,
+		"ready":  true,
 	}
 
 	if !allowedOps[args.Op] {
 		return BeadsResponse{
 			Error: fmt.Sprintf("unsupported operation: %s", args.Op),
-		}, nil
-	}
-
-	if args.Op == "save_plan_artifacts" {
-		if b.saveHandler == nil {
-			return BeadsResponse{
-				Error: "save_plan_artifacts is not configured for this tool",
-			}, nil
-		}
-		if len(args.Args) == 0 {
-			return BeadsResponse{
-				Error: "save_plan_artifacts requires a JSON decomposition string as the first argument",
-			}, nil
-		}
-		res, err := b.saveHandler(tctx, json.RawMessage(args.Args[0]))
-		if err != nil {
-			return BeadsResponse{
-				Error: fmt.Sprintf("save_plan_artifacts failed: %v", err),
-			}, nil
-		}
-		return BeadsResponse{
-			Stdout: res,
 		}, nil
 	}
 

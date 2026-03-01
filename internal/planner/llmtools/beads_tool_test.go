@@ -7,7 +7,7 @@ import (
 )
 
 func TestBeadsTool(t *testing.T) {
-	bt := NewBeadsTool(".", nil)
+	bt := NewBeadsTool(".")
 
 	t.Run("Unsupported operation", func(t *testing.T) {
 		resp, err := bt.Run(nil, BeadsArgs{Op: "invalid"})
@@ -24,16 +24,10 @@ func TestBeadsTool(t *testing.T) {
 			assert.NotEmpty(t, resp.Stdout)
 		}
 	})
-
-	t.Run("Save plan without handler", func(t *testing.T) {
-		resp, err := bt.Run(nil, BeadsArgs{Op: "save_plan_artifacts", Args: []string{"{}"}})
-		assert.NoError(t, err)
-		assert.Contains(t, resp.Error, "not configured")
-	})
 }
 
 func TestBeadsToolReason(t *testing.T) {
-	bt := NewBeadsTool(".", nil)
+	bt := NewBeadsTool(".")
 
 	ops := []string{"close", "reopen", "delete"}
 	for _, op := range ops {
