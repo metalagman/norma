@@ -83,7 +83,7 @@ func initBeads(ctx context.Context) error {
 		return fmt.Errorf("get current working directory: %w", err)
 	}
 
-	topLevelOut, err := git.RunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--show-toplevel")
+	topLevelOut, err := git.GitRunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--show-toplevel")
 	if err == nil {
 		repoRoot = strings.TrimSpace(topLevelOut)
 	}

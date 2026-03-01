@@ -16,7 +16,8 @@ func Available(ctx context.Context, repoRoot string) bool {
 	return cmd.Run() == nil
 }
 
-func RunCmd(ctx context.Context, dir string, name string, args ...string) string {
+// GitRunCmd runs a git command and returns its output. It logs a warning on error.
+func GitRunCmd(ctx context.Context, dir string, name string, args ...string) string {
 	log.Debug().Str("dir", dir).Str("cmd", name).Strs("args", args).Msg("running git command")
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
@@ -27,33 +28,38 @@ func RunCmd(ctx context.Context, dir string, name string, args ...string) string
 	return string(out)
 }
 
-func RunCmdOutput(ctx context.Context, dir string, name string, args ...string) (string, error) {
+// GitRunCmdOutput runs a git command and returns its combined stdout/stderr output.
+func GitRunCmdOutput(ctx context.Context, dir string, name string, args ...string) (string, error) {
 	log.Debug().Str("dir", dir).Str("cmd", name).Strs("args", args).Msg("running git command (output return)")
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		// Use %v instead of %w for CombinedOutput to avoid exposing exec.ExitError
+		// and include the output in the error message for better context.
+		return "", fmt.Errorf("git %s: %v: %s", name, err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
 }
 
-func RunCmdErr(ctx context.Context, dir string, name string, args ...string) error {
+// GitRunCmdErr runs a git command and returns an error if it fails.
+func GitRunCmdErr(ctx context.Context, dir string, name string, args ...string) error {
 	log.Debug().Str("dir", dir).Str("cmd", name).Strs("args", args).Msg("running git command (err return)")
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("git %s: %v: %s", name, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
+// CurrentBranch returns the current active branch in the repository.
 func CurrentBranch(ctx context.Context, repoRoot string) (string, error) {
 	if !Available(ctx, repoRoot) {
 		return "", fmt.Errorf("not a git repository: %s", repoRoot)
 	}
-	out, err := RunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := GitRunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("resolve base branch: %w", err)
 	}

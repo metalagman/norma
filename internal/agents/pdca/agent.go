@@ -91,7 +91,10 @@ func (a *runtime) createSubAgent(ctx context.Context, roleName string) (agent.Ag
 	case RoleAct:
 		pascalName = "Act"
 	default:
-		pascalName = strings.Title(roleName) //nolint:staticcheck // fallback for unknown roles
+		// Simple manual title case to avoid deprecated strings.Title
+		if len(roleName) > 0 {
+			pascalName = strings.ToUpper(roleName[:1]) + roleName[1:]
+		}
 	}
 	ag, err := agent.New(agent.Config{
 		Name:        pascalName,
@@ -412,9 +415,6 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	if !debugEnabled {
 		return stdoutLog, stderrLog
 	}
-	if !debugEnabled {
-		return stdoutLog, stderrLog
-	}
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
@@ -704,7 +704,7 @@ func applyAgentResponseToTaskState(state *contracts.TaskState, resp *contracts.A
 }
 
 func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID string, stepIndex int) error {
-	statusOut, err := git.RunCmdOutput(ctx, workspaceDir, "git", "status", "--porcelain")
+	statusOut, err := git.GitRunCmdOutput(ctx, workspaceDir, "git", "status", "--porcelain")
 	if err != nil {
 		return fmt.Errorf("read workspace status: %w", err)
 	}
@@ -713,12 +713,12 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 		return nil
 	}
 
-	if err := git.RunCmdErr(ctx, workspaceDir, "git", "add", "-A"); err != nil {
+	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "add", "-A"); err != nil {
 		return fmt.Errorf("stage workspace changes: %w", err)
 	}
 
 	commitMsg := fmt.Sprintf("chore: do step %03d\n\nRun: %s\nTask: %s", stepIndex, runID, taskID)
-	if err := git.RunCmdErr(ctx, workspaceDir, "git", "commit", "-m", commitMsg); err != nil {
+	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "commit", "-m", commitMsg); err != nil {
 		return fmt.Errorf("commit workspace changes: %w", err)
 	}
 

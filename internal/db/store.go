@@ -30,14 +30,14 @@ func (s *Store) CreateRun(ctx context.Context, runID, goal, runDir string, itera
 	if err != nil {
 		return fmt.Errorf("begin create run: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
+
 	if _, err := tx.ExecContext(ctx, `INSERT INTO runs(run_id, created_at, goal, status, iteration, current_step_index, verdict, run_dir)
 		VALUES(?, ?, ?, ?, ?, ?, NULL, ?)`,
 		runID, createdAt, goal, "running", iteration, 0, runDir); err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("insert run: %w", err)
 	}
 	if err := s.insertEvent(ctx, tx, runID, "run_started", "run started", ""); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -80,15 +80,15 @@ func (s *Store) UpdateRun(ctx context.Context, runID string, update Update, even
 	if err != nil {
 		return fmt.Errorf("begin update run: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
+
 	if event != nil {
 		if err := s.insertEvent(ctx, tx, runID, event.Type, event.Message, event.DataJSON); err != nil {
-			_ = tx.Rollback()
 			return err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE runs SET current_step_index=?, iteration=?, status=?, verdict=? WHERE run_id=?`,
 		update.CurrentStepIndex, update.Iteration, update.Status, nullableStringPtr(update.Verdict), runID); err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("update run: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -103,21 +103,20 @@ func (s *Store) CommitStep(ctx context.Context, step StepRecord, events []Event,
 	if err != nil {
 		return fmt.Errorf("begin commit step: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
+
 	if _, err := tx.ExecContext(ctx, `INSERT INTO steps(run_id, step_index, role, iteration, status, step_dir, started_at, ended_at, summary)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		step.RunID, step.StepIndex, step.Role, step.Iteration, step.Status, step.StepDir, step.StartedAt, step.EndedAt, step.Summary); err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("insert step: %w", err)
 	}
 	for _, ev := range events {
 		if err := s.insertEvent(ctx, tx, step.RunID, ev.Type, ev.Message, ev.DataJSON); err != nil {
-			_ = tx.Rollback()
 			return err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE runs SET current_step_index=?, iteration=?, status=?, verdict=? WHERE run_id=?`,
 		update.CurrentStepIndex, update.Iteration, update.Status, nullableStringPtr(update.Verdict), step.RunID); err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("update run: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -145,7 +144,7 @@ func (s *Store) nextSeq(ctx context.Context, tx *sql.Tx, runID string) (int, err
 	if err := row.Scan(&seq); err != nil {
 		return 0, fmt.Errorf("read event seq: %w", err)
 	}
-	return seq + 1, nil
+	return seq, nil
 }
 
 func nullableString(value string) any {

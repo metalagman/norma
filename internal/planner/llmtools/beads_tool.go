@@ -93,7 +93,8 @@ func (b *BeadsTool) Run(tctx tool.Context, args BeadsArgs) (BeadsResponse, error
 	}
 
 	// Prepare command arguments
-	cmdArgs := []string{args.Op, "--sandbox", "--json"}
+	cmdArgs := make([]string, 0, 3+len(args.Args))
+	cmdArgs = append(cmdArgs, args.Op, "--sandbox", "--json")
 	cmdArgs = append(cmdArgs, args.Args...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
