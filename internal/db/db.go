@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"sync"
 
 	"github.com/pressly/goose/v3"
 	"github.com/rs/zerolog/log"
@@ -53,12 +54,23 @@ func applyPragmas(ctx context.Context, db *sql.DB) error {
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+var (
+	gooseOnce sync.Once
+	gooseErr  error
+)
+
 func migrate(db *sql.DB) error {
-	goose.SetBaseFS(migrationsFS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return fmt.Errorf("set goose dialect: %w", err)
+	gooseOnce.Do(func() {
+		goose.SetBaseFS(migrationsFS)
+		goose.SetLogger(goose.NopLogger())
+		if err := goose.SetDialect("sqlite3"); err != nil {
+			gooseErr = fmt.Errorf("set goose dialect: %w", err)
+		}
+	})
+	if gooseErr != nil {
+		return gooseErr
 	}
+
 	if err := goose.Up(db, "migrations"); err != nil {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
