@@ -40,6 +40,7 @@ type plannerModel struct {
 	history     strings.Builder
 	currentTurn strings.Builder
 	renderer    *glamour.TermRenderer
+	status      string
 
 	// Channels for communication with the agent
 	eventChan    <-chan *session.Event
@@ -86,11 +87,13 @@ func newPlannerModel(
 		questionChan: questionChan,
 		responseChan: responseChan,
 		onAbort:      onAbort,
+		status:       "Starting planner...",
 	}, nil
 }
 
 func (m *plannerModel) Init() tea.Cmd {
 	m.history.WriteString(infoStyle.Render("What do you want to build? Ctrl+C to exit.\n\n"))
+	m.status = "Waiting for agent updates..."
 	m.updateViewport()
 	return tea.Batch(
 		m.waitForEvent(),
@@ -152,6 +155,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.history.WriteString(fmt.Sprintf("\n> %s\n", val))
 				m.textinput.Reset()
 				m.waitingForHuman = false
+				m.status = "Message sent. Thinking..."
 				m.updateViewport()
 				return m, nil
 			}
@@ -159,6 +163,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case eventMsg:
 		ev := (*session.Event)(msg)
+		m.status = statusFromEvent(ev)
 		if ev.Content != nil {
 			for _, part := range ev.Content.Parts {
 				if part.Text != "" {
@@ -179,6 +184,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case humanRequestMsg:
 		m.waitingForHuman = true
+		m.status = "Waiting for your input..."
 		m.history.WriteString(questionStyle.Render(fmt.Sprintf("\n%s\n", strings.TrimSpace(string(msg)))))
 		m.updateViewport()
 		return m, m.waitForQuestion()
@@ -187,6 +193,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		plan := Decomposition(msg)
 		m.finishedPlan = &plan
 		m.waitingForHuman = false
+		m.status = "Plan persisted."
 
 		// Render final plan into history
 		var sb strings.Builder
@@ -221,6 +228,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.completedRunMsg == "" {
 			m.completedRunMsg = "Planner session complete."
 		}
+		m.status = "Planner session complete."
 		var sb strings.Builder
 		sb.WriteString("\n# Planner Session Complete\n\n")
 		sb.WriteString(m.completedRunMsg)
@@ -233,6 +241,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case planFailedMsg:
 		m.waitingForHuman = false
 		m.failedRunError = strings.TrimSpace(string(msg))
+		m.status = "Planner failed."
 		var sb strings.Builder
 		sb.WriteString("\n# Planner Error\n\n")
 		sb.WriteString(m.failedRunError)
@@ -250,6 +259,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case error:
 		m.err = msg
+		m.status = "Error."
 		return m, tea.Quit
 	}
 
@@ -282,7 +292,41 @@ func (m *plannerModel) View() string {
 	case m.waitingForHuman:
 		s += m.textinput.View()
 	default:
-		s += infoStyle.Render("Thinking...")
+		s += infoStyle.Render(m.currentStatus())
 	}
 	return s
+}
+
+func (m *plannerModel) currentStatus() string {
+	status := strings.TrimSpace(m.status)
+	if status == "" {
+		return "Thinking..."
+	}
+	return status
+}
+
+func statusFromEvent(ev *session.Event) string {
+	if ev == nil {
+		return "Waiting for agent updates..."
+	}
+	if ev.Content != nil {
+		for _, part := range ev.Content.Parts {
+			if part == nil {
+				continue
+			}
+			if part.FunctionCall != nil && strings.TrimSpace(part.FunctionCall.Name) != "" {
+				return fmt.Sprintf("Running tool: %s...", strings.TrimSpace(part.FunctionCall.Name))
+			}
+			if part.FunctionResponse != nil && strings.TrimSpace(part.FunctionResponse.Name) != "" {
+				return fmt.Sprintf("Tool finished: %s", strings.TrimSpace(part.FunctionResponse.Name))
+			}
+		}
+	}
+	if ev.Partial {
+		return "Agent is typing..."
+	}
+	if ev.TurnComplete {
+		return "Waiting for next step..."
+	}
+	return "Thinking..."
 }
