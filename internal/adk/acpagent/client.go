@@ -14,7 +14,6 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 var errPromptAlreadyActive = errors.New("acp prompt already active")
@@ -65,7 +64,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		return nil, fmt.Errorf("acp command is required")
 	}
 
-	l := log.With().Str("component", "acpagent.client").Logger()
+	l := zerolog.Nop()
 	if cfg.Logger != nil {
 		l = cfg.Logger.With().Str("subcomponent", "acpagent.client").Logger()
 	}
@@ -88,7 +87,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	}
 	cmd.Stderr = stderr
 
-	l.Info().
+	l.Debug().
 		Str("binary", cfg.Command[0]).
 		Strs("args", cfg.Command[1:]).
 		Str("cwd", cfg.WorkingDir).
@@ -98,7 +97,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		return nil, fmt.Errorf("start acp process: %w", err)
 	}
 	if cmd.Process != nil {
-		l.Info().Int("pid", cmd.Process.Pid).Msg("acp process started")
+		l.Debug().Int("pid", cmd.Process.Pid).Msg("acp process started")
 	}
 
 	c := &Client{
@@ -120,7 +119,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 }
 
 func (c *Client) Initialize(ctx context.Context) (acp.InitializeResponse, error) {
-	c.logger.Info().Msg("sending acp initialize")
+	c.logger.Debug().Msg("sending acp initialize")
 	resp, err := c.conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientInfo: &acp.Implementation{
@@ -134,7 +133,7 @@ func (c *Client) Initialize(ctx context.Context) (acp.InitializeResponse, error)
 	if resp.ProtocolVersion != acp.ProtocolVersion(acp.ProtocolVersionNumber) {
 		return acp.InitializeResponse{}, fmt.Errorf("unsupported acp protocol version %d", resp.ProtocolVersion)
 	}
-	c.logger.Info().Int("protocol_version", int(resp.ProtocolVersion)).Msg("acp initialize succeeded")
+	c.logger.Debug().Int("protocol_version", int(resp.ProtocolVersion)).Msg("acp initialize succeeded")
 	return resp, nil
 }
 
@@ -142,17 +141,17 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 	if strings.TrimSpace(methodID) == "" {
 		return nil
 	}
-	c.logger.Info().Str("method_id", methodID).Msg("sending acp authenticate")
+	c.logger.Debug().Str("method_id", methodID).Msg("sending acp authenticate")
 	_, err := c.conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(methodID)})
 	if err != nil {
 		return err
 	}
-	c.logger.Info().Str("method_id", methodID).Msg("acp authenticate succeeded")
+	c.logger.Debug().Str("method_id", methodID).Msg("acp authenticate succeeded")
 	return nil
 }
 
 func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResponse, error) {
-	c.logger.Info().Str("cwd", cwd).Msg("sending acp session/new")
+	c.logger.Debug().Str("cwd", cwd).Msg("sending acp session/new")
 	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
 	if err != nil {
 		return acp.NewSessionResponse{}, err
@@ -160,7 +159,7 @@ func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResp
 	if strings.TrimSpace(string(resp.SessionId)) == "" {
 		return acp.NewSessionResponse{}, fmt.Errorf("acp session id is empty")
 	}
-	c.logger.Info().Str("session_id", string(resp.SessionId)).Msg("acp session/new succeeded")
+	c.logger.Debug().Str("session_id", string(resp.SessionId)).Msg("acp session/new succeeded")
 	return resp, nil
 }
 
@@ -176,7 +175,7 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan a
 	c.active = active
 	c.stateMu.Unlock()
 
-	c.logger.Info().Str("session_id", sessionID).Int("prompt_len", len(prompt)).Msg("sending acp session/prompt")
+	c.logger.Debug().Str("session_id", sessionID).Int("prompt_len", len(prompt)).Msg("sending acp session/prompt")
 
 	resultCh := make(chan PromptResult, 1)
 	go func() {
@@ -194,7 +193,7 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan a
 			resultCh <- PromptResult{Err: err}
 			return
 		}
-		c.logger.Info().
+		c.logger.Debug().
 			Str("session_id", sessionID).
 			Str("stop_reason", string(resp.StopReason)).
 			Msg("acp session/prompt completed")
@@ -223,7 +222,7 @@ func (c *Client) waitLoop() {
 		c.failAll(fmt.Errorf("acp process exit: %w", err))
 		return
 	}
-	c.logger.Info().Msg("acp process exited")
+	c.logger.Debug().Msg("acp process exited")
 	c.failAll(io.EOF)
 }
 
@@ -232,7 +231,7 @@ func (c *Client) RequestPermission(_ context.Context, params acp.RequestPermissi
 	if params.ToolCall.Title != nil {
 		title = *params.ToolCall.Title
 	}
-	c.logger.Info().
+	c.logger.Debug().
 		Str("session_id", string(params.SessionId)).
 		Str("title", title).
 		Int("option_count", len(params.Options)).
@@ -244,7 +243,7 @@ func (c *Client) RequestPermission(_ context.Context, params acp.RequestPermissi
 			c.logger.Error().Err(err).Str("session_id", string(params.SessionId)).Msg("permission handler failed")
 			return acp.RequestPermissionResponse{}, err
 		}
-		c.logger.Info().
+		c.logger.Debug().
 			Str("session_id", string(params.SessionId)).
 			Str("outcome", permissionOutcomeLabel(resp.Outcome)).
 			Msg("permission handler returned")
@@ -254,7 +253,7 @@ func (c *Client) RequestPermission(_ context.Context, params acp.RequestPermissi
 	for _, option := range params.Options {
 		if option.Kind == acp.PermissionOptionKindRejectOnce || option.Kind == acp.PermissionOptionKindRejectAlways {
 			resp := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId)}
-			c.logger.Info().
+			c.logger.Debug().
 				Str("session_id", string(params.SessionId)).
 				Str("option_id", string(option.OptionId)).
 				Str("option_kind", string(option.Kind)).
@@ -264,7 +263,7 @@ func (c *Client) RequestPermission(_ context.Context, params acp.RequestPermissi
 	}
 
 	resp := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
-	c.logger.Info().Str("session_id", string(params.SessionId)).Msg("permission auto-cancelled")
+	c.logger.Debug().Str("session_id", string(params.SessionId)).Msg("permission auto-cancelled")
 	return resp, nil
 }
 
@@ -342,7 +341,7 @@ func (c *Client) dispatchUpdates() {
 }
 
 func (c *Client) dispatchSessionUpdate(note acp.SessionNotification) {
-	c.logger.Info().
+	c.logger.Debug().
 		Str("session_id", string(note.SessionId)).
 		Str("update_kind", sessionUpdateKind(note.Update)).
 		Msg("received acp session update")
@@ -530,7 +529,7 @@ func (b *wireLogBuffer) logLine(line []byte) {
 		kind = "response"
 	}
 
-	evt := b.logger.Info().
+	evt := b.logger.Debug().
 		Str("direction", b.direction).
 		Str("rpc_kind", kind)
 	if env.Method != "" {

@@ -247,6 +247,7 @@ func runStandardACP(
 ) error {
 	lockedStderr := &syncWriter{writer: stderr}
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
+		Level(zerolog.DebugLevel).
 		With().Timestamp().Str("component", spec.component).Logger()
 	ui := newPlaygroundTerminal(stdin, stdout, lockedStderr, logger)
 

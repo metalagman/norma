@@ -10,7 +10,6 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -49,7 +48,7 @@ func New(cfg Config) (*Agent, error) {
 		cfg.Description = "Gemini CLI exposed through ACP"
 	}
 
-	l := log.With().Str("component", "acpagent.agent").Logger()
+	l := zerolog.Nop()
 	if cfg.Logger != nil {
 		l = cfg.Logger.With().Str("subcomponent", "acpagent.agent").Logger()
 	}
@@ -59,7 +58,7 @@ func New(cfg Config) (*Agent, error) {
 		WorkingDir:        cfg.WorkingDir,
 		Stderr:            cfg.Stderr,
 		PermissionHandler: cfg.PermissionHandler,
-		Logger:            &l,
+		Logger:            cfg.Logger,
 	})
 	if err != nil {
 		return nil, err
@@ -106,7 +105,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			return
 		}
 
-		a.logger.Info().
+		a.logger.Debug().
 			Str("adk_session_id", ctx.Session().ID()).
 			Str("acp_session_id", remoteSessionID).
 			Int("prompt_len", len(prompt)).
@@ -155,7 +154,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			return
 		}
 
-		a.logger.Info().
+		a.logger.Debug().
 			Str("adk_session_id", ctx.Session().ID()).
 			Str("acp_session_id", remoteSessionID).
 			Int("response_len", finalText.Len()).
@@ -174,7 +173,7 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 	a.sessionMu.Lock()
 	defer a.sessionMu.Unlock()
 	if sessionID := a.remoteByADK[adkSessionID]; sessionID != "" {
-		a.logger.Info().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
+		a.logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
 		return sessionID, nil
 	}
 	resp, err := a.client.NewSession(ctx, a.workingDir)
@@ -183,7 +182,7 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 	}
 	sessionID := string(resp.SessionId)
 	a.remoteByADK[adkSessionID] = sessionID
-	a.logger.Info().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("created new acp session for adk session")
+	a.logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("created new acp session for adk session")
 	return sessionID, nil
 }
 

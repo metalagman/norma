@@ -31,6 +31,7 @@ func runACPInfo(
 ) error {
 	lockedStderr := &syncWriter{writer: stderr}
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
+		Level(zerolog.DebugLevel).
 		With().Timestamp().Str("component", component).Logger()
 
 	logger.Info().

@@ -13,7 +13,6 @@ import (
 	normaagent "github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/planner"
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -33,9 +32,8 @@ func runACPPlanner(cmd *cobra.Command, repoRoot string, plannerCfg config.AgentC
 		Description:       "Norma planner via ACP runtime",
 		Command:           acpCmd,
 		WorkingDir:        repoRoot,
-		Stderr:            io.Discard,
+		Stderr:            cmd.ErrOrStderr(),
 		PermissionHandler: allowACPPermissions,
-		Logger:            acpNoopLogger(),
 	})
 	if err != nil {
 		return fmt.Errorf("create ACP planner runtime: %w", err)
@@ -100,11 +98,6 @@ func runACPPlanner(cmd *cobra.Command, repoRoot string, plannerCfg config.AgentC
 			return nil
 		}
 	}
-}
-
-func acpNoopLogger() *zerolog.Logger {
-	l := zerolog.Nop()
-	return &l
 }
 
 func runACPPlannerTurn(ctx context.Context, r *runner.Runner, sessionID string, prompt string, out io.Writer) error {
