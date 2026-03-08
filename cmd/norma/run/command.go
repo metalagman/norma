@@ -1,4 +1,4 @@
-package main
+package runcmd
 
 import (
 	"fmt"
@@ -12,8 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func runCmd() *cobra.Command {
-	cmd := &cobra.Command{
+// Command builds the `norma run` command.
+func Command() *cobra.Command {
+	return &cobra.Command{
 		Use:          "run <task-id>",
 		Short:        "Run a task by id",
 		SilenceUsage: true,
@@ -46,9 +47,7 @@ func runCmd() *cobra.Command {
 				return err
 			}
 
-			id := args[0]
-			return runTaskByID(cmd.Context(), tracker, runStore, runner, id)
+			return runTaskByID(cmd.Context(), tracker, runStore, runner, args[0])
 		},
 	}
-	return cmd
 }

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	acp "github.com/coder/acp-go-sdk"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -21,7 +24,7 @@ type Config struct {
 	WorkingDir        string
 	Stderr            io.Writer
 	PermissionHandler PermissionHandler
-	Tracef            TracefFunc
+	Logger            *zerolog.Logger
 }
 
 type Agent struct {
@@ -29,6 +32,7 @@ type Agent struct {
 
 	client      *Client
 	workingDir  string
+	logger      zerolog.Logger
 	sessionMu   sync.Mutex
 	remoteByADK map[string]string
 }
@@ -44,12 +48,18 @@ func New(cfg Config) (*Agent, error) {
 	if strings.TrimSpace(cfg.Description) == "" {
 		cfg.Description = "Gemini CLI exposed through ACP"
 	}
+
+	l := log.With().Str("component", "acpagent.agent").Logger()
+	if cfg.Logger != nil {
+		l = cfg.Logger.With().Str("subcomponent", "acpagent.agent").Logger()
+	}
+
 	client, err := NewClient(ctx, ClientConfig{
 		Command:           cfg.Command,
 		WorkingDir:        cfg.WorkingDir,
 		Stderr:            cfg.Stderr,
 		PermissionHandler: cfg.PermissionHandler,
-		Tracef:            cfg.Tracef,
+		Logger:            &l,
 	})
 	if err != nil {
 		return nil, err
@@ -62,6 +72,7 @@ func New(cfg Config) (*Agent, error) {
 	a := &Agent{
 		client:      client,
 		workingDir:  cfg.WorkingDir,
+		logger:      l,
 		remoteByADK: make(map[string]string),
 	}
 	base, err := adkagent.New(adkagent.Config{
@@ -94,6 +105,12 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			yield(nil, fmt.Errorf("playground prompt is empty"))
 			return
 		}
+
+		a.logger.Info().
+			Str("adk_session_id", ctx.Session().ID()).
+			Str("acp_session_id", remoteSessionID).
+			Int("prompt_len", len(prompt)).
+			Msg("starting adk invocation")
 
 		updates, resultCh, err := a.client.Prompt(ctx, remoteSessionID, prompt)
 		if err != nil {
@@ -137,6 +154,13 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		if finalText.Len() == 0 {
 			return
 		}
+
+		a.logger.Info().
+			Str("adk_session_id", ctx.Session().ID()).
+			Str("acp_session_id", remoteSessionID).
+			Int("response_len", finalText.Len()).
+			Msg("completed adk invocation")
+
 		ev := session.NewEvent(ctx.InvocationID())
 		ev.Content = genai.NewContentFromText(finalText.String(), genai.RoleModel)
 		ev.TurnComplete = true
@@ -150,14 +174,17 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 	a.sessionMu.Lock()
 	defer a.sessionMu.Unlock()
 	if sessionID := a.remoteByADK[adkSessionID]; sessionID != "" {
+		a.logger.Info().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
 		return sessionID, nil
 	}
 	resp, err := a.client.NewSession(ctx, a.workingDir)
 	if err != nil {
 		return "", err
 	}
-	a.remoteByADK[adkSessionID] = resp.SessionID
-	return resp.SessionID, nil
+	sessionID := string(resp.SessionId)
+	a.remoteByADK[adkSessionID] = sessionID
+	a.logger.Info().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("created new acp session for adk session")
+	return sessionID, nil
 }
 
 func extractPromptText(content *genai.Content) string {
@@ -174,12 +201,13 @@ func extractPromptText(content *genai.Content) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func updateText(update sessionUpdate) string {
-	if update.SessionUpdate != updateAgentMessageChunk || update.Content == nil {
+func updateText(update acp.SessionUpdate) string {
+	if update.AgentMessageChunk == nil {
 		return ""
 	}
-	if update.Content.Type != "text" {
+	content := update.AgentMessageChunk.Content
+	if content.Text == nil {
 		return ""
 	}
-	return update.Content.Text
+	return content.Text.Text
 }

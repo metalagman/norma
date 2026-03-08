@@ -1,4 +1,4 @@
-package main
+package prunecmd
 
 import (
 	"fmt"
@@ -8,11 +8,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func pruneCmd() *cobra.Command {
+// Command builds the top-level `norma prune` command.
+func Command() *cobra.Command {
 	return &cobra.Command{
 		Use:   "prune",
 		Short: "Prune all runs, their directories, associated worktrees, and stale norma task branches",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err

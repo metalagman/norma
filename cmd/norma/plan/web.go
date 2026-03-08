@@ -1,4 +1,4 @@
-package main
+package plancmd
 
 import (
 	"fmt"
@@ -18,8 +18,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func planWebCmd() *cobra.Command {
-	cmd := &cobra.Command{
+func webCommand() *cobra.Command {
+	return &cobra.Command{
 		Use:                "web [api|a2a|webui ...]",
 		Short:              "Run the planner agent with the ADK web launcher",
 		SilenceUsage:       true,
@@ -50,18 +50,15 @@ func planWebCmd() *cobra.Command {
 			}
 
 			humanTool, err := llmtools.NewHumanTool(func(_ string) (string, error) {
-				// Web UI chat is the interactive channel in launcher mode.
 				return "No additional clarification provided.", nil
 			})
 			if err != nil {
 				return fmt.Errorf("create human tool: %w", err)
 			}
-
 			shellTool, err := llmtools.NewShellCommandTool(repoRoot)
 			if err != nil {
 				return fmt.Errorf("create shell tool: %w", err)
 			}
-
 			beadsTool, err := llmtools.NewBeadsCommandTool(repoRoot)
 			if err != nil {
 				return fmt.Errorf("create beads tool: %w", err)
@@ -99,5 +96,4 @@ func planWebCmd() *cobra.Command {
 			return nil
 		},
 	}
-	return cmd
 }

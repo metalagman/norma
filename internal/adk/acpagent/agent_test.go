@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	acp "github.com/coder/acp-go-sdk"
 	"google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
@@ -33,7 +34,7 @@ func TestClientPromptReceivesUpdates(t *testing.T) {
 		t.Fatalf("NewSession() error = %v", err)
 	}
 
-	updates, resultCh, err := client.Prompt(context.Background(), sess.SessionID, "hello")
+	updates, resultCh, err := client.Prompt(context.Background(), string(sess.SessionId), "hello")
 	if err != nil {
 		t.Fatalf("Prompt() error = %v", err)
 	}
@@ -48,11 +49,11 @@ func TestClientPromptReceivesUpdates(t *testing.T) {
 	if result.Err != nil {
 		t.Fatalf("PromptResult.Err = %v", result.Err)
 	}
-	if result.Response.StopReason != "end_turn" {
-		t.Fatalf("StopReason = %q, want end_turn", result.Response.StopReason)
+	if result.Response.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("StopReason = %q, want %q", result.Response.StopReason, acp.StopReasonEndTurn)
 	}
 	got := strings.Join(chunks, "")
-	want := sess.SessionID + ":hello"
+	want := string(sess.SessionId) + ":hello"
 	if got != want {
 		t.Fatalf("joined chunks = %q, want %q", got, want)
 	}
@@ -61,8 +62,8 @@ func TestClientPromptReceivesUpdates(t *testing.T) {
 func TestClientHandlesPermissionRequest(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommand(t),
-		PermissionHandler: func(_ context.Context, req requestPermissionRequest) (requestPermissionResponse, error) {
-			return requestPermissionResponse{Outcome: permissionOutcome{Outcome: outcomeSelected, OptionID: req.Options[0].OptionID}}, nil
+		PermissionHandler: func(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(req.Options[0].OptionId)}, nil
 		},
 	})
 	if err != nil {
@@ -78,7 +79,7 @@ func TestClientHandlesPermissionRequest(t *testing.T) {
 		t.Fatalf("NewSession() error = %v", err)
 	}
 
-	updates, resultCh, err := client.Prompt(context.Background(), sess.SessionID, "permission")
+	updates, resultCh, err := client.Prompt(context.Background(), string(sess.SessionId), "permission")
 	if err != nil {
 		t.Fatalf("Prompt() error = %v", err)
 	}
@@ -168,60 +169,67 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	sessionCount := 0
 
 	for scanner.Scan() {
-		var msg rpcEnvelope
+		var msg helperEnvelope
 		must(json.Unmarshal(scanner.Bytes(), &msg))
 		switch msg.Method {
-		case methodInitialize:
-			writeEnvelope(stdout, rpcEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(initializeResponse{ProtocolVersion: protocolVersion, AgentInfo: &implementation{Name: "helper"}})})
-		case methodSessionNew:
+		case acp.AgentMethodInitialize:
+			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperInitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber})})
+		case acp.AgentMethodSessionNew:
 			sessionCount++
 			sessionID := fmt.Sprintf("session-%d", sessionCount)
-			writeEnvelope(stdout, rpcEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(newSessionResponse{SessionID: sessionID})})
-		case methodSessionPrompt:
-			var req promptRequest
+			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperNewSessionResponse{SessionID: sessionID})})
+		case acp.AgentMethodSessionPrompt:
+			var req helperPromptRequest
 			must(json.Unmarshal(msg.Params, &req))
 			prompt := req.Prompt[0].Text
 			if prompt == "permission" {
-				writeEnvelope(stdout, rpcEnvelope{JSONRPC: "2.0", ID: json.RawMessage(`"perm-1"`), Method: methodSessionRequestPermit, Params: mustJSON(requestPermissionRequest{
+				title := "Edit file"
+				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: json.RawMessage(`"perm-1"`), Method: acp.ClientMethodSessionRequestPermission, Params: mustJSON(helperPermissionRequest{
 					SessionID: req.SessionID,
-					ToolCall:  permissionToolCall{Title: "Edit file"},
-					Options:   []permissionOption{{Kind: "allow_once", Name: "Allow", OptionID: "allow"}, {Kind: "reject_once", Name: "Reject", OptionID: "reject"}},
+					ToolCall:  helperPermissionToolCall{Title: &title},
+					Options: []helperPermissionOption{
+						{Kind: string(acp.PermissionOptionKindAllowOnce), Name: "Allow", OptionID: "allow"},
+						{Kind: string(acp.PermissionOptionKindRejectOnce), Name: "Reject", OptionID: "reject"},
+					},
 				})})
 				if !scanner.Scan() {
 					return
 				}
-				var permitResp rpcEnvelope
+				var permitResp helperEnvelope
 				must(json.Unmarshal(scanner.Bytes(), &permitResp))
-				var outcome requestPermissionResponse
+				var outcome helperPermissionResponse
 				must(json.Unmarshal(permitResp.Result, &outcome))
 				text := "rejected"
-				if outcome.Outcome.OptionID == "allow" {
+				if outcome.Outcome.Outcome == "selected" && outcome.Outcome.OptionID == "allow" {
 					text = "approved"
 				}
 				writeUpdate(stdout, req.SessionID, text)
-				writeEnvelope(stdout, rpcEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(promptResponse{StopReason: "end_turn"})})
+				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
 				continue
 			}
 			prefix := req.SessionID + ":"
 			writeUpdate(stdout, req.SessionID, prefix)
 			writeUpdate(stdout, req.SessionID, prompt)
-			writeEnvelope(stdout, rpcEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(promptResponse{StopReason: "end_turn"})})
-		case methodSessionCancel:
+			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
+		case acp.AgentMethodSessionCancel:
 			// Ignore in helper.
 		default:
-			writeEnvelope(stdout, rpcEnvelope{JSONRPC: "2.0", ID: msg.ID, Error: &rpcError{Code: -32601, Message: "unsupported"}})
+			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Error: &helperError{Code: -32601, Message: "unsupported"}})
 		}
 	}
 }
 
 func writeUpdate(stdout *os.File, sessionID, text string) {
-	writeEnvelope(stdout, rpcEnvelope{JSONRPC: "2.0", Method: methodSessionUpdate, Params: mustJSON(sessionNotification{
+	writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", Method: acp.ClientMethodSessionUpdate, Params: mustJSON(helperSessionNotification{
 		SessionID: sessionID,
-		Update:    sessionUpdate{SessionUpdate: updateAgentMessageChunk, Content: &textContent{Type: "text", Text: text}},
+		Update: helperSessionUpdate{
+			SessionUpdate: "agent_message_chunk",
+			Content:       &helperContentPart{Type: "text", Text: text},
+		},
 	})})
 }
 
-func writeEnvelope(stdout *os.File, msg rpcEnvelope) {
+func writeEnvelope(stdout *os.File, msg helperEnvelope) {
 	must(json.NewEncoder(stdout).Encode(msg))
 }
 
@@ -235,4 +243,75 @@ func must(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+type helperEnvelope struct {
+	JSONRPC string          `json:"jsonrpc,omitempty"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *helperError    `json:"error,omitempty"`
+}
+
+type helperError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type helperInitializeResponse struct {
+	ProtocolVersion int `json:"protocolVersion"`
+}
+
+type helperNewSessionResponse struct {
+	SessionID string `json:"sessionId"`
+}
+
+type helperPromptResponse struct {
+	StopReason string `json:"stopReason"`
+}
+
+type helperPromptRequest struct {
+	SessionID string              `json:"sessionId"`
+	Prompt    []helperContentPart `json:"prompt"`
+}
+
+type helperContentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+type helperSessionNotification struct {
+	SessionID string              `json:"sessionId"`
+	Update    helperSessionUpdate `json:"update"`
+}
+
+type helperSessionUpdate struct {
+	SessionUpdate string             `json:"sessionUpdate"`
+	Content       *helperContentPart `json:"content,omitempty"`
+}
+
+type helperPermissionRequest struct {
+	SessionID string                   `json:"sessionId"`
+	Options   []helperPermissionOption `json:"options"`
+	ToolCall  helperPermissionToolCall `json:"toolCall"`
+}
+
+type helperPermissionOption struct {
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	OptionID string `json:"optionId"`
+}
+
+type helperPermissionToolCall struct {
+	Title *string `json:"title,omitempty"`
+}
+
+type helperPermissionResponse struct {
+	Outcome helperPermissionOutcome `json:"outcome"`
+}
+
+type helperPermissionOutcome struct {
+	Outcome  string `json:"outcome"`
+	OptionID string `json:"optionId,omitempty"`
 }

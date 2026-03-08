@@ -12,6 +12,14 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	initcmd "github.com/metalagman/norma/cmd/norma/init"
+	loopcmd "github.com/metalagman/norma/cmd/norma/loop"
+	plancmd "github.com/metalagman/norma/cmd/norma/plan"
+	playgroundcmd "github.com/metalagman/norma/cmd/norma/playground"
+	prunecmd "github.com/metalagman/norma/cmd/norma/prune"
+	runcmd "github.com/metalagman/norma/cmd/norma/run"
+	runscmd "github.com/metalagman/norma/cmd/norma/runs"
+	taskcmd "github.com/metalagman/norma/cmd/norma/task"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/logging"
 	"github.com/rs/zerolog/log"
@@ -61,14 +69,14 @@ func Execute() error {
 			}
 		}
 	}
-	rootCmd.AddCommand(loopCmd())
-	rootCmd.AddCommand(runCmd())
-	rootCmd.AddCommand(runsCmd())
-	rootCmd.AddCommand(taskCmd())
-	rootCmd.AddCommand(planCmd())
-	rootCmd.AddCommand(playgroundCmd())
-	rootCmd.AddCommand(initCmd())
-	rootCmd.AddCommand(pruneCmd())
+	rootCmd.AddCommand(loopcmd.Command())
+	rootCmd.AddCommand(runcmd.Command())
+	rootCmd.AddCommand(runscmd.Command())
+	rootCmd.AddCommand(taskcmd.Command())
+	rootCmd.AddCommand(plancmd.Command())
+	rootCmd.AddCommand(playgroundcmd.Command())
+	rootCmd.AddCommand(initcmd.Command())
+	rootCmd.AddCommand(prunecmd.Command())
 	return rootCmd.Execute()
 }
 

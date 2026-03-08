@@ -1,5 +1,4 @@
-// Package main provides the entry point for the norma CLI.
-package main
+package runscmd
 
 import (
 	"fmt"
@@ -10,16 +9,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func runsCmd() *cobra.Command {
+// Command builds the `norma runs` command group.
+func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "runs",
 		Short: "Manage norma runs",
 	}
-	cmd.AddCommand(runsPruneCmd())
+	cmd.AddCommand(pruneCommand())
 	return cmd
 }
 
-func runsPruneCmd() *cobra.Command {
+func pruneCommand() *cobra.Command {
 	var keepLast int
 	var keepDays int
 	var dryRun bool

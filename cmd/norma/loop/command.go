@@ -1,4 +1,4 @@
-package main
+package loopcmd
 
 import (
 	"fmt"
@@ -14,7 +14,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func loopCmd() *cobra.Command {
+// Command builds the `norma loop` command.
+func Command() *cobra.Command {
 	var continueOnFail bool
 	var activeFeatureID string
 	var activeEpicID string
@@ -25,7 +26,7 @@ func loopCmd() *cobra.Command {
 		Long:         "Run tasks one by one from the tracker using Google ADK Loop Agent for orchestration.",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
@@ -43,7 +44,6 @@ func loopCmd() *cobra.Command {
 
 			tracker := task.NewBeadsTracker("")
 			runStore := db.NewStore(storeDB)
-
 			pdcaFactory := pdca.NewFactory(cfg, runStore, tracker)
 
 			normaDir := filepath.Join(repoRoot, ".norma")

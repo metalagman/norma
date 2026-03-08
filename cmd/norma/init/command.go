@@ -1,26 +1,38 @@
-// Package main provides the entry point for the norma CLI.
-package main
+package initcmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/metalagman/norma/internal/git"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
-func initCmd() *cobra.Command {
-	cmd := &cobra.Command{
+var runBeadsInit = func(ctx context.Context, repoRoot string) error {
+	cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
+	cmd.Dir = repoRoot
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// Command builds the `norma init` command.
+func Command() *cobra.Command {
+	return &cobra.Command{
 		Use:   "init",
 		Short: "Initialize norma in the current repository",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			repoRoot, err := os.Getwd()
 			if err != nil {
 				return err
 			}
-
 			if !git.Available(cmd.Context(), repoRoot) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
@@ -39,7 +51,7 @@ func initCmd() *cobra.Command {
 				log.Info().Msg(".norma/.gitignore already exists, skipping")
 			} else {
 				log.Info().Str("path", gitignorePath).Msg("installing .norma/.gitignore")
-				if err := os.WriteFile(gitignorePath, []byte(normaGitignoreContent), 0o600); err != nil {
+				if err := os.WriteFile(gitignorePath, []byte(NormaGitignoreContent), 0o600); err != nil {
 					return fmt.Errorf("write .norma/.gitignore: %w", err)
 				}
 			}
@@ -54,7 +66,7 @@ func initCmd() *cobra.Command {
 				log.Info().Msg("config.yaml already exists, skipping")
 			} else {
 				log.Info().Str("path", configPath).Msg("installing default config")
-				if err := os.WriteFile(configPath, []byte(defaultConfigYAML), 0o600); err != nil {
+				if err := os.WriteFile(configPath, []byte(DefaultConfigYAML), 0o600); err != nil {
 					return fmt.Errorf("write default config: %w", err)
 				}
 			}
@@ -63,10 +75,31 @@ func initCmd() *cobra.Command {
 			return nil
 		},
 	}
-	return cmd
 }
 
-const normaGitignoreContent = `# ignore everything in .norma by default
+func initBeads(ctx context.Context) error {
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current working directory: %w", err)
+	}
+
+	topLevelOut, err := git.GitRunCmdOutput(ctx, repoRoot, "git", "rev-parse", "--show-toplevel")
+	if err == nil {
+		repoRoot = strings.TrimSpace(topLevelOut)
+	}
+
+	beadsPath := filepath.Join(repoRoot, ".beads")
+	if _, err := os.Stat(beadsPath); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("stat beads dir %q: %w", beadsPath, err)
+	}
+
+	log.Info().Str("path", beadsPath).Msg(".beads not found, initializing with prefix 'norma'")
+	return runBeadsInit(ctx, repoRoot)
+}
+
+const NormaGitignoreContent = `# ignore everything in .norma by default
 *
 
 # but keep this file itself
@@ -77,7 +110,7 @@ const normaGitignoreContent = `# ignore everything in .norma by default
 !config.yml
 `
 
-const defaultConfigYAML = `profile: default
+const DefaultConfigYAML = `profile: default
 agents:
   codex_primary:
     type: codex

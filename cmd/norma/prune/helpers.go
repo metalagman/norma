@@ -1,5 +1,4 @@
-// Package main provides the entry point for the norma CLI.
-package main
+package prunecmd
 
 import (
 	"context"

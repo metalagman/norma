@@ -1,7 +1,7 @@
 package acpagent
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,52 +10,64 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"time"
+
+	acp "github.com/coder/acp-go-sdk"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var errPromptAlreadyActive = errors.New("acp prompt already active")
 
-type PermissionHandler func(context.Context, requestPermissionRequest) (requestPermissionResponse, error)
+const unknownValue = "unknown"
 
-type TracefFunc func(format string, args ...any)
+type PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
 
 type ClientConfig struct {
 	Command           []string
 	WorkingDir        string
 	Stderr            io.Writer
 	PermissionHandler PermissionHandler
-	Tracef            TracefFunc
+	Logger            *zerolog.Logger
 }
 
 type Client struct {
 	cmd               *exec.Cmd
 	stdin             io.WriteCloser
+	conn              *acp.ClientSideConnection
 	permissionHandler PermissionHandler
-	traceFn           TracefFunc
+	logger            zerolog.Logger
 
-	writeMu   sync.Mutex
-	stateMu   sync.Mutex
-	pending   map[string]chan rpcEnvelope
-	active    *activePrompt
-	nextID    atomic.Uint64
+	stateMu sync.Mutex
+	active  *activePrompt
+	updates chan acp.SessionNotification
+
 	closed    chan struct{}
 	closeOnce sync.Once
 	closeErr  error
 }
 
 type activePrompt struct {
-	sessionID string
-	updates   chan sessionNotification
+	sessionID acp.SessionId
+	updates   chan acp.SessionNotification
+	signal    chan struct{}
 }
 
 type PromptResult struct {
-	Response promptResponse
+	Response acp.PromptResponse
 	Err      error
 }
+
+var _ acp.Client = (*Client)(nil)
 
 func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	if len(cfg.Command) == 0 {
 		return nil, fmt.Errorf("acp command is required")
+	}
+
+	l := log.With().Str("component", "acpagent.client").Logger()
+	if cfg.Logger != nil {
+		l = cfg.Logger.With().Str("subcomponent", "acpagent.client").Logger()
 	}
 
 	stderr := cfg.Stderr
@@ -71,116 +83,122 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, fmt.Errorf("acp stdout pipe: %w", err)
 	}
 	cmd.Stderr = stderr
+
+	l.Info().
+		Str("binary", cfg.Command[0]).
+		Strs("args", cfg.Command[1:]).
+		Str("cwd", cfg.WorkingDir).
+		Msg("starting acp process")
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
 		return nil, fmt.Errorf("start acp process: %w", err)
+	}
+	if cmd.Process != nil {
+		l.Info().Int("pid", cmd.Process.Pid).Msg("acp process started")
 	}
 
 	c := &Client{
 		cmd:               cmd,
 		stdin:             stdin,
 		permissionHandler: cfg.PermissionHandler,
-		traceFn:           cfg.Tracef,
-		pending:           make(map[string]chan rpcEnvelope),
+		logger:            l,
+		updates:           make(chan acp.SessionNotification, 256),
 		closed:            make(chan struct{}),
 	}
-	go c.readLoop(stdout)
+
+	wireWriter := newWireLoggingWriter(stdin, l)
+	wireReader := newWireLoggingReader(stdout, l, c.enqueueUpdateFromWire)
+	c.conn = acp.NewClientSideConnection(c, wireWriter, wireReader)
+
+	go c.dispatchUpdates()
 	go c.waitLoop()
 	return c, nil
 }
 
-func (c *Client) Initialize(ctx context.Context) (initializeResponse, error) {
-	resp, err := c.request(ctx, methodInitialize, initializeRequest{
-		ProtocolVersion: protocolVersion,
-		ClientInfo: &implementation{
+func (c *Client) Initialize(ctx context.Context) (acp.InitializeResponse, error) {
+	c.logger.Info().Msg("sending acp initialize")
+	resp, err := c.conn.Initialize(ctx, acp.InitializeRequest{
+		ProtocolVersion: acp.ProtocolVersionNumber,
+		ClientInfo: &acp.Implementation{
 			Name:    "norma-playground",
 			Version: "dev",
 		},
 	})
 	if err != nil {
-		return initializeResponse{}, err
+		return acp.InitializeResponse{}, err
 	}
-
-	var out initializeResponse
-	if err := json.Unmarshal(resp, &out); err != nil {
-		return initializeResponse{}, fmt.Errorf("decode initialize response: %w", err)
+	if resp.ProtocolVersion != acp.ProtocolVersion(acp.ProtocolVersionNumber) {
+		return acp.InitializeResponse{}, fmt.Errorf("unsupported acp protocol version %d", resp.ProtocolVersion)
 	}
-	if out.ProtocolVersion != protocolVersion {
-		return initializeResponse{}, fmt.Errorf("unsupported acp protocol version %d", out.ProtocolVersion)
-	}
-	return out, nil
+	c.logger.Info().Int("protocol_version", int(resp.ProtocolVersion)).Msg("acp initialize succeeded")
+	return resp, nil
 }
 
 func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 	if strings.TrimSpace(methodID) == "" {
 		return nil
 	}
-	_, err := c.request(ctx, methodAuthenticate, authenticateRequest{MethodID: methodID})
-	return err
-}
-
-func (c *Client) NewSession(ctx context.Context, cwd string) (newSessionResponse, error) {
-	resp, err := c.request(ctx, methodSessionNew, newSessionRequest{Cwd: cwd, MCPServers: []mcpServer{}})
+	c.logger.Info().Str("method_id", methodID).Msg("sending acp authenticate")
+	_, err := c.conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(methodID)})
 	if err != nil {
-		return newSessionResponse{}, err
+		return err
 	}
-
-	var out newSessionResponse
-	if err := json.Unmarshal(resp, &out); err != nil {
-		return newSessionResponse{}, fmt.Errorf("decode new session response: %w", err)
-	}
-	if strings.TrimSpace(out.SessionID) == "" {
-		return newSessionResponse{}, fmt.Errorf("acp session id is empty")
-	}
-	return out, nil
+	c.logger.Info().Str("method_id", methodID).Msg("acp authenticate succeeded")
+	return nil
 }
 
-func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan sessionNotification, <-chan PromptResult, error) {
+func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResponse, error) {
+	c.logger.Info().Str("cwd", cwd).Msg("sending acp session/new")
+	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+	if err != nil {
+		return acp.NewSessionResponse{}, err
+	}
+	if strings.TrimSpace(string(resp.SessionId)) == "" {
+		return acp.NewSessionResponse{}, fmt.Errorf("acp session id is empty")
+	}
+	c.logger.Info().Str("session_id", string(resp.SessionId)).Msg("acp session/new succeeded")
+	return resp, nil
+}
+
+func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionNotification, <-chan PromptResult, error) {
 	c.stateMu.Lock()
 	if c.active != nil {
 		c.stateMu.Unlock()
 		return nil, nil, errPromptAlreadyActive
 	}
-	updates := make(chan sessionNotification, 64)
-	c.active = &activePrompt{sessionID: sessionID, updates: updates}
+	updates := make(chan acp.SessionNotification, 64)
+	activeSessionID := acp.SessionId(sessionID)
+	active := &activePrompt{sessionID: activeSessionID, updates: updates, signal: make(chan struct{}, 1)}
+	c.active = active
 	c.stateMu.Unlock()
+
+	c.logger.Info().Str("session_id", sessionID).Int("prompt_len", len(prompt)).Msg("sending acp session/prompt")
 
 	resultCh := make(chan PromptResult, 1)
 	go func() {
 		defer close(resultCh)
 		defer close(updates)
-		defer c.clearActive(sessionID)
+		defer c.clearActive(activeSessionID)
 
-		cancelCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go func() {
-			select {
-			case <-ctx.Done():
-				_ = c.notify(cancelCtx, methodSessionCancel, cancelNotification{SessionID: sessionID})
-			case <-cancelCtx.Done():
-			}
-		}()
-
-		resp, err := c.request(ctx, methodSessionPrompt, promptRequest{
-			SessionID: sessionID,
-			Prompt: []contentBlock{{
-				Type: "text",
-				Text: prompt,
-			}},
+		resp, err := c.conn.Prompt(ctx, acp.PromptRequest{
+			SessionId: activeSessionID,
+			Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
 		})
+		waitForUpdateIdle(ctx, active.signal)
 		if err != nil {
+			c.logger.Error().Err(err).Str("session_id", sessionID).Msg("acp session/prompt failed")
 			resultCh <- PromptResult{Err: err}
 			return
 		}
-
-		var out promptResponse
-		if err := json.Unmarshal(resp, &out); err != nil {
-			resultCh <- PromptResult{Err: fmt.Errorf("decode prompt response: %w", err)}
-			return
-		}
-		resultCh <- PromptResult{Response: out}
+		c.logger.Info().
+			Str("session_id", sessionID).
+			Str("stop_reason", string(resp.StopReason)).
+			Msg("acp session/prompt completed")
+		resultCh <- PromptResult{Response: resp}
 	}()
 
 	return updates, resultCh, nil
@@ -201,111 +219,92 @@ func (c *Client) Close() error {
 func (c *Client) waitLoop() {
 	err := c.cmd.Wait()
 	if err != nil {
+		c.logger.Warn().Err(err).Msg("acp process exited with error")
 		c.failAll(fmt.Errorf("acp process exit: %w", err))
 		return
 	}
+	c.logger.Info().Msg("acp process exited")
 	c.failAll(io.EOF)
 }
 
-func (c *Client) readLoop(stdout io.Reader) {
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var msg rpcEnvelope
-		if err := json.Unmarshal(line, &msg); err != nil {
-			c.failAll(fmt.Errorf("decode acp message: %w", err))
-			return
-		}
-		c.tracef("recv %s %s", msg.Method, strings.TrimSpace(string(msg.ID)))
-		if msg.Method != "" {
-			if len(msg.ID) > 0 {
-				c.handleRequest(msg)
-				continue
-			}
-			c.handleNotification(msg)
-			continue
-		}
-		c.handleResponse(msg)
+func (c *Client) RequestPermission(_ context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	title := ""
+	if params.ToolCall.Title != nil {
+		title = *params.ToolCall.Title
 	}
-	if err := scanner.Err(); err != nil {
-		c.failAll(fmt.Errorf("read acp stdout: %w", err))
-	}
-}
+	c.logger.Info().
+		Str("session_id", string(params.SessionId)).
+		Str("title", title).
+		Int("option_count", len(params.Options)).
+		Msg("received acp permission request")
 
-func (c *Client) handleNotification(msg rpcEnvelope) {
-	if msg.Method != methodSessionUpdate {
-		c.tracef("ignore notification %s", msg.Method)
-		return
-	}
-	var note sessionNotification
-	if err := json.Unmarshal(msg.Params, &note); err != nil {
-		c.tracef("invalid session update: %v", err)
-		return
-	}
-	c.tracef("session update %s %s", note.SessionID, note.Update.SessionUpdate)
-
-	c.stateMu.Lock()
-	active := c.active
-	c.stateMu.Unlock()
-	if active == nil || active.sessionID != note.SessionID {
-		return
-	}
-	select {
-	case active.updates <- note:
-	case <-c.closed:
-	}
-}
-
-func (c *Client) handleRequest(msg rpcEnvelope) {
-	switch msg.Method {
-	case methodSessionRequestPermit:
-		var req requestPermissionRequest
-		if err := json.Unmarshal(msg.Params, &req); err != nil {
-			c.respondError(msg.ID, -32602, fmt.Sprintf("invalid permission request: %v", err))
-			return
-		}
-		resp, err := c.handlePermissionRequest(req)
-		if err != nil {
-			c.respondError(msg.ID, -32000, err.Error())
-			return
-		}
-		c.respondResult(msg.ID, resp)
-	default:
-		c.respondError(msg.ID, -32601, fmt.Sprintf("unsupported client method %q", msg.Method))
-	}
-}
-
-func (c *Client) handlePermissionRequest(req requestPermissionRequest) (requestPermissionResponse, error) {
-	c.tracef("permission request %s %s", req.SessionID, req.ToolCall.Title)
 	if c.permissionHandler != nil {
-		return c.permissionHandler(context.Background(), req)
+		resp, err := c.permissionHandler(context.Background(), params)
+		if err != nil {
+			c.logger.Error().Err(err).Str("session_id", string(params.SessionId)).Msg("permission handler failed")
+			return acp.RequestPermissionResponse{}, err
+		}
+		c.logger.Info().
+			Str("session_id", string(params.SessionId)).
+			Str("outcome", permissionOutcomeLabel(resp.Outcome)).
+			Msg("permission handler returned")
+		return resp, nil
 	}
-	for _, option := range req.Options {
-		if option.Kind == "reject_once" || option.Kind == "reject_always" {
-			return requestPermissionResponse{Outcome: permissionOutcome{Outcome: outcomeSelected, OptionID: option.OptionID}}, nil
+
+	for _, option := range params.Options {
+		if option.Kind == acp.PermissionOptionKindRejectOnce || option.Kind == acp.PermissionOptionKindRejectAlways {
+			resp := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId)}
+			c.logger.Info().
+				Str("session_id", string(params.SessionId)).
+				Str("option_id", string(option.OptionId)).
+				Str("option_kind", string(option.Kind)).
+				Msg("permission auto-selected reject option")
+			return resp, nil
 		}
 	}
-	return requestPermissionResponse{Outcome: permissionOutcome{Outcome: outcomeCancelled}}, nil
+
+	resp := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
+	c.logger.Info().Str("session_id", string(params.SessionId)).Msg("permission auto-cancelled")
+	return resp, nil
 }
 
-func (c *Client) handleResponse(msg rpcEnvelope) {
-	key := string(msg.ID)
-	c.stateMu.Lock()
-	ch := c.pending[key]
-	delete(c.pending, key)
-	c.stateMu.Unlock()
-	if ch == nil {
-		return
-	}
-	ch <- msg
-	close(ch)
+func (c *Client) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
+	c.logger.Debug().
+		Str("session_id", string(params.SessionId)).
+		Str("update_kind", sessionUpdateKind(params.Update)).
+		Msg("received acp session update callback")
+	return nil
 }
 
-func (c *Client) clearActive(sessionID string) {
+func (c *Client) ReadTextFile(_ context.Context, _ acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
+	return acp.ReadTextFileResponse{}, acp.NewMethodNotFound(acp.ClientMethodFsReadTextFile)
+}
+
+func (c *Client) WriteTextFile(_ context.Context, _ acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
+	return acp.WriteTextFileResponse{}, acp.NewMethodNotFound(acp.ClientMethodFsWriteTextFile)
+}
+
+func (c *Client) CreateTerminal(_ context.Context, _ acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
+	return acp.CreateTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalCreate)
+}
+
+func (c *Client) KillTerminalCommand(_ context.Context, _ acp.KillTerminalCommandRequest) (acp.KillTerminalCommandResponse, error) {
+	return acp.KillTerminalCommandResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalKill)
+}
+
+func (c *Client) TerminalOutput(_ context.Context, _ acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
+	return acp.TerminalOutputResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalOutput)
+}
+
+func (c *Client) ReleaseTerminal(_ context.Context, _ acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
+	return acp.ReleaseTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalRelease)
+}
+
+func (c *Client) WaitForTerminalExit(_ context.Context, _ acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
+	return acp.WaitForTerminalExitResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalWaitForExit)
+}
+
+func (c *Client) clearActive(sessionID acp.SessionId) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	if c.active != nil && c.active.sessionID == sessionID {
@@ -313,114 +312,235 @@ func (c *Client) clearActive(sessionID string) {
 	}
 }
 
-func (c *Client) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	id := fmt.Sprintf("%d", c.nextID.Add(1))
-	idRaw, err := json.Marshal(id)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request id: %w", err)
-	}
-
-	paramsRaw, err := json.Marshal(params)
-	if err != nil {
-		return nil, fmt.Errorf("marshal %s params: %w", method, err)
-	}
-
-	respCh := make(chan rpcEnvelope, 1)
-	c.stateMu.Lock()
-	c.pending[string(idRaw)] = respCh
-	c.stateMu.Unlock()
-	defer func() {
-		c.stateMu.Lock()
-		delete(c.pending, string(idRaw))
-		c.stateMu.Unlock()
-	}()
-
-	if err := c.send(rpcEnvelope{
-		JSONRPC: "2.0",
-		ID:      idRaw,
-		Method:  method,
-		Params:  paramsRaw,
-	}); err != nil {
-		return nil, err
-	}
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-c.closed:
-		if c.closeErr == nil {
-			return nil, io.EOF
-		}
-		return nil, c.closeErr
-	case resp := <-respCh:
-		if resp.Error != nil {
-			return nil, fmt.Errorf("%s: %s", method, resp.Error.Message)
-		}
-		return resp.Result, nil
-	}
-}
-
-func (c *Client) notify(ctx context.Context, method string, params any) error {
-	paramsRaw, err := json.Marshal(params)
-	if err != nil {
-		return fmt.Errorf("marshal %s params: %w", method, err)
-	}
-	return c.send(rpcEnvelope{JSONRPC: "2.0", Method: method, Params: paramsRaw})
-}
-
-func (c *Client) send(msg rpcEnvelope) error {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshal acp message: %w", err)
-	}
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-	select {
-	case <-c.closed:
-		if c.closeErr == nil {
-			return io.EOF
-		}
-		return c.closeErr
-	default:
-	}
-	if _, err := c.stdin.Write(append(data, '\n')); err != nil {
-		return fmt.Errorf("write acp message: %w", err)
-	}
-	c.tracef("send %s %s", msg.Method, strings.TrimSpace(string(msg.ID)))
-	return nil
-}
-
-func (c *Client) respondResult(id json.RawMessage, result any) {
-	resultRaw, err := json.Marshal(result)
-	if err != nil {
-		c.respondError(id, -32603, err.Error())
-		return
-	}
-	_ = c.send(rpcEnvelope{JSONRPC: "2.0", ID: id, Result: resultRaw})
-}
-
-func (c *Client) respondError(id json.RawMessage, code int, message string) {
-	_ = c.send(rpcEnvelope{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: message}})
-}
-
 func (c *Client) failAll(err error) {
 	c.closeOnce.Do(func() {
 		c.closeErr = err
 		close(c.closed)
 		c.stateMu.Lock()
-		pending := c.pending
-		c.pending = make(map[string]chan rpcEnvelope)
 		c.active = nil
 		c.stateMu.Unlock()
-		for _, ch := range pending {
-			ch <- rpcEnvelope{Error: &rpcError{Code: -32000, Message: err.Error()}}
-			close(ch)
-		}
 	})
 }
 
-func (c *Client) tracef(format string, args ...any) {
-	if c.traceFn != nil {
-		c.traceFn(format, args...)
+func (c *Client) enqueueUpdateFromWire(note acp.SessionNotification) {
+	select {
+	case c.updates <- note:
+	default:
+		c.logger.Warn().Str("session_id", string(note.SessionId)).Msg("dropping ordered wire update due to full buffer")
 	}
+}
+
+func (c *Client) dispatchUpdates() {
+	for {
+		select {
+		case <-c.closed:
+			return
+		case note := <-c.updates:
+			c.dispatchSessionUpdate(note)
+		}
+	}
+}
+
+func (c *Client) dispatchSessionUpdate(note acp.SessionNotification) {
+	c.logger.Info().
+		Str("session_id", string(note.SessionId)).
+		Str("update_kind", sessionUpdateKind(note.Update)).
+		Msg("received acp session update")
+
+	c.stateMu.Lock()
+	active := c.active
+	c.stateMu.Unlock()
+	if active == nil || active.sessionID != note.SessionId {
+		return
+	}
+	select {
+	case active.updates <- note:
+		select {
+		case active.signal <- struct{}{}:
+		default:
+		}
+	case <-c.closed:
+	}
+}
+
+func permissionOutcomeLabel(outcome acp.RequestPermissionOutcome) string {
+	switch {
+	case outcome.Selected != nil:
+		return "selected"
+	case outcome.Cancelled != nil:
+		return "cancelled"
+	default:
+		return unknownValue
+	}
+}
+
+func sessionUpdateKind(update acp.SessionUpdate) string {
+	switch {
+	case update.AgentMessageChunk != nil:
+		return "agent_message_chunk"
+	case update.UserMessageChunk != nil:
+		return "user_message_chunk"
+	case update.AgentThoughtChunk != nil:
+		return "agent_thought_chunk"
+	case update.ToolCall != nil:
+		return "tool_call"
+	case update.ToolCallUpdate != nil:
+		return "tool_call_update"
+	case update.Plan != nil:
+		return "plan"
+	case update.AvailableCommandsUpdate != nil:
+		return "available_commands_update"
+	case update.CurrentModeUpdate != nil:
+		return "current_mode_update"
+	default:
+		return unknownValue
+	}
+}
+
+func waitForUpdateIdle(ctx context.Context, signal <-chan struct{}) {
+	const idleWindow = 20 * time.Millisecond
+	timer := time.NewTimer(idleWindow)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-signal:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(idleWindow)
+		case <-timer.C:
+			return
+		}
+	}
+}
+
+type wireLoggingWriter struct {
+	writer io.Writer
+	buffer *wireLogBuffer
+}
+
+func newWireLoggingWriter(writer io.Writer, logger zerolog.Logger) io.Writer {
+	return &wireLoggingWriter{writer: writer, buffer: newWireLogBuffer("send", logger, nil)}
+}
+
+func (w *wireLoggingWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	if n > 0 {
+		w.buffer.append(p[:n])
+	}
+	if err != nil {
+		w.buffer.logger.Warn().Err(err).Msg("failed to write acp stream")
+	}
+	return n, err
+}
+
+type wireLoggingReader struct {
+	reader io.Reader
+	buffer *wireLogBuffer
+}
+
+func newWireLoggingReader(reader io.Reader, logger zerolog.Logger, onSessionUpdate func(acp.SessionNotification)) io.Reader {
+	return &wireLoggingReader{reader: reader, buffer: newWireLogBuffer("recv", logger, onSessionUpdate)}
+}
+
+func (r *wireLoggingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.buffer.append(p[:n])
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		r.buffer.logger.Warn().Err(err).Msg("failed to read acp stream")
+	}
+	return n, err
+}
+
+type wireLogBuffer struct {
+	direction string
+	logger    zerolog.Logger
+	onUpdate  func(acp.SessionNotification)
+
+	mu  sync.Mutex
+	buf []byte
+}
+
+func newWireLogBuffer(direction string, logger zerolog.Logger, onUpdate func(acp.SessionNotification)) *wireLogBuffer {
+	return &wireLogBuffer{direction: direction, logger: logger, onUpdate: onUpdate}
+}
+
+func (b *wireLogBuffer) append(chunk []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.buf = append(b.buf, chunk...)
+	for {
+		idx := bytes.IndexByte(b.buf, '\n')
+		if idx < 0 {
+			return
+		}
+		line := bytes.TrimSpace(b.buf[:idx])
+		b.buf = b.buf[idx+1:]
+		if len(line) == 0 {
+			continue
+		}
+		b.logLine(line)
+	}
+}
+
+func (b *wireLogBuffer) logLine(line []byte) {
+	type wireEnvelope struct {
+		Method string          `json:"method,omitempty"`
+		ID     json.RawMessage `json:"id,omitempty"`
+		Params json.RawMessage `json:"params,omitempty"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+
+	var env wireEnvelope
+	if err := json.Unmarshal(line, &env); err != nil {
+		b.logger.Warn().
+			Str("direction", b.direction).
+			Err(err).
+			Msg("failed to decode acp wire payload")
+		return
+	}
+
+	if b.direction == "recv" && env.Method == acp.ClientMethodSessionUpdate && b.onUpdate != nil && len(env.Params) > 0 {
+		var note acp.SessionNotification
+		if err := json.Unmarshal(env.Params, &note); err == nil {
+			b.onUpdate(note)
+		} else {
+			b.logger.Warn().Err(err).Msg("failed to decode ordered session update")
+		}
+	}
+
+	kind := unknownValue
+	switch {
+	case env.Method != "" && len(env.ID) > 0:
+		kind = "request"
+	case env.Method != "":
+		kind = "notification"
+	case len(env.ID) > 0:
+		kind = "response"
+	}
+
+	evt := b.logger.Info().
+		Str("direction", b.direction).
+		Str("rpc_kind", kind)
+	if env.Method != "" {
+		evt = evt.Str("method", env.Method)
+	}
+	if len(env.ID) > 0 {
+		evt = evt.Str("id", strings.TrimSpace(string(env.ID)))
+	}
+	if env.Error != nil {
+		evt = evt.Int("error_code", env.Error.Code).Str("error_message", env.Error.Message)
+	}
+	evt.Msg("acp wire")
 }
