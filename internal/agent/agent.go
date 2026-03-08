@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/ainvoke/adk"
+	"github.com/metalagman/norma/internal/adk/acpagent"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
 	"github.com/rs/zerolog/log"
@@ -29,29 +32,51 @@ type Runner interface {
 func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 	var agentFactory func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error)
 
-	cmd, err := ResolveCmd(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
-		prompt, err := role.Prompt(req)
+	if config.IsACPType(cfg.Type) {
+		cmd, err := ResolveACPCommand(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("generate prompt: %w", err)
+			return nil, err
+		}
+		agentFactory = func(ctx context.Context, req contracts.AgentRequest, _, stderr io.Writer) (agent.Agent, error) {
+			workingDir := req.Paths.WorkspaceDir
+			if strings.TrimSpace(workingDir) == "" {
+				workingDir = req.Paths.RunDir
+			}
+			return acpagent.New(acpagent.Config{
+				Context:           ctx,
+				Name:              "Norma" + toPascal(req.Step.Name) + "ACP",
+				Description:       "Norma ACP role agent",
+				Command:           cmd,
+				WorkingDir:        workingDir,
+				Stderr:            stderr,
+				PermissionHandler: defaultACPPermissionHandler,
+			})
+		}
+	} else {
+		cmd, err := ResolveCmd(cfg)
+		if err != nil {
+			return nil, err
 		}
 
-		return adk.NewExecAgent(
-			req.Step.Name,
-			"Norma agent",
-			cmd,
-			adk.WithExecAgentPrompt(prompt),
-			adk.WithExecAgentInputSchema(role.InputSchema()),
-			adk.WithExecAgentOutputSchema(role.OutputSchema()),
-			adk.WithExecAgentRunDir(req.Paths.RunDir),
-			adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
-			adk.WithExecAgentStdout(stdout),
-			adk.WithExecAgentStderr(stderr),
-		)
+		agentFactory = func(ctx context.Context, req contracts.AgentRequest, stdout, stderr io.Writer) (agent.Agent, error) {
+			prompt, err := role.Prompt(req)
+			if err != nil {
+				return nil, fmt.Errorf("generate prompt: %w", err)
+			}
+
+			return adk.NewExecAgent(
+				req.Step.Name,
+				"Norma agent",
+				cmd,
+				adk.WithExecAgentPrompt(prompt),
+				adk.WithExecAgentInputSchema(role.InputSchema()),
+				adk.WithExecAgentOutputSchema(role.OutputSchema()),
+				adk.WithExecAgentRunDir(req.Paths.RunDir),
+				adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
+				adk.WithExecAgentStdout(stdout),
+				adk.WithExecAgentStderr(stderr),
+			)
+		}
 	}
 
 	return &adkRunner{
@@ -97,6 +122,43 @@ func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 	return cmd, nil
 }
 
+// ResolveACPCommand resolves the command for ACP-backed agent types.
+func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
+	switch cfg.Type {
+	case config.AgentTypeACPExec:
+		if len(cfg.Cmd) == 0 {
+			return nil, fmt.Errorf("acp_exec agent requires cmd")
+		}
+		cmd := append([]string(nil), cfg.Cmd...)
+		return append(cmd, cfg.ExtraArgs...), nil
+	case config.AgentTypeGeminiACP:
+		cmd := []string{"gemini", "--experimental-acp"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		return append(cmd, cfg.ExtraArgs...), nil
+	case config.AgentTypeOpenCodeACP:
+		cmd := []string{"opencode"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		cmd = append(cmd, "acp")
+		return append(cmd, cfg.ExtraArgs...), nil
+	case config.AgentTypeCodexACP:
+		exePath, err := os.Executable()
+		if err != nil {
+			return nil, fmt.Errorf("resolve executable path: %w", err)
+		}
+		cmd := []string{exePath, "playground", "codex-acp-bridge"}
+		for _, arg := range cfg.ExtraArgs {
+			cmd = append(cmd, "--codex-arg", arg)
+		}
+		return cmd, nil
+	default:
+		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
+	}
+}
+
 type adkRunner struct {
 	cfg          config.AgentConfig
 	role         contracts.Role
@@ -132,6 +194,13 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("failed to create agent: %w", err)
 	}
+	if closer, ok := a.(interface{ Close() error }); ok {
+		defer func() {
+			if closeErr := closer.Close(); closeErr != nil {
+				log.Warn().Err(closeErr).Msg("failed to close agent runtime")
+			}
+		}()
+	}
 
 	sessionService := session.InMemoryService()
 	adkRunner, err := runner.New(runner.Config{
@@ -152,7 +221,11 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 		return nil, nil, 0, fmt.Errorf("failed to create session: %w", err)
 	}
 
-	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
+	userPayload := string(inputJSON)
+	if config.IsACPType(r.cfg.Type) {
+		userPayload = buildACPPayload(prompt, inputJSON, r.role)
+	}
+	userContent := genai.NewContentFromText(userPayload, genai.RoleUser)
 	events := adkRunner.Run(ctx, userID, sess.Session.ID(), userContent, agent.RunConfig{})
 
 	var lastOutBytes []byte
@@ -222,4 +295,41 @@ func ExtractJSON(data []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return data[start : end+1], true
+}
+
+func defaultACPPermissionHandler(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	for _, option := range req.Options {
+		if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
+			return acp.RequestPermissionResponse{
+				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
+			}, nil
+		}
+	}
+	for _, option := range req.Options {
+		if option.Kind == acp.PermissionOptionKindRejectOnce || option.Kind == acp.PermissionOptionKindRejectAlways {
+			return acp.RequestPermissionResponse{
+				Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId),
+			}, nil
+		}
+	}
+	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
+}
+
+func buildACPPayload(prompt string, inputJSON []byte, role contracts.Role) string {
+	const outputRule = `Return only valid JSON for the final AgentResponse object. Do not wrap in markdown.`
+	return strings.TrimSpace(strings.Join([]string{
+		prompt,
+		outputRule,
+		"Role: " + role.Name(),
+		"Input JSON:",
+		string(inputJSON),
+	}, "\n\n"))
+}
+
+func toPascal(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

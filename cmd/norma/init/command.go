@@ -128,6 +128,17 @@ agents:
   opencode_exec_model:
     type: opencode
     model: opencode/big-pickle
+  gemini_acp_agent:
+    type: gemini_acp
+    model: gemini-3-flash-preview
+  opencode_acp_agent:
+    type: opencode_acp
+    model: opencode/big-pickle
+  codex_acp_agent:
+    type: codex_acp
+  custom_acp_exec_agent:
+    type: acp_exec
+    cmd: ["custom-acp-cli", "--acp"]
 
 profiles:
   default:
@@ -165,6 +176,13 @@ profiles:
       check: opencode_exec_model
       act: opencode_exec_model
     planner: opencode_exec_model
+  acp:
+    pdca:
+      plan: gemini_acp_agent
+      do: opencode_acp_agent
+      check: codex_acp_agent
+      act: codex_acp_agent
+    planner: gemini_acp_agent
 budgets:
   max_iterations: 5
 retention:

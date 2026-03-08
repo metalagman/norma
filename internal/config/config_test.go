@@ -74,3 +74,28 @@ func TestResolveAgents_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
 		t.Fatal("ResolveAgents returned nil error, want error")
 	}
 }
+
+func TestIsACPType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typ  string
+		want bool
+	}{
+		{typ: AgentTypeACPExec, want: true},
+		{typ: AgentTypeGeminiACP, want: true},
+		{typ: AgentTypeOpenCodeACP, want: true},
+		{typ: AgentTypeCodexACP, want: true},
+		{typ: AgentTypeExec, want: false},
+		{typ: AgentTypeCodex, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.typ, func(t *testing.T) {
+			t.Parallel()
+			if got := IsACPType(tc.typ); got != tc.want {
+				t.Fatalf("IsACPType(%q) = %t, want %t", tc.typ, got, tc.want)
+			}
+		})
+	}
+}

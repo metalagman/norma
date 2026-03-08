@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
@@ -212,4 +213,93 @@ echo '{}'
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, err.Error(), "parse agent response")
 	assert.Contains(t, err.Error(), "map failed")
+}
+
+func TestResolveACPCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     config.AgentConfig
+		wantErr string
+		check   func(t *testing.T, got []string)
+	}{
+		{
+			name: "acp_exec_requires_cmd",
+			cfg: config.AgentConfig{
+				Type: config.AgentTypeACPExec,
+			},
+			wantErr: "acp_exec agent requires cmd",
+		},
+		{
+			name: "gemini_acp_builds_command",
+			cfg: config.AgentConfig{
+				Type:      config.AgentTypeGeminiACP,
+				Model:     "gemini-3-flash-preview",
+				ExtraArgs: []string{"--foo"},
+			},
+			check: func(t *testing.T, got []string) {
+				t.Helper()
+				want := []string{"gemini", "--experimental-acp", "--model", "gemini-3-flash-preview", "--foo"}
+				assert.Equal(t, want, got)
+			},
+		},
+		{
+			name: "opencode_acp_builds_command",
+			cfg: config.AgentConfig{
+				Type:      config.AgentTypeOpenCodeACP,
+				Model:     "opencode/model",
+				ExtraArgs: []string{"--bar"},
+			},
+			check: func(t *testing.T, got []string) {
+				t.Helper()
+				want := []string{"opencode", "--model", "opencode/model", "acp", "--bar"}
+				assert.Equal(t, want, got)
+			},
+		},
+		{
+			name: "acp_exec_appends_extra_args",
+			cfg: config.AgentConfig{
+				Type:      config.AgentTypeACPExec,
+				Cmd:       []string{"custom-acp", "--mode", "stdio"},
+				ExtraArgs: []string{"--flag"},
+			},
+			check: func(t *testing.T, got []string) {
+				t.Helper()
+				want := []string{"custom-acp", "--mode", "stdio", "--flag"}
+				assert.Equal(t, want, got)
+			},
+		},
+		{
+			name: "codex_acp_uses_bridge_command",
+			cfg: config.AgentConfig{
+				Type:      config.AgentTypeCodexACP,
+				ExtraArgs: []string{"--trace", "--raw"},
+			},
+			check: func(t *testing.T, got []string) {
+				t.Helper()
+				require.GreaterOrEqual(t, len(got), 3)
+				assert.Equal(t, "playground", got[1])
+				assert.Equal(t, "codex-acp-bridge", got[2])
+				assert.True(t, strings.Contains(strings.Join(got, " "), "--codex-arg --trace"))
+				assert.True(t, strings.Contains(strings.Join(got, " "), "--codex-arg --raw"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ResolveACPCommand(tt.cfg)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			if tt.check != nil {
+				tt.check(t, got)
+			}
+		})
+	}
 }

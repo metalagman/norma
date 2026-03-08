@@ -14,7 +14,7 @@ import (
 var Module = fx.Module("planner",
 	fx.Provide(
 		func(tracker *task.BeadsTracker) *BeadsTool {
-			return newBeadsTool(tracker)
+			return NewBeadsTool(tracker)
 		},
 		NewLLMPlanner,
 		providePlannerModel,

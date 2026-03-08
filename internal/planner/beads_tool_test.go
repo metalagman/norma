@@ -13,7 +13,7 @@ func TestBeadsTool_ApplyCreatesHierarchy(t *testing.T) {
 	t.Parallel()
 
 	writer := &fakeBacklogWriter{}
-	tool := newBeadsTool(writer)
+	tool := NewBeadsTool(writer)
 	plan := Decomposition{
 		Summary: "Epic summary",
 		Epic: EpicPlan{

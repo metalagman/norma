@@ -13,6 +13,7 @@ import (
 	"google.golang.org/adk/tool"
 
 	"github.com/metalagman/norma/internal/adk/modelfactory"
+	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/planner"
 	"github.com/metalagman/norma/internal/planner/llmtools"
 	"github.com/spf13/cobra"
@@ -32,6 +33,9 @@ func webCommand() *cobra.Command {
 			cfg, err := loadConfig(repoRoot)
 			if err != nil {
 				return err
+			}
+			if plannerCfg, ok := cfg.Agents["planner"]; ok && config.IsACPType(plannerCfg.Type) {
+				return fmt.Errorf("planner web launcher does not support ACP planner type %q", plannerCfg.Type)
 			}
 
 			factoryCfg := make(modelfactory.FactoryConfig, len(cfg.Agents))

@@ -20,13 +20,21 @@ const (
 	ModelTypeGeminiAIStudio = "gemini_aistudio"
 	// ModelTypeExec is the type for executive models.
 	ModelTypeExec = "exec"
+	// ModelTypeACPExec is the type for custom ACP CLI executables.
+	ModelTypeACPExec = "acp_exec"
 
 	// ModelTypeGemini is the alias for gemini CLI.
 	ModelTypeGemini = "gemini"
+	// ModelTypeGeminiACP is the alias for Gemini CLI ACP mode.
+	ModelTypeGeminiACP = "gemini_acp"
 	// ModelTypeClaude is the alias for claude CLI.
 	ModelTypeClaude = "claude"
 	// ModelTypeCodex is the alias for codex CLI.
 	ModelTypeCodex = "codex"
+	// ModelTypeCodexACP is the alias for Codex ACP bridge mode.
+	ModelTypeCodexACP = "codex_acp"
 	// ModelTypeOpenCode is the alias for opencode CLI.
 	ModelTypeOpenCode = "opencode"
+	// ModelTypeOpenCodeACP is the alias for OpenCode CLI ACP mode.
+	ModelTypeOpenCodeACP = "opencode_acp"
 )

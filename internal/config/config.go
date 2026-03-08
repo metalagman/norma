@@ -54,12 +54,26 @@ const defaultProfile = "default"
 
 // Supported agent types.
 const (
-	AgentTypeExec     = modelfactory.ModelTypeExec
-	AgentTypeCodex    = modelfactory.ModelTypeCodex
-	AgentTypeOpenCode = modelfactory.ModelTypeOpenCode
-	AgentTypeGemini   = modelfactory.ModelTypeGemini
-	AgentTypeClaude   = modelfactory.ModelTypeClaude
+	AgentTypeExec        = modelfactory.ModelTypeExec
+	AgentTypeACPExec     = modelfactory.ModelTypeACPExec
+	AgentTypeCodex       = modelfactory.ModelTypeCodex
+	AgentTypeCodexACP    = modelfactory.ModelTypeCodexACP
+	AgentTypeOpenCode    = modelfactory.ModelTypeOpenCode
+	AgentTypeOpenCodeACP = modelfactory.ModelTypeOpenCodeACP
+	AgentTypeGemini      = modelfactory.ModelTypeGemini
+	AgentTypeGeminiACP   = modelfactory.ModelTypeGeminiACP
+	AgentTypeClaude      = modelfactory.ModelTypeClaude
 )
+
+// IsACPType reports whether an agent type uses the ACP runtime.
+func IsACPType(agentType string) bool {
+	switch strings.TrimSpace(agentType) {
+	case AgentTypeACPExec, AgentTypeGeminiACP, AgentTypeOpenCodeACP, AgentTypeCodexACP:
+		return true
+	default:
+		return false
+	}
+}
 
 // ResolveAgents returns the agents for the selected profile.
 func (c Config) ResolveAgents(profile string) (string, map[string]AgentConfig, error) {

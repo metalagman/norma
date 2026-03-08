@@ -54,7 +54,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["exec", "codex", "opencode", "gemini", "claude", "gemini_aistudio"]
+          "enum": ["exec", "acp_exec", "codex", "codex_acp", "opencode", "opencode_acp", "gemini", "gemini_acp", "claude", "gemini_aistudio"]
         },
         "cmd": {
           "type": "array",
@@ -97,7 +97,7 @@
           "if": {
             "properties": {
               "type": {
-                "const": "exec"
+                "enum": ["exec", "acp_exec"]
               }
             }
           },
@@ -109,7 +109,7 @@
           "if": {
             "properties": {
               "type": {
-                "enum": ["codex", "opencode", "gemini", "claude", "gemini_aistudio"]
+                "enum": ["codex", "codex_acp", "opencode", "opencode_acp", "gemini", "gemini_acp", "claude", "gemini_aistudio"]
               }
             }
           },

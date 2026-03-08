@@ -7,11 +7,11 @@ import (
 	"os"
 
 	"github.com/metalagman/norma/internal/adk/modelfactory"
+	"github.com/metalagman/norma/internal/config"
 	"github.com/metalagman/norma/internal/git"
 	"github.com/metalagman/norma/internal/planner"
 	"github.com/metalagman/norma/internal/task"
 	"github.com/spf13/cobra"
-	"go.uber.org/fx"
 )
 
 // Command builds the `norma plan` command group.
@@ -30,7 +30,7 @@ func Command() *cobra.Command {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
-			rawCfg, err := loadRawConfig(repoRoot)
+			cfg, err := loadConfig(repoRoot)
 			if err != nil {
 				return err
 			}
@@ -39,21 +39,19 @@ func Command() *cobra.Command {
 			if len(args) > 0 {
 				epicDescription = args[0]
 			}
-			req := planner.Request{EpicDescription: epicDescription}
+			req := planner.Request{
+				EpicDescription: epicDescription,
+				Mode:            planner.ModeWizard,
+			}
 
-			app := fx.New(
-				fx.Provide(func() context.Context { return cmd.Context() }),
-				fx.Supply(repoRoot),
-				fx.Supply(rawCfg),
-				fx.Supply(req),
-				fx.Provide(planner.ToFactoryConfig),
-				modelfactory.Module,
-				task.Module,
-				planner.Module,
-				fx.Invoke(runPlan),
-				fx.NopLogger,
-			)
-			return app.Start(cmd.Context())
+			plannerCfg, ok := cfg.Agents["planner"]
+			if !ok {
+				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
+			}
+			if config.IsACPType(plannerCfg.Type) {
+				return runACPPlanner(cmd, repoRoot, plannerCfg, req)
+			}
+			return runLLMPlanner(cmd, repoRoot, cfg, req)
 		},
 	}
 
@@ -61,16 +59,21 @@ func Command() *cobra.Command {
 	return cmd
 }
 
-func runPlan(
-	ctx context.Context,
-	p *planner.LLMPlanner,
-	bt *planner.BeadsTool,
-	req planner.Request,
-	shutdown fx.Shutdowner,
-) error {
+func runLLMPlanner(cmd *cobra.Command, repoRoot string, cfg config.Config, req planner.Request) error {
+	factory := modelfactory.NewFactory(modelfactory.FactoryConfig(cfg.Agents))
+	m, err := factory.CreateModel("planner")
+	if err != nil {
+		return fmt.Errorf("create planner model %q: %w", "planner", err)
+	}
+	p, err := planner.NewLLMPlanner(repoRoot, m)
+	if err != nil {
+		return fmt.Errorf("create planner runtime: %w", err)
+	}
+	bt := planner.NewBeadsTool(task.NewBeadsTracker(""))
+
+	ctx := cmd.Context()
 	plan, runDir, err := p.Generate(ctx, req)
 	if err != nil {
-		_ = shutdown.Shutdown()
 		if errors.Is(err, context.Canceled) || errors.Is(err, planner.ErrHandledInTUI) {
 			return nil
 		}
@@ -79,11 +82,10 @@ func runPlan(
 
 	applied, err := bt.Apply(ctx, plan)
 	if err != nil {
-		_ = shutdown.Shutdown()
 		return err
 	}
 
 	fmt.Printf("\nPlan confirmed and artifacts tracked: %s\n", applied.EpicID)
 	fmt.Printf("Planning run directory: %s\n", runDir)
-	return shutdown.Shutdown()
+	return nil
 }

@@ -116,6 +116,65 @@ budgets:
 	}
 }
 
+func TestLoadConfig_ACPTypesAreSupported(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `profile: acp
+agents:
+  gemini_acp_agent:
+    type: gemini_acp
+    model: gemini-3-flash-preview
+  opencode_acp_agent:
+    type: opencode_acp
+    model: opencode/big-pickle
+  codex_acp_agent:
+    type: codex_acp
+  custom_acp_agent:
+    type: acp_exec
+    cmd:
+      - custom-acp
+      - --stdio
+profiles:
+  acp:
+    pdca:
+      plan: gemini_acp_agent
+      do: opencode_acp_agent
+      check: codex_acp_agent
+      act: custom_acp_agent
+    planner: gemini_acp_agent
+budgets:
+  max_iterations: 2
+`); err != nil {
+		t.Fatalf("write yaml config: %v", err)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("config", defaultConfigPath)
+
+	cfg, err := loadConfig(repoRoot)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Profile != "acp" {
+		t.Fatalf("profile = %q, want %q", cfg.Profile, "acp")
+	}
+	if cfg.Agents["plan"].Type != "gemini_acp" {
+		t.Fatalf("plan agent type = %q, want %q", cfg.Agents["plan"].Type, "gemini_acp")
+	}
+	if cfg.Agents["do"].Type != "opencode_acp" {
+		t.Fatalf("do agent type = %q, want %q", cfg.Agents["do"].Type, "opencode_acp")
+	}
+	if cfg.Agents["check"].Type != "codex_acp" {
+		t.Fatalf("check agent type = %q, want %q", cfg.Agents["check"].Type, "codex_acp")
+	}
+	if cfg.Agents["act"].Type != "acp_exec" {
+		t.Fatalf("act agent type = %q, want %q", cfg.Agents["act"].Type, "acp_exec")
+	}
+	if cfg.Agents["planner"].Type != "gemini_acp" {
+		t.Fatalf("planner agent type = %q, want %q", cfg.Agents["planner"].Type, "gemini_acp")
+	}
+}
+
 func writeTestFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
