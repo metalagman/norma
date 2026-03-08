@@ -20,7 +20,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 - **Intelligent Resumption:** Using granular labels like `norma-has-plan` and `norma-has-do`, norma can resume interrupted runs or skip already completed steps across different machines.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
 - **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `exec` binaries, CLI wrappers (`codex`, `opencode`, `gemini`, `claude`).
-- **Ralph-Style Run Journal:** Automatically reconstructs and maintains `artifacts/progress.md`, providing a human-readable timeline of every step taken.
+- **Ralph-Style Run Journal:** Persists structured per-step progress in task notes (`TaskState.journal`) for resumable run history.
 
 ---
 

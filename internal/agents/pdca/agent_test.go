@@ -166,60 +166,6 @@ func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
 	}
 }
 
-func TestReconstructProgressIncludesTaskRunAndIteration(t *testing.T) {
-	t.Parallel()
-
-	agent := &runtime{
-		runInput: AgentInput{
-			TaskID: "norma-95b",
-			RunID:  "run-default",
-		},
-	}
-
-	stepDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(stepDir, "artifacts"), 0o700); err != nil {
-		t.Fatalf("create artifacts dir: %v", err)
-	}
-
-	state := &contracts.TaskState{
-		Journal: []contracts.JournalEntry{
-			{
-				Timestamp:  "2026-02-12T10:00:00Z",
-				RunID:      "run-abc",
-				Iteration:  7,
-				StepIndex:  3,
-				Role:       "do",
-				Status:     "ok",
-				StopReason: "none",
-				Title:      "Executed planned changes",
-				Details:    []string{"updated files", "ran tests"},
-			},
-		},
-	}
-
-	if err := agent.reconstructProgress(stepDir, state); err != nil {
-		t.Fatalf("reconstructProgress() error = %v", err)
-	}
-
-	contentBytes, err := os.ReadFile(filepath.Join(stepDir, "artifacts", "progress.md"))
-	if err != nil {
-		t.Fatalf("read progress.md: %v", err)
-	}
-	content := string(contentBytes)
-	if !strings.Contains(content, "**Task:** norma-95b") {
-		t.Fatalf("progress missing task line:\n%s", content)
-	}
-	if !strings.Contains(content, "**Run:** run-abc · **Iteration:** 7") {
-		t.Fatalf("progress missing run/iteration line:\n%s", content)
-	}
-	if !strings.Contains(content, "## 2026-02-12T10:00:00Z — 3 DO — ok/none") {
-		t.Fatalf("progress missing header line:\n%s", content)
-	}
-	if !strings.Contains(content, "- updated files") || !strings.Contains(content, "- ran tests") {
-		t.Fatalf("progress missing details bullets:\n%s", content)
-	}
-}
-
 func TestCoerceTaskStatePointerAndValue(t *testing.T) {
 	t.Parallel()
 

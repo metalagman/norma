@@ -77,7 +77,6 @@ Act behavior:
   - `output.json`
   - `logs/stdout.txt`
   - `logs/stderr.txt`
-  - `artifacts/progress.md`
 
 ## State Model
 
@@ -88,7 +87,7 @@ Authoritative state split:
 
 `TaskState` persists:
 - latest Plan/Do/Check/Act outputs
-- run journal entries used to reconstruct `artifacts/progress.md`
+- run journal entries captured from each step's `output.progress`
 
 ## Stop Conditions
 

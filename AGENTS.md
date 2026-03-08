@@ -16,7 +16,7 @@ Single fixed workflow:
 - **Task state lives in Beads** (source of truth for progress and resumption).
 - **Task Notes as State Object:** The Beads `notes` field stores a comprehensive JSON object (`TaskState`) containing step outputs and a full run journal. This allows full state recovery and resumption across different environments.
 - **Workspaces (Git Worktrees):** Every role agent step run MUST operate in a dedicated Git worktree located inside its step directory (`<step_dir>/workspace`). Agents perform all work within this isolated workspace.
-- **Run Journal:** Every agent step has an `artifacts/progress.md` file. It is reconstructed from the task's `Journal` state by the orchestrator before the agent is invoked.
+- **Run Journal:** Step progress is stored in the task's `Journal` state object in Beads notes (`TaskState.journal`).
 - **Task-scoped Branches:** Workspaces use Git branches scoped to the task: `norma/task/<task_id>`. This allows progress to be restartable across multiple runs.
 - **Workflow State in Labels:** Granular states (`norma-has-plan`, `norma-has-do`, `norma-has-check`) are used to track completed steps and skip them during resumption.
 - **Git History as Source of Truth:** The orchestrator extracts changes from the workspace using Git (e.g., `git merge --squash`).
@@ -67,7 +67,6 @@ Everything lives under the project root:
           output.json
           workspace/         # Git worktree for this specific step
           artifacts/
-            progress.md      # Run journal (always reconstructed)
           logs/
             stdout.txt
             stderr.txt
@@ -76,7 +75,6 @@ Everything lives under the project root:
           output.json
           workspace/         # Git worktree for this specific step
           artifacts/
-            progress.md
           logs/
             stdout.txt
             stderr.txt
@@ -206,8 +204,7 @@ Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until
     - `steps/<n>-<role>/logs/stdout.txt`
     - `steps/<n>-<role>/logs/stderr.txt`
    - Agent `stdout`/`stderr` MUST be mirrored to terminal only when debug mode is enabled.
-9. **Run journal:** the orchestrator appends one entry after every step to:
-    - `artifacts/progress.md`
+9. **Run journal:** the orchestrator appends one entry after every step to `TaskState.journal` in Beads notes.
 10. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
 11. **Check compares plan vs actual and verifies job done:** Check must compare the Plan work plan to Do execution and evaluate all effective ACs.
 12. **Verdict goes to Act:** Act receives Check verdict and decides next.
@@ -312,7 +309,7 @@ WIP:
 Input:
 - `bd show <selected_task_id>`
 - parent chain (optional): epic/feature context
-- current `progress.md` (optional)
+- current `TaskState.journal` from task notes (optional)
 Output: one of two results
 
 **A. READY**
@@ -490,8 +487,7 @@ All agent inputs share a common structure, extended with role-specific fields.
   },
   "paths": {
     "workspace_dir": "workspace",
-    "run_dir": "./",
-    "progress": "artifacts/progress.md"
+    "run_dir": "./"
   },
   "budgets": {
     "max_iterations": 5,
@@ -728,9 +724,9 @@ Act `output.json` must include:
 
 ---
 
-## 8.5 progress.md (Ralph-style run journal)
+## 8.5 Run journal (Ralph-style)
 
-The orchestrator maintains a `Journal` in the task's `TaskState`. Before every step, the `artifacts/progress.md` file is reconstructed in the step directory from the existing `Journal`.
+The orchestrator maintains a `Journal` in the task's `TaskState` and appends one entry after each step. No file-based journal artifact is required.
 
 ### Append template
 
@@ -888,7 +884,7 @@ norma (via `ainvoke`) generates a role-specific prompt that instructs Claude to:
 - [x] Each agent step run creates an isolated Git worktree at `<step_dir>/workspace/`
 - [x] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
 - [x] Workflow states are tracked via `bd` labels on the task
-- [x] Each agent step directory contains its own reconstructed `artifacts/progress.md`
+- [x] Each step appends structured progress entries to `TaskState.journal` in task notes
 - [x] Each step creates artifacts (`input.json`, `output.json`, `logs/`) in `runs/<run_id>/steps/<n>-<role>/`
 - [x] Successful runs extract changes from the step workspace and apply them to the main repo
 - [x] Crash recovery cleans tmp dirs and reconciles missing DB step records

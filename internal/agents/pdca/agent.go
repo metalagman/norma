@@ -294,10 +294,6 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		}
 	}()
 
-	progressPath, err := filepath.Abs(filepath.Join(stepDir, "artifacts", "progress.md"))
-	if err != nil {
-		return nil, fmt.Errorf("resolve progress artifact path: %w", err)
-	}
 	absStepDir, err := filepath.Abs(stepDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve step dir path: %w", err)
@@ -310,12 +306,6 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	req.Paths = contracts.RequestPaths{
 		WorkspaceDir: absWorkspaceDir,
 		RunDir:       absStepDir,
-		Progress:     progressPath,
-	}
-
-	// Reconstruct progress.md
-	if err := a.reconstructProgress(stepDir, state); err != nil {
-		return nil, err
 	}
 
 	// Create input.json
@@ -723,42 +713,4 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 	}
 
 	return nil
-}
-
-func (a *runtime) reconstructProgress(dir string, state *contracts.TaskState) error {
-	path := filepath.Join(dir, "artifacts", "progress.md")
-	var sb strings.Builder
-	for _, entry := range state.Journal {
-		stopReason := entry.StopReason
-		if stopReason == "" {
-			stopReason = "none"
-		}
-		title := entry.Title
-		if title == "" {
-			title = fmt.Sprintf("%s step completed", entry.Role)
-		}
-		runID := entry.RunID
-		if runID == "" {
-			runID = a.runInput.RunID
-		}
-		iter := entry.Iteration
-		if iter <= 0 {
-			iter = 1
-		}
-
-		sb.WriteString(fmt.Sprintf("## %s — %d %s — %s/%s\n", entry.Timestamp, entry.StepIndex, strings.ToUpper(entry.Role), entry.Status, stopReason))
-		sb.WriteString(fmt.Sprintf("**Task:** %s  \n", a.runInput.TaskID))
-		sb.WriteString(fmt.Sprintf("**Run:** %s · **Iteration:** %d\n\n", runID, iter))
-		sb.WriteString(fmt.Sprintf("**Title:** %s\n\n", title))
-		sb.WriteString("**Details:**\n")
-		if len(entry.Details) == 0 {
-			sb.WriteString("- (none)\n")
-		} else {
-			for _, detail := range entry.Details {
-				sb.WriteString(fmt.Sprintf("- %s\n", detail))
-			}
-		}
-		sb.WriteString("\n")
-	}
-	return os.WriteFile(path, []byte(sb.String()), 0o600)
 }

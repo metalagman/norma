@@ -72,6 +72,13 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 	if !ok {
 		t.Fatalf("payload[\"do_input\"] type = %T, want map[string]any", payload["do_input"])
 	}
+	paths, ok := payload["paths"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload[\"paths\"] type = %T, want map[string]any", payload["paths"])
+	}
+	if _, hasProgress := paths["progress"]; hasProgress {
+		t.Fatalf("payload[\"paths\"] unexpectedly contains progress")
+	}
 
 	effectiveAny, ok := doInput["acceptance_criteria_effective"].([]any)
 	if !ok {

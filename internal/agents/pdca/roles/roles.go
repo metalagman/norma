@@ -53,7 +53,7 @@ func (r *planRole) MapRequest(req contracts.AgentRequest) (any, error) {
 		Run:   &plan.PlanRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &plan.PlanTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
 		Step:  &plan.PlanStep{Index: int64(req.Step.Index), Name: req.Step.Name},
-		Paths: &plan.PlanPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir, Progress: req.Paths.Progress},
+		Paths: &plan.PlanPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &plan.PlanBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),
 			MaxWallTimeMinutes: int64(req.Budgets.MaxWallTimeMinutes),
@@ -116,7 +116,7 @@ func (r *doRole) MapRequest(req contracts.AgentRequest) (any, error) {
 		Run:   &do.DoRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &do.DoTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
 		Step:  &do.DoStep{Index: int64(req.Step.Index), Name: req.Step.Name},
-		Paths: &do.DoPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir, Progress: req.Paths.Progress},
+		Paths: &do.DoPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &do.DoBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),
 			MaxWallTimeMinutes: int64(req.Budgets.MaxWallTimeMinutes),
@@ -173,7 +173,7 @@ func (r *checkRole) MapRequest(req contracts.AgentRequest) (any, error) {
 		Run:   &check.CheckRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &check.CheckTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
 		Step:  &check.CheckStep{Index: int64(req.Step.Index), Name: req.Step.Name},
-		Paths: &check.CheckPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir, Progress: req.Paths.Progress},
+		Paths: &check.CheckPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &check.CheckBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),
 			MaxWallTimeMinutes: int64(req.Budgets.MaxWallTimeMinutes),
@@ -227,7 +227,7 @@ func (r *actRole) MapRequest(req contracts.AgentRequest) (any, error) {
 		Run:   &act.ActRun{Id: req.Run.ID, Iteration: int64(req.Run.Iteration)},
 		Task:  &act.ActTask{Id: req.Task.ID, Title: req.Task.Title, Description: req.Task.Description, AcceptanceCriteria: acs},
 		Step:  &act.ActStep{Index: int64(req.Step.Index), Name: req.Step.Name},
-		Paths: &act.ActPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir, Progress: req.Paths.Progress},
+		Paths: &act.ActPaths{WorkspaceDir: req.Paths.WorkspaceDir, RunDir: req.Paths.RunDir},
 		Budgets: &act.ActBudgets{
 			MaxIterations:      int64(req.Budgets.MaxIterations),
 			MaxWallTimeMinutes: int64(req.Budgets.MaxWallTimeMinutes),
