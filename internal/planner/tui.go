@@ -291,7 +291,14 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.waitingForHuman {
 		m.textinput, tiCmd = m.textinput.Update(msg)
 	}
-	m.viewport, vpCmd = m.viewport.Update(msg)
+
+	// Only pass key messages to the viewport if we are NOT waiting for human input
+	// to avoid conflicts between typing and viewport scrolling.
+	// Non-key messages (like WindowSizeMsg) should always be passed.
+	_, isKey := msg.(tea.KeyMsg)
+	if !m.waitingForHuman || !isKey {
+		m.viewport, vpCmd = m.viewport.Update(msg)
+	}
 
 	return m, tea.Batch(tiCmd, vpCmd, spCmd)
 }
