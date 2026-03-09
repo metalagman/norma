@@ -251,17 +251,25 @@ func mapACPUsageToUsageMetadata(usage map[string]any) *genai.GenerateContentResp
 		return nil
 	}
 	m := &genai.GenerateContentResponseUsageMetadata{}
+	found := false
 	if val, ok := usage["inputTokens"].(float64); ok {
 		m.PromptTokenCount = int32(val)
+		found = true
 	}
 	if val, ok := usage["outputTokens"].(float64); ok {
 		m.CandidatesTokenCount = int32(val)
+		found = true
 	}
 	if val, ok := usage["totalTokens"].(float64); ok {
 		m.TotalTokenCount = int32(val)
+		found = true
 	}
 	if val, ok := usage["cachedReadTokens"].(float64); ok {
 		m.CachedContentTokenCount = int32(val)
+		found = true
+	}
+	if !found {
+		return nil
 	}
 	return m
 }
@@ -336,7 +344,7 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext Extende
 		if err := json.Unmarshal(ext.Raw, &raw); err == nil {
 			if u, ok := raw["update"].(map[string]any); ok {
 				if disc, ok := u["sessionUpdate"].(string); ok && disc == "usage_update" {
-					return mapACPUsageUpdate(invocationID, u)
+					return mapACPUsageUpdate(logger, invocationID, u)
 				}
 			}
 		}
@@ -346,9 +354,14 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext Extende
 	}
 }
 
-func mapACPUsageUpdate(invocationID string, update map[string]any) (*session.Event, bool) {
+func mapACPUsageUpdate(logger zerolog.Logger, invocationID string, update map[string]any) (*session.Event, bool) {
+	usage := mapACPUsageToUsageMetadata(update)
+	if usage == nil {
+		logger.Debug().Interface("update", update).Msg("ignoring usage_update with no token counts")
+		return nil, false
+	}
 	ev := session.NewEvent(invocationID)
-	ev.UsageMetadata = mapACPUsageToUsageMetadata(update)
+	ev.UsageMetadata = usage
 	ev.Partial = true
 	return ev, true
 }
