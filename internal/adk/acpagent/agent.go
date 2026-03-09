@@ -38,6 +38,9 @@ type Config struct {
 	Stderr io.Writer
 	// PermissionHandler decides how to respond to ACP permission requests.
 	PermissionHandler PermissionHandler
+	// OnSessionNewSetModel decides whether to call session/set_model after session/new.
+	// Defaults to false.
+	OnSessionNewSetModel bool
 	// Logger is the zerolog logger to use for this agent.
 	Logger *zerolog.Logger
 }
@@ -88,13 +91,14 @@ func New(cfg Config) (*Agent, error) {
 	}
 
 	client, err := NewClient(ctx, ClientConfig{
-		Command:           cfg.Command,
-		WorkingDir:        cfg.WorkingDir,
-		ClientName:        cfg.ClientName,
-		ClientVersion:     cfg.ClientVersion,
-		Stderr:            cfg.Stderr,
-		PermissionHandler: cfg.PermissionHandler,
-		Logger:            cfg.Logger,
+		Command:              cfg.Command,
+		WorkingDir:           cfg.WorkingDir,
+		ClientName:           cfg.ClientName,
+		ClientVersion:        cfg.ClientVersion,
+		Stderr:               cfg.Stderr,
+		PermissionHandler:    cfg.PermissionHandler,
+		OnSessionNewSetModel: cfg.OnSessionNewSetModel,
+		Logger:               cfg.Logger,
 	})
 	if err != nil {
 		return nil, err

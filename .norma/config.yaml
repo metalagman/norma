@@ -76,7 +76,7 @@ profiles:
       do: ainvoke_gemini_agent
       check: ainvoke_gemini_agent
       act: ainvoke_gemini_agent
-    planner: ainvoke_gemini_agent
+    planner: gemini_acp
   openai:
     pdca:
       plan: openai_primary

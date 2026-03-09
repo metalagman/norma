@@ -73,15 +73,16 @@ func runACPREPL(ctx context.Context, repoRoot string, plannerCfg config.AgentCon
 		With().Timestamp().Str("component", "plan.pecl").Logger()
 
 	acpRuntime, err := acpagent.New(acpagent.Config{
-		Context:           ctx,
-		Name:              "NormaPlanPecl",
-		Description:       "Norma plan pecl via ACP",
-		Model:             plannerCfg.Model,
-		Command:           acpCmd,
-		WorkingDir:        repoRoot,
-		Stderr:            os.Stderr,
-		PermissionHandler: autoAllowPermission,
-		Logger:            &logger,
+		Context:              ctx,
+		Name:                 "NormaPlanPecl",
+		Description:          "Norma plan pecl via ACP",
+		Model:                plannerCfg.Model,
+		Command:              acpCmd,
+		WorkingDir:           repoRoot,
+		Stderr:               os.Stderr,
+		PermissionHandler:    autoAllowPermission,
+		OnSessionNewSetModel: plannerCfg.OnSessionNewSetModel,
+		Logger:               &logger,
 	})
 	if err != nil {
 		return fmt.Errorf("create ACP runtime: %w", err)

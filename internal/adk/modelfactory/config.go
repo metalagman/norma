@@ -10,6 +10,8 @@ type ModelConfig struct {
 	APIKey    string   `json:"api_key,omitempty"    mapstructure:"api_key"`
 	Timeout   int      `json:"timeout,omitempty"    mapstructure:"timeout"`
 	UseTTY    *bool    `json:"use_tty,omitempty"    mapstructure:"use_tty"`
+	// OnSessionNewSetModel decides whether to call session/set_model after session/new.
+	OnSessionNewSetModel bool `json:"on_session_new_set_model,omitempty" mapstructure:"on_session_new_set_model"`
 }
 
 // FactoryConfig is a map of model configurations.

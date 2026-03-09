@@ -91,14 +91,15 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 	}
 
 	acpRuntime, err := acpagent.New(acpagent.Config{
-		Context:           runCtx,
-		Name:              "NormaPlannerACP",
-		Description:       "Norma planner via ACP runtime",
-		Model:             p.cfg.Model,
-		Command:           acpCmd,
-		WorkingDir:        p.repoRoot,
-		Stderr:            io.Discard,
-		PermissionHandler: PlannerACPPermissionHandler,
+		Context:              runCtx,
+		Name:                 "NormaPlannerACP",
+		Description:          "Norma planner via ACP runtime",
+		Model:                p.cfg.Model,
+		Command:              acpCmd,
+		WorkingDir:           p.repoRoot,
+		Stderr:               io.Discard,
+		PermissionHandler:    PlannerACPPermissionHandler,
+		OnSessionNewSetModel: p.cfg.OnSessionNewSetModel,
 	})
 	if err != nil {
 		closeEvents()

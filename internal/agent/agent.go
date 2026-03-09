@@ -43,14 +43,15 @@ func NewRunner(cfg config.AgentConfig, role contracts.Role) (Runner, error) {
 				workingDir = req.Paths.RunDir
 			}
 			return acpagent.New(acpagent.Config{
-				Context:           ctx,
-				Name:              "Norma" + toPascal(req.Step.Name) + "ACP",
-				Description:       "Norma ACP role agent",
-				Model:             cfg.Model,
-				Command:           cmd,
-				WorkingDir:        workingDir,
-				Stderr:            stderr,
-				PermissionHandler: defaultACPPermissionHandler,
+				Context:              ctx,
+				Name:                 "Norma" + toPascal(req.Step.Name) + "ACP",
+				Description:          "Norma ACP role agent",
+				Model:                cfg.Model,
+				Command:              cmd,
+				WorkingDir:           workingDir,
+				Stderr:               stderr,
+				PermissionHandler:    defaultACPPermissionHandler,
+				OnSessionNewSetModel: cfg.OnSessionNewSetModel,
 			})
 		}
 	} else {

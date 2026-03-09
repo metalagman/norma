@@ -55,6 +55,9 @@ type ClientConfig struct {
 	Stderr io.Writer
 	// PermissionHandler decides how to respond to ACP permission requests.
 	PermissionHandler PermissionHandler
+	// OnSessionNewSetModel decides whether to call session/set_model after session/new.
+	// Defaults to false.
+	OnSessionNewSetModel bool
 	// Logger is the zerolog logger to use for this client.
 	Logger *zerolog.Logger
 }
@@ -72,10 +75,11 @@ type ExtendedSessionNotification struct {
 type Client struct {
 	cmd               *exec.Cmd
 	stdin             io.WriteCloser
-	conn              *acp.ClientSideConnection
-	permissionHandler PermissionHandler
-	clientName        string
-	clientVersion     string
+	conn                  *acp.ClientSideConnection
+	permissionHandler     PermissionHandler
+	onSessionNewSetModel  bool
+	clientName            string
+	clientVersion         string
 	logger            zerolog.Logger
 
 	stateMu         sync.Mutex
@@ -166,17 +170,18 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	}
 
 	c := &Client{
-		cmd:               cmd,
-		stdin:             stdin,
-		permissionHandler: cfg.PermissionHandler,
-		clientName:        clientName,
-		clientVersion:     clientVersion,
-		logger:            l,
-		activeBySession:   make(map[acp.SessionId]*activePrompt),
-		updates:           make(chan ExtendedSessionNotification, 256),
-		deactivate:        make(chan acp.SessionId, 256),
-		closed:            make(chan struct{}),
-		dispatchDone:      make(chan struct{}),
+		cmd:                  cmd,
+		stdin:                stdin,
+		permissionHandler:    cfg.PermissionHandler,
+		onSessionNewSetModel: cfg.OnSessionNewSetModel,
+		clientName:           clientName,
+		clientVersion:        clientVersion,
+		logger:               l,
+		activeBySession:      make(map[acp.SessionId]*activePrompt),
+		updates:              make(chan ExtendedSessionNotification, 256),
+		deactivate:           make(chan acp.SessionId, 256),
+		closed:               make(chan struct{}),
+		dispatchDone:         make(chan struct{}),
 	}
 
 	wireWriter := newWireLoggingWriter(stdin, l)
@@ -246,7 +251,7 @@ func (c *Client) CreateSession(ctx context.Context, cwd, model string) (acp.NewS
 	}
 
 	trimmedModel := strings.TrimSpace(model)
-	if trimmedModel == "" {
+	if trimmedModel == "" || !c.onSessionNewSetModel {
 		return resp, nil
 	}
 	if err := c.SetSessionModel(ctx, string(resp.SessionId), trimmedModel); err != nil {
