@@ -18,20 +18,32 @@ import (
 
 // Config configures an ACP-backed ADK agent.
 type Config struct {
-	Context           context.Context
-	Name              string
-	Description       string
-	Model             string
-	ClientName        string
-	ClientVersion     string
-	Command           []string
-	WorkingDir        string
-	Stderr            io.Writer
+	// Context is the base context for the agent's lifecycle.
+	Context context.Context
+	// Name is the display name of the agent. Defaults to "ACPAgent".
+	Name string
+	// Description describes the agent's purpose.
+	Description string
+	// Model is the specific LLM model identifier to use.
+	Model string
+	// ClientName is the name reported to the ACP server during initialization.
+	ClientName string
+	// ClientVersion is the version reported to the ACP server during initialization.
+	ClientVersion string
+	// Command is the argv array used to start the ACP subprocess.
+	Command []string
+	// WorkingDir is the directory where the ACP subprocess is executed.
+	WorkingDir string
+	// Stderr is an optional writer for the ACP subprocess's standard error.
+	Stderr io.Writer
+	// PermissionHandler decides how to respond to ACP permission requests.
 	PermissionHandler PermissionHandler
-	Logger            *zerolog.Logger
+	// Logger is the zerolog logger to use for this agent.
+	Logger *zerolog.Logger
 }
 
-// Agent adapts an ACP runtime to the ADK agent interface.
+// Agent adapts an Agentic Computing Protocol (ACP) runtime to the ADK agent interface.
+// It manages the lifecycle of an ACP subprocess and maps ACP sessions to ADK sessions.
 type Agent struct {
 	adkagent.Agent
 
@@ -44,6 +56,9 @@ type Agent struct {
 }
 
 const (
+	defaultAgentName        = "ACPAgent"
+	defaultAgentDescription = "ACP runtime exposed through ADK"
+
 	acpTypeText     = "text"
 	acpTypeImage    = "image"
 	acpTypeAudio    = "audio"
@@ -52,17 +67,19 @@ const (
 
 var _ adkagent.Agent = (*Agent)(nil)
 
-// New creates an ADK agent backed by an ACP client process.
+// New creates an ADK agent backed by an ACP client process. It starts the process
+// and performs protocol initialization. The caller is responsible for calling
+// Close() to shut down the subprocess.
 func New(cfg Config) (*Agent, error) {
 	ctx := cfg.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if strings.TrimSpace(cfg.Name) == "" {
-		cfg.Name = "ACPAgent"
+		cfg.Name = defaultAgentName
 	}
 	if strings.TrimSpace(cfg.Description) == "" {
-		cfg.Description = "ACP runtime exposed through ADK"
+		cfg.Description = defaultAgentDescription
 	}
 
 	l := zerolog.Nop()
@@ -161,6 +178,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 				if !ok {
 					continue
 				}
+				// We log but don't re-mark as partial here as mapACPUpdateToEvent 
+				// already set the appropriate Partial flag.
+				a.logADKEvent(ev, "yielding adk event")
 				if !yield(ev, nil) {
 					return
 				}
@@ -173,6 +193,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 				resultCh = nil
 			}
 		}
+
 		if promptResult != nil && promptResult.Err != nil {
 			yield(nil, promptResult.Err)
 			return
@@ -188,12 +209,74 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		if !partialEmitted {
 			ev.Content = genai.NewContentFromText(finalText.String(), genai.RoleModel)
 		}
+		if promptResult != nil {
+			ev.FinishReason = mapACPStopReasonToFinishReason(promptResult.Response.StopReason)
+			ev.UsageMetadata = mapACPUsageToUsageMetadata(promptResult.Usage)
+		}
 		ev.TurnComplete = true
+		a.logADKEvent(ev, "yielding final turn complete event")
 		if !yield(ev, nil) {
 			return
 		}
 	}
 }
+
+func (a *Agent) logADKEvent(ev *session.Event, msg string) {
+	if ev == nil {
+		return
+	}
+	logEvent := a.logger.Debug().
+		Str("invocation_id", ev.InvocationID).
+		Bool("partial", ev.Partial).
+		Bool("turn_complete", ev.TurnComplete)
+
+	if ev.FinishReason != "" {
+		logEvent = logEvent.Str("finish_reason", string(ev.FinishReason))
+	}
+	if ev.UsageMetadata != nil {
+		logEvent = logEvent.Int32("prompt_tokens", ev.UsageMetadata.PromptTokenCount).
+			Int32("candidates_tokens", ev.UsageMetadata.CandidatesTokenCount).
+			Int32("total_tokens", ev.UsageMetadata.TotalTokenCount)
+	}
+	if ev.Content != nil {
+		logEvent = logEvent.Int("parts_count", len(ev.Content.Parts))
+	}
+	logEvent.Msg(msg)
+}
+
+func mapACPStopReasonToFinishReason(reason acp.StopReason) genai.FinishReason {
+	switch reason {
+	case acp.StopReasonEndTurn:
+		return genai.FinishReasonStop
+	case acp.StopReasonMaxTokens:
+		return genai.FinishReasonMaxTokens
+	case acp.StopReasonCancelled:
+		return genai.FinishReasonOther // No direct match for cancelled in genai.FinishReason
+	default:
+		return genai.FinishReasonUnspecified
+	}
+}
+
+func mapACPUsageToUsageMetadata(usage map[string]any) *genai.GenerateContentResponseUsageMetadata {
+	if usage == nil {
+		return nil
+	}
+	m := &genai.GenerateContentResponseUsageMetadata{}
+	if val, ok := usage["inputTokens"].(float64); ok {
+		m.PromptTokenCount = int32(val)
+	}
+	if val, ok := usage["outputTokens"].(float64); ok {
+		m.CandidatesTokenCount = int32(val)
+	}
+	if val, ok := usage["totalTokens"].(float64); ok {
+		m.TotalTokenCount = int32(val)
+	}
+	if val, ok := usage["cachedReadTokens"].(float64); ok {
+		m.CachedContentTokenCount = int32(val)
+	}
+	return m
+}
+
 
 func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (string, error) {
 	a.sessionMu.Lock()
@@ -246,79 +329,15 @@ func updateText(update acp.SessionUpdate) string {
 func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, update acp.SessionUpdate) (*session.Event, bool) {
 	switch {
 	case update.AgentMessageChunk != nil:
-		part, ok := mapACPContentBlockToPart(logger, update.AgentMessageChunk.Content)
-		if !ok {
-			return nil, false
-		}
-		ev := session.NewEvent(invocationID)
-		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
-		ev.Partial = true
-		return ev, true
+		return mapACPAgentMessageChunk(logger, invocationID, update.AgentMessageChunk)
 	case update.UserMessageChunk != nil:
-		part, ok := mapACPContentBlockToPart(logger, update.UserMessageChunk.Content)
-		if !ok {
-			return nil, false
-		}
-		ev := session.NewEvent(invocationID)
-		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleUser)
-		ev.Partial = true
-		return ev, true
+		return mapACPUserMessageChunk(logger, invocationID, update.UserMessageChunk)
 	case update.AgentThoughtChunk != nil:
-		part, ok := mapACPContentBlockToPart(logger, update.AgentThoughtChunk.Content)
-		if !ok {
-			return nil, false
-		}
-		part.Thought = true
-		ev := session.NewEvent(invocationID)
-		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
-		ev.Partial = true
-		return ev, true
+		return mapACPAgentThoughtChunk(logger, invocationID, update.AgentThoughtChunk)
 	case update.ToolCall != nil:
-		tool := update.ToolCall
-		args := map[string]any{
-			"kind":      tool.Kind,
-			"status":    tool.Status,
-			"title":     tool.Title,
-			"locations": tool.Locations,
-			"rawInput":  tool.RawInput,
-			"rawOutput": tool.RawOutput,
-		}
-		part := &genai.Part{
-			FunctionCall: &genai.FunctionCall{
-				ID:   string(tool.ToolCallId),
-				Name: "acp_tool_call",
-				Args: args,
-			},
-		}
-		ev := session.NewEvent(invocationID)
-		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
-		if isACPToolStatusLongRunning(tool.Status) {
-			ev.LongRunningToolIDs = []string{string(tool.ToolCallId)}
-		}
-		return ev, true
+		return mapACPToolCall(invocationID, update.ToolCall)
 	case update.ToolCallUpdate != nil:
-		tool := update.ToolCallUpdate
-		response := map[string]any{
-			"status":    tool.Status,
-			"title":     tool.Title,
-			"kind":      tool.Kind,
-			"locations": tool.Locations,
-			"rawInput":  tool.RawInput,
-			"rawOutput": tool.RawOutput,
-		}
-		part := &genai.Part{
-			FunctionResponse: &genai.FunctionResponse{
-				ID:       string(tool.ToolCallId),
-				Name:     "acp_tool_call_update",
-				Response: response,
-			},
-		}
-		ev := session.NewEvent(invocationID)
-		ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
-		if tool.Status != nil && isACPToolStatusLongRunning(*tool.Status) {
-			ev.LongRunningToolIDs = []string{string(tool.ToolCallId)}
-		}
-		return ev, true
+		return mapACPToolCallUpdate(invocationID, update.ToolCallUpdate)
 	case update.Plan != nil:
 		logIgnoredACPUpdate(logger, "plan", map[string]any{"entries": update.Plan.Entries})
 		return nil, false
@@ -337,6 +356,91 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, update acp.
 		return nil, false
 	}
 }
+
+func mapACPAgentMessageChunk(logger zerolog.Logger, invocationID string, chunk *acp.SessionUpdateAgentMessageChunk) (*session.Event, bool) {
+	part, ok := mapACPContentBlockToPart(logger, chunk.Content)
+	if !ok {
+		return nil, false
+	}
+	ev := session.NewEvent(invocationID)
+	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+	ev.Partial = true
+	return ev, true
+}
+
+func mapACPUserMessageChunk(logger zerolog.Logger, invocationID string, chunk *acp.SessionUpdateUserMessageChunk) (*session.Event, bool) {
+	part, ok := mapACPContentBlockToPart(logger, chunk.Content)
+	if !ok {
+		return nil, false
+	}
+	ev := session.NewEvent(invocationID)
+	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleUser)
+	ev.Partial = true
+	return ev, true
+}
+
+func mapACPAgentThoughtChunk(logger zerolog.Logger, invocationID string, chunk *acp.SessionUpdateAgentThoughtChunk) (*session.Event, bool) {
+	part, ok := mapACPContentBlockToPart(logger, chunk.Content)
+	if !ok {
+		return nil, false
+	}
+	part.Thought = true
+	ev := session.NewEvent(invocationID)
+	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+	ev.Partial = true
+	return ev, true
+}
+
+
+
+func mapACPToolCall(invocationID string, tool *acp.SessionUpdateToolCall) (*session.Event, bool) {
+	args := map[string]any{
+		"kind":      tool.Kind,
+		"status":    tool.Status,
+		"title":     tool.Title,
+		"locations": tool.Locations,
+		"rawInput":  tool.RawInput,
+		"rawOutput": tool.RawOutput,
+	}
+	part := &genai.Part{
+		FunctionCall: &genai.FunctionCall{
+			ID:   string(tool.ToolCallId),
+			Name: "acp_tool_call",
+			Args: args,
+		},
+	}
+	ev := session.NewEvent(invocationID)
+	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+	if isACPToolStatusLongRunning(tool.Status) {
+		ev.LongRunningToolIDs = []string{string(tool.ToolCallId)}
+	}
+	return ev, true
+}
+
+func mapACPToolCallUpdate(invocationID string, tool *acp.SessionToolCallUpdate) (*session.Event, bool) {
+	response := map[string]any{
+		"status":    tool.Status,
+		"title":     tool.Title,
+		"kind":      tool.Kind,
+		"locations": tool.Locations,
+		"rawInput":  tool.RawInput,
+		"rawOutput": tool.RawOutput,
+	}
+	part := &genai.Part{
+		FunctionResponse: &genai.FunctionResponse{
+			ID:       string(tool.ToolCallId),
+			Name:     "acp_tool_call_update",
+			Response: response,
+		},
+	}
+	ev := session.NewEvent(invocationID)
+	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+	if tool.Status != nil && isACPToolStatusLongRunning(*tool.Status) {
+		ev.LongRunningToolIDs = []string{string(tool.ToolCallId)}
+	}
+	return ev, true
+}
+
 
 func mapACPContentBlockToPart(logger zerolog.Logger, block acp.ContentBlock) (*genai.Part, bool) {
 	if block.Text != nil {
@@ -417,91 +521,116 @@ func acpContentBlockLogText(block acp.ContentBlock) string {
 }
 
 func acpContentBlockLogValue(block acp.ContentBlock) map[string]any {
-	obj := map[string]any{}
 	switch {
 	case block.Text != nil:
-		obj["type"] = acpTypeText
-		if block.Text.Text != "" {
-			obj["text"] = block.Text.Text
+		return map[string]any{
+			"type": acpTypeText,
+			"text": block.Text.Text,
 		}
 	case block.Image != nil:
-		obj["type"] = acpTypeImage
-		if block.Image.MimeType != "" {
-			obj["mime_type"] = block.Image.MimeType
-		}
-		if block.Image.Uri != nil && *block.Image.Uri != "" {
-			obj["uri"] = *block.Image.Uri
-		}
-		if block.Image.Data != "" {
-			obj["data_len"] = len(block.Image.Data)
-		}
+		return logACPImageBlockValue(block.Image)
 	case block.Audio != nil:
-		obj["type"] = acpTypeAudio
-		if block.Audio.MimeType != "" {
-			obj["mime_type"] = block.Audio.MimeType
-		}
-		if block.Audio.Data != "" {
-			obj["data_len"] = len(block.Audio.Data)
-		}
+		return logACPAudioBlockValue(block.Audio)
 	case block.ResourceLink != nil:
-		obj["type"] = "resource_link"
-		if block.ResourceLink.Name != "" {
-			obj["name"] = block.ResourceLink.Name
-		}
-		if block.ResourceLink.Uri != "" {
-			obj["uri"] = block.ResourceLink.Uri
-		}
-		if block.ResourceLink.Description != nil && *block.ResourceLink.Description != "" {
-			obj["description"] = *block.ResourceLink.Description
-		}
-		if block.ResourceLink.MimeType != nil && *block.ResourceLink.MimeType != "" {
-			obj["mime_type"] = *block.ResourceLink.MimeType
-		}
-		if block.ResourceLink.Size != nil {
-			obj["size"] = *block.ResourceLink.Size
-		}
-		if block.ResourceLink.Title != nil && *block.ResourceLink.Title != "" {
-			obj["title"] = *block.ResourceLink.Title
-		}
+		return logACPResourceLinkBlockValue(block.ResourceLink)
 	case block.Resource != nil:
-		obj["type"] = acpTypeResource
-		obj["resource"] = acpEmbeddedResourceLogValue(block.Resource.Resource)
+		return map[string]any{
+			"type":     acpTypeResource,
+			"resource": acpEmbeddedResourceLogValue(block.Resource.Resource),
+		}
 	default:
-		obj["type"] = unknownValue
+		return map[string]any{"type": unknownValue}
+	}
+}
+
+func logACPImageBlockValue(img *acp.ContentBlockImage) map[string]any {
+	obj := map[string]any{"type": acpTypeImage}
+	if img.MimeType != "" {
+		obj["mime_type"] = img.MimeType
+	}
+	if img.Uri != nil && *img.Uri != "" {
+		obj["uri"] = *img.Uri
+	}
+	if img.Data != "" {
+		obj["data_len"] = len(img.Data)
 	}
 	return obj
 }
 
-func acpEmbeddedResourceLogValue(resource acp.EmbeddedResourceResource) map[string]any {
-	obj := map[string]any{}
-	switch {
-	case resource.TextResourceContents != nil:
-		obj["kind"] = acpTypeText
-		if resource.TextResourceContents.Uri != "" {
-			obj["uri"] = resource.TextResourceContents.Uri
-		}
-		if resource.TextResourceContents.MimeType != nil && *resource.TextResourceContents.MimeType != "" {
-			obj["mime_type"] = *resource.TextResourceContents.MimeType
-		}
-		if resource.TextResourceContents.Text != "" {
-			obj["text_len"] = len(resource.TextResourceContents.Text)
-		}
-	case resource.BlobResourceContents != nil:
-		obj["kind"] = "blob"
-		if resource.BlobResourceContents.Uri != "" {
-			obj["uri"] = resource.BlobResourceContents.Uri
-		}
-		if resource.BlobResourceContents.MimeType != nil && *resource.BlobResourceContents.MimeType != "" {
-			obj["mime_type"] = *resource.BlobResourceContents.MimeType
-		}
-		if resource.BlobResourceContents.Blob != "" {
-			obj["blob_len"] = len(resource.BlobResourceContents.Blob)
-		}
-	default:
-		obj["kind"] = unknownValue
+func logACPAudioBlockValue(audio *acp.ContentBlockAudio) map[string]any {
+	obj := map[string]any{"type": acpTypeAudio}
+	if audio.MimeType != "" {
+		obj["mime_type"] = audio.MimeType
+	}
+	if audio.Data != "" {
+		obj["data_len"] = len(audio.Data)
 	}
 	return obj
 }
+
+func logACPResourceLinkBlockValue(link *acp.ContentBlockResourceLink) map[string]any {
+	obj := map[string]any{"type": "resource_link"}
+	if link.Name != "" {
+		obj["name"] = link.Name
+	}
+	if link.Uri != "" {
+		obj["uri"] = link.Uri
+	}
+	if link.Description != nil && *link.Description != "" {
+		obj["description"] = *link.Description
+	}
+	if link.MimeType != nil && *link.MimeType != "" {
+		obj["mime_type"] = *link.MimeType
+	}
+	if link.Size != nil {
+		obj["size"] = *link.Size
+	}
+	if link.Title != nil && *link.Title != "" {
+		obj["title"] = *link.Title
+	}
+	return obj
+}
+
+
+func acpEmbeddedResourceLogValue(resource acp.EmbeddedResourceResource) map[string]any {
+	switch {
+	case resource.TextResourceContents != nil:
+		return logACPTextResourceValue(resource.TextResourceContents)
+	case resource.BlobResourceContents != nil:
+		return logACPBlobResourceValue(resource.BlobResourceContents)
+	default:
+		return map[string]any{"kind": unknownValue}
+	}
+}
+
+func logACPTextResourceValue(res *acp.TextResourceContents) map[string]any {
+	obj := map[string]any{"kind": acpTypeText}
+	if res.Uri != "" {
+		obj["uri"] = res.Uri
+	}
+	if res.MimeType != nil && *res.MimeType != "" {
+		obj["mime_type"] = *res.MimeType
+	}
+	if res.Text != "" {
+		obj["text_len"] = len(res.Text)
+	}
+	return obj
+}
+
+func logACPBlobResourceValue(res *acp.BlobResourceContents) map[string]any {
+	obj := map[string]any{"kind": "blob"}
+	if res.Uri != "" {
+		obj["uri"] = res.Uri
+	}
+	if res.MimeType != nil && *res.MimeType != "" {
+		obj["mime_type"] = *res.MimeType
+	}
+	if res.Blob != "" {
+		obj["blob_len"] = len(res.Blob)
+	}
+	return obj
+}
+
 
 func sessionUpdateType(update acp.SessionUpdate) string {
 	switch {
@@ -522,9 +651,12 @@ func sessionUpdateType(update acp.SessionUpdate) string {
 	case update.AvailableCommandsUpdate != nil:
 		return "available_commands_update"
 	default:
+		// Check if it's an empty update which might mean an unrecognized discriminator
+		// such as usage_update in older SDK versions.
 		return unknownValue
 	}
 }
+
 
 func contentBlockType(block acp.ContentBlock) string {
 	switch {

@@ -26,23 +26,42 @@ var (
 	errModelRequired     = errors.New("acp model is required")
 )
 
-const unknownValue = "unknown"
+const (
+	defaultClientName    = "norma-acpagent"
+	defaultClientVersion = "dev"
+	unknownValue         = "unknown"
+
+	// idleUpdateWindow is the duration to wait for further updates before considering
+	// a series of ACP updates complete.
+	idleUpdateWindow = 20 * time.Millisecond
+)
 
 // PermissionHandler decides how ACP permission requests should be handled.
+// It returns a response with the selected outcome or an error if the request
+// could not be processed.
 type PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
 
 // ClientConfig configures an ACP subprocess client.
 type ClientConfig struct {
-	Command           []string
-	WorkingDir        string
-	ClientName        string
-	ClientVersion     string
-	Stderr            io.Writer
+	// Command is the argv array used to start the ACP subprocess.
+	Command []string
+	// WorkingDir is the directory where the ACP subprocess is executed.
+	WorkingDir string
+	// ClientName is the name reported to the ACP server. Defaults to "norma-acpagent".
+	ClientName string
+	// ClientVersion is the version reported to the ACP server. Defaults to "dev".
+	ClientVersion string
+	// Stderr is an optional writer for the ACP subprocess's standard error.
+	Stderr io.Writer
+	// PermissionHandler decides how to respond to ACP permission requests.
 	PermissionHandler PermissionHandler
-	Logger            *zerolog.Logger
+	// Logger is the zerolog logger to use for this client.
+	Logger *zerolog.Logger
 }
 
-// Client manages a single ACP subprocess and implements acp.Client callbacks.
+// Client manages a single Agentic Computing Protocol (ACP) subprocess and its
+// communication over standard input/output. It implements the acp.Client interface
+// to handle protocol-level callbacks and manages multiple concurrent prompt sessions.
 type Client struct {
 	cmd               *exec.Cmd
 	stdin             io.WriteCloser
@@ -55,10 +74,12 @@ type Client struct {
 	stateMu         sync.Mutex
 	activeBySession map[acp.SessionId]*activePrompt
 	updates         chan acp.SessionNotification
+	deactivate      chan acp.SessionId
 
-	closed    chan struct{}
-	closeOnce sync.Once
-	closeErr  error
+	closed       chan struct{}
+	dispatchDone chan struct{}
+	closeOnce    sync.Once
+	closeErr     error
 }
 
 type activePrompt struct {
@@ -66,6 +87,7 @@ type activePrompt struct {
 	updates   chan acp.SessionNotification
 	signal    chan struct{}
 	lastChunk *loggedACPChunk
+	closeOnce sync.Once
 }
 
 type loggedACPChunk struct {
@@ -75,11 +97,13 @@ type loggedACPChunk struct {
 	thought      bool
 }
 
-// PromptResult contains the terminal Prompt RPC response or an error.
+// PromptResult contains the terminal Prompt RPC response, usage metadata, or an error.
 type PromptResult struct {
 	Response acp.PromptResponse
+	Usage    map[string]any
 	Err      error
 }
+
 
 var _ acp.Client = (*Client)(nil)
 
@@ -95,11 +119,11 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	}
 	clientName := strings.TrimSpace(cfg.ClientName)
 	if clientName == "" {
-		clientName = "norma-acpagent"
+		clientName = defaultClientName
 	}
 	clientVersion := strings.TrimSpace(cfg.ClientVersion)
 	if clientVersion == "" {
-		clientVersion = "dev"
+		clientVersion = defaultClientVersion
 	}
 
 	stderr := cfg.Stderr
@@ -142,7 +166,9 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		logger:            l,
 		activeBySession:   make(map[acp.SessionId]*activePrompt),
 		updates:           make(chan acp.SessionNotification, 256),
+		deactivate:        make(chan acp.SessionId, 256),
 		closed:            make(chan struct{}),
+		dispatchDone:      make(chan struct{}),
 	}
 
 	wireWriter := newWireLoggingWriter(stdin, l)
@@ -277,7 +303,6 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan a
 	resultCh := make(chan PromptResult, 1)
 	go func() {
 		defer close(resultCh)
-		defer close(updates)
 		defer c.clearActive(activeSessionID)
 
 		resp, err := c.conn.Prompt(ctx, acp.PromptRequest{
@@ -291,12 +316,19 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan a
 			resultCh <- PromptResult{Err: err}
 			return
 		}
+
+		var usage map[string]any
+		if meta, ok := resp.Meta.(map[string]any); ok {
+			usage, _ = meta["usage"].(map[string]any)
+		}
 		c.logger.Debug().
 			Str("session_id", sessionID).
 			Str("stop_reason", string(resp.StopReason)).
+			Interface("usage", usage).
 			Msg("acp session/prompt completed")
-		resultCh <- PromptResult{Response: resp}
+		resultCh <- PromptResult{Response: resp, Usage: usage}
 	}()
+
 
 	return updates, resultCh, nil
 }
@@ -414,9 +446,12 @@ func (c *Client) WaitForTerminalExit(_ context.Context, _ acp.WaitForTerminalExi
 }
 
 func (c *Client) clearActive(sessionID acp.SessionId) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	delete(c.activeBySession, sessionID)
+	select {
+	case c.deactivate <- sessionID:
+	case <-c.closed:
+		<-c.dispatchDone
+		c.closeActiveSession(sessionID)
+	}
 }
 
 func (c *Client) logLastChunkInSeries(sessionID acp.SessionId) {
@@ -448,9 +483,8 @@ func (c *Client) failAll(err error) {
 	c.closeOnce.Do(func() {
 		c.closeErr = err
 		close(c.closed)
-		c.stateMu.Lock()
-		clear(c.activeBySession)
-		c.stateMu.Unlock()
+		<-c.dispatchDone
+		c.closeAllActiveSessions()
 	})
 }
 
@@ -463,20 +497,61 @@ func (c *Client) enqueueUpdateFromWire(note acp.SessionNotification) {
 }
 
 func (c *Client) dispatchUpdates() {
+	defer close(c.dispatchDone)
 	for {
 		select {
 		case <-c.closed:
 			return
+		case sessionID := <-c.deactivate:
+			c.closeActiveSession(sessionID)
 		case note := <-c.updates:
 			c.dispatchSessionUpdate(note)
 		}
 	}
 }
 
+func (c *Client) closeActiveSession(sessionID acp.SessionId) {
+	c.stateMu.Lock()
+	active := c.activeBySession[sessionID]
+	delete(c.activeBySession, sessionID)
+	c.stateMu.Unlock()
+	if active != nil {
+		active.closeOnce.Do(func() {
+			close(active.updates)
+		})
+	}
+}
+
+func (c *Client) closeAllActiveSessions() {
+	c.stateMu.Lock()
+	active := make([]*activePrompt, 0, len(c.activeBySession))
+	for sessionID, prompt := range c.activeBySession {
+		active = append(active, prompt)
+		delete(c.activeBySession, sessionID)
+	}
+	c.stateMu.Unlock()
+	for _, prompt := range active {
+		if prompt == nil {
+			continue
+		}
+		prompt.closeOnce.Do(func() {
+			close(prompt.updates)
+		})
+	}
+}
+
 func (c *Client) dispatchSessionUpdate(note acp.SessionNotification) {
+	updateType := sessionUpdateKind(note.Update)
 	logEvent := c.logger.Debug().
 		Str("session_id", string(note.SessionId)).
-		Str("update_kind", sessionUpdateKind(note.Update))
+		Str("update_kind", updateType)
+
+	if updateType == unknownValue {
+		if raw, err := json.Marshal(note.Update); err == nil {
+			logEvent = logEvent.RawJSON("raw_update", raw)
+		}
+	}
+
 	logACPUpdateContentFields(logEvent, note.Update)
 	logACPUpdateChunkFields(logEvent, note.Update)
 	logEvent.Msg("received acp session update")
@@ -499,6 +574,7 @@ func (c *Client) dispatchSessionUpdate(note acp.SessionNotification) {
 	case <-c.closed:
 	}
 }
+
 
 func permissionOutcomeLabel(outcome acp.RequestPermissionOutcome) string {
 	switch {
@@ -591,8 +667,7 @@ func loggedACPChunkFromUpdate(update acp.SessionUpdate) *loggedACPChunk {
 }
 
 func waitForUpdateIdle(ctx context.Context, signal <-chan struct{}) {
-	const idleWindow = 20 * time.Millisecond
-	timer := time.NewTimer(idleWindow)
+	timer := time.NewTimer(idleUpdateWindow)
 	defer timer.Stop()
 	for {
 		select {
@@ -605,7 +680,7 @@ func waitForUpdateIdle(ctx context.Context, signal <-chan struct{}) {
 				default:
 				}
 			}
-			timer.Reset(idleWindow)
+			timer.Reset(idleUpdateWindow)
 		case <-timer.C:
 			return
 		}
@@ -689,6 +764,7 @@ func (b *wireLogBuffer) logLine(line []byte) {
 		Method string          `json:"method,omitempty"`
 		ID     json.RawMessage `json:"id,omitempty"`
 		Params json.RawMessage `json:"params,omitempty"`
+		Result json.RawMessage `json:"result,omitempty"`
 		Error  *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
@@ -732,8 +808,15 @@ func (b *wireLogBuffer) logLine(line []byte) {
 	if len(env.ID) > 0 {
 		evt = evt.Str("id", strings.TrimSpace(string(env.ID)))
 	}
+	if len(env.Params) > 0 {
+		evt = evt.RawJSON("params", env.Params)
+	}
+	if len(env.Result) > 0 {
+		evt = evt.RawJSON("result", env.Result)
+	}
 	if env.Error != nil {
 		evt = evt.Int("error_code", env.Error.Code).Str("error_message", env.Error.Message)
 	}
 	evt.Msg("acp wire")
 }
+

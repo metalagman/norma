@@ -519,6 +519,7 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 	}
 }
 
+
 func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
 	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", acp.UpdateAgentMessageText("hello"))
 	if !ok || ev == nil {
