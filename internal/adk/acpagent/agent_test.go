@@ -57,7 +57,7 @@ func TestClientPromptReceivesUpdates(t *testing.T) {
 
 	var chunks []string
 	for note := range updates {
-		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", note.Update)
+		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: note.SessionNotification, Raw: note.Raw})
 		if ok {
 			if text := extractPromptText(ev.Content); text != "" {
 				chunks = append(chunks, text)
@@ -128,7 +128,7 @@ func TestClientHandlesPermissionRequest(t *testing.T) {
 
 	var chunks []string
 	for note := range updates {
-		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", note.Update)
+		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: note.SessionNotification, Raw: note.Raw})
 		if ok {
 			if text := extractPromptText(ev.Content); text != "" {
 				chunks = append(chunks, text)
@@ -508,7 +508,7 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 
 
 func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", acp.UpdateAgentMessageText("hello"))
+	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.UpdateAgentMessageText("hello")}})
 	if !ok || ev == nil {
 		t.Fatalf("mapACPUpdateToEvent() returned no event")
 	}
@@ -521,13 +521,13 @@ func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
 }
 
 func TestMapACPUpdateToEventToolCall(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", acp.StartToolCall(
+	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.StartToolCall(
 		acp.ToolCallId(testACPCallID),
 		"run shell",
 		acp.WithStartKind(acp.ToolKindExecute),
 		acp.WithStartStatus(acp.ToolCallStatusInProgress),
 		acp.WithStartRawInput(map[string]any{"cmd": "ls"}),
-	))
+	)}})
 	if !ok || ev == nil {
 		t.Fatalf("mapACPUpdateToEvent() returned no event")
 	}
@@ -547,11 +547,11 @@ func TestMapACPUpdateToEventToolCall(t *testing.T) {
 }
 
 func TestMapACPUpdateToEventToolCallUpdate(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", acp.UpdateToolCall(
+	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.UpdateToolCall(
 		acp.ToolCallId(testACPCallID),
 		acp.WithUpdateStatus(acp.ToolCallStatusCompleted),
 		acp.WithUpdateRawOutput(map[string]any{"ok": true}),
-	))
+	)}})
 	if !ok || ev == nil {
 		t.Fatalf("mapACPUpdateToEvent() returned no event")
 	}
@@ -574,7 +574,7 @@ func TestMapACPUpdateToEventIgnoresUnknownUpdate(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
 
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", acp.SessionUpdate{})
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.SessionUpdate{}}})
 	if ok || ev != nil {
 		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
 	}
@@ -587,13 +587,13 @@ func TestMapACPUpdateToEventIgnoresAvailableCommandsUpdate(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
 
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", acp.SessionUpdate{
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.SessionUpdate{
 		AvailableCommandsUpdate: &acp.SessionAvailableCommandsUpdate{
 			AvailableCommands: []acp.AvailableCommand{
 				{Name: "compact", Description: "compact the session"},
 			},
 		},
-	})
+	}}})
 	if ok || ev != nil {
 		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
 	}
@@ -622,7 +622,7 @@ func TestMapACPUpdateToEventIgnoresUnmarshalableContentBlock(t *testing.T) {
 		},
 	}
 
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", update)
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: update}})
 	if ok || ev != nil {
 		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
 	}
@@ -657,7 +657,7 @@ func TestMapACPUpdateToEventIgnoresUnknownContentBlockWithoutMarshalAttempt(t *t
 		},
 	}
 
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", update)
+	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: update}})
 	if ok || ev != nil {
 		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
 	}
@@ -1014,11 +1014,11 @@ type helperPermissionOutcome struct {
 	OptionID string `json:"optionId,omitempty"`
 }
 
-func readPromptOutput(t *testing.T, updates <-chan acp.SessionNotification, resultCh <-chan PromptResult) string {
+func readPromptOutput(t *testing.T, updates <-chan ExtendedSessionNotification, resultCh <-chan PromptResult) string {
 	t.Helper()
 	var chunks []string
 	for note := range updates {
-		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", note.Update)
+		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: note.SessionNotification, Raw: note.Raw})
 		if ok {
 			if text := extractPromptText(ev.Content); text != "" {
 				chunks = append(chunks, text)

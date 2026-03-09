@@ -59,6 +59,13 @@ type ClientConfig struct {
 	Logger *zerolog.Logger
 }
 
+// ExtendedSessionNotification wraps an ACP notification with its raw JSON representation
+// to allow access to fields not yet supported by the SDK.
+type ExtendedSessionNotification struct {
+	acp.SessionNotification
+	Raw json.RawMessage
+}
+
 // Client manages a single Agentic Computing Protocol (ACP) subprocess and its
 // communication over standard input/output. It implements the acp.Client interface
 // to handle protocol-level callbacks and manages multiple concurrent prompt sessions.
@@ -73,7 +80,7 @@ type Client struct {
 
 	stateMu         sync.Mutex
 	activeBySession map[acp.SessionId]*activePrompt
-	updates         chan acp.SessionNotification
+	updates         chan ExtendedSessionNotification
 	deactivate      chan acp.SessionId
 
 	closed       chan struct{}
@@ -84,11 +91,12 @@ type Client struct {
 
 type activePrompt struct {
 	sessionID acp.SessionId
-	updates   chan acp.SessionNotification
+	updates   chan ExtendedSessionNotification
 	signal    chan struct{}
 	lastChunk *loggedACPChunk
 	closeOnce sync.Once
 }
+
 
 type loggedACPChunk struct {
 	kind         string
@@ -165,7 +173,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		clientVersion:     clientVersion,
 		logger:            l,
 		activeBySession:   make(map[acp.SessionId]*activePrompt),
-		updates:           make(chan acp.SessionNotification, 256),
+		updates:           make(chan ExtendedSessionNotification, 256),
 		deactivate:        make(chan acp.SessionId, 256),
 		closed:            make(chan struct{}),
 		dispatchDone:      make(chan struct{}),
@@ -279,7 +287,7 @@ func (c *Client) SetSessionModel(ctx context.Context, sessionID, model string) e
 }
 
 // Prompt sends a prompt to an ACP session and streams session updates.
-func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionNotification, <-chan PromptResult, error) {
+func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan ExtendedSessionNotification, <-chan PromptResult, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, nil, errSessionIDRequired
 	}
@@ -293,7 +301,7 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan a
 		c.stateMu.Unlock()
 		return nil, nil, ErrPromptAlreadyActive
 	}
-	updates := make(chan acp.SessionNotification, 64)
+	updates := make(chan ExtendedSessionNotification, 64)
 	active := &activePrompt{sessionID: activeSessionID, updates: updates, signal: make(chan struct{}, 1)}
 	c.activeBySession[activeSessionID] = active
 	c.stateMu.Unlock()
@@ -488,11 +496,11 @@ func (c *Client) failAll(err error) {
 	})
 }
 
-func (c *Client) enqueueUpdateFromWire(note acp.SessionNotification) {
+func (c *Client) enqueueUpdateFromWire(ext ExtendedSessionNotification) {
 	select {
-	case c.updates <- note:
+	case c.updates <- ext:
 	default:
-		c.logger.Warn().Str("session_id", string(note.SessionId)).Msg("dropping ordered wire update due to full buffer")
+		c.logger.Warn().Str("session_id", string(ext.SessionId)).Msg("dropping ordered wire update due to full buffer")
 	}
 }
 
@@ -504,8 +512,8 @@ func (c *Client) dispatchUpdates() {
 			return
 		case sessionID := <-c.deactivate:
 			c.closeActiveSession(sessionID)
-		case note := <-c.updates:
-			c.dispatchSessionUpdate(note)
+		case ext := <-c.updates:
+			c.dispatchSessionUpdate(ext)
 		}
 	}
 }
@@ -540,33 +548,31 @@ func (c *Client) closeAllActiveSessions() {
 	}
 }
 
-func (c *Client) dispatchSessionUpdate(note acp.SessionNotification) {
-	updateType := sessionUpdateKind(note.Update)
+func (c *Client) dispatchSessionUpdate(ext ExtendedSessionNotification) {
+	updateType := sessionUpdateKind(ext.Update)
 	logEvent := c.logger.Debug().
-		Str("session_id", string(note.SessionId)).
+		Str("session_id", string(ext.SessionId)).
 		Str("update_kind", updateType)
 
 	if updateType == unknownValue {
-		if raw, err := json.Marshal(note.Update); err == nil {
-			logEvent = logEvent.RawJSON("raw_update", raw)
-		}
+		logEvent = logEvent.RawJSON("raw_update", ext.Raw)
 	}
 
-	logACPUpdateContentFields(logEvent, note.Update)
-	logACPUpdateChunkFields(logEvent, note.Update)
+	logACPUpdateContentFields(logEvent, ext.Update)
+	logACPUpdateChunkFields(logEvent, ext.Update)
 	logEvent.Msg("received acp session update")
 
 	c.stateMu.Lock()
-	active := c.activeBySession[note.SessionId]
+	active := c.activeBySession[ext.SessionId]
 	if active != nil {
-		active.lastChunk = loggedACPChunkFromUpdate(note.Update)
+		active.lastChunk = loggedACPChunkFromUpdate(ext.Update)
 	}
 	c.stateMu.Unlock()
 	if active == nil {
 		return
 	}
 	select {
-	case active.updates <- note:
+	case active.updates <- ext:
 		select {
 		case active.signal <- struct{}{}:
 		default:
@@ -712,7 +718,7 @@ type wireLoggingReader struct {
 	buffer *wireLogBuffer
 }
 
-func newWireLoggingReader(reader io.Reader, logger zerolog.Logger, onSessionUpdate func(acp.SessionNotification)) io.Reader {
+func newWireLoggingReader(reader io.Reader, logger zerolog.Logger, onSessionUpdate func(ExtendedSessionNotification)) io.Reader {
 	return &wireLoggingReader{reader: reader, buffer: newWireLogBuffer("recv", logger, onSessionUpdate)}
 }
 
@@ -730,13 +736,13 @@ func (r *wireLoggingReader) Read(p []byte) (int, error) {
 type wireLogBuffer struct {
 	direction string
 	logger    zerolog.Logger
-	onUpdate  func(acp.SessionNotification)
+	onUpdate  func(ExtendedSessionNotification)
 
 	mu  sync.Mutex
 	buf []byte
 }
 
-func newWireLogBuffer(direction string, logger zerolog.Logger, onUpdate func(acp.SessionNotification)) *wireLogBuffer {
+func newWireLogBuffer(direction string, logger zerolog.Logger, onUpdate func(ExtendedSessionNotification)) *wireLogBuffer {
 	return &wireLogBuffer{direction: direction, logger: logger, onUpdate: onUpdate}
 }
 
@@ -783,7 +789,10 @@ func (b *wireLogBuffer) logLine(line []byte) {
 	if b.direction == "recv" && env.Method == acp.ClientMethodSessionUpdate && b.onUpdate != nil && len(env.Params) > 0 {
 		var note acp.SessionNotification
 		if err := json.Unmarshal(env.Params, &note); err == nil {
-			b.onUpdate(note)
+			b.onUpdate(ExtendedSessionNotification{
+				SessionNotification: note,
+				Raw:                 env.Params,
+			})
 		} else {
 			b.logger.Warn().Err(err).Msg("failed to decode ordered session update")
 		}

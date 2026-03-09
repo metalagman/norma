@@ -161,12 +161,12 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 				return
-			case note, ok := <-updates:
+			case ext, ok := <-updates:
 				if !ok {
 					updates = nil
 					continue
 				}
-				ev, ok := mapACPUpdateToEvent(a.logger, ctx.InvocationID(), note.Update)
+				ev, ok := mapACPUpdateToEvent(a.logger, ctx.InvocationID(), ext)
 				if !ok {
 					continue
 				}
@@ -304,12 +304,13 @@ func extractPromptText(content *genai.Content) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, update acp.SessionUpdate) (*session.Event, bool) {
+func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext ExtendedSessionNotification) (*session.Event, bool) {
+	update := ext.Update
 	switch {
-	case update.AgentMessageChunk != nil:
-		return mapACPAgentMessageChunk(logger, invocationID, update.AgentMessageChunk)
 	case update.UserMessageChunk != nil:
 		return mapACPUserMessageChunk(logger, invocationID, update.UserMessageChunk)
+	case update.AgentMessageChunk != nil:
+		return mapACPAgentMessageChunk(logger, invocationID, update.AgentMessageChunk)
 	case update.AgentThoughtChunk != nil:
 		return mapACPAgentThoughtChunk(logger, invocationID, update.AgentThoughtChunk)
 	case update.ToolCall != nil:
@@ -330,10 +331,28 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, update acp.
 		})
 		return nil, false
 	default:
-		logUnsupportedACPUpdate(logger, update)
+		// Check for recognized discriminators in raw JSON that are not in the SDK struct.
+		var raw map[string]any
+		if err := json.Unmarshal(ext.Raw, &raw); err == nil {
+			if u, ok := raw["update"].(map[string]any); ok {
+				if disc, ok := u["sessionUpdate"].(string); ok && disc == "usage_update" {
+					return mapACPUsageUpdate(invocationID, u)
+				}
+			}
+		}
+
+		logUnsupportedACPUpdate(logger, ext)
 		return nil, false
 	}
 }
+
+func mapACPUsageUpdate(invocationID string, update map[string]any) (*session.Event, bool) {
+	ev := session.NewEvent(invocationID)
+	ev.UsageMetadata = mapACPUsageToUsageMetadata(update)
+	ev.Partial = true
+	return ev, true
+}
+
 
 func mapACPAgentMessageChunk(logger zerolog.Logger, invocationID string, chunk *acp.SessionUpdateAgentMessageChunk) (*session.Event, bool) {
 	part, ok := mapACPContentBlockToPart(logger, chunk.Content)
@@ -343,6 +362,12 @@ func mapACPAgentMessageChunk(logger zerolog.Logger, invocationID string, chunk *
 	ev := session.NewEvent(invocationID)
 	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
 	ev.Partial = true
+
+	if meta, ok := chunk.Meta.(map[string]any); ok {
+		if id, ok := meta["messageId"]; ok {
+			ev.CustomMetadata = map[string]any{"acp_message_id": id}
+		}
+	}
 	return ev, true
 }
 
@@ -447,11 +472,14 @@ func isACPToolStatusLongRunning(status acp.ToolCallStatus) bool {
 	return status == acp.ToolCallStatusPending || status == acp.ToolCallStatusInProgress
 }
 
-func logUnsupportedACPUpdate(logger zerolog.Logger, update acp.SessionUpdate) {
+func logUnsupportedACPUpdate(logger zerolog.Logger, ext ExtendedSessionNotification) {
+	updateType := extendedSessionUpdateType(ext)
 	logEvent := logger.Debug().
-		Str("acp_update_type", sessionUpdateType(update))
+		Str("acp_update_type", updateType)
 
-	if payload, ok := marshalACPUpdatePayload(logger, "session_update_"+sessionUpdateType(update), update); ok {
+	if updateType == unknownValue {
+		logEvent = logEvent.RawJSON("acp_update_payload", ext.Raw)
+	} else if payload, ok := marshalACPUpdatePayload(logger, "session_update_"+updateType, ext.Update); ok {
 		logEvent = logEvent.Str("acp_update_payload", payload)
 	}
 	logEvent.Msg("ignoring unsupported acp session update")
@@ -465,6 +493,22 @@ func logIgnoredACPUpdate(logger zerolog.Logger, updateType string, payload any) 
 		logEvent = logEvent.Str("acp_update_payload", marshaled)
 	}
 	logEvent.Msg("ignoring non-user-visible acp session update")
+}
+
+func extendedSessionUpdateType(ext ExtendedSessionNotification) string {
+	if disc := sessionUpdateType(ext.Update); disc != unknownValue {
+		return disc
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(ext.Raw, &raw); err == nil {
+		if u, ok := raw["update"].(map[string]any); ok {
+			if disc, ok := u["sessionUpdate"].(string); ok {
+				return disc
+			}
+		}
+	}
+	return unknownValue
 }
 
 func logIgnoredACPContentBlock(logger zerolog.Logger, block acp.ContentBlock) {
@@ -629,8 +673,6 @@ func sessionUpdateType(update acp.SessionUpdate) string {
 	case update.AvailableCommandsUpdate != nil:
 		return "available_commands_update"
 	default:
-		// Check if it's an empty update which might mean an unrecognized discriminator
-		// such as usage_update in older SDK versions.
 		return unknownValue
 	}
 }
