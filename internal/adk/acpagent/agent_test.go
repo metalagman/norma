@@ -57,8 +57,11 @@ func TestClientPromptReceivesUpdates(t *testing.T) {
 
 	var chunks []string
 	for note := range updates {
-		if text := updateText(note.Update); text != "" {
-			chunks = append(chunks, text)
+		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", note.Update)
+		if ok {
+			if text := extractPromptText(ev.Content); text != "" {
+				chunks = append(chunks, text)
+			}
 		}
 	}
 	result := <-resultCh
@@ -125,8 +128,11 @@ func TestClientHandlesPermissionRequest(t *testing.T) {
 
 	var chunks []string
 	for note := range updates {
-		if text := updateText(note.Update); text != "" {
-			chunks = append(chunks, text)
+		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", note.Update)
+		if ok {
+			if text := extractPromptText(ev.Content); text != "" {
+				chunks = append(chunks, text)
+			}
 		}
 	}
 	result := <-resultCh
@@ -430,8 +436,7 @@ func TestAgentReusesRemoteSession(t *testing.T) {
 
 func collectFinalText(t *testing.T, events iter.Seq2[*session.Event, error]) string {
 	t.Helper()
-	var partial strings.Builder
-	final := ""
+	var fullText strings.Builder
 	turnCompleteSeen := false
 	for ev, err := range events {
 		if err != nil {
@@ -444,22 +449,12 @@ func collectFinalText(t *testing.T, events iter.Seq2[*session.Event, error]) str
 			turnCompleteSeen = true
 		}
 		text := extractPromptText(ev.Content)
-		if text == "" {
-			continue
-		}
-		if ev.Partial {
-			partial.WriteString(text)
-			continue
-		}
-		final = text
-	}
-	if final == "" {
-		final = partial.String()
+		fullText.WriteString(text)
 	}
 	if !turnCompleteSeen {
 		t.Fatalf("expected turn complete event")
 	}
-	return final
+	return fullText.String()
 }
 
 func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
@@ -487,8 +482,7 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	var partialText strings.Builder
-	var finalText strings.Builder
+	var accumulatedText strings.Builder
 	turnCompleteSeen := false
 	for ev, err := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
 		if err != nil {
@@ -501,21 +495,14 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 			turnCompleteSeen = true
 		}
 		text := extractPromptText(ev.Content)
-		if text == "" {
-			continue
-		}
-		if ev.Partial {
-			partialText.WriteString(text)
-			continue
-		}
-		finalText.WriteString(text)
+		accumulatedText.WriteString(text)
 	}
 	if !turnCompleteSeen {
 		t.Fatalf("expected turn complete event")
 	}
-	got := partialText.String() + finalText.String()
+	got := accumulatedText.String()
 	if got != "session-1:hello" {
-		t.Fatalf("combined streamed text = %q, want %q", got, "session-1:hello")
+		t.Fatalf("accumulated text = %q, want %q", got, "session-1:hello")
 	}
 }
 
@@ -1031,8 +1018,11 @@ func readPromptOutput(t *testing.T, updates <-chan acp.SessionNotification, resu
 	t.Helper()
 	var chunks []string
 	for note := range updates {
-		if text := updateText(note.Update); text != "" {
-			chunks = append(chunks, text)
+		ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", note.Update)
+		if ok {
+			if text := extractPromptText(ev.Content); text != "" {
+				chunks = append(chunks, text)
+			}
 		}
 	}
 	result := <-resultCh

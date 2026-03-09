@@ -155,8 +155,6 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			return
 		}
 
-		var finalText strings.Builder
-		partialEmitted := false
 		var promptResult *PromptResult
 		for updates != nil || resultCh != nil {
 			select {
@@ -167,12 +165,6 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 				if !ok {
 					updates = nil
 					continue
-				}
-				if note.Update.AgentMessageChunk != nil {
-					if chunk := updateText(note.Update); chunk != "" {
-						finalText.WriteString(chunk)
-						partialEmitted = true
-					}
 				}
 				ev, ok := mapACPUpdateToEvent(a.logger, ctx.InvocationID(), note.Update)
 				if !ok {
@@ -202,13 +194,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		a.logger.Debug().
 			Str("adk_session_id", ctx.Session().ID()).
 			Str("acp_session_id", remoteSessionID).
-			Int("response_len", finalText.Len()).
 			Msg("completed adk invocation")
 
 		ev := session.NewEvent(ctx.InvocationID())
-		if !partialEmitted {
-			ev.Content = genai.NewContentFromText(finalText.String(), genai.RoleModel)
-		}
 		if promptResult != nil {
 			ev.FinishReason = mapACPStopReasonToFinishReason(promptResult.Response.StopReason)
 			ev.UsageMetadata = mapACPUsageToUsageMetadata(promptResult.Usage)
@@ -220,6 +208,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 	}
 }
+
 
 func (a *Agent) logADKEvent(ev *session.Event, msg string) {
 	if ev == nil {
@@ -313,17 +302,6 @@ func extractPromptText(content *genai.Content) string {
 		builder.WriteString(part.Text)
 	}
 	return strings.TrimSpace(builder.String())
-}
-
-func updateText(update acp.SessionUpdate) string {
-	if update.AgentMessageChunk == nil {
-		return ""
-	}
-	content := update.AgentMessageChunk.Content
-	if content.Text == nil {
-		return ""
-	}
-	return content.Text.Text
 }
 
 func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, update acp.SessionUpdate) (*session.Event, bool) {
