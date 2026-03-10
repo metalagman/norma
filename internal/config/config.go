@@ -5,23 +5,23 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/metalagman/norma/internal/adk/modelfactory"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 )
 
 // Config is the root configuration.
 type Config struct {
-	Agents    map[string]AgentConfig   `json:"agents,omitempty"   mapstructure:"agents"`
-	Profiles  map[string]ProfileConfig `json:"profiles,omitempty" mapstructure:"profiles"`
-	Profile   string                   `json:"profile,omitempty"  mapstructure:"profile"`
-	Budgets   Budgets                  `json:"budgets"            mapstructure:"budgets"`
-	Retention RetentionPolicy          `json:"retention"          mapstructure:"retention"`
+	Agents    map[string]agentconfig.Config `json:"agents,omitempty"   mapstructure:"agents"`
+	Profiles  map[string]ProfileConfig      `json:"profiles,omitempty" mapstructure:"profiles"`
+	Profile   string                        `json:"profile,omitempty"  mapstructure:"profile"`
+	Budgets   Budgets                       `json:"budgets"            mapstructure:"budgets"`
+	Retention RetentionPolicy               `json:"retention"          mapstructure:"retention"`
 }
 
 // AgentConfig describes how to run an agent.
-type AgentConfig = modelfactory.ModelConfig
+type AgentConfig = agentconfig.Config
 
 // ToModelConfig converts AgentConfig to adk modelfactory.ModelConfig.
-func ToModelConfig(c AgentConfig) modelfactory.ModelConfig {
+func ToModelConfig(c AgentConfig) agentconfig.Config {
 	return c
 }
 
@@ -54,53 +54,36 @@ const defaultProfile = "default"
 
 // Supported agent types.
 const (
-	AgentTypeExec           = modelfactory.ModelTypeExec
-	AgentTypeACPExec        = modelfactory.ModelTypeACPExec
-	AgentTypeCodex          = modelfactory.ModelTypeCodex
-	AgentTypeCodexACP       = modelfactory.ModelTypeCodexACP
-	AgentTypeOpenCode       = modelfactory.ModelTypeOpenCode
-	AgentTypeOpenCodeACP    = modelfactory.ModelTypeOpenCodeACP
-	AgentTypeGemini         = modelfactory.ModelTypeGemini
-	AgentTypeGeminiACP      = modelfactory.ModelTypeGeminiACP
-	AgentTypeClaude         = modelfactory.ModelTypeClaude
-	AgentTypeGeminiAIStudio = modelfactory.ModelTypeGeminiAIStudio
+	AgentTypeExec           = agentconfig.AgentTypeExec
+	AgentTypeACPExec        = agentconfig.AgentTypeACPExec
+	AgentTypeCodex          = agentconfig.AgentTypeCodex
+	AgentTypeCodexACP       = agentconfig.AgentTypeCodexACP
+	AgentTypeOpenCode       = agentconfig.AgentTypeOpenCode
+	AgentTypeOpenCodeACP    = agentconfig.AgentTypeOpenCodeACP
+	AgentTypeGemini         = agentconfig.AgentTypeGemini
+	AgentTypeGeminiACP      = agentconfig.AgentTypeGeminiACP
+	AgentTypeClaude         = agentconfig.AgentTypeClaude
+	AgentTypeGeminiAIStudio = agentconfig.AgentTypeGeminiAIStudio
 )
 
 // IsACPType reports whether an agent type uses the ACP runtime.
 func IsACPType(agentType string) bool {
-	switch strings.TrimSpace(agentType) {
-	case AgentTypeACPExec, AgentTypeGeminiACP, AgentTypeOpenCodeACP, AgentTypeCodexACP:
-		return true
-	default:
-		return false
-	}
+	return agentconfig.IsACPType(agentType)
 }
 
 // HasSetModelSupport reports whether an agent type supports session/set_model.
 func HasSetModelSupport(agentType string) bool {
-	switch strings.TrimSpace(agentType) {
-	case AgentTypeOpenCodeACP, AgentTypeCodexACP:
-		return true
-	case AgentTypeGeminiACP, AgentTypeACPExec:
-		return false
-	default:
-		return false
-	}
+	return agentconfig.HasSetModelSupport(agentType)
 }
 
 // IsLLMType reports whether an agent type uses a direct LLM model runtime.
 func IsLLMType(agentType string) bool {
-	switch strings.TrimSpace(agentType) {
-	case AgentTypeCodex, AgentTypeOpenCode, AgentTypeGemini, AgentTypeClaude, AgentTypeGeminiAIStudio:
-		return true
-	default:
-		return false
-	}
+	return agentconfig.IsLLMType(agentType)
 }
 
 // IsPlannerSupportedType reports whether planner mode supports the agent type.
 func IsPlannerSupportedType(agentType string) bool {
-	return IsLLMType(agentType) || IsACPType(agentType)
+	return agentconfig.IsPlannerSupportedType(agentType)
 }
 
 // ResolveAgents returns the agents for the selected profile.

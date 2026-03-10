@@ -5,30 +5,30 @@ import (
 	"io"
 	"testing"
 
-	"github.com/metalagman/norma/internal/config"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestFactory_CreateAgent(t *testing.T) {
-	agents := map[string]config.AgentConfig{
+	agents := map[string]agentconfig.Config{
 		"test-exec": {
-			Type: config.AgentTypeExec,
+			Type: agentconfig.AgentTypeExec,
 			Cmd:  []string{"echo", "hello"},
 		},
 		"test-claude": {
-			Type: config.AgentTypeClaude,
+			Type: agentconfig.AgentTypeClaude,
 		},
 		"test-gemini": {
-			Type: config.AgentTypeGemini,
+			Type: agentconfig.AgentTypeGemini,
 		},
 		"test-codex": {
-			Type: config.AgentTypeCodex,
+			Type: agentconfig.AgentTypeCodex,
 		},
 		"test-opencode": {
-			Type: config.AgentTypeOpenCode,
+			Type: agentconfig.AgentTypeOpenCode,
 		},
 		"test-acp": {
-			Type: config.AgentTypeGeminiACP,
+			Type: agentconfig.AgentTypeGeminiACP,
 		},
 	}
 	f := NewFactory(agents)
@@ -79,44 +79,44 @@ func TestFactory_CreateAgent(t *testing.T) {
 func TestResolveCmd(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     config.AgentConfig
+		cfg     agentconfig.Config
 		want    []string
 		wantErr bool
 	}{
 		{
 			name: "Exec with cmd",
-			cfg: config.AgentConfig{
-				Type: config.AgentTypeExec,
+			cfg: agentconfig.Config{
+				Type: agentconfig.AgentTypeExec,
 				Cmd:  []string{"ls", "-la"},
 			},
 			want: []string{"ls", "-la"},
 		},
 		{
 			name: "Exec without cmd",
-			cfg: config.AgentConfig{
-				Type: config.AgentTypeExec,
+			cfg: agentconfig.Config{
+				Type: agentconfig.AgentTypeExec,
 			},
 			wantErr: true,
 		},
 		{
 			name: "Claude default",
-			cfg: config.AgentConfig{
-				Type: config.AgentTypeClaude,
+			cfg: agentconfig.Config{
+				Type: agentconfig.AgentTypeClaude,
 			},
 			want: []string{"claude"},
 		},
 		{
 			name: "Claude with model",
-			cfg: config.AgentConfig{
-				Type:  config.AgentTypeClaude,
+			cfg: agentconfig.Config{
+				Type:  agentconfig.AgentTypeClaude,
 				Model: "claude-3",
 			},
 			want: []string{"claude", "--model", "claude-3"},
 		},
 		{
 			name: "Gemini with templated cmd",
-			cfg: config.AgentConfig{
-				Type:  config.AgentTypeGemini,
+			cfg: agentconfig.Config{
+				Type:  agentconfig.AgentTypeGemini,
 				Cmd:   []string{"gemini", "run", "--model", "{{.Model}}"},
 				Model: "gemini-1.5",
 			},
@@ -124,8 +124,8 @@ func TestResolveCmd(t *testing.T) {
 		},
 		{
 			name: "Gemini default",
-			cfg: config.AgentConfig{
-				Type: config.AgentTypeGemini,
+			cfg: agentconfig.Config{
+				Type: agentconfig.AgentTypeGemini,
 			},
 			want: []string{"gemini", "--approval-mode", "yolo"},
 		},
@@ -147,30 +147,30 @@ func TestResolveCmd(t *testing.T) {
 func TestResolveACPCommand(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     config.AgentConfig
+		cfg     agentconfig.Config
 		want    []string
 		wantErr bool
 	}{
 		{
 			name: "ACP Exec with cmd",
-			cfg: config.AgentConfig{
-				Type: config.AgentTypeACPExec,
+			cfg: agentconfig.Config{
+				Type: agentconfig.AgentTypeACPExec,
 				Cmd:  []string{"custom-acp", "server"},
 			},
 			want: []string{"custom-acp", "server"},
 		},
 		{
 			name: "Gemini ACP with model",
-			cfg: config.AgentConfig{
-				Type:  config.AgentTypeGeminiACP,
+			cfg: agentconfig.Config{
+				Type:  agentconfig.AgentTypeGeminiACP,
 				Model: "gemini-pro",
 			},
 			want: []string{"gemini", "--experimental-acp", "--model", "gemini-pro"},
 		},
 		{
 			name: "OpenCode ACP",
-			cfg: config.AgentConfig{
-				Type: config.AgentTypeOpenCodeACP,
+			cfg: agentconfig.Config{
+				Type: agentconfig.AgentTypeOpenCodeACP,
 			},
 			want: []string{"opencode", "acp"},
 		},

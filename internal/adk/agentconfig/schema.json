@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["exec", "acp_exec", "codex", "codex_acp", "opencode", "opencode_acp", "gemini", "gemini_acp", "claude", "gemini_aistudio"]
+    },
+    "cmd": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "extra_args": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_url": {
+      "type": "string",
+      "minLength": 1
+    },
+    "api_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "use_tty": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["exec", "acp_exec"]
+          }
+        }
+      },
+      "then": {
+        "required": ["cmd"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["codex", "codex_acp", "opencode", "opencode_acp", "gemini", "gemini_acp", "claude", "gemini_aistudio"]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": ["cmd"]
+        }
+      }
+    }
+  ]
+}

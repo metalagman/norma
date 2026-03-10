@@ -11,7 +11,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 	"github.com/metalagman/ainvoke/adk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
-	"github.com/metalagman/norma/internal/config"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"google.golang.org/adk/agent"
 )
 
@@ -31,15 +31,15 @@ type CreationRequest struct {
 }
 
 // constructor is a function that creates a new agent instance.
-type constructor func(ctx context.Context, cfg config.AgentConfig, req CreationRequest) (agent.Agent, error)
+type constructor func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error)
 
 // Factory is a registry of agent configurations.
 type Factory struct {
-	registry map[string]config.AgentConfig
+	registry map[string]agentconfig.Config
 }
 
 // NewFactory creates a new Factory from a map of agent configurations.
-func NewFactory(agents map[string]config.AgentConfig) *Factory {
+func NewFactory(agents map[string]agentconfig.Config) *Factory {
 	return &Factory{
 		registry: agents,
 	}
@@ -68,7 +68,7 @@ func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequ
 
 // constructors registry.
 var constructors = map[string]constructor{
-	config.AgentTypeExec: func(ctx context.Context, cfg config.AgentConfig, req CreationRequest) (agent.Agent, error) {
+	agentconfig.AgentTypeExec: func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
 		cmd, err := ResolveCmd(cfg)
 		if err != nil {
 			return nil, err
@@ -90,18 +90,18 @@ var constructors = map[string]constructor{
 			adk.WithExecAgentStderr(req.Stderr),
 		)
 	},
-	config.AgentTypeClaude:  execConstructor,
-	config.AgentTypeCodex:   execConstructor,
-	config.AgentTypeGemini:  execConstructor,
-	config.AgentTypeOpenCode: execConstructor,
+	agentconfig.AgentTypeClaude:  execConstructor,
+	agentconfig.AgentTypeCodex:   execConstructor,
+	agentconfig.AgentTypeGemini:  execConstructor,
+	agentconfig.AgentTypeOpenCode: execConstructor,
 
-	config.AgentTypeACPExec:      acpConstructor,
-	config.AgentTypeGeminiACP:    acpConstructor,
-	config.AgentTypeOpenCodeACP:  acpConstructor,
-	config.AgentTypeCodexACP:     acpConstructor,
+	agentconfig.AgentTypeACPExec:      acpConstructor,
+	agentconfig.AgentTypeGeminiACP:    acpConstructor,
+	agentconfig.AgentTypeOpenCodeACP:  acpConstructor,
+	agentconfig.AgentTypeCodexACP:     acpConstructor,
 }
 
-var execConstructor = func(ctx context.Context, cfg config.AgentConfig, req CreationRequest) (agent.Agent, error) {
+var execConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
 	cmd, err := ResolveCmd(cfg)
 	if err != nil {
 		return nil, err
@@ -125,7 +125,7 @@ var execConstructor = func(ctx context.Context, cfg config.AgentConfig, req Crea
 	)
 }
 
-var acpConstructor = func(ctx context.Context, cfg config.AgentConfig, req CreationRequest) (agent.Agent, error) {
+var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
 	cmd, err := ResolveACPCommand(cfg)
 	if err != nil {
 		return nil, err
@@ -145,35 +145,35 @@ var acpConstructor = func(ctx context.Context, cfg config.AgentConfig, req Creat
 		WorkingDir:        workingDir,
 		Stderr:            req.Stderr,
 		PermissionHandler: req.PermissionHandler,
-		HasSetModel:       config.HasSetModelSupport(cfg.Type),
+		HasSetModel:       agentconfig.HasSetModelSupport(cfg.Type),
 	})
 }
 
 // ResolveCmd resolves the command for an agent config.
-func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
+func ResolveCmd(cfg agentconfig.Config) ([]string, error) {
 	cmd := cfg.Cmd
 	if len(cmd) == 0 {
 		switch cfg.Type {
-		case config.AgentTypeExec:
+		case agentconfig.AgentTypeExec:
 			return nil, fmt.Errorf("exec agent requires cmd")
-		case config.AgentTypeClaude:
+		case agentconfig.AgentTypeClaude:
 			cmd = []string{"claude"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
-		case config.AgentTypeCodex:
+		case agentconfig.AgentTypeCodex:
 			cmd = []string{"codex", "exec"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
 			cmd = append(cmd, "--sandbox", "workspace-write")
-		case config.AgentTypeGemini:
+		case agentconfig.AgentTypeGemini:
 			cmd = []string{"gemini"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
 			}
 			cmd = append(cmd, "--approval-mode", "yolo")
-		case config.AgentTypeOpenCode:
+		case agentconfig.AgentTypeOpenCode:
 			cmd = []string{"opencode", "run"}
 			if cfg.Model != "" {
 				cmd = append(cmd, "--model", cfg.Model)
@@ -190,22 +190,22 @@ func ResolveCmd(cfg config.AgentConfig) ([]string, error) {
 }
 
 // ResolveACPCommand resolves the command for ACP-backed agent types.
-func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
+func ResolveACPCommand(cfg agentconfig.Config) ([]string, error) {
 	var cmd []string
 	switch cfg.Type {
-	case config.AgentTypeACPExec:
+	case agentconfig.AgentTypeACPExec:
 		if len(cfg.Cmd) == 0 {
 			return nil, fmt.Errorf("acp_exec agent requires cmd")
 		}
 		cmd = cfg.Cmd
-	case config.AgentTypeGeminiACP:
+	case agentconfig.AgentTypeGeminiACP:
 		cmd = []string{"gemini", "--experimental-acp"}
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
-	case config.AgentTypeOpenCodeACP:
+	case agentconfig.AgentTypeOpenCodeACP:
 		cmd = []string{"opencode", "acp"}
-	case config.AgentTypeCodexACP:
+	case agentconfig.AgentTypeCodexACP:
 		exePath, err := os.Executable()
 		if err != nil {
 			return nil, fmt.Errorf("resolve executable path: %w", err)
@@ -219,7 +219,7 @@ func ResolveACPCommand(cfg config.AgentConfig) ([]string, error) {
 	}
 	res := resolveTemplatedCmd(cmd, cfg.Model)
 	if len(cfg.ExtraArgs) > 0 {
-		if cfg.Type == config.AgentTypeCodexACP {
+		if cfg.Type == agentconfig.AgentTypeCodexACP {
 			res = append(res, "--")
 		}
 		res = append(res, cfg.ExtraArgs...)

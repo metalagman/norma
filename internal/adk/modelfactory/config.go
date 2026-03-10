@@ -1,40 +1,33 @@
 package modelfactory
 
+import "github.com/metalagman/norma/internal/adk/agentconfig"
+
 // ModelConfig describes how to run a model.
-type ModelConfig struct {
-	Type      string   `json:"type"                 mapstructure:"type"`
-	Cmd       []string `json:"cmd,omitempty"        mapstructure:"cmd"`
-	ExtraArgs []string `json:"extra_args,omitempty" mapstructure:"extra_args"`
-	Model     string   `json:"model,omitempty"      mapstructure:"model"`
-	BaseURL   string   `json:"base_url,omitempty"   mapstructure:"base_url"`
-	APIKey    string   `json:"api_key,omitempty"    mapstructure:"api_key"`
-	Timeout   int      `json:"timeout,omitempty"    mapstructure:"timeout"`
-	UseTTY    *bool    `json:"use_tty,omitempty"    mapstructure:"use_tty"`
-}
+type ModelConfig = agentconfig.Config
 
 // FactoryConfig is a map of model configurations.
 type FactoryConfig map[string]ModelConfig
 
 const (
 	// ModelTypeGeminiAIStudio is the type for Gemini AI Studio models.
-	ModelTypeGeminiAIStudio = "gemini_aistudio"
+	ModelTypeGeminiAIStudio = agentconfig.AgentTypeGeminiAIStudio
 	// ModelTypeExec is the type for executive models.
-	ModelTypeExec = "exec"
+	ModelTypeExec = agentconfig.AgentTypeExec
 	// ModelTypeACPExec is the type for custom ACP CLI executables.
-	ModelTypeACPExec = "acp_exec"
+	ModelTypeACPExec = agentconfig.AgentTypeACPExec
 
 	// ModelTypeGemini is the alias for gemini CLI.
-	ModelTypeGemini = "gemini"
+	ModelTypeGemini = agentconfig.AgentTypeGemini
 	// ModelTypeGeminiACP is the alias for Gemini CLI ACP mode.
-	ModelTypeGeminiACP = "gemini_acp"
+	ModelTypeGeminiACP = agentconfig.AgentTypeGeminiACP
 	// ModelTypeClaude is the alias for claude CLI.
-	ModelTypeClaude = "claude"
+	ModelTypeClaude = agentconfig.AgentTypeClaude
 	// ModelTypeCodex is the alias for codex CLI.
-	ModelTypeCodex = "codex"
+	ModelTypeCodex = agentconfig.AgentTypeCodex
 	// ModelTypeCodexACP is the alias for Codex ACP bridge mode.
-	ModelTypeCodexACP = "codex_acp"
+	ModelTypeCodexACP = agentconfig.AgentTypeCodexACP
 	// ModelTypeOpenCode is the alias for opencode CLI.
-	ModelTypeOpenCode = "opencode"
+	ModelTypeOpenCode = agentconfig.AgentTypeOpenCode
 	// ModelTypeOpenCodeACP is the alias for OpenCode CLI ACP mode.
-	ModelTypeOpenCodeACP = "opencode_acp"
+	ModelTypeOpenCodeACP = agentconfig.AgentTypeOpenCodeACP
 )

@@ -3,7 +3,10 @@ package modelfactory
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/metalagman/norma/internal/adk/acpmodel"
+	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/metalagman/norma/internal/adk/execmodel"
 	"google.golang.org/adk/model"
 )
@@ -72,6 +75,57 @@ var constructors = map[string]constructor{
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
+		})
+	},
+
+	ModelTypeACPExec: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := append([]string(nil), cfg.Cmd...)
+		cmd = append(cmd, cfg.ExtraArgs...)
+		return acpmodel.New(acpmodel.Config{
+			Command:     cmd,
+			Model:       cfg.Model,
+			HasSetModel: agentconfig.HasSetModelSupport(cfg.Type),
+		})
+	},
+	ModelTypeGeminiACP: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := []string{"gemini", "--experimental-acp"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		cmd = append(cmd, cfg.ExtraArgs...)
+		return acpmodel.New(acpmodel.Config{
+			Command:     cmd,
+			Model:       cfg.Model,
+			HasSetModel: agentconfig.HasSetModelSupport(cfg.Type),
+		})
+	},
+	ModelTypeOpenCodeACP: func(cfg ModelConfig) (model.LLM, error) {
+		cmd := make([]string, 0, 2+len(cfg.ExtraArgs))
+		cmd = append(cmd, "opencode", "acp")
+		cmd = append(cmd, cfg.ExtraArgs...)
+		return acpmodel.New(acpmodel.Config{
+			Command:     cmd,
+			Model:       cfg.Model,
+			HasSetModel: agentconfig.HasSetModelSupport(cfg.Type),
+		})
+	},
+	ModelTypeCodexACP: func(cfg ModelConfig) (model.LLM, error) {
+		exePath, err := os.Executable()
+		if err != nil {
+			return nil, fmt.Errorf("resolve executable path: %w", err)
+		}
+		cmd := []string{exePath, "proxy", "codex-acp"}
+		if cfg.Model != "" {
+			cmd = append(cmd, "--model", cfg.Model)
+		}
+		if len(cfg.ExtraArgs) > 0 {
+			cmd = append(cmd, "--")
+			cmd = append(cmd, cfg.ExtraArgs...)
+		}
+		return acpmodel.New(acpmodel.Config{
+			Command:     cmd,
+			Model:       cfg.Model,
+			HasSetModel: agentconfig.HasSetModelSupport(cfg.Type),
 		})
 	},
 }
