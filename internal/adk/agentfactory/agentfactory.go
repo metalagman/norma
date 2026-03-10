@@ -90,15 +90,15 @@ var constructors = map[string]constructor{
 			adk.WithExecAgentStderr(req.Stderr),
 		)
 	},
-	agentconfig.AgentTypeClaude:  execConstructor,
-	agentconfig.AgentTypeCodex:   execConstructor,
-	agentconfig.AgentTypeGemini:  execConstructor,
+	agentconfig.AgentTypeClaude:   execConstructor,
+	agentconfig.AgentTypeCodex:    execConstructor,
+	agentconfig.AgentTypeGemini:   execConstructor,
 	agentconfig.AgentTypeOpenCode: execConstructor,
 
-	agentconfig.AgentTypeACPExec:      acpConstructor,
-	agentconfig.AgentTypeGeminiACP:    acpConstructor,
-	agentconfig.AgentTypeOpenCodeACP:  acpConstructor,
-	agentconfig.AgentTypeCodexACP:     acpConstructor,
+	agentconfig.AgentTypeACPExec:     acpConstructor,
+	agentconfig.AgentTypeGeminiACP:   acpConstructor,
+	agentconfig.AgentTypeOpenCodeACP: acpConstructor,
+	agentconfig.AgentTypeCodexACP:    acpConstructor,
 }
 
 var execConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
@@ -184,7 +184,7 @@ func ResolveCmd(cfg agentconfig.Config) ([]string, error) {
 	}
 	res := resolveTemplatedCmd(cmd, cfg.Model)
 	if len(cfg.ExtraArgs) > 0 {
-		res = append(res, cfg.ExtraArgs...)
+		res = append(res, resolveTemplatedCmd(cfg.ExtraArgs, cfg.Model)...)
 	}
 	return res, nil
 }
@@ -212,17 +212,14 @@ func ResolveACPCommand(cfg agentconfig.Config) ([]string, error) {
 		}
 		cmd = []string{exePath, "proxy", "codex-acp"}
 		if cfg.Model != "" {
-			cmd = append(cmd, "--model", cfg.Model)
+			cmd = append(cmd, "--codex-model", cfg.Model)
 		}
 	default:
 		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
 	}
 	res := resolveTemplatedCmd(cmd, cfg.Model)
 	if len(cfg.ExtraArgs) > 0 {
-		if cfg.Type == agentconfig.AgentTypeCodexACP {
-			res = append(res, "--")
-		}
-		res = append(res, cfg.ExtraArgs...)
+		res = append(res, resolveTemplatedCmd(cfg.ExtraArgs, cfg.Model)...)
 	}
 	return res, nil
 }

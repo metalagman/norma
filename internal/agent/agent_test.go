@@ -278,14 +278,30 @@ func TestResolveACPCommand(t *testing.T) {
 			},
 			check: func(t *testing.T, got []string) {
 				t.Helper()
-				require.GreaterOrEqual(t, len(got), 8)
+				require.GreaterOrEqual(t, len(got), 7)
 				assert.Equal(t, "proxy", got[1])
 				assert.Equal(t, "codex-acp", got[2])
-				assert.Equal(t, "--model", got[3])
+				assert.Equal(t, "--codex-model", got[3])
 				assert.Equal(t, "gpt-5.4", got[4])
-				assert.Equal(t, "--", got[5])
-				assert.Equal(t, "--trace", got[6])
-				assert.Equal(t, "--raw", got[7])
+				assert.Equal(t, "--trace", got[5])
+				assert.Equal(t, "--raw", got[6])
+			},
+		},
+		{
+			name: "codex_acp_templates_extra_args_with_model",
+			cfg: config.AgentConfig{
+				Type:      config.AgentTypeCodexACP,
+				Model:     "gpt-5.4",
+				ExtraArgs: []string{"--codex-model={{.Model}}"},
+			},
+			check: func(t *testing.T, got []string) {
+				t.Helper()
+				require.GreaterOrEqual(t, len(got), 6)
+				assert.Equal(t, "proxy", got[1])
+				assert.Equal(t, "codex-acp", got[2])
+				assert.Equal(t, "--codex-model", got[3])
+				assert.Equal(t, "gpt-5.4", got[4])
+				assert.Equal(t, "--codex-model=gpt-5.4", got[5])
 			},
 		},
 	}

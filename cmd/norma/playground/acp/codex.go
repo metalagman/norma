@@ -95,7 +95,7 @@ func BuildCodexACPCommand(opts CodexOptions) ([]string, error) {
 
 	cmd := []string{bridgeBin, "--debug", "proxy", "codex-acp"}
 	if strings.TrimSpace(opts.Model) != "" {
-		cmd = append(cmd, "--model", strings.TrimSpace(opts.Model))
+		cmd = append(cmd, "--codex-model", strings.TrimSpace(opts.Model))
 	}
 	if strings.TrimSpace(opts.Name) != "" {
 		cmd = append(cmd, "--name", strings.TrimSpace(opts.Name))

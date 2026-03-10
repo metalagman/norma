@@ -4,6 +4,7 @@ package modelfactory
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/metalagman/norma/internal/adk/acpmodel"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
@@ -24,7 +25,7 @@ var constructors = map[string]constructor{
 	ModelTypeGeminiAIStudio: NewGeminiAIStudio,
 	ModelTypeExec: func(cfg ModelConfig) (model.LLM, error) {
 		cmd := append([]string(nil), cfg.Cmd...)
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -36,7 +37,7 @@ var constructors = map[string]constructor{
 			cmd = append(cmd, "--model", cfg.Model)
 		}
 		cmd = append(cmd, defaultAliasArgs[ModelTypeGemini]...)
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -47,7 +48,7 @@ var constructors = map[string]constructor{
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -59,7 +60,7 @@ var constructors = map[string]constructor{
 			cmd = append(cmd, "--model", cfg.Model)
 		}
 		cmd = append(cmd, defaultAliasArgs[ModelTypeCodex]...)
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -71,7 +72,7 @@ var constructors = map[string]constructor{
 			cmd = append(cmd, "--model", cfg.Model)
 		}
 		cmd = append(cmd, defaultAliasArgs[ModelTypeOpenCode]...)
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return execmodel.New(execmodel.Config{
 			Cmd:    cmd,
 			UseTTY: cfg.UseTTY != nil && *cfg.UseTTY,
@@ -80,7 +81,7 @@ var constructors = map[string]constructor{
 
 	ModelTypeACPExec: func(cfg ModelConfig) (model.LLM, error) {
 		cmd := append([]string(nil), cfg.Cmd...)
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return acpmodel.New(acpmodel.Config{
 			Command:     cmd,
 			Model:       cfg.Model,
@@ -92,7 +93,7 @@ var constructors = map[string]constructor{
 		if cfg.Model != "" {
 			cmd = append(cmd, "--model", cfg.Model)
 		}
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return acpmodel.New(acpmodel.Config{
 			Command:     cmd,
 			Model:       cfg.Model,
@@ -102,7 +103,7 @@ var constructors = map[string]constructor{
 	ModelTypeOpenCodeACP: func(cfg ModelConfig) (model.LLM, error) {
 		cmd := make([]string, 0, 2+len(cfg.ExtraArgs))
 		cmd = append(cmd, "opencode", "acp")
-		cmd = append(cmd, cfg.ExtraArgs...)
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return acpmodel.New(acpmodel.Config{
 			Command:     cmd,
 			Model:       cfg.Model,
@@ -116,18 +117,26 @@ var constructors = map[string]constructor{
 		}
 		cmd := []string{exePath, "proxy", "codex-acp"}
 		if cfg.Model != "" {
-			cmd = append(cmd, "--model", cfg.Model)
+			cmd = append(cmd, "--codex-model", cfg.Model)
 		}
-		if len(cfg.ExtraArgs) > 0 {
-			cmd = append(cmd, "--")
-			cmd = append(cmd, cfg.ExtraArgs...)
-		}
+		cmd = append(cmd, resolveTemplatedArgs(cfg.ExtraArgs, cfg.Model)...)
 		return acpmodel.New(acpmodel.Config{
 			Command:     cmd,
 			Model:       cfg.Model,
 			HasSetModel: agentconfig.HasSetModelSupport(cfg.Type),
 		})
 	},
+}
+
+func resolveTemplatedArgs(args []string, model string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	res := make([]string, len(args))
+	for i, arg := range args {
+		res[i] = strings.ReplaceAll(arg, "{{.Model}}", model)
+	}
+	return res
 }
 
 // Factory is a registry of models and their configurations.

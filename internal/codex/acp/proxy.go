@@ -21,18 +21,40 @@ import (
 // DefaultAgentName is the default ACP agent name reported by the proxy.
 const DefaultAgentName = "norma-codex-acp-proxy"
 
+var (
+	validCodexApprovalPolicies = map[string]struct{}{
+		"untrusted":  {},
+		"on-failure": {},
+		"on-request": {},
+		"never":      {},
+	}
+	validCodexSandboxModes = map[string]struct{}{
+		"read-only":          {},
+		"workspace-write":    {},
+		"danger-full-access": {},
+	}
+)
+
 // Options configures Codex MCP -> ACP proxy behavior.
 type Options struct {
 	CodexArgs []string
-	Model     string
 	Name      string
+
+	CodexApprovalPolicy        string
+	CodexBaseInstructions      string
+	CodexCompactPrompt         string
+	CodexConfig                map[string]any
+	CodexDeveloperInstructions string
+	CodexModel                 string
+	CodexProfile               string
+	CodexSandbox               string
 }
 
 type codexACPProxyAgent struct {
-	mcpSession   codexMCPToolSession
-	agentName    string
-	defaultModel string
-	logger       zerolog.Logger
+	mcpSession         codexMCPToolSession
+	agentName          string
+	defaultCodexConfig codexToolConfig
+	logger             zerolog.Logger
 
 	connMu sync.RWMutex
 	conn   codexACPSessionUpdater
@@ -48,6 +70,101 @@ type codexProxySessionState struct {
 	thread string
 	model  string
 	cancel context.CancelFunc
+}
+
+type codexToolConfig struct {
+	ApprovalPolicy        string
+	BaseInstructions      string
+	CompactPrompt         string
+	Config                map[string]any
+	DeveloperInstructions string
+	Model                 string
+	Profile               string
+	Sandbox               string
+}
+
+func (c codexToolConfig) withModel(model string) codexToolConfig {
+	next := c
+	nextModel := strings.TrimSpace(model)
+	if nextModel != "" {
+		next.Model = nextModel
+	}
+	return next
+}
+
+func (c codexToolConfig) applyTo(args map[string]any) {
+	if args == nil {
+		return
+	}
+	if approval := strings.TrimSpace(c.ApprovalPolicy); approval != "" {
+		args["approval-policy"] = approval
+	}
+	if base := strings.TrimSpace(c.BaseInstructions); base != "" {
+		args["base-instructions"] = base
+	}
+	if compact := strings.TrimSpace(c.CompactPrompt); compact != "" {
+		args["compact-prompt"] = compact
+	}
+	if cfg := cloneMap(c.Config); len(cfg) > 0 {
+		args["config"] = cfg
+	}
+	if developer := strings.TrimSpace(c.DeveloperInstructions); developer != "" {
+		args["developer-instructions"] = developer
+	}
+	if model := strings.TrimSpace(c.Model); model != "" {
+		args["model"] = model
+	}
+	if profile := strings.TrimSpace(c.Profile); profile != "" {
+		args["profile"] = profile
+	}
+	if sandbox := strings.TrimSpace(c.Sandbox); sandbox != "" {
+		args["sandbox"] = sandbox
+	}
+}
+
+func (o Options) codexToolConfig() codexToolConfig {
+	return codexToolConfig{
+		ApprovalPolicy:        strings.TrimSpace(o.CodexApprovalPolicy),
+		BaseInstructions:      strings.TrimSpace(o.CodexBaseInstructions),
+		CompactPrompt:         strings.TrimSpace(o.CodexCompactPrompt),
+		Config:                cloneMap(o.CodexConfig),
+		DeveloperInstructions: strings.TrimSpace(o.CodexDeveloperInstructions),
+		Model:                 strings.TrimSpace(o.CodexModel),
+		Profile:               strings.TrimSpace(o.CodexProfile),
+		Sandbox:               strings.TrimSpace(o.CodexSandbox),
+	}
+}
+
+func (o Options) validate() error {
+	if err := validateEnumValue("codex approval policy", o.CodexApprovalPolicy, validCodexApprovalPolicies); err != nil {
+		return err
+	}
+	if err := validateEnumValue("codex sandbox", o.CodexSandbox, validCodexSandboxModes); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateEnumValue(label string, value string, allowed map[string]struct{}) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	if _, ok := allowed[trimmed]; ok {
+		return nil
+	}
+	return fmt.Errorf("invalid %s %q", label, trimmed)
+}
+
+func cloneMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 type codexMCPToolSession interface {
@@ -89,6 +206,9 @@ func (e *exitCodeError) ExitCode() int {
 
 // RunProxy starts a Codex MCP server and exposes it as an ACP agent over stdio.
 func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reader, stdout, stderr io.Writer) error {
+	if err := opts.validate(); err != nil {
+		return err
+	}
 	lockedStderr := &syncWriter{writer: stderr}
 	logLevel := zerolog.InfoLevel
 	if normalogging.DebugEnabled() {
@@ -130,7 +250,7 @@ func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reade
 		return err
 	}
 
-	proxy := newCodexACPProxyAgent(mcpSession, agentName, strings.TrimSpace(opts.Model), logger)
+	proxy := newCodexACPProxyAgent(mcpSession, agentName, opts.codexToolConfig(), logger)
 	conn := acp.NewAgentSideConnection(proxy, stdout, stdin)
 	proxy.setConnection(conn)
 	logger.Debug().Msg("acp connection initialized")
@@ -169,11 +289,8 @@ func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reade
 }
 
 func buildCodexMCPCommand(opts Options) []string {
-	command := make([]string, 0, 4+len(opts.CodexArgs))
+	command := make([]string, 0, 2+len(opts.CodexArgs))
 	command = append(command, "codex", "mcp-server")
-	if model := strings.TrimSpace(opts.Model); model != "" {
-		command = append(command, "-c", fmt.Sprintf("model=%q", model))
-	}
 	command = append(command, opts.CodexArgs...)
 	return command
 }
@@ -243,17 +360,17 @@ func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, log
 	return nil
 }
 
-func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, defaultModel string, logger zerolog.Logger) *codexACPProxyAgent {
+func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, defaultCodexConfig codexToolConfig, logger zerolog.Logger) *codexACPProxyAgent {
 	name := strings.TrimSpace(agentName)
 	if name == "" {
 		name = DefaultAgentName
 	}
 	return &codexACPProxyAgent{
-		mcpSession:   mcpSession,
-		agentName:    name,
-		defaultModel: strings.TrimSpace(defaultModel),
-		logger:       logger.With().Str("agent_name", name).Logger(),
-		sessions:     make(map[acp.SessionId]*codexProxySessionState),
+		mcpSession:         mcpSession,
+		agentName:          name,
+		defaultCodexConfig: defaultCodexConfig.withModel(defaultCodexConfig.Model),
+		logger:             logger.With().Str("agent_name", name).Logger(),
+		sessions:           make(map[acp.SessionId]*codexProxySessionState),
 	}
 }
 
@@ -308,7 +425,7 @@ func (a *codexACPProxyAgent) NewSession(_ context.Context, params acp.NewSession
 	a.mu.Lock()
 	a.sessions[sessionID] = &codexProxySessionState{
 		cwd:   strings.TrimSpace(params.Cwd),
-		model: a.defaultModel,
+		model: a.defaultCodexConfig.Model,
 	}
 	a.mu.Unlock()
 	a.logger.Debug().
@@ -317,11 +434,11 @@ func (a *codexACPProxyAgent) NewSession(_ context.Context, params acp.NewSession
 		Msg("created session")
 
 	resp := acp.NewSessionResponse{SessionId: sessionID}
-	if a.defaultModel != "" {
+	if a.defaultCodexConfig.Model != "" {
 		resp.Models = &acp.SessionModelState{
-			CurrentModelId: acp.ModelId(a.defaultModel),
+			CurrentModelId: acp.ModelId(a.defaultCodexConfig.Model),
 			AvailableModels: []acp.ModelInfo{
-				{ModelId: acp.ModelId(a.defaultModel), Name: a.defaultModel},
+				{ModelId: acp.ModelId(a.defaultCodexConfig.Model), Name: a.defaultCodexConfig.Model},
 			},
 		}
 	}
@@ -352,6 +469,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 	state.cancel = cancel
 	threadID := state.thread
 	cwd := state.cwd
+	model := state.model
 	a.mu.Unlock()
 
 	defer func() {
@@ -363,7 +481,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 	}()
 
 	toolID := acp.ToolCallId(fmt.Sprintf("codex-tool-%d", atomic.AddUint64(&a.nextToolID, 1)))
-	toolName, toolArgs := buildCodexToolInvocation(threadID, cwd, userPrompt)
+	toolName, toolArgs := buildCodexToolInvocation(threadID, cwd, userPrompt, a.defaultCodexConfig, model)
 	callStartedAt := time.Now()
 	a.logger.Debug().
 		Str("session_id", string(params.SessionId)).
@@ -546,7 +664,7 @@ func logJSON(v any) string {
 	return string(raw[:maxPayloadLen]) + fmt.Sprintf(`...{"truncated_bytes":%d}`, len(raw)-maxPayloadLen)
 }
 
-func buildCodexToolInvocation(threadID, cwd, prompt string) (string, map[string]any) {
+func buildCodexToolInvocation(threadID, cwd, prompt string, defaultConfig codexToolConfig, sessionModel string) (string, map[string]any) {
 	args := map[string]any{
 		"prompt": prompt,
 	}
@@ -555,9 +673,10 @@ func buildCodexToolInvocation(threadID, cwd, prompt string) (string, map[string]
 		args["cwd"] = trimmedCwd
 	}
 	if strings.TrimSpace(threadID) == "" {
+		defaultConfig.withModel(sessionModel).applyTo(args)
 		return "codex", args
 	}
-	args["threadId"] = threadID
+	args["threadId"] = strings.TrimSpace(threadID)
 	return "codex-reply", args
 }
 

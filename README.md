@@ -148,12 +148,16 @@ norma proxy codex-acp
 # Override ACP agent name
 norma proxy codex-acp --name team-codex
 
+# Set Codex MCP `codex` tool config arguments
+norma proxy codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
+
 # Forward additional flags to codex mcp-server
 norma proxy codex-acp -- --trace --raw
 ```
 
 Notes:
 - `--name` sets ACP `initialize.agentInfo.name`.
+- `--codex-*` flags configure the initial MCP `codex` tool call.
 - All arguments after `--` are forwarded directly to `codex mcp-server`.
 - Full reference: [docs/codex-acp-proxy.md](docs/codex-acp-proxy.md).
 

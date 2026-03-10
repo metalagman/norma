@@ -496,7 +496,7 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--model", "gpt-5.4", "--", "--trace", "--raw"}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4", "--", "--trace", "--raw"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -512,7 +512,7 @@ func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--model", "gpt-5.4", "--name", "team-codex", "--", "--trace"}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4", "--name", "team-codex", "--", "--trace"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}

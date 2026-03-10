@@ -17,6 +17,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const (
+	codexToolName      = "codex"
+	codexReplyToolName = "codex-reply"
+)
+
 func TestBuildCodexMCPCommand(t *testing.T) {
 	got := buildCodexMCPCommand(Options{CodexArgs: []string{"--trace", "--foo=bar"}})
 	want := []string{"codex", "mcp-server", "--trace", "--foo=bar"}
@@ -25,14 +30,134 @@ func TestBuildCodexMCPCommand(t *testing.T) {
 	}
 }
 
-func TestBuildCodexMCPCommandWithModel(t *testing.T) {
+func TestBuildCodexMCPCommandDoesNotInjectModelConfig(t *testing.T) {
 	got := buildCodexMCPCommand(Options{
-		Model:     "gpt-5.4",
-		CodexArgs: []string{"--trace"},
+		CodexModel: "gpt-5.4",
+		CodexArgs:  []string{"--trace"},
 	})
-	want := []string{"codex", "mcp-server", "-c", `model="gpt-5.4"`, "--trace"}
+	want := []string{"codex", "mcp-server", "--trace"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexMCPCommand() = %v, want %v", got, want)
+	}
+}
+
+func TestRunProxyRejectsInvalidCodexSandbox(t *testing.T) {
+	err := RunProxy(
+		context.Background(),
+		t.TempDir(),
+		Options{CodexSandbox: "invalid"},
+		strings.NewReader(""),
+		io.Discard,
+		io.Discard,
+	)
+	if err == nil {
+		t.Fatal("RunProxy() error = nil, want invalid codex sandbox error")
+	}
+	if !strings.Contains(err.Error(), "invalid codex sandbox") {
+		t.Fatalf("RunProxy() error = %q, want invalid codex sandbox", err.Error())
+	}
+}
+
+func TestBuildCodexToolInvocationIncludesCodexConfigOnInitialCall(t *testing.T) {
+	toolName, args := buildCodexToolInvocation(
+		"",
+		"/tmp/work",
+		"hello",
+		codexToolConfig{
+			ApprovalPolicy:        "on-request",
+			BaseInstructions:      "base",
+			CompactPrompt:         "compact",
+			Config:                map[string]any{"foo": "bar"},
+			DeveloperInstructions: "dev",
+			Model:                 "gpt-5.2-codex",
+			Profile:               "team",
+			Sandbox:               "workspace-write",
+		},
+		"",
+	)
+	if toolName != codexToolName {
+		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
+	}
+	if got := mapArgString(args, "prompt"); got != "hello" {
+		t.Fatalf("prompt = %q, want %q", got, "hello")
+	}
+	if got := mapArgString(args, "cwd"); got != "/tmp/work" {
+		t.Fatalf("cwd = %q, want %q", got, "/tmp/work")
+	}
+	if got := mapArgString(args, "approval-policy"); got != "on-request" {
+		t.Fatalf("approval-policy = %q, want %q", got, "on-request")
+	}
+	if got := mapArgString(args, "base-instructions"); got != "base" {
+		t.Fatalf("base-instructions = %q, want %q", got, "base")
+	}
+	if got := mapArgString(args, "compact-prompt"); got != "compact" {
+		t.Fatalf("compact-prompt = %q, want %q", got, "compact")
+	}
+	if got := mapArgString(args, "developer-instructions"); got != "dev" {
+		t.Fatalf("developer-instructions = %q, want %q", got, "dev")
+	}
+	if got := mapArgString(args, "model"); got != "gpt-5.2-codex" {
+		t.Fatalf("model = %q, want %q", got, "gpt-5.2-codex")
+	}
+	if got := mapArgString(args, "profile"); got != "team" {
+		t.Fatalf("profile = %q, want %q", got, "team")
+	}
+	if got := mapArgString(args, "sandbox"); got != "workspace-write" {
+		t.Fatalf("sandbox = %q, want %q", got, "workspace-write")
+	}
+	cfgArg, ok := args["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("config type = %T, want map[string]any", args["config"])
+	}
+	if got, ok := cfgArg["foo"].(string); !ok || got != "bar" {
+		t.Fatalf("config.foo = %v, want %q", cfgArg["foo"], "bar")
+	}
+}
+
+func TestBuildCodexToolInvocationReplyOmitsCodexConfig(t *testing.T) {
+	toolName, args := buildCodexToolInvocation(
+		"thread-1",
+		"/tmp/work",
+		"hello",
+		codexToolConfig{
+			Model:   "gpt-5.2-codex",
+			Sandbox: "workspace-write",
+		},
+		"",
+	)
+	if toolName != codexReplyToolName {
+		t.Fatalf("toolName = %q, want %q", toolName, codexReplyToolName)
+	}
+	if got := mapArgString(args, "threadId"); got != "thread-1" {
+		t.Fatalf("threadId = %q, want %q", got, "thread-1")
+	}
+	if got := mapArgString(args, "prompt"); got != "hello" {
+		t.Fatalf("prompt = %q, want %q", got, "hello")
+	}
+	if _, ok := args["model"]; ok {
+		t.Fatalf("reply args unexpectedly contain model: %v", args)
+	}
+	if _, ok := args["sandbox"]; ok {
+		t.Fatalf("reply args unexpectedly contain sandbox: %v", args)
+	}
+	if _, ok := args["cwd"]; ok {
+		t.Fatalf("reply args unexpectedly contain cwd: %v", args)
+	}
+}
+
+func TestBuildCodexToolInvocationSessionModelOverridesConfiguredModel(t *testing.T) {
+	toolName, args := buildCodexToolInvocation(
+		"",
+		"",
+		"hello",
+		codexToolConfig{Model: "gpt-default"},
+		"gpt-session",
+	)
+	if toolName != codexToolName {
+		t.Fatalf("toolName = %q, want %q", toolName, codexToolName)
+	}
+	if got := mapArgString(args, "model"); got != "gpt-session" {
+		t.Fatalf("model = %q, want %q", got, "gpt-session")
 	}
 }
 
@@ -83,8 +208,8 @@ func TestExtractCodexToolResultPrefersStructuredContentText(t *testing.T) {
 func TestCodexACPProxyPromptUsesCodexThenReply(t *testing.T) {
 	fakeSession := &fakeCodexMCPToolSession{
 		listTools: []*mcp.Tool{
-			{Name: "codex"},
-			{Name: "codex-reply"},
+			{Name: codexToolName},
+			{Name: codexReplyToolName},
 		},
 		callResults: []*mcp.CallToolResult{
 			{
@@ -102,7 +227,7 @@ func TestCodexACPProxyPromptUsesCodexThenReply(t *testing.T) {
 		},
 	}
 	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPProxyAgent(fakeSession, "test-agent", "", zerolog.Nop())
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, zerolog.Nop())
 	agent.setConnection(updater)
 
 	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
@@ -128,8 +253,8 @@ func TestCodexACPProxyPromptUsesCodexThenReply(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("len(calls) = %d, want 2", len(calls))
 	}
-	if calls[0].Name != "codex" {
-		t.Fatalf("calls[0].Name = %q, want %q", calls[0].Name, "codex")
+	if calls[0].Name != codexToolName {
+		t.Fatalf("calls[0].Name = %q, want %q", calls[0].Name, codexToolName)
 	}
 	if got := mapArgString(calls[0].Arguments, "prompt"); got != "first prompt" {
 		t.Fatalf("first call prompt = %q, want %q", got, "first prompt")
@@ -138,8 +263,8 @@ func TestCodexACPProxyPromptUsesCodexThenReply(t *testing.T) {
 		t.Fatalf("first call cwd = %q, want %q", got, "/tmp/work")
 	}
 
-	if calls[1].Name != "codex-reply" {
-		t.Fatalf("calls[1].Name = %q, want %q", calls[1].Name, "codex-reply")
+	if calls[1].Name != codexReplyToolName {
+		t.Fatalf("calls[1].Name = %q, want %q", calls[1].Name, codexReplyToolName)
 	}
 	if got := mapArgString(calls[1].Arguments, "prompt"); got != "second prompt" {
 		t.Fatalf("second call prompt = %q, want %q", got, "second prompt")
@@ -161,8 +286,8 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 	started := make(chan struct{})
 	fakeSession := &fakeCodexMCPToolSession{
 		listTools: []*mcp.Tool{
-			{Name: "codex"},
-			{Name: "codex-reply"},
+			{Name: codexToolName},
+			{Name: codexReplyToolName},
 		},
 		callHook: func(ctx context.Context, _ *mcp.CallToolParams) (*mcp.CallToolResult, error) {
 			close(started)
@@ -171,7 +296,7 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 		},
 	}
 	updater := &fakeACPSessionUpdater{}
-	agent := newCodexACPProxyAgent(fakeSession, "test-agent", "", zerolog.Nop())
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, zerolog.Nop())
 	agent.setConnection(updater)
 
 	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
@@ -216,7 +341,7 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 }
 
 func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
-	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", "", zerolog.Nop())
+	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", codexToolConfig{}, zerolog.Nop())
 	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -230,7 +355,7 @@ func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
 }
 
 func TestCodexACPProxyInitializeUsesDefaultAgentNameWhenEmpty(t *testing.T) {
-	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "", "", zerolog.Nop())
+	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "", codexToolConfig{}, zerolog.Nop())
 	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -290,13 +415,13 @@ func TestProxyMCPHelperProcess(t *testing.T) {
 
 func runProxyMCPHelper(ctx context.Context) error {
 	server := mcp.NewServer(&mcp.Implementation{Name: "proxy-mcp-helper", Version: "v1.0.0"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "codex", Description: "Starts a codex thread"}, func(_ context.Context, _ *mcp.CallToolRequest, input proxyCodexToolInput) (*mcp.CallToolResult, proxyCodexToolOutput, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: codexToolName, Description: "Starts a codex thread"}, func(_ context.Context, _ *mcp.CallToolRequest, input proxyCodexToolInput) (*mcp.CallToolResult, proxyCodexToolOutput, error) {
 		return nil, proxyCodexToolOutput{
 			ThreadID: "thread-test",
 			Content:  "codex:" + input.Prompt,
 		}, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "codex-reply", Description: "Continues a codex thread"}, func(_ context.Context, _ *mcp.CallToolRequest, input proxyCodexReplyInput) (*mcp.CallToolResult, proxyCodexToolOutput, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: codexReplyToolName, Description: "Continues a codex thread"}, func(_ context.Context, _ *mcp.CallToolRequest, input proxyCodexReplyInput) (*mcp.CallToolResult, proxyCodexToolOutput, error) {
 		return nil, proxyCodexToolOutput{
 			ThreadID: input.ThreadID,
 			Content:  "reply:" + input.Prompt,

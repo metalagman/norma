@@ -174,6 +174,15 @@ func TestResolveACPCommand(t *testing.T) {
 			},
 			want: []string{"opencode", "acp"},
 		},
+		{
+			name: "Codex ACP with model and templated extra args",
+			cfg: agentconfig.Config{
+				Type:      agentconfig.AgentTypeCodexACP,
+				Model:     "gpt-5.4",
+				ExtraArgs: []string{"--codex-model={{.Model}}", "--trace"},
+			},
+			want: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -183,6 +192,16 @@ func TestResolveACPCommand(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+				if tt.cfg.Type == agentconfig.AgentTypeCodexACP {
+					assert.GreaterOrEqual(t, len(got), 7)
+					assert.Equal(t, "proxy", got[1])
+					assert.Equal(t, "codex-acp", got[2])
+					assert.Equal(t, "--codex-model", got[3])
+					assert.Equal(t, "gpt-5.4", got[4])
+					assert.Equal(t, "--codex-model=gpt-5.4", got[5])
+					assert.Equal(t, "--trace", got[6])
+					return
+				}
 				assert.Equal(t, tt.want, got)
 			}
 		})

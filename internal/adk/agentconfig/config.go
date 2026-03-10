@@ -83,9 +83,9 @@ func IsACPType(agentType string) bool {
 // HasSetModelSupport reports whether an agent type supports session/set_model.
 func HasSetModelSupport(agentType string) bool {
 	switch strings.TrimSpace(agentType) {
-	case AgentTypeOpenCodeACP, AgentTypeCodexACP:
+	case AgentTypeOpenCodeACP:
 		return true
-	case AgentTypeGeminiACP, AgentTypeACPExec:
+	case AgentTypeCodexACP, AgentTypeGeminiACP, AgentTypeACPExec:
 		return false
 	default:
 		return false
