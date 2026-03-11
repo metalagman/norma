@@ -1,1 +1,2 @@
-stub
+This is a test
+Another test
