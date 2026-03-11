@@ -506,7 +506,12 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		return nil, err
 	}
 
+	if roleName == RolePlan && resp.Plan != nil && resp.Plan.WorkPlan != nil && resp.Plan.WorkPlan.NextTaskId != "" {
+		_ = ctx.Session().State().Set("next_task_id", resp.Plan.WorkPlan.NextTaskId)
+	}
+
 	if a.tracker != nil && resp.Status == "ok" {
+
 		label := ""
 		switch roleName {
 		case RolePlan:

@@ -125,6 +125,8 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 		return runpkg.AgentOutcome{Status: "failed"}, fmt.Errorf("parse final session state: %w", err)
 	}
 
+	nextTaskID, _ := stateString(finalSession.State(), "next_task_id")
+
 	stepIndex, err := stateNonNegativeInt(finalSession.State(), "current_step_index", 0)
 	if err != nil {
 		return runpkg.AgentOutcome{Status: "failed"}, fmt.Errorf("read final step index: %w", err)
@@ -157,7 +159,8 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 	}
 
 	res := runpkg.AgentOutcome{
-		Status: status,
+		Status:     status,
+		NextTaskID: nextTaskID,
 	}
 	if effectiveVerdict != "" {
 		res.Verdict = &effectiveVerdict

@@ -66,6 +66,7 @@
           "title": "PlanWorkPlan",
           "properties": {
             "timebox_minutes": { "type": "integer" },
+            "next_task_id": { "type": "string" },
             "do_steps": {
               "type": "array",
               "items": {

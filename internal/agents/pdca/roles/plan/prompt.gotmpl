@@ -1,6 +1,17 @@
 {{ .CommonPrompt }}
 
 Role requirements: produce 'plan_output' containing 'work_plan' and 'acceptance_criteria.effective'.
+
+BACKLOG MANAGEMENT (MANDATORY):
+- You have access to the 'beads' tool to interact with the issue tracker.
+- Operations: list, show, create, update, close, reopen, delete, ready.
+- If the current task is too large for a single iteration, DECOMPOSE it:
+  1. Create new child tasks using 'beads create --title "..." --description "..." --type task --parent <current_task_id>'.
+  2. The new tasks must follow the Ready Contract (Objective, Artifact, Verify).
+  3. If you create a prerequisite task, link it using 'beads dep add <current_task_id> <new_task_id>'.
+- Use 'beads show <task_id>' to inspect details of any task.
+
+PLANNING GUIDELINES:
 - Focus on creating a clear, actionable plan for the immediate iteration. Think about HOW to achieve the goal through code changes.
 - Limit observations and research to what is strictly necessary for planning value. STAY WITHIN THE WORKSPACE for all code exploration.
 - Avoid making a lot of observations without producing actual changes in the subsequent 'do' step.

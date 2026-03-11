@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
+	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
 )
 
@@ -40,6 +41,8 @@ type Config struct {
 	Stderr io.Writer
 	// PermissionHandler decides how to respond to ACP permission requests.
 	PermissionHandler PermissionHandler
+	// Tools is an optional list of tools that can be called by the agent.
+	Tools []tool.Tool
 	// Logger is the zerolog logger to use for this agent.
 	Logger *zerolog.Logger
 }
@@ -53,6 +56,7 @@ type Agent struct {
 	workingDir   string
 	sessionModel string
 	systemPrompt string
+	tools        []tool.Tool
 	logger       zerolog.Logger
 	sessionMu    sync.Mutex
 	remoteByADK  map[string]string
@@ -112,6 +116,7 @@ func New(cfg Config) (*Agent, error) {
 		workingDir:   cfg.WorkingDir,
 		sessionModel: strings.TrimSpace(cfg.Model),
 		systemPrompt: strings.TrimSpace(cfg.SystemPrompt),
+		tools:        cfg.Tools,
 		logger:       l,
 		remoteByADK:  make(map[string]string),
 	}
@@ -174,7 +179,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 					updates = nil
 					continue
 				}
-				ev, ok := mapACPUpdateToEvent(a.logger, ctx.InvocationID(), ext)
+				ev, ok := mapACPUpdateToEvent(a.logger, ctx.InvocationID(), ext, a.tools)
 				if !ok {
 					continue
 				}
@@ -310,15 +315,28 @@ func extractPromptText(content *genai.Content) string {
 	}
 	var builder strings.Builder
 	for _, part := range content.Parts {
-		if part == nil || part.Text == "" {
+		if part == nil {
 			continue
 		}
-		builder.WriteString(part.Text)
+		if part.Text != "" {
+			builder.WriteString(part.Text)
+		}
+		if part.FunctionResponse != nil {
+			// Encode function response as JSON text for the ACP agent
+			resp, err := json.Marshal(part.FunctionResponse.Response)
+			if err == nil {
+				builder.WriteString("\nTool Response (")
+				builder.WriteString(part.FunctionResponse.ID)
+				builder.WriteString("):\n")
+				builder.Write(resp)
+				builder.WriteString("\n")
+			}
+		}
 	}
 	return strings.TrimSpace(builder.String())
 }
 
-func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext ExtendedSessionNotification) (*session.Event, bool) {
+func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext ExtendedSessionNotification, tools []tool.Tool) (*session.Event, bool) {
 	update := ext.Update
 	switch {
 	case update.UserMessageChunk != nil:
@@ -328,7 +346,7 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext Extende
 	case update.AgentThoughtChunk != nil:
 		return mapACPAgentThoughtChunk(logger, invocationID, update.AgentThoughtChunk)
 	case update.ToolCall != nil:
-		return mapACPToolCall(invocationID, update.ToolCall)
+		return mapACPToolCall(invocationID, update.ToolCall, tools)
 	case update.ToolCallUpdate != nil:
 		return mapACPToolCallUpdate(invocationID, update.ToolCallUpdate)
 	case update.Plan != nil:
@@ -412,26 +430,47 @@ func mapACPAgentThoughtChunk(logger zerolog.Logger, invocationID string, chunk *
 	return ev, true
 }
 
-func mapACPToolCall(invocationID string, tool *acp.SessionUpdateToolCall) (*session.Event, bool) {
+func mapACPToolCall(invocationID string, toolCall *acp.SessionUpdateToolCall, tools []tool.Tool) (*session.Event, bool) {
+	name := "acp_tool_call"
 	args := map[string]any{
-		"kind":      tool.Kind,
-		"status":    tool.Status,
-		"title":     tool.Title,
-		"locations": tool.Locations,
-		"rawInput":  tool.RawInput,
-		"rawOutput": tool.RawOutput,
+		"kind":      toolCall.Kind,
+		"status":    toolCall.Status,
+		"title":     toolCall.Title,
+		"locations": toolCall.Locations,
+		"rawInput":  toolCall.RawInput,
+		"rawOutput": toolCall.RawOutput,
 	}
+
+	// Try to find a matching local tool by name
+	if toolCall.Title != "" {
+		for _, t := range tools {
+			if strings.EqualFold(t.Name(), toolCall.Title) {
+				name = t.Name()
+				// If we find a match, use the rawInput as args if possible
+				if toolCall.RawInput != nil {
+					if rawBytes, ok := toolCall.RawInput.(string); ok {
+						var rawArgs map[string]any
+						if err := json.Unmarshal([]byte(rawBytes), &rawArgs); err == nil {
+							args = rawArgs
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
 	part := &genai.Part{
 		FunctionCall: &genai.FunctionCall{
-			ID:   string(tool.ToolCallId),
-			Name: "acp_tool_call",
+			ID:   string(toolCall.ToolCallId),
+			Name: name,
 			Args: args,
 		},
 	}
 	ev := session.NewEvent(invocationID)
 	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
-	if isACPToolStatusLongRunning(tool.Status) {
-		ev.LongRunningToolIDs = []string{string(tool.ToolCallId)}
+	if isACPToolStatusLongRunning(toolCall.Status) {
+		ev.LongRunningToolIDs = []string{string(toolCall.ToolCallId)}
 	}
 	return ev, true
 }

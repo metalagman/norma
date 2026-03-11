@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -13,11 +14,13 @@ import (
 	"github.com/metalagman/norma/internal/adk/structured"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/config"
+	"github.com/metalagman/norma/internal/planner/llmtools"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
+	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
 )
 
@@ -68,6 +71,13 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 	factory := agentfactory.NewFactory(map[string]config.AgentConfig{
 		r.role.Name(): r.cfg,
 	})
+
+	repoRoot, _ := os.Getwd()
+	beadsTool, err := llmtools.NewBeadsCommandTool(repoRoot)
+	if err != nil {
+		return nil, nil, 1, fmt.Errorf("create beads tool: %w", err)
+	}
+
 	creationReq := agentfactory.CreationRequest{
 		Name:              "Norma" + toPascal(req.Step.Name) + "Agent",
 		Description:       "Norma " + req.Step.Name + " agent",
@@ -76,6 +86,7 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 		Stdout:            stdout,
 		Stderr:            stderr,
 		PermissionHandler: defaultACPPermissionHandler,
+		Tools:             []tool.Tool{beadsTool},
 	}
 
 	inner, err := factory.CreateAgent(ctx, r.role.Name(), creationReq)
@@ -124,6 +135,7 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 
 	var lastOutBytes []byte
 	var lastExitCode int
+	var outBuilder strings.Builder
 	for ev, err := range events {
 		if err != nil {
 			if exitErr, ok := err.(interface{ ExitCode() int }); ok {
@@ -133,10 +145,15 @@ func (r *adkRunner) Run(ctx context.Context, req contracts.AgentRequest, stdout,
 			}
 			return nil, nil, lastExitCode, fmt.Errorf("agent execution error: %w", err)
 		}
-		if ev.Content != nil && len(ev.Content.Parts) > 0 {
-			lastOutBytes = []byte(ev.Content.Parts[0].Text)
+		if ev.Content != nil {
+			for _, part := range ev.Content.Parts {
+				if part != nil && part.Text != "" && !part.Thought {
+					outBuilder.WriteString(part.Text)
+				}
+			}
 		}
 	}
+	lastOutBytes = []byte(outBuilder.String())
 
 	if len(lastOutBytes) == 0 {
 		return nil, nil, 0, fmt.Errorf("no output from agent")

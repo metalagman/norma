@@ -3,6 +3,7 @@ package structured
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"sort"
@@ -269,6 +270,13 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			Int("accumulated_output_len", len(accumulatedText)).
 			Str("accumulated_output_preview", truncateForLog(accumulatedText, 320)).
 			Msg("collected accumulated output from inner agent")
+
+		// Extract JSON in case there is preamble/postamble
+		extracted, ok := extractJSON([]byte(accumulatedText))
+		if ok {
+			accumulatedText = string(extracted)
+		}
+
 		if err := validateOutputSchema(w.outputSchema, accumulatedText); err != nil {
 			logger.Debug().Err(err).Msg("structured wrapper output validation failed")
 			yield(nil, fmt.Errorf("validate structured output: %w", err))
@@ -396,6 +404,34 @@ func validateSchemaDefinition(schema, label string) error {
 		return fmt.Errorf("%s schema invalid: %w", label, err)
 	}
 	return nil
+}
+
+func extractJSON(input []byte) ([]byte, bool) {
+	// Try to find the first '{' or '[' and the last '}' or ']'
+	start := bytes.IndexAny(input, "{[")
+	if start == -1 {
+		return nil, false
+	}
+	
+	endChar := '}'
+	if input[start] == '[' {
+		endChar = ']'
+	}
+	
+	end := bytes.LastIndexByte(input, byte(endChar))
+	if end == -1 || end <= start {
+		return nil, false
+	}
+	
+	candidate := input[start : end+1]
+	
+	// Quick check if it's valid JSON
+	var dummy interface{}
+	if err := json.Unmarshal(candidate, &dummy); err != nil {
+		return nil, false
+	}
+	
+	return candidate, true
 }
 
 func truncateForLog(s string, limit int) string {

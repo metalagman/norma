@@ -35,8 +35,9 @@ type AgentBuild struct {
 
 // AgentOutcome summarizes the run outcome.
 type AgentOutcome struct {
-	Status  string
-	Verdict *string
+	Status     string
+	Verdict    *string
+	NextTaskID string
 }
 
 // AgentFactory builds and finalizes ADK agents for task runs.

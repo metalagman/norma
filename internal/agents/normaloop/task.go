@@ -20,14 +20,14 @@ import (
 
 var taskIDPattern = regexp.MustCompile(`^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 
-func (w *Loop) runTaskByID(ctx context.Context, id string) error {
+func (w *Loop) runTaskByID(ctx context.Context, id string) (string, error) {
 	if !taskIDPattern.MatchString(id) {
-		return fmt.Errorf("invalid task id: %s", id)
+		return "", fmt.Errorf("invalid task id: %s", id)
 	}
 
 	item, err := w.tracker.Task(ctx, id)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	switch item.Status {
@@ -36,30 +36,30 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 		if item.RunID != nil {
 			status, err := w.runStore.GetRunStatus(ctx, *item.RunID)
 			if err != nil {
-				return err
+				return "", err
 			}
 			if status == "running" {
-				return fmt.Errorf("task %s already running", id)
+				return "", fmt.Errorf("task %s already running", id)
 			}
 		}
 		if err := w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed); err != nil {
-			return err
+			return "", err
 		}
 	default:
-		return fmt.Errorf("task %s status is %s", id, item.Status)
+		return "", fmt.Errorf("task %s status is %s", id, item.Status)
 	}
 
 	startedAt := time.Now().UTC()
 	runID, err := newRunID()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	w.logger.Info().Str("task_id", id).Str("run_id", runID).Msg("starting task run")
 
 	lock, err := runpkg.AcquireRunLock(w.normaDir)
 	if err != nil {
-		return fmt.Errorf("acquire run lock: %w", err)
+		return "", fmt.Errorf("acquire run lock: %w", err)
 	}
 	defer func() {
 		if lErr := lock.Release(); lErr != nil {
@@ -68,7 +68,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	}()
 
 	if err := os.MkdirAll(w.normaDir, 0o700); err != nil {
-		return fmt.Errorf("create .norma: %w", err)
+		return "", fmt.Errorf("create .norma: %w", err)
 	}
 
 	baseBranch := ""
@@ -76,7 +76,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 		var err error
 		baseBranch, err = git.CurrentBranch(ctx, w.repoRoot)
 		if err != nil {
-			return fmt.Errorf("resolve base branch: %w", err)
+			return "", fmt.Errorf("resolve base branch: %w", err)
 		}
 		// Prune stalled worktrees
 		_ = git.GitRunCmdErr(ctx, w.repoRoot, "git", "worktree", "prune")
@@ -84,18 +84,18 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 
 	if w.runStore != nil && w.runStore.DB() != nil {
 		if err := reconcile.Run(ctx, w.runStore.DB(), w.normaDir); err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	runDir := filepath.Join(w.normaDir, "runs", runID)
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
-		return fmt.Errorf("create run dir: %w", err)
+		return "", fmt.Errorf("create run dir: %w", err)
 	}
 
 	if w.runStore != nil {
 		if err := w.runStore.CreateRun(ctx, runID, item.Goal, runDir, 1); err != nil {
-			return fmt.Errorf("create run in store: %w", err)
+			return "", fmt.Errorf("create run in store: %w", err)
 		}
 	}
 
@@ -104,7 +104,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	}
 
 	if err := w.tracker.MarkStatus(ctx, id, statusPlanning); err != nil {
-		return err
+		return "", err
 	}
 
 	meta := runpkg.RunMeta{
@@ -122,7 +122,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	build, err := w.factory.Build(ctx, meta, payload)
 	if err != nil {
 		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
-		return fmt.Errorf("build run agent: %w", err)
+		return "", fmt.Errorf("build run agent: %w", err)
 	}
 
 	finalSession, _, err := adkrunner.Run(ctx, adkrunner.RunInput{
@@ -136,13 +136,13 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 	})
 	if err != nil {
 		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
-		return fmt.Errorf("execute ADK agent: %w", err)
+		return "", fmt.Errorf("execute ADK agent: %w", err)
 	}
 
 	outcome, err := w.factory.Finalize(ctx, meta, payload, finalSession)
 	if err != nil {
 		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
-		return fmt.Errorf("finalize run: %w", err)
+		return "", fmt.Errorf("finalize run: %w", err)
 	}
 
 	if outcome.Verdict != nil && *outcome.Verdict == "PASS" {
@@ -151,7 +151,7 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 		if err != nil {
 			w.logger.Error().Err(err).Msg("failed to apply changes")
 			_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
-			return fmt.Errorf("apply changes: %w", err)
+			return "", fmt.Errorf("apply changes: %w", err)
 		}
 		if err := w.tracker.MarkStatus(ctx, id, "done"); err != nil {
 			w.logger.Warn().Err(err).Msg("failed to mark task as done in tracker")
@@ -162,16 +162,16 @@ func (w *Loop) runTaskByID(ctx context.Context, id string) error {
 			}
 		}
 		w.logger.Info().Str("task_id", id).Str("run_id", runID).Str("duration", time.Since(startedAt).String()).Msg("task passed")
-		return nil
+		return outcome.NextTaskID, nil
 	}
 
 	w.logger.Warn().Str("task_id", id).Str("run_id", runID).Str("status", outcome.Status).Msg("task did not pass")
 	if outcome.Status == runpkg.StatusFailed {
 		_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed)
-		return fmt.Errorf("task %s failed (run %s)", id, runID)
+		return outcome.NextTaskID, fmt.Errorf("task %s failed (run %s)", id, runID)
 	}
 	_ = w.tracker.MarkStatus(ctx, id, runpkg.StatusStopped)
-	return fmt.Errorf("task %s stopped (run %s)", id, runID)
+	return outcome.NextTaskID, fmt.Errorf("task %s stopped (run %s)", id, runID)
 }
 
 func (w *Loop) finalizeAncestors(ctx context.Context, parentID string) error {

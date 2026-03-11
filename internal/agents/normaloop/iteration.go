@@ -49,7 +49,7 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 			Str("task_id", taskID).
 			Msg("starting iteration")
 
-		err = w.runTaskByID(ctx, taskID)
+		nextTaskID, err := w.runTaskByID(ctx, taskID)
 		if err != nil {
 			if !w.continueOnFail {
 				yield(nil, err)
@@ -64,6 +64,12 @@ func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Even
 		}
 
 		// Clear the task ID so selector can pick a new one (or sleep) next time
-		_ = ctx.Session().State().Set("selected_task_id", "")
+		// BUT if we have a nextTaskID, we switch to it instead of clearing.
+		if nextTaskID != "" {
+			l.Info().Str("next_task_id", nextTaskID).Msg("switching to next task")
+			_ = ctx.Session().State().Set("selected_task_id", nextTaskID)
+		} else {
+			_ = ctx.Session().State().Set("selected_task_id", "")
+		}
 	}
 }

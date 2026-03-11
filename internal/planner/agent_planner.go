@@ -15,9 +15,11 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentfactory"
 	"github.com/metalagman/norma/internal/config"
+	"github.com/metalagman/norma/internal/planner/llmtools"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
+	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
 )
 
@@ -86,6 +88,13 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req Request) (string,
 
 	factory := agentfactory.NewFactory(p.registry)
 
+	beadsTool, err := llmtools.NewBeadsCommandTool(p.repoRoot)
+	if err != nil {
+		closeEvents()
+		_ = waitTUI()
+		return "", fmt.Errorf("create beads tool: %w", err)
+	}
+
 	creationReq := agentfactory.CreationRequest{
 		Name:              "NormaPlannerAgent",
 		Description:       "Norma planner via generic agent runtime",
@@ -93,6 +102,7 @@ func (p *AgentPlanner) RunInteractive(ctx context.Context, req Request) (string,
 		WorkingDirectory:  p.repoRoot,
 		Stderr:            io.Discard,
 		PermissionHandler: PlannerPermissionHandler,
+		Tools:             []tool.Tool{beadsTool},
 	}
 
 	agentRuntime, err := factory.CreateAgent(runCtx, p.plannerID, creationReq)
