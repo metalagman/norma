@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/metalagman/norma/internal/git"
-	domain "github.com/metalagman/norma/internal/planner"
 	"github.com/spf13/cobra"
 )
 
@@ -33,13 +32,9 @@ func runTUI(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	req := domain.Request{
-		Mode: domain.ModeWizard,
-	}
-
 	plannerID, ok := cfg.RoleIDs["planner"]
 	if !ok {
 		return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 	}
-	return runAgentPlanner(cmd, repoRoot, cfg.Agents, plannerID, req)
+	return runAgentPlanner(cmd, repoRoot, cfg.Agents, plannerID)
 }

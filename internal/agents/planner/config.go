@@ -1,11 +1,6 @@
 package planner
 
-import (
-	"strings"
-)
-
-// PlannerInstruction returns the canonical planner prompt used by Norma planner agents.
-func PlannerInstruction() string {
+func plannerInstruction() string {
 	return `You are Norma's planning agent.
 You only do planning and task decomposition in Beads.
 
@@ -39,16 +34,4 @@ Planning Rules:
 - Keep scope pragmatic. Prefer 2-6 features and 1-6 tasks per feature.
 - Keep titles concise and action-oriented.
 `
-}
-
-// FormatPlannerRunError maps planner runtime errors to concise user-facing text.
-func FormatPlannerRunError(err error) string {
-	msg := strings.TrimSpace(err.Error())
-	if msg == "" {
-		return "Planner run failed due to an unexpected error."
-	}
-	if strings.Contains(msg, "RESOURCE_EXHAUSTED") || strings.Contains(msg, "Error 429") {
-		return "Planner model quota/rate limit exceeded.\n\n" + msg + "\n\nTry again later or switch planner model/provider in .norma/config.yaml."
-	}
-	return "Planner run failed.\n\n" + msg
 }

@@ -2,7 +2,6 @@ package plancmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 
 	adkagent "google.golang.org/adk/agent"
@@ -11,9 +10,6 @@ import (
 	"google.golang.org/adk/cmd/launcher/full"
 	"google.golang.org/adk/session"
 
-	"github.com/metalagman/norma/internal/adk/agentfactory"
-	"github.com/metalagman/norma/internal/agents/planner"
-	"github.com/metalagman/norma/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -32,27 +28,15 @@ func webCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plannerCfg, ok := cfg.Agents["planner"]
+			plannerID, ok := cfg.RoleIDs["planner"]
 			if !ok {
 				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 			}
-			factory := agentfactory.NewFactory(map[string]config.AgentConfig{
-				"planner": plannerCfg,
-			})
-			creationReq := agentfactory.CreationRequest{
-				Name:              "NormaPlannerAgent",
-				Description:       "Norma planner via generic agent runtime",
-				SystemInstruction: planner.PlannerInstruction(),
-				WorkingDirectory:  repoRoot,
-				Stderr:            io.Discard,
+			plannerDebugAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), repoRoot, cfg.Agents, plannerID)
+			if err != nil {
+				return err
 			}
-			plannerDebugAgent, newErr := factory.CreateAgent(cmd.Context(), "planner", creationReq)
-			if newErr != nil {
-				return fmt.Errorf("create planner runtime: %w", newErr)
-			}
-			if closer, ok := plannerDebugAgent.(interface{ Close() error }); ok {
-				defer func() { _ = closer.Close() }()
-			}
+			defer func() { _ = closePlannerAgent() }()
 
 			launchCfg := &launcher.Config{
 				AgentLoader:     adkagent.NewSingleLoader(plannerDebugAgent),
