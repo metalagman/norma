@@ -23,36 +23,6 @@ func Command() *cobra.Command {
 	cmd.AddCommand(depCommand())
 	cmd.AddCommand(selectCommand())
 	cmd.AddCommand(notesCommand())
-	cmd.AddCommand(openCommand())
-	return cmd
-}
-
-func openCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "open",
-		Short: "List all open tasks",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			tracker := task.NewBeadsTracker("")
-			status := "todo"
-			tasks, err := tracker.List(cmd.Context(), &status)
-			if err != nil {
-				return err
-			}
-
-			if len(tasks) == 0 {
-				fmt.Println("No open tasks found.")
-				return nil
-			}
-
-			fmt.Printf("%-20s %-10s %-10s %s\n", "ID", "STATUS", "TYPE", "TITLE")
-			fmt.Printf("%s\n", "--------------------------------------------------------------------------------")
-			for _, t := range tasks {
-				fmt.Printf("%-20s %-10s %-10s %s\n", t.ID, t.Status, t.Type, t.Title)
-			}
-
-			return nil
-		},
-	}
 	return cmd
 }
 
