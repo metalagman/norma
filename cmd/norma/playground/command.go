@@ -13,6 +13,7 @@ func Command() *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(acpcmd.Command())
+	cmd.AddCommand(structuredCommand())
 	cmd.AddCommand(codexMCPServerCommand())
 	return cmd
 }

@@ -21,22 +21,24 @@ import (
 	"google.golang.org/genai"
 )
 
-// ACPPlanner runs interactive planner conversations using ACP-backed models.
-type ACPPlanner struct {
-	repoRoot string
-	cfg      config.AgentConfig
+// AgentPlanner runs interactive planner conversations using configured agent runtimes.
+type AgentPlanner struct {
+	repoRoot  string
+	registry  map[string]config.AgentConfig
+	plannerID string
 }
 
-// NewACPPlanner constructs a new ACP planner runtime.
-func NewACPPlanner(repoRoot string, cfg config.AgentConfig) *ACPPlanner {
-	return &ACPPlanner{
-		repoRoot: repoRoot,
-		cfg:      cfg,
+// NewAgentPlanner constructs a new planner runtime.
+func NewAgentPlanner(repoRoot string, registry map[string]config.AgentConfig, plannerID string) *AgentPlanner {
+	return &AgentPlanner{
+		repoRoot:  repoRoot,
+		registry:  registry,
+		plannerID: plannerID,
 	}
 }
 
-// RunInteractive starts an ACP planner session in TUI mode.
-func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, error) {
+// RunInteractive starts a planner session in TUI mode.
+func (p *AgentPlanner) RunInteractive(ctx context.Context, req Request) (string, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -82,40 +84,31 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 		})
 	}
 
-	factory := agentfactory.NewFactory(map[string]config.AgentConfig{
-		"planner": p.cfg,
-	})
+	factory := agentfactory.NewFactory(p.registry)
 
 	creationReq := agentfactory.CreationRequest{
-		Name:              "NormaPlannerACP",
-		Description:       "Norma planner via ACP runtime",
-		SystemPrompt:      PlannerInstruction(),
-		WorkingDir:        p.repoRoot,
+		Name:              "NormaPlannerAgent",
+		Description:       "Norma planner via generic agent runtime",
+		SystemInstruction: PlannerInstruction(),
+		WorkingDirectory:  p.repoRoot,
 		Stderr:            io.Discard,
-		PermissionHandler: PlannerACPPermissionHandler,
+		PermissionHandler: PlannerPermissionHandler,
 	}
 
-	acpRuntime, err := factory.CreateAgent(runCtx, "planner", creationReq)
+	agentRuntime, err := factory.CreateAgent(runCtx, p.plannerID, creationReq)
 	if err != nil {
 		closeEvents()
 		_ = waitTUI()
-		return "", fmt.Errorf("create ACP planner runtime: %w", err)
+		return "", fmt.Errorf("create planner runtime: %w", err)
 	}
-	if closer, ok := acpRuntime.(interface{ Close() error }); ok {
+	if closer, ok := agentRuntime.(interface{ Close() error }); ok {
 		defer func() { _ = closer.Close() }()
-	}
-
-	plannerAgent, err := WrapAgentWithPlannerPrompt(acpRuntime)
-	if err != nil {
-		closeEvents()
-		_ = waitTUI()
-		return "", fmt.Errorf("create planner ACP wrapper agent: %w", err)
 	}
 
 	sessionService := session.InMemoryService()
 	adkRunner, err := runner.New(runner.Config{
-		AppName:        "norma-plan-acp",
-		Agent:          plannerAgent,
+		AppName:        "norma-plan-agent",
+		Agent:          agentRuntime,
 		SessionService: sessionService,
 	})
 	if err != nil {
@@ -125,7 +118,7 @@ func (p *ACPPlanner) RunInteractive(ctx context.Context, req Request) (string, e
 	}
 
 	sess, err := sessionService.Create(runCtx, &session.CreateRequest{
-		AppName: "norma-plan-acp",
+		AppName: "norma-plan-agent",
 		UserID:  "norma-planner-user",
 	})
 	if err != nil {
@@ -235,8 +228,8 @@ func newPlanRunDir(repoRoot string) (string, error) {
 	return runDir, nil
 }
 
-// PlannerACPPermissionHandler enforces planner-safe ACP permissions.
-func PlannerACPPermissionHandler(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+// PlannerPermissionHandler enforces planner-safe ACP permissions.
+func PlannerPermissionHandler(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	if req.ToolCall.Kind != nil {
 		switch *req.ToolCall.Kind {
 		case acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove:

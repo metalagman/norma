@@ -1,64 +1,31 @@
 package agentfactory
 
 import (
+	"bufio"
 	"context"
-	"io"
+	"encoding/json"
+	"os"
 	"testing"
 
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestFactory_CreateAgent(t *testing.T) {
 	agents := map[string]agentconfig.Config{
-		"test-exec": {
-			Type: agentconfig.AgentTypeExec,
-			Cmd:  []string{"echo", "hello"},
-		},
-		"test-claude": {
-			Type: agentconfig.AgentTypeClaude,
-		},
-		"test-gemini": {
-			Type: agentconfig.AgentTypeGemini,
-		},
-		"test-codex": {
-			Type: agentconfig.AgentTypeCodex,
-		},
-		"test-opencode": {
-			Type: agentconfig.AgentTypeOpenCode,
-		},
 		"test-acp": {
-			Type: agentconfig.AgentTypeGeminiACP,
+			Type: agentconfig.AgentTypeGenericACP,
+			Cmd:  helperACPCommand(t),
 		},
 	}
 	f := NewFactory(agents)
 
-	t.Run("Create Exec Agent", func(t *testing.T) {
-		req := CreationRequest{
-			Name:        "TestExec",
-			Description: "Test Description",
-			Stdout:      io.Discard,
-			Stderr:      io.Discard,
-		}
-		ag, err := f.CreateAgent(context.Background(), "test-exec", req)
-		assert.NoError(t, err)
-		assert.NotNil(t, ag)
-	})
-
-	t.Run("Create Claude Agent", func(t *testing.T) {
-		req := CreationRequest{
-			Name:        "TestClaude",
-			Description: "Test Description",
-		}
-		ag, err := f.CreateAgent(context.Background(), "test-claude", req)
-		assert.NoError(t, err)
-		assert.NotNil(t, ag)
-	})
-
 	t.Run("Create ACP Agent", func(t *testing.T) {
 		req := CreationRequest{
-			Name:        "TestACP",
-			Description: "Test Description",
+			Name:             "TestACP",
+			Description:      "Test Description",
+			WorkingDirectory: t.TempDir(),
 		}
 		ag, err := f.CreateAgent(context.Background(), "test-acp", req)
 		assert.NoError(t, err)
@@ -67,81 +34,83 @@ func TestFactory_CreateAgent(t *testing.T) {
 
 	t.Run("Unknown Agent", func(t *testing.T) {
 		req := CreationRequest{
-			Name: "Unknown",
+			Name:             "Unknown",
+			WorkingDirectory: t.TempDir(),
 		}
 		ag, err := f.CreateAgent(context.Background(), "unknown", req)
 		assert.Error(t, err)
 		assert.Nil(t, ag)
 		assert.Contains(t, err.Error(), "not found")
 	})
+
+	t.Run("Missing working directory", func(t *testing.T) {
+		req := CreationRequest{
+			Name: "TestACP",
+		}
+		ag, err := f.CreateAgent(context.Background(), "test-acp", req)
+		assert.Error(t, err)
+		assert.Nil(t, ag)
+		assert.Contains(t, err.Error(), "working directory is required")
+	})
 }
 
-func TestResolveCmd(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     agentconfig.Config
-		want    []string
-		wantErr bool
-	}{
-		{
-			name: "Exec with cmd",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeExec,
-				Cmd:  []string{"ls", "-la"},
-			},
-			want: []string{"ls", "-la"},
-		},
-		{
-			name: "Exec without cmd",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeExec,
-			},
-			wantErr: true,
-		},
-		{
-			name: "Claude default",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeClaude,
-			},
-			want: []string{"claude"},
-		},
-		{
-			name: "Claude with model",
-			cfg: agentconfig.Config{
-				Type:  agentconfig.AgentTypeClaude,
-				Model: "claude-3",
-			},
-			want: []string{"claude", "--model", "claude-3"},
-		},
-		{
-			name: "Gemini with templated cmd",
-			cfg: agentconfig.Config{
-				Type:  agentconfig.AgentTypeGemini,
-				Cmd:   []string{"gemini", "run", "--model", "{{.Model}}"},
-				Model: "gemini-1.5",
-			},
-			want: []string{"gemini", "run", "--model", "gemini-1.5"},
-		},
-		{
-			name: "Gemini default",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeGemini,
-			},
-			want: []string{"gemini", "--approval-mode", "yolo"},
-		},
+func helperACPCommand(t *testing.T) []string {
+	t.Helper()
+	return []string{
+		"env",
+		"GO_WANT_AGENTFACTORY_ACP_HELPER=1",
+		os.Args[0],
+		"-test.run=TestAgentFactoryACPHelperProcess",
+		"--",
+	}
+}
+
+func TestAgentFactoryACPHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_AGENTFACTORY_ACP_HELPER") != "1" {
+		return
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveCmd(tt.cfg)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
+	scanner := bufio.NewScanner(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+	for scanner.Scan() {
+		var req struct {
+			JSONRPC string          `json:"jsonrpc"`
+			ID      json.RawMessage `json:"id"`
+			Method  string          `json:"method"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      nil,
+				"error": map[string]any{
+					"code":    -32700,
+					"message": "parse error",
+				},
+			})
+			continue
+		}
+
+		if req.Method == acp.AgentMethodInitialize {
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"protocolVersion": acp.ProtocolVersionNumber,
+				},
+			})
+			continue
+		}
+
+		_ = encoder.Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"error": map[string]any{
+				"code":    -32601,
+				"message": "unsupported",
+			},
 		})
 	}
+	os.Exit(0)
 }
 
 func TestResolveACPCommand(t *testing.T) {
@@ -154,34 +123,34 @@ func TestResolveACPCommand(t *testing.T) {
 		{
 			name: "ACP Exec with cmd",
 			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeACPExec,
+				Type: agentconfig.AgentTypeGenericACP,
 				Cmd:  []string{"custom-acp", "server"},
 			},
 			want: []string{"custom-acp", "server"},
 		},
 		{
-			name: "Gemini ACP with model",
+			name: "ACP Exec with templated extra args",
 			cfg: agentconfig.Config{
-				Type:  agentconfig.AgentTypeGeminiACP,
-				Model: "gemini-pro",
-			},
-			want: []string{"gemini", "--experimental-acp", "--model", "gemini-pro"},
-		},
-		{
-			name: "OpenCode ACP",
-			cfg: agentconfig.Config{
-				Type: agentconfig.AgentTypeOpenCodeACP,
-			},
-			want: []string{"opencode", "acp"},
-		},
-		{
-			name: "Codex ACP with model and templated extra args",
-			cfg: agentconfig.Config{
-				Type:      agentconfig.AgentTypeCodexACP,
+				Type:      agentconfig.AgentTypeGenericACP,
+				Cmd:       []string{"custom-acp", "--model", "{{.Model}}"},
 				Model:     "gpt-5.4",
-				ExtraArgs: []string{"--codex-model={{.Model}}", "--trace"},
+				ExtraArgs: []string{"--trace", "--model={{.Model}}"},
 			},
-			want: nil,
+			want: []string{"custom-acp", "--model", "gpt-5.4", "--trace", "--model=gpt-5.4"},
+		},
+		{
+			name: "ACP Exec missing cmd",
+			cfg: agentconfig.Config{
+				Type: agentconfig.AgentTypeGenericACP,
+			},
+			wantErr: true,
+		},
+		{
+			name: "Unknown ACP type",
+			cfg: agentconfig.Config{
+				Type: "unsupported",
+			},
+			wantErr: true,
 		},
 	}
 
@@ -192,16 +161,6 @@ func TestResolveACPCommand(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				if tt.cfg.Type == agentconfig.AgentTypeCodexACP {
-					assert.GreaterOrEqual(t, len(got), 7)
-					assert.Equal(t, "proxy", got[1])
-					assert.Equal(t, "codex-acp", got[2])
-					assert.Equal(t, "--codex-model", got[3])
-					assert.Equal(t, "gpt-5.4", got[4])
-					assert.Equal(t, "--codex-model=gpt-5.4", got[5])
-					assert.Equal(t, "--trace", got[6])
-					return
-				}
 				assert.Equal(t, tt.want, got)
 			}
 		})

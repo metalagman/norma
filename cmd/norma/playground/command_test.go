@@ -31,6 +31,7 @@ const (
 	acpSubcommandCodex      = "codex"
 	acpSubcommandInfo       = "info"
 	acpSubcommandWeb        = "web"
+	structuredSubcmd        = "structured"
 )
 
 func TestPlaygroundCommandRegistered(t *testing.T) {
@@ -134,6 +135,13 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 	if sub == nil || sub.Name() != "codex-mcp-server" {
 		t.Fatalf("subcommand = %v, want codex-mcp-server", sub)
 	}
+	sub, _, err = cmd.Find([]string{structuredSubcmd})
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if sub == nil || sub.Name() != structuredSubcmd {
+		t.Fatalf("subcommand = %v, want %s", sub, structuredSubcmd)
+	}
 }
 
 func TestPlaygroundGeminiACPDoesNotExposeLegacyDebugFlags(t *testing.T) {
@@ -228,7 +236,6 @@ func TestRunCodexACPOneShot(t *testing.T) {
 	err := acpcmd.RunCodexACP(context.Background(), t.TempDir(), acpcmd.CodexOptions{
 		Prompt:    "hello",
 		BridgeBin: wrapper,
-		CodexArgs: []string{"--trace"},
 	}, strings.NewReader(""), &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("runCodexACP() error = %v", err)
@@ -241,7 +248,7 @@ func TestRunCodexACPOneShot(t *testing.T) {
 		t.Fatalf("stderr = %q, want lifecycle log entry", got)
 	}
 	args := readArgsFile(t, argsFile)
-	wantArgs := []string{"--debug", "proxy", "codex-acp", "--", "--trace"}
+	wantArgs := []string{"--debug", "proxy", "codex-acp"}
 	for _, want := range wantArgs {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)
@@ -491,12 +498,11 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	got, err := acpcmd.BuildCodexACPCommand(acpcmd.CodexOptions{
 		BridgeBin: "/tmp/norma",
 		Model:     "gpt-5.4",
-		CodexArgs: []string{"--trace", "--raw"},
 	})
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4", "--", "--trace", "--raw"}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -507,12 +513,11 @@ func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
 		BridgeBin: "/tmp/norma",
 		Model:     "gpt-5.4",
 		Name:      "team-codex",
-		CodexArgs: []string{"--trace"},
 	})
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4", "--name", "team-codex", "--", "--trace"}
+	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4", "--name", "team-codex"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}

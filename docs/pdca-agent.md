@@ -102,7 +102,11 @@ Stop reason must be represented in step output (`status=stop` with concrete `sto
 
 ## Provider Routing Policy
 
-- CLI providers (`codex`, `opencode`, `gemini`, `claude`) run via ADK `exec` + `ainvoke`.
+Norma uses the **Agent Control Protocol (ACP)** for all agent communications. Agents are executed as ephemeral runtimes per step and wrapped with a **structured I/O layer** that ensures compliance with the role-specific JSON contracts.
+
+- Supported standard aliases: `gemini_acp`, `opencode_acp`, `codex_acp`.
+- Custom agents: `generic_acp` (any binary implementing the ACP protocol).
+- Execution: Each PDCA step creates a fresh agent instance, executes a single turn with mapped JSON input, and closes the runtime after validating the JSON output.
 
 ## References
 

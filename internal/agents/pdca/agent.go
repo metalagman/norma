@@ -14,7 +14,6 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 
-	normaagent "github.com/metalagman/norma/internal/agent"
 	"github.com/metalagman/norma/internal/agents/pdca/contracts"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/act"
 	"github.com/metalagman/norma/internal/agents/pdca/roles/check"
@@ -317,12 +316,12 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		return nil, fmt.Errorf("write input.json: %w", err)
 	}
 
-	// Create ExecAgent for this step
-	agentCfg, err := resolvedAgentForRole(a.cfg.Agents, roleName)
+	// Create runner for this step
+	agentCfg, err := resolvedAgentForRole(a.cfg.Agents, a.cfg.RoleIDs, roleName)
 	if err != nil {
 		return nil, err
 	}
-	runner, err := normaagent.NewRunner(agentCfg, role)
+	runner, err := NewRunner(agentCfg, role)
 	if err != nil {
 		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
 	}
@@ -603,10 +602,14 @@ func checkAcceptanceResultsToAct(src []check.CheckAcceptanceResult) []act.ActAcc
 	return out
 }
 
-func resolvedAgentForRole(agents map[string]config.AgentConfig, roleName string) (config.AgentConfig, error) {
-	agentCfg, ok := agents[roleName]
+func resolvedAgentForRole(registry map[string]config.AgentConfig, roleIDs map[string]string, roleName string) (config.AgentConfig, error) {
+	agentID, ok := roleIDs[roleName]
 	if !ok {
-		return config.AgentConfig{}, fmt.Errorf("missing resolved agent config for role %q", roleName)
+		return config.AgentConfig{}, fmt.Errorf("missing agent reference for role %q in profile", roleName)
+	}
+	agentCfg, ok := registry[agentID]
+	if !ok {
+		return config.AgentConfig{}, fmt.Errorf("missing resolved agent config for agent %q (role %q)", agentID, roleName)
 	}
 	return agentCfg, nil
 }

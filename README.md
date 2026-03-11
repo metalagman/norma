@@ -19,7 +19,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 - **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/metalagman/beads). Task state, structured work plans, and full run journals are persisted in Beads `notes`, synchronized via Git.
 - **Intelligent Resumption:** Using granular labels like `norma-has-plan` and `norma-has-do`, norma can resume interrupted runs or skip already completed steps across different machines.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
-- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `exec` binaries, CLI wrappers (`codex`, `opencode`, `gemini`, `claude`).
+- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`).
 - **Ralph-Style Run Journal:** Persists structured per-step progress in task notes (`TaskState.journal`) for resumable run history.
 
 ---
@@ -35,15 +35,14 @@ Built for transparency and reliability, norma ensures every agent action is logg
 
 ## 🚦 Supported Agents
 
-Norma speaks a normalized JSON contract, allowing you to use any tool as an agent:
+Norma speaks a normalized JSON contract and utilizes the **Agent Control Protocol (ACP)** for tool-calling and code execution:
 
 | Agent | Type | Description |
 | :--- | :--- | :--- |
-| **Exec** | `exec` | Run any local binary or script that handles JSON on stdin/stdout. |
-| **Gemini** | `gemini` | Native support for the Gemini CLI with tool-calling and code-reading capabilities. |
-| **Claude** | `claude` | Native support for the Claude CLI (Claude Code) for advanced reasoning and coding. |
-| **OpenCode** | `opencode` | Deep integration with OpenCode for high-performance coding tasks. |
-| **Codex** | `codex` | Optimized wrapper for OpenAI Codex-style CLI tools. |
+| **Generic** | `generic_acp` | Run any local binary or script that implements the Agent Control Protocol. |
+| **Gemini** | `gemini_acp` | Native support for the Gemini CLI with tool-calling and code-reading capabilities. |
+| **OpenCode** | `opencode_acp` | Deep integration with OpenCode for high-performance coding tasks. |
+| **Codex** | `codex_acp` | Optimized bridge for OpenAI Codex-style CLI tools via Norma's proxy. |
 
 ---
 
@@ -66,28 +65,36 @@ Run `norma init` to automatically initialize `.beads` and create a default `.nor
 norma init
 ```
 
-The default configuration uses the `codex` agent with the `gpt-5.2-codex` model. You can customize it in `.norma/config.yaml`:
+The default configuration uses the `gemini_acp` agent. You can customize it in `.norma/config.yaml`:
 
 ```yaml
 profile: default
 
 agents:
-  codex_api:
-    type: codex
-    model: gpt-5.2-codex
-  gemini_flash:
-    type: gemini
+  gemini_acp_agent:
+    type: gemini_acp
     model: gemini-3-flash-preview
+  opencode_acp_agent:
+    type: opencode_acp
+    model: opencode/big-pickle
 
 profiles:
   default:
     pdca:
-      plan: codex_api
-      do: gemini_flash
-      check: codex_api
-      act: codex_api
-    planner: codex_api
+      plan: gemini_acp_agent
+      do: gemini_acp_agent
+      check: gemini_acp_agent
+      act: gemini_acp_agent
+    planner: gemini_acp_agent
 
+  opencode:
+    pdca:
+      plan: opencode_acp_agent
+      do: opencode_acp_agent
+      check: opencode_acp_agent
+      act: opencode_acp_agent
+    planner: opencode_acp_agent
+```
 budgets:
   max_iterations: 5
 retention:
@@ -150,15 +157,11 @@ norma proxy codex-acp --name team-codex
 
 # Set Codex MCP `codex` tool config arguments
 norma proxy codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
-
-# Forward additional flags to codex mcp-server
-norma proxy codex-acp -- --trace --raw
 ```
 
 Notes:
 - `--name` sets ACP `initialize.agentInfo.name`.
 - `--codex-*` flags configure the initial MCP `codex` tool call.
-- All arguments after `--` are forwarded directly to `codex mcp-server`.
 - Full reference: [docs/codex-acp-proxy.md](docs/codex-acp-proxy.md).
 
 ---

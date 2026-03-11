@@ -40,9 +40,6 @@ type Config struct {
 	Stderr io.Writer
 	// PermissionHandler decides how to respond to ACP permission requests.
 	PermissionHandler PermissionHandler
-	// HasSetModel decides whether to call session/set_model after session/new.
-	// Defaults to false.
-	HasSetModel bool
 	// Logger is the zerolog logger to use for this agent.
 	Logger *zerolog.Logger
 }
@@ -100,7 +97,6 @@ func New(cfg Config) (*Agent, error) {
 		ClientVersion:     cfg.ClientVersion,
 		Stderr:            cfg.Stderr,
 		PermissionHandler: cfg.PermissionHandler,
-		HasSetModel:       cfg.HasSetModel,
 		Logger:            cfg.Logger,
 	})
 	if err != nil {
@@ -182,7 +178,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 				if !ok {
 					continue
 				}
-				// We log but don't re-mark as partial here as mapACPUpdateToEvent 
+				// We log but don't re-mark as partial here as mapACPUpdateToEvent
 				// already set the appropriate Partial flag.
 				a.logADKEvent(ev, "yielding adk event")
 				if !yield(ev, nil) {
@@ -220,7 +216,6 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 	}
 }
-
 
 func (a *Agent) logADKEvent(ev *session.Event, msg string) {
 	if ev == nil {
@@ -285,7 +280,6 @@ func mapACPUsageToUsageMetadata(usage map[string]any) *genai.GenerateContentResp
 	}
 	return m
 }
-
 
 func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (string, error) {
 	a.sessionMu.Lock()
@@ -378,7 +372,6 @@ func mapACPUsageUpdate(logger zerolog.Logger, invocationID string, update map[st
 	return ev, true
 }
 
-
 func mapACPAgentMessageChunk(logger zerolog.Logger, invocationID string, chunk *acp.SessionUpdateAgentMessageChunk) (*session.Event, bool) {
 	part, ok := mapACPContentBlockToPart(logger, chunk.Content)
 	if !ok {
@@ -418,8 +411,6 @@ func mapACPAgentThoughtChunk(logger zerolog.Logger, invocationID string, chunk *
 	ev.Partial = true
 	return ev, true
 }
-
-
 
 func mapACPToolCall(invocationID string, tool *acp.SessionUpdateToolCall) (*session.Event, bool) {
 	args := map[string]any{
@@ -468,7 +459,6 @@ func mapACPToolCallUpdate(invocationID string, tool *acp.SessionToolCallUpdate) 
 	}
 	return ev, true
 }
-
 
 func mapACPContentBlockToPart(logger zerolog.Logger, block acp.ContentBlock) (*genai.Part, bool) {
 	if block.Text != nil {
@@ -638,7 +628,6 @@ func logACPResourceLinkBlockValue(link *acp.ContentBlockResourceLink) map[string
 	return obj
 }
 
-
 func acpEmbeddedResourceLogValue(resource acp.EmbeddedResourceResource) map[string]any {
 	switch {
 	case resource.TextResourceContents != nil:
@@ -678,7 +667,6 @@ func logACPBlobResourceValue(res *acp.BlobResourceContents) map[string]any {
 	return obj
 }
 
-
 func sessionUpdateType(update acp.SessionUpdate) string {
 	switch {
 	case update.UserMessageChunk != nil:
@@ -701,7 +689,6 @@ func sessionUpdateType(update acp.SessionUpdate) string {
 		return unknownValue
 	}
 }
-
 
 func contentBlockType(block acp.ContentBlock) string {
 	switch {

@@ -10,7 +10,7 @@ func Command() *cobra.Command {
 		Use:          "proxy",
 		Short:        "Proxy commands for protocol bridges",
 		Long:         "Run protocol bridge helpers that expose one agent protocol through another.",
-		Example:      "  norma proxy codex-acp --name team-codex\n  norma proxy codex-acp -- --trace --raw",
+		Example:      "  norma proxy codex-acp --name team-codex",
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(codexACPProxyCommand())

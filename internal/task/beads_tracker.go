@@ -53,6 +53,7 @@ type BeadsIssue struct {
 	Status             string   `json:"status"` // open, in_progress, closed, etc.
 	Priority           int      `json:"priority"`
 	Assignee           string   `json:"assignee"`
+	Owner              string   `json:"owner"`
 	Labels             []string `json:"labels"`
 	Notes              string   `json:"notes"`
 	CreatedAt          string   `json:"created_at"`
@@ -414,6 +415,11 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 		issueType = issue.Type
 	}
 
+	assignee := issue.Assignee
+	if assignee == "" {
+		assignee = issue.Owner
+	}
+
 	return Task{
 		ID:        issue.ID,
 		Type:      issueType,
@@ -424,7 +430,7 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 		Status:    status,
 		RunID:     runID,
 		Priority:  issue.Priority,
-		Assignee:  issue.Assignee,
+		Assignee:  assignee,
 		Labels:    issue.Labels,
 		Notes:     issue.Notes,
 		CreatedAt: issue.CreatedAt,

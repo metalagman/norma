@@ -37,8 +37,7 @@ var (
 
 // Options configures Codex MCP -> ACP proxy behavior.
 type Options struct {
-	CodexArgs []string
-	Name      string
+	Name string
 
 	CodexApprovalPolicy        string
 	CodexBaseInstructions      string
@@ -289,9 +288,8 @@ func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reade
 }
 
 func buildCodexMCPCommand(opts Options) []string {
-	command := make([]string, 0, 2+len(opts.CodexArgs))
+	command := make([]string, 0, 2)
 	command = append(command, "codex", "mcp-server")
-	command = append(command, opts.CodexArgs...)
 	return command
 }
 

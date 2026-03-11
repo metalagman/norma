@@ -55,9 +55,6 @@ type ClientConfig struct {
 	Stderr io.Writer
 	// PermissionHandler decides how to respond to ACP permission requests.
 	PermissionHandler PermissionHandler
-	// HasSetModel decides whether to call session/set_model after session/new.
-	// Defaults to false.
-	HasSetModel bool
 	// Logger is the zerolog logger to use for this client.
 	Logger *zerolog.Logger
 }
@@ -77,7 +74,6 @@ type Client struct {
 	stdin             io.WriteCloser
 	conn              *acp.ClientSideConnection
 	permissionHandler PermissionHandler
-	hasSetModel       bool
 	clientName        string
 	clientVersion     string
 	logger            zerolog.Logger
@@ -101,7 +97,6 @@ type activePrompt struct {
 	closeOnce sync.Once
 }
 
-
 type loggedACPChunk struct {
 	kind         string
 	contentBlock map[string]any
@@ -115,7 +110,6 @@ type PromptResult struct {
 	Usage    map[string]any
 	Err      error
 }
-
 
 var _ acp.Client = (*Client)(nil)
 
@@ -173,7 +167,6 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		cmd:               cmd,
 		stdin:             stdin,
 		permissionHandler: cfg.PermissionHandler,
-		hasSetModel:       cfg.HasSetModel,
 		clientName:        clientName,
 		clientVersion:     clientVersion,
 		logger:            l,
@@ -251,23 +244,11 @@ func (c *Client) CreateSession(ctx context.Context, cwd, model string) (acp.NewS
 	}
 
 	trimmedModel := strings.TrimSpace(model)
-	if trimmedModel == "" || !c.hasSetModel {
+	if trimmedModel == "" {
 		return resp, nil
 	}
 	if err := c.SetSessionModel(ctx, string(resp.SessionId), trimmedModel); err != nil {
-		// Some ACP implementations (like Gemini ACP) might not support session/set_model
-		// but instead require the model to be specified during session creation if at all.
-		// If the method is not found, we ignore the error and proceed, as the session
-		// was already created successfully.
-		var acpErr *acp.RequestError
-		if errors.As(err, &acpErr) && acpErr.Code == -32601 {
-			c.logger.Debug().
-				Str("session_id", string(resp.SessionId)).
-				Str("model", trimmedModel).
-				Msg("acp session/set_model not supported by server, ignoring")
-		} else {
-			return acp.NewSessionResponse{}, fmt.Errorf("set acp session model %q: %w", trimmedModel, err)
-		}
+		return resp, nil
 	}
 	if resp.Models != nil {
 		resp.Models.CurrentModelId = acp.ModelId(trimmedModel)
@@ -353,7 +334,6 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan E
 			Msg("acp session/prompt completed")
 		resultCh <- PromptResult{Response: resp, Usage: usage}
 	}()
-
 
 	return updates, resultCh, nil
 }
@@ -597,7 +577,6 @@ func (c *Client) dispatchSessionUpdate(ext ExtendedSessionNotification) {
 	case <-c.closed:
 	}
 }
-
 
 func permissionOutcomeLabel(outcome acp.RequestPermissionOutcome) string {
 	switch {
@@ -845,4 +824,3 @@ func (b *wireLogBuffer) logLine(line []byte) {
 	}
 	evt.Msg("acp wire")
 }
-

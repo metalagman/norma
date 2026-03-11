@@ -13,17 +13,13 @@ type Config struct {
 	Agents    map[string]agentconfig.Config `json:"agents,omitempty"   mapstructure:"agents"`
 	Profiles  map[string]ProfileConfig      `json:"profiles,omitempty" mapstructure:"profiles"`
 	Profile   string                        `json:"profile,omitempty"  mapstructure:"profile"`
+	RoleIDs   map[string]string             `json:"-"                  mapstructure:"-"`
 	Budgets   Budgets                       `json:"budgets"            mapstructure:"budgets"`
 	Retention RetentionPolicy               `json:"retention"          mapstructure:"retention"`
 }
 
 // AgentConfig describes how to run an agent.
 type AgentConfig = agentconfig.Config
-
-// ToModelConfig converts AgentConfig to adk modelfactory.ModelConfig.
-func ToModelConfig(c AgentConfig) agentconfig.Config {
-	return c
-}
 
 // ProfileConfig describes an agent profile.
 type ProfileConfig struct {
@@ -54,16 +50,11 @@ const defaultProfile = "default"
 
 // Supported agent types.
 const (
-	AgentTypeExec           = agentconfig.AgentTypeExec
-	AgentTypeACPExec        = agentconfig.AgentTypeACPExec
-	AgentTypeCodex          = agentconfig.AgentTypeCodex
-	AgentTypeCodexACP       = agentconfig.AgentTypeCodexACP
-	AgentTypeOpenCode       = agentconfig.AgentTypeOpenCode
-	AgentTypeOpenCodeACP    = agentconfig.AgentTypeOpenCodeACP
-	AgentTypeGemini         = agentconfig.AgentTypeGemini
-	AgentTypeGeminiACP      = agentconfig.AgentTypeGeminiACP
-	AgentTypeClaude         = agentconfig.AgentTypeClaude
-	AgentTypeGeminiAIStudio = agentconfig.AgentTypeGeminiAIStudio
+	AgentTypeGenericACP = agentconfig.AgentTypeGenericACP
+
+	AgentTypeCodexACP    = agentconfig.AgentTypeCodexACP
+	AgentTypeOpenCodeACP = agentconfig.AgentTypeOpenCodeACP
+	AgentTypeGeminiACP   = agentconfig.AgentTypeGeminiACP
 )
 
 // IsACPType reports whether an agent type uses the ACP runtime.
@@ -71,23 +62,13 @@ func IsACPType(agentType string) bool {
 	return agentconfig.IsACPType(agentType)
 }
 
-// HasSetModelSupport reports whether an agent type supports session/set_model.
-func HasSetModelSupport(agentType string) bool {
-	return agentconfig.HasSetModelSupport(agentType)
-}
-
-// IsLLMType reports whether an agent type uses a direct LLM model runtime.
-func IsLLMType(agentType string) bool {
-	return agentconfig.IsLLMType(agentType)
-}
-
 // IsPlannerSupportedType reports whether planner mode supports the agent type.
 func IsPlannerSupportedType(agentType string) bool {
 	return agentconfig.IsPlannerSupportedType(agentType)
 }
 
-// ResolveAgents returns the agents for the selected profile.
-func (c Config) ResolveAgents(profile string) (string, map[string]AgentConfig, error) {
+// ResolveAgentIDs returns the agent IDs for each role in the selected profile.
+func (c Config) ResolveAgentIDs(profile string) (string, map[string]string, error) {
 	if len(c.Agents) == 0 {
 		return "", nil, fmt.Errorf("missing global agents configuration")
 	}
@@ -98,18 +79,17 @@ func (c Config) ResolveAgents(profile string) (string, map[string]AgentConfig, e
 	}
 
 	refs := profileCfg.PDCA
-	resolved := make(map[string]AgentConfig, 5)
+	resolved := make(map[string]string, 5)
 
 	resolve := func(role, agentName string) error {
 		name := strings.TrimSpace(agentName)
 		if name == "" {
 			return fmt.Errorf("profile %q missing %s agent reference", selected, role)
 		}
-		agentCfg, exists := c.Agents[name]
-		if !exists {
+		if _, exists := c.Agents[name]; !exists {
 			return fmt.Errorf("profile %q references undefined agent %q in %s", selected, name, role)
 		}
-		resolved[role] = agentCfg
+		resolved[role] = name
 		return nil
 	}
 

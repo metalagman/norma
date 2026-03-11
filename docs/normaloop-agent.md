@@ -11,10 +11,9 @@ Example:
 
 ```yaml
 agents:
-  gemini_api:
-    type: gemini_aistudio
-    model: gemini-1.5-flash
-    api_key: ${GOOGLE_API_KEY}
+  gemini_acp:
+    type: gemini_acp
+    model: gemini-3-flash-preview
 ```
 
 If any referenced variable is missing, config expansion fails and reports the missing variable name(s).
@@ -98,10 +97,11 @@ After workflow returns:
 
 ## Related Files
 
-- `cmd/norma/loop.go`
-- `cmd/norma/task.go`
+- `cmd/norma/loop/command.go`
+- `cmd/norma/run/helpers.go`
 - `internal/task/beads_tracker.go`
 - `internal/task/scheduler.go`
 - `internal/run/run.go`
 - `internal/agents/pdca/agent.go`
 - `internal/agents/pdca/factory.go`
+- `internal/agents/pdca/runner.go`

@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+const genericACPType = "generic_acp"
+
 func TestResolveConfigPath_DefaultYAMLPreferred(t *testing.T) {
 	t.Parallel()
 
@@ -27,17 +29,17 @@ func TestLoadConfig_UsesYAML(t *testing.T) {
 	repoRoot := t.TempDir()
 	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `profile: default
 agents:
-  opencode_exec_agent:
-    type: opencode
+  opencode_acp_agent:
+    type: opencode_acp
     model: opencode/big-pickle
 profiles:
   default:
     pdca:
-      plan: opencode_exec_agent
-      do: opencode_exec_agent
-      check: opencode_exec_agent
-      act: opencode_exec_agent
-    planner: opencode_exec_agent
+      plan: opencode_acp_agent
+      do: opencode_acp_agent
+      check: opencode_acp_agent
+      act: opencode_acp_agent
+    planner: opencode_acp_agent
 budgets:
   max_iterations: 1
 retention:
@@ -61,8 +63,16 @@ retention:
 	if cfg.Budgets.MaxIterations != 1 {
 		t.Fatalf("budgets.max_iterations = %d, want %d", cfg.Budgets.MaxIterations, 1)
 	}
-	if cfg.Agents["plan"].Type != "opencode" {
-		t.Fatalf("plan agent type = %q, want %q", cfg.Agents["plan"].Type, "opencode")
+	planAgentID, ok := cfg.RoleIDs["plan"]
+	if !ok {
+		t.Fatal("plan agent ID not found in RoleIDs")
+	}
+	planAgent := cfg.Agents[planAgentID]
+	if planAgent.Type != genericACPType {
+		t.Fatalf("plan agent type = %q, want %q", planAgent.Type, genericACPType)
+	}
+	if gotCmd := planAgent.Cmd; len(gotCmd) < 2 || gotCmd[0] != "opencode" || gotCmd[1] != "acp" {
+		t.Fatalf("plan agent cmd = %v, want opencode acp command", gotCmd)
 	}
 }
 
@@ -70,23 +80,23 @@ func TestLoadRawConfig_ExpandsEnvValues(t *testing.T) {
 	repoRoot := t.TempDir()
 
 	t.Setenv("NORMA_PROFILE", "default")
-	t.Setenv("NORMA_AGENT_TYPE", "exec")
-	t.Setenv("NORMA_AGENT_CMD", "ainvoke")
+	t.Setenv("NORMA_AGENT_TYPE", "generic_acp")
+	t.Setenv("NORMA_AGENT_CMD", "custom-acp")
 	t.Setenv("NORMA_MAX_ITERATIONS", "3")
 
 	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `profile: ${NORMA_PROFILE}
 agents:
-  local_exec:
+  local_acp:
     type: ${NORMA_AGENT_TYPE}
     cmd:
       - ${NORMA_AGENT_CMD}
 profiles:
   default:
     pdca:
-      plan: local_exec
-      do: local_exec
-      check: local_exec
-      act: local_exec
+      plan: local_acp
+      do: local_acp
+      check: local_acp
+      act: local_acp
 budgets:
   max_iterations: ${NORMA_MAX_ITERATIONS}
 `); err != nil {
@@ -107,12 +117,14 @@ budgets:
 	if cfg.Budgets.MaxIterations != 3 {
 		t.Fatalf("budgets.max_iterations = %d, want %d", cfg.Budgets.MaxIterations, 3)
 	}
-	agent := cfg.Agents["local_exec"]
-	if agent.Type != "exec" {
-		t.Fatalf("agents.local_exec.type = %q, want %q", agent.Type, "exec")
+	// Note: loadRawConfig does not resolve RoleIDs, it only expanded env vars and validated schema.
+	// But it does normalize agent aliases.
+	agent := cfg.Agents["local_acp"]
+	if agent.Type != genericACPType {
+		t.Fatalf("agents.local_acp.type = %q, want %q", agent.Type, genericACPType)
 	}
-	if len(agent.Cmd) != 1 || agent.Cmd[0] != "ainvoke" {
-		t.Fatalf("agents.local_exec.cmd = %v, want %v", agent.Cmd, []string{"ainvoke"})
+	if len(agent.Cmd) != 1 || agent.Cmd[0] != "custom-acp" {
+		t.Fatalf("agents.local_acp.cmd = %v, want %v", agent.Cmd, []string{"custom-acp"})
 	}
 }
 
@@ -129,7 +141,7 @@ agents:
   codex_acp_agent:
     type: codex_acp
   custom_acp_agent:
-    type: acp_exec
+    type: generic_acp
     cmd:
       - custom-acp
       - --stdio
@@ -158,20 +170,73 @@ budgets:
 	if cfg.Profile != "acp" {
 		t.Fatalf("profile = %q, want %q", cfg.Profile, "acp")
 	}
-	if cfg.Agents["plan"].Type != "gemini_acp" {
-		t.Fatalf("plan agent type = %q, want %q", cfg.Agents["plan"].Type, "gemini_acp")
+
+	checkRole := func(role, wantID, wantType string) {
+		t.Helper()
+		id, ok := cfg.RoleIDs[role]
+		if !ok {
+			t.Fatalf("%s agent ID not found in RoleIDs", role)
+		}
+		if id != wantID {
+			t.Fatalf("%s agent ID = %q, want %q", role, id, wantID)
+		}
+		agent := cfg.Agents[id]
+		if agent.Type != wantType {
+			t.Fatalf("%s agent type = %q, want %q", role, agent.Type, wantType)
+		}
 	}
-	if cfg.Agents["do"].Type != "opencode_acp" {
-		t.Fatalf("do agent type = %q, want %q", cfg.Agents["do"].Type, "opencode_acp")
+
+	checkRole("plan", "gemini_acp_agent", genericACPType)
+	checkRole("do", "opencode_acp_agent", genericACPType)
+	checkRole("check", "codex_acp_agent", genericACPType)
+	checkRole("act", "custom_acp_agent", genericACPType)
+	checkRole("planner", "gemini_acp_agent", genericACPType)
+
+	planAgent := cfg.Agents[cfg.RoleIDs["plan"]]
+	planCmd := planAgent.Cmd
+	if len(planCmd) < 4 || planCmd[0] != "gemini" || planCmd[1] != "--experimental-acp" || planCmd[2] != "--model" || planCmd[3] != "gemini-3-flash-preview" {
+		t.Fatalf("plan agent cmd = %v, want gemini ACP command with model", planCmd)
 	}
-	if cfg.Agents["check"].Type != "codex_acp" {
-		t.Fatalf("check agent type = %q, want %q", cfg.Agents["check"].Type, "codex_acp")
+	doAgent := cfg.Agents[cfg.RoleIDs["do"]]
+	doCmd := doAgent.Cmd
+	if len(doCmd) < 2 || doCmd[0] != "opencode" || doCmd[1] != "acp" {
+		t.Fatalf("do agent cmd = %v, want opencode acp command", doCmd)
 	}
-	if cfg.Agents["act"].Type != "acp_exec" {
-		t.Fatalf("act agent type = %q, want %q", cfg.Agents["act"].Type, "acp_exec")
+	checkAgent := cfg.Agents[cfg.RoleIDs["check"]]
+	checkCmd := checkAgent.Cmd
+	if len(checkCmd) < 3 || checkCmd[1] != "proxy" || checkCmd[2] != "codex-acp" {
+		t.Fatalf("check agent cmd = %v, want codex proxy command", checkCmd)
 	}
-	if cfg.Agents["planner"].Type != "gemini_acp" {
-		t.Fatalf("planner agent type = %q, want %q", cfg.Agents["planner"].Type, "gemini_acp")
+}
+
+func TestLoadConfig_RejectExecTypes(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := writeTestFile(filepath.Join(repoRoot, defaultConfigPath), `profile: default
+agents:
+  exec_agent:
+    type: generic_exec
+    cmd:
+      - custom-exec
+profiles:
+  default:
+    pdca:
+      plan: exec_agent
+      do: exec_agent
+      check: exec_agent
+      act: exec_agent
+budgets:
+  max_iterations: 1
+`); err != nil {
+		t.Fatalf("write yaml config: %v", err)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("config", defaultConfigPath)
+
+	_, err := loadConfig(repoRoot)
+	if err == nil {
+		t.Fatal("loadConfig returned nil error, want rejection of generic_exec")
 	}
 }
 

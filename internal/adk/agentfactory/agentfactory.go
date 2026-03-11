@@ -5,11 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/coder/acp-go-sdk"
-	"github.com/metalagman/ainvoke/adk"
 	"github.com/metalagman/norma/internal/adk/acpagent"
 	"github.com/metalagman/norma/internal/adk/agentconfig"
 	"google.golang.org/adk/agent"
@@ -19,12 +17,8 @@ import (
 type CreationRequest struct {
 	Name              string
 	Description       string
-	Prompt            string
-	SystemPrompt      string
-	InputSchema       string
-	OutputSchema      string
-	WorkingDir        string
-	RunDir            string
+	SystemInstruction string
+	WorkingDirectory  string
 	Stdout            io.Writer
 	Stderr            io.Writer
 	PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
@@ -48,6 +42,10 @@ func NewFactory(agents map[string]agentconfig.Config) *Factory {
 // CreateAgent creates an agent.Agent instance by name and creation request.
 // It returns an error if the agent is not found or its type is unsupported.
 func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequest) (agent.Agent, error) {
+	if strings.TrimSpace(req.WorkingDirectory) == "" {
+		return nil, fmt.Errorf("working directory is required")
+	}
+
 	cfg, ok := f.registry[name]
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found or unsupported", name)
@@ -68,61 +66,7 @@ func (f *Factory) CreateAgent(ctx context.Context, name string, req CreationRequ
 
 // constructors registry.
 var constructors = map[string]constructor{
-	agentconfig.AgentTypeExec: func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
-		cmd, err := ResolveCmd(cfg)
-		if err != nil {
-			return nil, err
-		}
-		fullPrompt := req.Prompt
-		if req.SystemPrompt != "" {
-			fullPrompt = req.SystemPrompt + "\n\n" + req.Prompt
-		}
-		return adk.NewExecAgent(
-			req.Name,
-			req.Description,
-			cmd,
-			adk.WithExecAgentPrompt(fullPrompt),
-			adk.WithExecAgentInputSchema(req.InputSchema),
-			adk.WithExecAgentOutputSchema(req.OutputSchema),
-			adk.WithExecAgentRunDir(req.RunDir),
-			adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
-			adk.WithExecAgentStdout(req.Stdout),
-			adk.WithExecAgentStderr(req.Stderr),
-		)
-	},
-	agentconfig.AgentTypeClaude:   execConstructor,
-	agentconfig.AgentTypeCodex:    execConstructor,
-	agentconfig.AgentTypeGemini:   execConstructor,
-	agentconfig.AgentTypeOpenCode: execConstructor,
-
-	agentconfig.AgentTypeACPExec:     acpConstructor,
-	agentconfig.AgentTypeGeminiACP:   acpConstructor,
-	agentconfig.AgentTypeOpenCodeACP: acpConstructor,
-	agentconfig.AgentTypeCodexACP:    acpConstructor,
-}
-
-var execConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
-	cmd, err := ResolveCmd(cfg)
-	if err != nil {
-		return nil, err
-	}
-	fullPrompt := req.Prompt
-	if req.SystemPrompt != "" {
-		fullPrompt = req.SystemPrompt + "\n\n" + req.Prompt
-	}
-
-	return adk.NewExecAgent(
-		req.Name,
-		req.Description,
-		cmd,
-		adk.WithExecAgentPrompt(fullPrompt),
-		adk.WithExecAgentInputSchema(req.InputSchema),
-		adk.WithExecAgentOutputSchema(req.OutputSchema),
-		adk.WithExecAgentRunDir(req.RunDir),
-		adk.WithExecAgentUseTTY(cfg.UseTTY != nil && *cfg.UseTTY),
-		adk.WithExecAgentStdout(req.Stdout),
-		adk.WithExecAgentStderr(req.Stderr),
-	)
+	agentconfig.AgentTypeGenericACP: acpConstructor,
 }
 
 var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req CreationRequest) (agent.Agent, error) {
@@ -130,93 +74,31 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 	if err != nil {
 		return nil, err
 	}
-	workingDir := req.WorkingDir
-	if strings.TrimSpace(workingDir) == "" {
-		workingDir = req.RunDir
-	}
 
 	return acpagent.New(acpagent.Config{
 		Context:           ctx,
 		Name:              req.Name,
 		Description:       req.Description,
 		Model:             cfg.Model,
-		SystemPrompt:      req.SystemPrompt,
+		SystemPrompt:      req.SystemInstruction,
 		Command:           cmd,
-		WorkingDir:        workingDir,
+		WorkingDir:        req.WorkingDirectory,
 		Stderr:            req.Stderr,
 		PermissionHandler: req.PermissionHandler,
-		HasSetModel:       agentconfig.HasSetModelSupport(cfg.Type),
 	})
-}
-
-// ResolveCmd resolves the command for an agent config.
-func ResolveCmd(cfg agentconfig.Config) ([]string, error) {
-	cmd := cfg.Cmd
-	if len(cmd) == 0 {
-		switch cfg.Type {
-		case agentconfig.AgentTypeExec:
-			return nil, fmt.Errorf("exec agent requires cmd")
-		case agentconfig.AgentTypeClaude:
-			cmd = []string{"claude"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-		case agentconfig.AgentTypeCodex:
-			cmd = []string{"codex", "exec"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-			cmd = append(cmd, "--sandbox", "workspace-write")
-		case agentconfig.AgentTypeGemini:
-			cmd = []string{"gemini"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-			cmd = append(cmd, "--approval-mode", "yolo")
-		case agentconfig.AgentTypeOpenCode:
-			cmd = []string{"opencode", "run"}
-			if cfg.Model != "" {
-				cmd = append(cmd, "--model", cfg.Model)
-			}
-		default:
-			return nil, fmt.Errorf("unknown agent type %q", cfg.Type)
-		}
-	}
-	res := resolveTemplatedCmd(cmd, cfg.Model)
-	if len(cfg.ExtraArgs) > 0 {
-		res = append(res, resolveTemplatedCmd(cfg.ExtraArgs, cfg.Model)...)
-	}
-	return res, nil
 }
 
 // ResolveACPCommand resolves the command for ACP-backed agent types.
 func ResolveACPCommand(cfg agentconfig.Config) ([]string, error) {
-	var cmd []string
-	switch cfg.Type {
-	case agentconfig.AgentTypeACPExec:
-		if len(cfg.Cmd) == 0 {
-			return nil, fmt.Errorf("acp_exec agent requires cmd")
-		}
-		cmd = cfg.Cmd
-	case agentconfig.AgentTypeGeminiACP:
-		cmd = []string{"gemini", "--experimental-acp"}
-		if cfg.Model != "" {
-			cmd = append(cmd, "--model", cfg.Model)
-		}
-	case agentconfig.AgentTypeOpenCodeACP:
-		cmd = []string{"opencode", "acp"}
-	case agentconfig.AgentTypeCodexACP:
-		exePath, err := os.Executable()
-		if err != nil {
-			return nil, fmt.Errorf("resolve executable path: %w", err)
-		}
-		cmd = []string{exePath, "proxy", "codex-acp"}
-		if cfg.Model != "" {
-			cmd = append(cmd, "--codex-model", cfg.Model)
-		}
-	default:
+	if cfg.Type != agentconfig.AgentTypeGenericACP {
 		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
 	}
+
+	if len(cfg.Cmd) == 0 {
+		return nil, fmt.Errorf("generic_acp agent requires cmd")
+	}
+	cmd := cfg.Cmd
+
 	res := resolveTemplatedCmd(cmd, cfg.Model)
 	if len(cfg.ExtraArgs) > 0 {
 		res = append(res, resolveTemplatedCmd(cfg.ExtraArgs, cfg.Model)...)

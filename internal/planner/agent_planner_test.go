@@ -7,11 +7,11 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 )
 
-func TestPlannerACPPermissionHandler_RejectsMutatingKinds(t *testing.T) {
+func TestPlannerPermissionHandler_RejectsMutatingKinds(t *testing.T) {
 	t.Parallel()
 
 	kind := acp.ToolKindEdit
-	resp, err := PlannerACPPermissionHandler(context.Background(), acp.RequestPermissionRequest{
+	resp, err := PlannerPermissionHandler(context.Background(), acp.RequestPermissionRequest{
 		ToolCall: acp.RequestPermissionToolCall{Kind: &kind},
 		Options: []acp.PermissionOption{
 			{Kind: acp.PermissionOptionKindAllowOnce, OptionId: "allow"},
@@ -19,18 +19,18 @@ func TestPlannerACPPermissionHandler_RejectsMutatingKinds(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("PlannerACPPermissionHandler() error = %v", err)
+		t.Fatalf("PlannerPermissionHandler() error = %v", err)
 	}
 	if resp.Outcome.Selected == nil || resp.Outcome.Selected.OptionId != "reject" {
 		t.Fatalf("selected option = %+v, want reject", resp.Outcome.Selected)
 	}
 }
 
-func TestPlannerACPPermissionHandler_AllowsExecuteForPlanning(t *testing.T) {
+func TestPlannerPermissionHandler_AllowsExecuteForPlanning(t *testing.T) {
 	t.Parallel()
 
 	kind := acp.ToolKindExecute
-	resp, err := PlannerACPPermissionHandler(context.Background(), acp.RequestPermissionRequest{
+	resp, err := PlannerPermissionHandler(context.Background(), acp.RequestPermissionRequest{
 		ToolCall: acp.RequestPermissionToolCall{Kind: &kind},
 		Options: []acp.PermissionOption{
 			{Kind: acp.PermissionOptionKindAllowOnce, OptionId: "allow"},
@@ -38,7 +38,7 @@ func TestPlannerACPPermissionHandler_AllowsExecuteForPlanning(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("PlannerACPPermissionHandler() error = %v", err)
+		t.Fatalf("PlannerPermissionHandler() error = %v", err)
 	}
 	if resp.Outcome.Selected == nil || resp.Outcome.Selected.OptionId != "allow" {
 		t.Fatalf("selected option = %+v, want allow", resp.Outcome.Selected)

@@ -61,7 +61,7 @@ func TestCodexACPProxyIntegration_DefaultName(t *testing.T) {
 	}
 }
 
-func TestCodexACPProxyIntegration_PassthroughInvalidCodexArgFails(t *testing.T) {
+func TestCodexACPProxyIntegration_RejectsPositionalArgs(t *testing.T) {
 	repoRoot := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, repoRoot)
 
@@ -70,11 +70,11 @@ func TestCodexACPProxyIntegration_PassthroughInvalidCodexArgFails(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 	if _, err := client.Initialize(ctx); err == nil {
-		failWithDetails(t, "initialize unexpectedly succeeded with invalid forwarded codex arg", nil, stderr.String())
+		failWithDetails(t, "initialize unexpectedly succeeded with rejected positional arg", nil, stderr.String())
 	}
 
-	if !strings.Contains(stderr.String(), "--definitely-invalid-flag") {
-		failWithDetails(t, "proxy stderr does not include forwarded invalid codex arg", nil, stderr.String())
+	if !strings.Contains(stderr.String(), "accepts 0 arg(s)") {
+		failWithDetails(t, "proxy stderr does not indicate positional args are rejected", nil, stderr.String())
 	}
 }
 

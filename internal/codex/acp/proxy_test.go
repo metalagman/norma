@@ -23,8 +23,8 @@ const (
 )
 
 func TestBuildCodexMCPCommand(t *testing.T) {
-	got := buildCodexMCPCommand(Options{CodexArgs: []string{"--trace", "--foo=bar"}})
-	want := []string{"codex", "mcp-server", "--trace", "--foo=bar"}
+	got := buildCodexMCPCommand(Options{})
+	want := []string{"codex", "mcp-server"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexMCPCommand() = %v, want %v", got, want)
 	}
@@ -33,9 +33,8 @@ func TestBuildCodexMCPCommand(t *testing.T) {
 func TestBuildCodexMCPCommandDoesNotInjectModelConfig(t *testing.T) {
 	got := buildCodexMCPCommand(Options{
 		CodexModel: "gpt-5.4",
-		CodexArgs:  []string{"--trace"},
 	})
-	want := []string{"codex", "mcp-server", "--trace"}
+	want := []string{"codex", "mcp-server"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexMCPCommand() = %v, want %v", got, want)
 	}
@@ -368,7 +367,7 @@ func TestCodexACPProxyInitializeUsesDefaultAgentNameWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestRunProxyForwardsCodexArgs(t *testing.T) {
+func TestRunProxyStartsCodexMCPServer(t *testing.T) {
 	wrapper, argsFile := writeCodexMCPWrapper(t)
 	codexDir := t.TempDir()
 	codexPath := filepath.Join(codexDir, "codex")
@@ -388,7 +387,7 @@ func TestRunProxyForwardsCodexArgs(t *testing.T) {
 	runErr := RunProxy(
 		context.Background(),
 		t.TempDir(),
-		Options{CodexArgs: []string{"--trace"}},
+		Options{},
 		strings.NewReader(""),
 		io.Discard,
 		&stderr,
@@ -398,10 +397,13 @@ func TestRunProxyForwardsCodexArgs(t *testing.T) {
 	}
 
 	args := readArgsFile(t, argsFile)
-	for _, want := range []string{"mcp-server", "--trace"} {
+	for _, want := range []string{"mcp-server"} {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)
 		}
+	}
+	if containsArg(args, "--trace") {
+		t.Fatalf("args %v unexpectedly contain passthrough argument %q", args, "--trace")
 	}
 }
 

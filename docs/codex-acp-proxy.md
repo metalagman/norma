@@ -25,9 +25,6 @@ norma proxy codex-acp --name team-codex
 
 # Configure Codex MCP `codex` tool args
 norma proxy codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
-
-# Pass extra flags to codex mcp-server (everything after -- is forwarded)
-norma proxy codex-acp -- --trace --raw
 ```
 
 ## Flags
@@ -53,8 +50,6 @@ norma proxy codex-acp -- --trace --raw
   `compact-prompt` field for MCP `codex` tool calls.
 - `--codex-config`:
   `config` field for MCP `codex` tool calls as a JSON object.
-- `--` separator:
-  All arguments after `--` are forwarded directly to `codex mcp-server`.
 
 ## Behavior
 
@@ -68,8 +63,8 @@ norma proxy codex-acp -- --trace --raw
 
 ## Config Note (`codex_acp` agent type)
 
-For `type: codex_acp`, `extra_args` now target proxy arguments directly.
-If you need to forward raw backend args to `codex mcp-server`, include an explicit `--` in `extra_args`.
+For `type: codex_acp`, `extra_args` target proxy arguments directly.
+Raw argument forwarding to `codex mcp-server` is not supported.
 
 ## Exit behavior
 

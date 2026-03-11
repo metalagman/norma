@@ -14,11 +14,11 @@ func codexACPProxyCommand() *cobra.Command {
 	opts := codexacp.Options{Name: codexacp.DefaultAgentName}
 	var codexConfigJSON string
 	cmd := &cobra.Command{
-		Use:          "codex-acp [flags] [-- <codex mcp-server args...>]",
+		Use:          "codex-acp [flags]",
 		Short:        "Expose Codex MCP server as ACP over stdio",
 		SilenceUsage: true,
-		Args:         cobra.ArbitraryArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:         cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			repoRoot, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
@@ -31,7 +31,6 @@ func codexACPProxyCommand() *cobra.Command {
 				}
 				runOpts.CodexConfig = config
 			}
-			runOpts.CodexArgs = append([]string(nil), args...)
 			return codexacp.RunProxy(cmd.Context(), repoRoot, runOpts, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
@@ -44,7 +43,7 @@ func codexACPProxyCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.CodexDeveloperInstructions, "codex-developer-instructions", "", "Codex MCP `codex` tool developer-instructions argument")
 	cmd.Flags().StringVar(&opts.CodexCompactPrompt, "codex-compact-prompt", "", "Codex MCP `codex` tool compact-prompt argument")
 	cmd.Flags().StringVar(&codexConfigJSON, "codex-config", "", "Codex MCP `codex` tool config JSON object")
-	cmd.Long = "Run a local Codex MCP server and expose it as an ACP agent over stdio. Use --codex-* flags to configure the Codex MCP `codex` tool call and -- to forward raw arguments to codex mcp-server."
-	cmd.Example = "  norma proxy codex-acp\n  norma proxy codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write\n  norma proxy codex-acp --name team-codex\n  norma proxy codex-acp --codex-approval-policy on-request --codex-config '{\"env\":\"dev\"}'\n  norma proxy codex-acp -- --trace --raw"
+	cmd.Long = "Run a local Codex MCP server and expose it as an ACP agent over stdio. Use --codex-* flags to configure the Codex MCP `codex` tool call."
+	cmd.Example = "  norma proxy codex-acp\n  norma proxy codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write\n  norma proxy codex-acp --name team-codex\n  norma proxy codex-acp --codex-approval-policy on-request --codex-config '{\"env\":\"dev\"}'"
 	return cmd
 }

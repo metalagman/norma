@@ -23,22 +23,25 @@ func TestResolvedAgentForRoleReturnsConfig(t *testing.T) {
 	t.Parallel()
 
 	agents := map[string]config.AgentConfig{
-		"plan": {Type: "codex", Model: "gpt-5.2-codex"},
+		"agent-1": {Type: "gemini_acp", Model: "gemini-1.5-flash"},
+	}
+	roleIDs := map[string]string{
+		"plan": "agent-1",
 	}
 
-	got, err := resolvedAgentForRole(agents, "plan")
+	got, err := resolvedAgentForRole(agents, roleIDs, "plan")
 	if err != nil {
 		t.Fatalf("resolvedAgentForRole returned error: %v", err)
 	}
-	if got.Type != "codex" {
-		t.Fatalf("agent type = %q, want %q", got.Type, "codex")
+	if got.Type != "gemini_acp" {
+		t.Fatalf("agent type = %q, want %q", got.Type, "gemini_acp")
 	}
 }
 
 func TestResolvedAgentForRoleReturnsRoleSpecificError(t *testing.T) {
 	t.Parallel()
 
-	_, err := resolvedAgentForRole(map[string]config.AgentConfig{}, "act")
+	_, err := resolvedAgentForRole(map[string]config.AgentConfig{}, map[string]string{}, "act")
 	if err == nil {
 		t.Fatal("resolvedAgentForRole returned nil error, want error")
 	}

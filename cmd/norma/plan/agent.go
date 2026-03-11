@@ -10,8 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func runACPPlanner(cmd *cobra.Command, repoRoot string, plannerCfg config.AgentConfig, req planner.Request) error {
-	p := planner.NewACPPlanner(repoRoot, plannerCfg)
+func runAgentPlanner(cmd *cobra.Command, repoRoot string, registry map[string]config.AgentConfig, plannerID string, req planner.Request) error {
+	p := planner.NewAgentPlanner(repoRoot, registry, plannerID)
 	runDir, err := p.RunInteractive(cmd.Context(), req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, planner.ErrHandledInTUI) {

@@ -101,6 +101,52 @@ func TestClientCreateSessionSetsModel(t *testing.T) {
 	}
 }
 
+func TestClientCreateSessionIgnoresSetModelUnsupported(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_DISABLE_SET_MODEL": "1",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4")
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
+		t.Fatal("CreateSession() returned empty session id")
+	}
+}
+
+func TestClientCreateSessionIgnoresSetModelRequestError(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_MODEL": "different/model",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4")
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
+		t.Fatal("CreateSession() returned empty session id")
+	}
+}
+
 func TestClientHandlesPermissionRequest(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommand(t),
@@ -506,7 +552,6 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 	}
 }
 
-
 func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
 	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.UpdateAgentMessageText("hello")}})
 	if !ok || ev == nil {
@@ -785,6 +830,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedClientName := os.Getenv("GO_EXPECT_CLIENT_NAME")
 	expectedClientVersion := os.Getenv("GO_EXPECT_CLIENT_VERSION")
 	expectedSessionModel := os.Getenv("GO_EXPECT_SESSION_MODEL")
+	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
 
 	for scanner.Scan() {
 		var msg helperEnvelope
@@ -815,6 +861,14 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			sessionID := fmt.Sprintf("session-%d", sessionCount)
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperNewSessionResponse{SessionID: sessionID})})
 		case acp.AgentMethodSessionSetModel:
+			if disableSetModel {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32601, Message: "unsupported"},
+				})
+				continue
+			}
 			var req helperSetSessionModelRequest
 			must(json.Unmarshal(msg.Params, &req))
 			if expectedSessionModel != "" && req.ModelID != expectedSessionModel {

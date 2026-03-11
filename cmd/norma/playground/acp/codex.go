@@ -11,10 +11,9 @@ import (
 )
 
 type CodexOptions struct {
-	Prompt    string
-	Model     string
-	CodexArgs []string
-	Name      string
+	Prompt string
+	Model  string
+	Name   string
 
 	BridgeBin string
 }
@@ -27,7 +26,6 @@ func CodexCommand() *cobra.Command {
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringVar(&opts.Prompt, "prompt", "", "single prompt to run; if empty starts a REPL")
 			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
-			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 		},
 		func(ctx context.Context, repoRoot string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -43,7 +41,6 @@ func CodexInfoCommand() *cobra.Command {
 		"Inspect Codex ACP proxy capabilities and auth methods",
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
-			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
 		},
@@ -60,7 +57,6 @@ func CodexWebCommand() *cobra.Command {
 		"Run Codex ACP proxy with the ADK web launcher",
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
-			cmd.Flags().StringArrayVar(&opts.CodexArgs, "codex-arg", nil, "extra Codex mcp-server argument (repeatable)")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
 			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to current norma binary)")
 		},
@@ -99,10 +95,6 @@ func BuildCodexACPCommand(opts CodexOptions) ([]string, error) {
 	}
 	if strings.TrimSpace(opts.Name) != "" {
 		cmd = append(cmd, "--name", strings.TrimSpace(opts.Name))
-	}
-	if len(opts.CodexArgs) > 0 {
-		cmd = append(cmd, "--")
-		cmd = append(cmd, opts.CodexArgs...)
 	}
 	return cmd, nil
 }

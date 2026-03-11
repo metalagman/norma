@@ -1,31 +1,18 @@
 profile: default
 
 agents:
-  ainvoke_codex_agent:
-    type: codex
-    model: gpt-5.3-codex
-  ainvoke_claude_agent:
-    type: claude
+  claude:
+    type: claude_exec
     model: opus-4.6
-  ainvoke_gemini_agent:
-    type: gemini
-    model: gemini-2.5-flash-lite
-  ainvoke_opencode_agent:
-    type: opencode
-    model: opencode/big-pickle
-  ainvoke_opencode_minimax:
-    type: opencode
-    model: opencode/minimax-m2.5-free
-  gemini_api:
-    type: gemini_aistudio
-    model: gemini-2.5-flash-lite
-    api_key: ${GOOGLE_API_KEY}
   gemini_acp:
     type: gemini_acp
     model: gemini-3-flash-preview
   opencode_acp:
     type: opencode_acp
     model: opencode/big-pickle
+  opencode_minimax:
+    type: opencode_acp
+    model: opencode/minimax-m2.5-free
   codex_acp:
     type: codex_acp
     model: gpt-5.4
@@ -37,45 +24,45 @@ agents:
 profiles:
   default:
     pdca:
-      plan: ainvoke_opencode_agent
-      do: ainvoke_opencode_agent
-      check: ainvoke_codex_agent
-      act: ainvoke_codex_agent
+      plan: opencode_acp
+      do: opencode_acp
+      check: codex_acp
+      act: codex_acp
     planner: codex_acp
   codex:
     pdca:
-      plan: ainvoke_codex_agent
-      do: ainvoke_codex_agent
-      check: ainvoke_codex_agent
-      act: ainvoke_codex_agent
-    planner: ainvoke_codex_agent
+      plan: codex_acp
+      do: codex_acp
+      check: codex_acp
+      act: codex_acp
+    planner: codex_acp
   claude:
     pdca:
-      plan: ainvoke_claude_agent
-      do: ainvoke_claude_agent
-      check: ainvoke_claude_agent
-      act: ainvoke_claude_agent
-    planner: ainvoke_claude_agent
+      plan: claude
+      do: claude
+      check: claude
+      act: claude
+    planner: claude
   opencode:
     pdca:
-      plan: ainvoke_opencode_agent
-      do: ainvoke_opencode_agent
-      check: ainvoke_opencode_agent
-      act: ainvoke_opencode_agent
-    planner: ainvoke_opencode_agent
+      plan: opencode_acp
+      do: opencode_acp
+      check: opencode_acp
+      act: opencode_acp
+    planner: opencode_acp
   minimax:
     pdca:
-      plan: ainvoke_opencode_minimax
-      do: ainvoke_opencode_minimax
-      check: ainvoke_opencode_minimax
-      act: ainvoke_opencode_minimax
-    planner: ainvoke_opencode_minimax
+      plan: opencode_minimax
+      do: opencode_minimax
+      check: opencode_minimax
+      act: opencode_minimax
+    planner: opencode_minimax
   gemini:
     pdca:
-      plan: ainvoke_gemini_agent
-      do: ainvoke_gemini_agent
-      check: ainvoke_gemini_agent
-      act: ainvoke_gemini_agent
+      plan: gemini_acp
+      do: gemini_acp
+      check: gemini_acp
+      act: gemini_acp
     planner: gemini_acp
 
 budgets:

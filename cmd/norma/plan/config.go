@@ -29,12 +29,12 @@ func loadConfig(repoRoot string) (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
-	selectedProfile, agents, err := cfg.ResolveAgents(viper.GetString("profile"))
+	selectedProfile, roleIDs, err := cfg.ResolveAgentIDs(viper.GetString("profile"))
 	if err != nil {
 		return config.Config{}, err
 	}
 	cfg.Profile = selectedProfile
-	cfg.Agents = agents
+	cfg.RoleIDs = roleIDs
 	if cfg.Budgets.MaxIterations <= 0 {
 		return config.Config{}, fmt.Errorf("budgets.max_iterations must be > 0")
 	}
@@ -68,6 +68,15 @@ func loadRawConfig(repoRoot string) (config.Config, error) {
 	var cfg config.Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return config.Config{}, fmt.Errorf("parse config: %w", err)
+	}
+
+	executablePath, err := os.Executable()
+	if err != nil {
+		return config.Config{}, fmt.Errorf("resolve executable path: %w", err)
+	}
+	cfg, err = config.NormalizeAgentAliases(cfg, executablePath)
+	if err != nil {
+		return config.Config{}, err
 	}
 	return cfg, nil
 }

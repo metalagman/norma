@@ -112,22 +112,6 @@ const NormaGitignoreContent = `# ignore everything in .norma by default
 
 const DefaultConfigYAML = `profile: default
 agents:
-  codex_api:
-    type: codex
-    model: gpt-5.2-codex
-  codex_fast:
-    type: codex
-    model: gpt-5.1-codex-mini
-  gemini_flash:
-    type: gemini_aistudio
-    model: gemini-3-flash-preview
-    api_key: ${GOOGLE_API_KEY}
-  claude_api:
-    type: claude
-    model: claude-3-opus
-  opencode_exec_model:
-    type: opencode
-    model: opencode/big-pickle
   gemini_acp_agent:
     type: gemini_acp
     model: gemini-3-flash-preview
@@ -136,46 +120,32 @@ agents:
     model: opencode/big-pickle
   codex_acp_agent:
     type: codex_acp
-  custom_acp_exec_agent:
-    type: acp_exec
+  custom_generic_acp_agent:
+    type: generic_acp
     cmd: ["custom-acp-cli", "--acp"]
 
 profiles:
   default:
     pdca:
-      plan: codex_api
-      do: gemini_flash
-      check: codex_api
-      act: codex_api
-    planner: codex_api
-  codex:
-    pdca:
-      plan: codex_api
-      do: codex_fast
-      check: codex_fast
-      act: codex_api
-    planner: codex_api
-  claude:
-    pdca:
-      plan: claude_api
-      do: claude_api
-      check: claude_api
-      act: claude_api
-    planner: claude_api
+      plan: gemini_acp_agent
+      do: gemini_acp_agent
+      check: gemini_acp_agent
+      act: gemini_acp_agent
+    planner: gemini_acp_agent
   gemini:
     pdca:
-      plan: gemini_flash
-      do: gemini_flash
-      check: gemini_flash
-      act: gemini_flash
-    planner: gemini_flash
+      plan: gemini_acp_agent
+      do: gemini_acp_agent
+      check: gemini_acp_agent
+      act: gemini_acp_agent
+    planner: gemini_acp_agent
   opencode:
     pdca:
-      plan: opencode_exec_model
-      do: opencode_exec_model
-      check: opencode_exec_model
-      act: opencode_exec_model
-    planner: opencode_exec_model
+      plan: opencode_acp_agent
+      do: opencode_acp_agent
+      check: opencode_acp_agent
+      act: opencode_acp_agent
+    planner: opencode_acp_agent
   acp:
     pdca:
       plan: gemini_acp_agent

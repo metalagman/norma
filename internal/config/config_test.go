@@ -4,58 +4,61 @@ import (
 	"testing"
 )
 
-const opencodeType = "opencode"
+const (
+	opencodeACPType     = "opencode_acp"
+	opencodeACPAgentID = "opencode_acp_agent"
+)
 
-func TestResolveAgents_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
+func TestResolveAgentIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
 		Agents: map[string]AgentConfig{
-			"opencode_exec_agent": {Type: opencodeType, Model: "opencode/big-pickle"},
+			opencodeACPAgentID: {Type: opencodeACPType, Model: "opencode/big-pickle"},
 		},
 		Profiles: map[string]ProfileConfig{
 			"default": {
 				PDCA: PDCAAgentRefs{
-					Plan:  "opencode_exec_agent",
-					Do:    "opencode_exec_agent",
-					Check: "opencode_exec_agent",
-					Act:   "opencode_exec_agent",
+					Plan:  opencodeACPAgentID,
+					Do:    opencodeACPAgentID,
+					Check: opencodeACPAgentID,
+					Act:   opencodeACPAgentID,
 				},
-				Planner: "opencode_exec_agent",
+				Planner: opencodeACPAgentID,
 			},
 		},
 	}
 
-	profile, agents, err := cfg.ResolveAgents("")
+	profile, agentIDs, err := cfg.ResolveAgentIDs("")
 	if err != nil {
-		t.Fatalf("ResolveAgents returned error: %v", err)
+		t.Fatalf("ResolveAgentIDs returned error: %v", err)
 	}
 	if profile != "default" {
 		t.Fatalf("profile = %q, want %q", profile, "default")
 	}
-	if agents["plan"].Type != opencodeType {
-		t.Fatalf("plan agent type = %q, want %q", agents["plan"].Type, opencodeType)
+	if agentIDs["plan"] != opencodeACPAgentID {
+		t.Fatalf("plan agent ID = %q, want %q", agentIDs["plan"], opencodeACPAgentID)
 	}
-	if agents["do"].Type != opencodeType {
-		t.Fatalf("do agent type = %q, want %q", agents["do"].Type, opencodeType)
+	if agentIDs["do"] != opencodeACPAgentID {
+		t.Fatalf("do agent ID = %q, want %q", agentIDs["do"], opencodeACPAgentID)
 	}
-	if agents["check"].Type != opencodeType {
-		t.Fatalf("check agent type = %q, want %q", agents["check"].Type, opencodeType)
+	if agentIDs["check"] != opencodeACPAgentID {
+		t.Fatalf("check agent ID = %q, want %q", agentIDs["check"], opencodeACPAgentID)
 	}
-	if agents["act"].Type != opencodeType {
-		t.Fatalf("act agent type = %q, want %q", agents["act"].Type, opencodeType)
+	if agentIDs["act"] != opencodeACPAgentID {
+		t.Fatalf("act agent ID = %q, want %q", agentIDs["act"], opencodeACPAgentID)
 	}
-	if agents["planner"].Type != opencodeType {
-		t.Fatalf("planner agent type = %q, want %q", agents["planner"].Type, opencodeType)
+	if agentIDs["planner"] != opencodeACPAgentID {
+		t.Fatalf("planner agent ID = %q, want %q", agentIDs["planner"], opencodeACPAgentID)
 	}
 }
 
-func TestResolveAgents_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
+func TestResolveAgentIDs_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
 		Agents: map[string]AgentConfig{
-			"defined": {Type: "codex"},
+			"defined": {Type: "gemini_acp"},
 		},
 		Profiles: map[string]ProfileConfig{
 			"default": {
@@ -69,9 +72,9 @@ func TestResolveAgents_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
 		},
 	}
 
-	_, _, err := cfg.ResolveAgents("")
+	_, _, err := cfg.ResolveAgentIDs("")
 	if err == nil {
-		t.Fatal("ResolveAgents returned nil error, want error")
+		t.Fatal("ResolveAgentIDs returned nil error, want error")
 	}
 }
 
@@ -82,12 +85,11 @@ func TestIsACPType(t *testing.T) {
 		typ  string
 		want bool
 	}{
-		{typ: AgentTypeACPExec, want: true},
+		{typ: AgentTypeGenericACP, want: true},
 		{typ: AgentTypeGeminiACP, want: true},
 		{typ: AgentTypeOpenCodeACP, want: true},
 		{typ: AgentTypeCodexACP, want: true},
-		{typ: AgentTypeExec, want: false},
-		{typ: AgentTypeCodex, want: false},
+		{typ: "generic_exec", want: false},
 	}
 
 	for _, tc := range tests {
@@ -100,32 +102,6 @@ func TestIsACPType(t *testing.T) {
 	}
 }
 
-func TestIsLLMType(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		typ  string
-		want bool
-	}{
-		{typ: AgentTypeCodex, want: true},
-		{typ: AgentTypeOpenCode, want: true},
-		{typ: AgentTypeGemini, want: true},
-		{typ: AgentTypeClaude, want: true},
-		{typ: AgentTypeGeminiAIStudio, want: true},
-		{typ: AgentTypeACPExec, want: false},
-		{typ: AgentTypeExec, want: false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.typ, func(t *testing.T) {
-			t.Parallel()
-			if got := IsLLMType(tc.typ); got != tc.want {
-				t.Fatalf("IsLLMType(%q) = %t, want %t", tc.typ, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestIsPlannerSupportedType(t *testing.T) {
 	t.Parallel()
 
@@ -133,10 +109,9 @@ func TestIsPlannerSupportedType(t *testing.T) {
 		typ  string
 		want bool
 	}{
-		{typ: AgentTypeCodex, want: true},
+		{typ: AgentTypeGenericACP, want: true},
 		{typ: AgentTypeCodexACP, want: true},
-		{typ: AgentTypeACPExec, want: true},
-		{typ: AgentTypeExec, want: false},
+		{typ: "generic_exec", want: false},
 		{typ: "unknown", want: false},
 	}
 

@@ -13,7 +13,7 @@ func TestValidateSettings_AcceptACPTypes(t *testing.T) {
 				"model": "gemini-3-flash-preview",
 			},
 			"worker": map[string]any{
-				"type": "acp_exec",
+				"type": "generic_acp",
 				"cmd":  []string{"custom-acp-cli", "--acp"},
 			},
 		},
@@ -38,14 +38,14 @@ func TestValidateSettings_AcceptACPTypes(t *testing.T) {
 	}
 }
 
-func TestValidateSettings_ACPExecRequiresCmd(t *testing.T) {
+func TestValidateSettings_GenericACPRequiresCmd(t *testing.T) {
 	t.Parallel()
 
 	settings := map[string]any{
 		"profile": "default",
 		"agents": map[string]any{
 			"worker": map[string]any{
-				"type": "acp_exec",
+				"type": "generic_acp",
 			},
 		},
 		"profiles": map[string]any{
@@ -65,5 +65,97 @@ func TestValidateSettings_ACPExecRequiresCmd(t *testing.T) {
 
 	if err := ValidateSettings(settings); err == nil {
 		t.Fatal("ValidateSettings returned nil error, want cmd validation error")
+	}
+}
+
+func TestValidateSettings_RejectGenericExec(t *testing.T) {
+	t.Parallel()
+
+	settings := map[string]any{
+		"profile": "default",
+		"agents": map[string]any{
+			"worker": map[string]any{
+				"type": "generic_exec",
+				"cmd":  []string{"ainvoke"},
+			},
+		},
+		"profiles": map[string]any{
+			"default": map[string]any{
+				"pdca": map[string]any{
+					"plan":  "worker",
+					"do":    "worker",
+					"check": "worker",
+					"act":   "worker",
+				},
+			},
+		},
+		"budgets": map[string]any{
+			"max_iterations": 1,
+		},
+	}
+
+	if err := ValidateSettings(settings); err == nil {
+		t.Fatal("ValidateSettings returned nil error, want type validation error for generic_exec")
+	}
+}
+
+func TestValidateSettings_RejectGenericExecRequiresCmd(t *testing.T) {
+	t.Parallel()
+
+	settings := map[string]any{
+		"profile": "default",
+		"agents": map[string]any{
+			"worker": map[string]any{
+				"type": "generic_exec",
+			},
+		},
+		"profiles": map[string]any{
+			"default": map[string]any{
+				"pdca": map[string]any{
+					"plan":  "worker",
+					"do":    "worker",
+					"check": "worker",
+					"act":   "worker",
+				},
+			},
+		},
+		"budgets": map[string]any{
+			"max_iterations": 1,
+		},
+	}
+
+	if err := ValidateSettings(settings); err == nil {
+		t.Fatal("ValidateSettings returned nil error, want type validation error for generic_exec")
+	}
+}
+
+func TestValidateSettings_RejectExecType(t *testing.T) {
+	t.Parallel()
+
+	settings := map[string]any{
+		"profile": "default",
+		"agents": map[string]any{
+			"worker": map[string]any{
+				"type": "exec",
+				"cmd":  []string{"ainvoke"},
+			},
+		},
+		"profiles": map[string]any{
+			"default": map[string]any{
+				"pdca": map[string]any{
+					"plan":  "worker",
+					"do":    "worker",
+					"check": "worker",
+					"act":   "worker",
+				},
+			},
+		},
+		"budgets": map[string]any{
+			"max_iterations": 1,
+		},
+	}
+
+	if err := ValidateSettings(settings); err == nil {
+		t.Fatal("ValidateSettings returned nil error, want type validation error")
 	}
 }
