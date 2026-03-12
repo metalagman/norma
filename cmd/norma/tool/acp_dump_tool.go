@@ -2,7 +2,6 @@ package toolcmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 
@@ -21,7 +20,7 @@ var runACPDumpInspector = func(
 	return acpinspect.Run(ctx, acpinspect.RunConfig{
 		Command:      command,
 		WorkingDir:   repoRoot,
-		Component:    "tool.acpdump",
+		Component:    "tool.acp_dump",
 		StartMessage: "inspecting ACP agent from custom command",
 		JSONOutput:   jsonOutput,
 		Stdout:       stdout,
@@ -32,32 +31,26 @@ var runACPDumpInspector = func(
 func acpDumpToolCommand() *cobra.Command {
 	jsonOutput := false
 	cmd := &cobra.Command{
-		Use:          "acpdump [--json] -- <acp-server-cmd> [args...]",
+		Use:          "acp-dump [--json] -- <acp-server-cmd> [args...]",
 		Short:        "Inspect any stdio ACP server command",
 		Long:         "Start a stdio ACP server command and print ACP initialize/session information.",
-		Example:      "  norma tool acpdump -- opencode acp\n  norma tool acpdump --json -- gemini --experimental-acp",
+		Example:      "  norma tool acp-dump -- opencode acp\n  norma tool acp-dump --json -- gemini --experimental-acp",
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dashIndex := cmd.ArgsLenAtDash()
-			if dashIndex < 0 {
-				return fmt.Errorf("missing command delimiter --; pass ACP server command after --")
-			}
-			if dashIndex > 0 {
-				return fmt.Errorf("arguments before -- are not allowed; pass ACP server command only after --")
-			}
-			if len(args) == 0 {
-				return fmt.Errorf("acp server command is required after --")
+			acpCommand, err := requireACPCommandAfterDash(cmd, args)
+			if err != nil {
+				return err
 			}
 
 			repoRoot, err := os.Getwd()
 			if err != nil {
-				return fmt.Errorf("get working directory: %w", err)
+				return err
 			}
 			return runACPDumpInspector(
 				cmd.Context(),
 				repoRoot,
-				append([]string(nil), args...),
+				acpCommand,
 				jsonOutput,
 				cmd.OutOrStdout(),
 				cmd.ErrOrStderr(),

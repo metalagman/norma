@@ -164,15 +164,23 @@ Notes:
 - `--codex-*` flags configure the initial MCP `codex` tool call.
 - Full reference: [docs/codex-acp-bridge.md](docs/codex-acp-bridge.md).
 
-### 8. Generic ACP Inspector (`acpdump`)
+### 8. Generic ACP Inspector (`acp-dump`)
 Inspect any stdio ACP server command without changing Norma config.
 
 ```bash
 # Human-readable summary
-norma tool acpdump -- opencode acp
+norma tool acp-dump -- opencode acp
 
 # JSON output for scripts
-norma tool acpdump --json -- gemini --experimental-acp
+norma tool acp-dump --json -- gemini --experimental-acp
+```
+
+### 9. Generic ACP REPL (`acp-repl`)
+Run an interactive terminal REPL against any stdio ACP server command.
+
+```bash
+norma tool acp-repl -- opencode acp
+norma tool acp-repl -- gemini --experimental-acp
 ```
 
 ---
