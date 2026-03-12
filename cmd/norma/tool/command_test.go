@@ -1,9 +1,30 @@
 package toolcmd
 
-import "testing"
+import (
+	"context"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestCommandRegistered(t *testing.T) {
 	cmd := Command()
+
+	acpdumpSub, _, err := cmd.Find([]string{"acpdump"})
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if acpdumpSub == nil || acpdumpSub.Name() != "acpdump" {
+		t.Fatalf("subcommand = %v, want acpdump", acpdumpSub)
+	}
+	if got := acpdumpSub.Flags().Lookup("json"); got == nil {
+		t.Fatalf("expected --json flag on acpdump command")
+	}
+	if got := acpdumpSub.Flags().Lookup("model"); got != nil {
+		t.Fatalf("did not expect --model flag on acpdump command")
+	}
 
 	sub, _, err := cmd.Find([]string{"codex-acp"})
 	if err != nil {
@@ -23,5 +44,120 @@ func TestCommandRegistered(t *testing.T) {
 	}
 	if err := sub.Args(sub, []string{"--", "--trace"}); err == nil {
 		t.Fatalf("expected codex-acp to reject positional arguments")
+	}
+}
+
+func TestACPDumpCommand_RejectsMissingDelimiter(t *testing.T) {
+	var calls int
+	prev := runACPDumpInspector
+	t.Cleanup(func() { runACPDumpInspector = prev })
+	runACPDumpInspector = func(context.Context, string, []string, bool, io.Writer, io.Writer) error {
+		calls++
+		return nil
+	}
+
+	cmd := acpDumpToolCommand()
+	cmd.SetArgs([]string{"opencode", "acp"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "missing command delimiter --") {
+		t.Fatalf("error = %v, want missing delimiter error", err)
+	}
+	if calls != 0 {
+		t.Fatalf("run inspector called %d times, want 0", calls)
+	}
+}
+
+func TestACPDumpCommand_RejectsArgsBeforeDelimiter(t *testing.T) {
+	var calls int
+	prev := runACPDumpInspector
+	t.Cleanup(func() { runACPDumpInspector = prev })
+	runACPDumpInspector = func(context.Context, string, []string, bool, io.Writer, io.Writer) error {
+		calls++
+		return nil
+	}
+
+	cmd := acpDumpToolCommand()
+	cmd.SetArgs([]string{"oops", "--", "opencode", "acp"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "arguments before -- are not allowed") {
+		t.Fatalf("error = %v, want args-before-delimiter error", err)
+	}
+	if calls != 0 {
+		t.Fatalf("run inspector called %d times, want 0", calls)
+	}
+}
+
+func TestACPDumpCommand_RejectsMissingCommandAfterDelimiter(t *testing.T) {
+	var calls int
+	prev := runACPDumpInspector
+	t.Cleanup(func() { runACPDumpInspector = prev })
+	runACPDumpInspector = func(context.Context, string, []string, bool, io.Writer, io.Writer) error {
+		calls++
+		return nil
+	}
+
+	cmd := acpDumpToolCommand()
+	cmd.SetArgs([]string{"--"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "acp server command is required after --") {
+		t.Fatalf("error = %v, want missing command error", err)
+	}
+	if calls != 0 {
+		t.Fatalf("run inspector called %d times, want 0", calls)
+	}
+}
+
+func TestACPDumpCommand_PassesThroughArgsAfterDelimiter(t *testing.T) {
+	tempDir := t.TempDir()
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() {
+		if chdirErr := os.Chdir(prevWD); chdirErr != nil {
+			t.Fatalf("restore wd: %v", chdirErr)
+		}
+	})
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir temp: %v", err)
+	}
+
+	var got struct {
+		repoRoot   string
+		command    []string
+		jsonOutput bool
+		calls      int
+	}
+	prev := runACPDumpInspector
+	t.Cleanup(func() { runACPDumpInspector = prev })
+	runACPDumpInspector = func(_ context.Context, repoRoot string, command []string, jsonOutput bool, _ io.Writer, _ io.Writer) error {
+		got.repoRoot = repoRoot
+		got.command = append([]string(nil), command...)
+		got.jsonOutput = jsonOutput
+		got.calls++
+		return nil
+	}
+
+	cmd := acpDumpToolCommand()
+	cmd.SetArgs([]string{"--json", "--", "opencode", "acp", "--trace"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got.calls != 1 {
+		t.Fatalf("run inspector called %d times, want 1", got.calls)
+	}
+	if got.repoRoot != tempDir {
+		t.Fatalf("repo root = %q, want %q", got.repoRoot, tempDir)
+	}
+	wantCommand := []string{"opencode", "acp", "--trace"}
+	if strings.Join(got.command, "|") != strings.Join(wantCommand, "|") {
+		t.Fatalf("command = %v, want %v", got.command, wantCommand)
+	}
+	if !got.jsonOutput {
+		t.Fatalf("jsonOutput = false, want true")
+	}
+	if filepath.Base(got.repoRoot) == "" {
+		t.Fatalf("repo root should be non-empty")
 	}
 }

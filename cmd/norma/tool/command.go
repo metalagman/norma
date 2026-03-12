@@ -10,9 +10,10 @@ func Command() *cobra.Command {
 		Use:          "tool",
 		Short:        "Tool commands for protocol bridges",
 		Long:         "Run tool helpers that expose one agent protocol through another.",
-		Example:      "  norma tool codex-acp --name team-codex",
+		Example:      "  norma tool codex-acp --name team-codex\n  norma tool acpdump -- opencode acp",
 		SilenceUsage: true,
 	}
+	cmd.AddCommand(acpDumpToolCommand())
 	cmd.AddCommand(codexACPToolCommand())
 	return cmd
 }
