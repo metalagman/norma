@@ -15,7 +15,7 @@ import (
 	"google.golang.org/genai"
 )
 
-var ErrNoTasks = errors.New("no tasks")
+var errNoTasks = errors.New("no tasks")
 
 var defaultBackoffSteps = []time.Duration{
 	5 * time.Second,
@@ -25,14 +25,14 @@ var defaultBackoffSteps = []time.Duration{
 	60 * time.Second,
 }
 
-func (w *Loop) backoffSteps() []time.Duration {
+func (w *loopRuntime) backoffSteps() []time.Duration {
 	if len(w.overrideBackoffSteps) > 0 {
 		return w.overrideBackoffSteps
 	}
 	return defaultBackoffSteps
 }
 
-func (w *Loop) newSelectorAgent() (agent.Agent, error) {
+func (w *loopRuntime) newSelectorAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
 		Name:        "Selector",
 		Description: "Picks the next task from the tracker or sleeps if none found.",
@@ -40,7 +40,7 @@ func (w *Loop) newSelectorAgent() (agent.Agent, error) {
 	})
 }
 
-func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (w *loopRuntime) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	l := w.logger.With().
 		Str("agent_name", ctx.Agent().Name()).
 		Str("invocation_id", ctx.InvocationID()).
@@ -72,7 +72,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 				return
 			}
 
-			if !errors.Is(err, ErrNoTasks) {
+			if !errors.Is(err, errNoTasks) {
 				yield(nil, err)
 				return
 			}
@@ -119,7 +119,7 @@ func (w *Loop) runSelector(ctx agent.InvocationContext) iter.Seq2[*session.Event
 	}
 }
 
-func (w *Loop) selectNextTask(ctx context.Context) (task.Task, string, error) {
+func (w *loopRuntime) selectNextTask(ctx context.Context) (task.Task, string, error) {
 	items, err := w.tracker.LeafTasks(ctx)
 	if err != nil {
 		return task.Task{}, "", err
@@ -127,7 +127,7 @@ func (w *Loop) selectNextTask(ctx context.Context) (task.Task, string, error) {
 
 	items = filterRunnableTasks(items)
 	if len(items) == 0 {
-		return task.Task{}, "", ErrNoTasks
+		return task.Task{}, "", errNoTasks
 	}
 
 	selected, reason, err := task.SelectNextReady(ctx, w.tracker, items, w.policy)

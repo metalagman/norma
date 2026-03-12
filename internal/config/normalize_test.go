@@ -27,8 +27,8 @@ func TestNormalizeAgentAliases(t *testing.T) {
 	if acpCfg.Type != AgentTypeGenericACP {
 		t.Fatalf("acp_alias type = %q, want %q", acpCfg.Type, AgentTypeGenericACP)
 	}
-	if len(acpCfg.Cmd) < 3 || acpCfg.Cmd[0] != "/tmp/norma" || acpCfg.Cmd[1] != "proxy" || acpCfg.Cmd[2] != "codex-acp" {
-		t.Fatalf("acp_alias cmd = %v, want codex acp proxy command", acpCfg.Cmd)
+	if len(acpCfg.Cmd) < 3 || acpCfg.Cmd[0] != "/tmp/norma" || acpCfg.Cmd[1] != "tool" || acpCfg.Cmd[2] != "codex-acp" {
+		t.Fatalf("acp_alias cmd = %v, want codex acp tool command", acpCfg.Cmd)
 	}
 
 	genericCfg := normalized.Agents["generic_acp"]

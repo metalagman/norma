@@ -42,7 +42,7 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 | **Generic** | `generic_acp` | Run any local binary or script that implements the Agent Control Protocol. |
 | **Gemini** | `gemini_acp` | Native support for the Gemini CLI with tool-calling and code-reading capabilities. |
 | **OpenCode** | `opencode_acp` | Deep integration with OpenCode for high-performance coding tasks. |
-| **Codex** | `codex_acp` | Optimized bridge for OpenAI Codex-style CLI tools via Norma's proxy. |
+| **Codex** | `codex_acp` | Optimized bridge for OpenAI Codex-style CLI tools via Norma's Codex ACP bridge. |
 
 ---
 
@@ -109,7 +109,7 @@ You can override config values through environment variables with the `NORMA_` p
 - [Planner and Interactive Planning](docs/planner.md)
 - [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
 - [NormaLoop Orchestration](docs/normaloop-agent.md)
-- [Codex ACP Proxy](docs/codex-acp-proxy.md)
+- [Codex ACP Bridge](docs/codex-acp-bridge.md)
 
 ### 4. Create a Task & Run
 ```bash
@@ -146,23 +146,23 @@ Notes:
 - V1 is text-first: normal text responses are rendered in the terminal, while richer ACP events are mainly for debugging via `--debug-events`.
 
 ### 7. Codex ACP Proxy
-Use the proxy command to expose `codex mcp-server` as ACP over stdio.
+Use the tool command to expose `codex mcp-server` as ACP over stdio.
 
 ```bash
-# Start proxy with default ACP agent name
-norma proxy codex-acp
+# Start bridge with default ACP agent name
+norma tool codex-acp
 
 # Override ACP agent name
-norma proxy codex-acp --name team-codex
+norma tool codex-acp --name team-codex
 
 # Set Codex MCP `codex` tool config arguments
-norma proxy codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
+norma tool codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
 ```
 
 Notes:
 - `--name` sets ACP `initialize.agentInfo.name`.
 - `--codex-*` flags configure the initial MCP `codex` tool call.
-- Full reference: [docs/codex-acp-proxy.md](docs/codex-acp-proxy.md).
+- Full reference: [docs/codex-acp-bridge.md](docs/codex-acp-bridge.md).
 
 ---
 

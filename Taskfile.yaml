@@ -35,7 +35,7 @@ tasks:
   test:integration:codex:
     desc: Run Codex ACP proxy integration tests (requires real codex and local config)
     cmds:
-      - go test -tags='integration,codex' -count=1 ./cmd/norma/proxy
+      - go test -tags='integration,codex' -count=1 ./cmd/norma/tool
 
   test:integration:opencode:
     desc: Run OpenCode ACP integration tests for internal/adk/acpagent (requires real opencode and local config)

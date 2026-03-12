@@ -98,9 +98,9 @@ func (m *mockRunStore) GetRunStatus(_ context.Context, runID string) (string, er
 	}
 	return m.statusByRunID[runID], nil
 }
-func (m *mockRunStore) CreateRun(context.Context, string, string, string, int) error { return nil }
+func (m *mockRunStore) CreateRun(context.Context, string, string, string, int) error  { return nil }
 func (m *mockRunStore) UpdateRun(context.Context, string, db.Update, *db.Event) error { return nil }
-func (m *mockRunStore) DB() *sql.DB                                                 { return nil }
+func (m *mockRunStore) DB() *sql.DB                                                   { return nil }
 
 type mockFactory struct {
 	outcome runpkg.AgentOutcome
@@ -160,11 +160,11 @@ func TestSelectNextTaskNoRunnableTasks(t *testing.T) {
 			{ID: "norma-feature", Type: "feature"},
 		},
 	}
-	w := &Loop{logger: zerolog.Nop(), tracker: tracker}
+	w := &loopRuntime{logger: zerolog.Nop(), tracker: tracker}
 
 	_, _, err := w.selectNextTask(context.Background())
-	if !errors.Is(err, ErrNoTasks) {
-		t.Fatalf("selectNextTask() error = %v, want %v", err, ErrNoTasks)
+	if !errors.Is(err, errNoTasks) {
+		t.Fatalf("selectNextTask() error = %v, want %v", err, errNoTasks)
 	}
 }
 
@@ -183,12 +183,12 @@ func TestRunTaskByIDPass(t *testing.T) {
 	}
 	tmp := t.TempDir()
 	v := "PASS"
-	w := &Loop{
-		logger:   zerolog.Nop(),
-		repoRoot: "", // skip git
-		normaDir: tmp,
-		tracker:  tracker,
-		runStore: &mockRunStore{statusByRunID: map[string]string{}},
+	w := &loopRuntime{
+		logger:     zerolog.Nop(),
+		workingDir: "", // skip git
+		normaDir:   tmp,
+		tracker:    tracker,
+		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
 		factory: &mockFactory{
 			outcome: runpkg.AgentOutcome{Status: "passed", Verdict: &v},
 		},
@@ -221,12 +221,12 @@ func TestRunTaskByIDRunnerErrorMarksFailed(t *testing.T) {
 		},
 	}
 	tmp := t.TempDir()
-	w := &Loop{
-		logger:   zerolog.Nop(),
-		repoRoot: "", // skip git
-		normaDir: tmp,
-		tracker:  tracker,
-		runStore: &mockRunStore{statusByRunID: map[string]string{}},
+	w := &loopRuntime{
+		logger:     zerolog.Nop(),
+		workingDir: "", // skip git
+		normaDir:   tmp,
+		tracker:    tracker,
+		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
 		factory: &mockFactory{
 			err: errors.New("runner failed"),
 		},
@@ -251,7 +251,7 @@ type mockInvocationContext struct {
 }
 
 func (m *mockInvocationContext) Context() context.Context { return m.ctx }
-func (m *mockInvocationContext) Done() <-chan struct{}   { return m.ctx.Done() }
+func (m *mockInvocationContext) Done() <-chan struct{}    { return m.ctx.Done() }
 func (m *mockInvocationContext) Session() session.Session { return m.session }
 func (m *mockInvocationContext) Agent() agent.Agent       { return m.agent }
 func (m *mockInvocationContext) InvocationID() string     { return "test-id" }
@@ -261,7 +261,7 @@ func TestRunSelectorBackoff(t *testing.T) {
 	t.Parallel()
 
 	tracker := &mockTracker{}
-	w := &Loop{
+	w := &loopRuntime{
 		logger:               zerolog.Nop(),
 		tracker:              tracker,
 		overrideBackoffSteps: []time.Duration{time.Millisecond, 2 * time.Millisecond},
@@ -287,8 +287,8 @@ func TestRunSelectorBackoff(t *testing.T) {
 	}
 
 	// First run: no tasks, should wait and increment backoff step
-	tracker.leafErr = ErrNoTasks
-	
+	tracker.leafErr = errNoTasks
+
 	// We run it in a goroutine because it loops forever
 	go func() {
 		for range w.runSelector(mctx) {
@@ -308,7 +308,7 @@ func TestRunSelectorBackoff(t *testing.T) {
 	// Now add a task and see if it selects and resets backoff
 	tracker.leafErr = nil
 	tracker.leafTasks = []task.Task{{ID: "norma-1", Type: "task"}}
-	
+
 	// Wait for the next iteration in the loop
 	time.Sleep(100 * time.Millisecond)
 
@@ -323,5 +323,3 @@ func TestRunSelectorBackoff(t *testing.T) {
 		t.Errorf("expected backoff step reset to 0, got %d", step)
 	}
 }
-
-

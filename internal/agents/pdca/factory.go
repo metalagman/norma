@@ -49,7 +49,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 		AcceptanceCriteria: task.AcceptanceCriteria,
 		TaskID:             task.ID,
 		RunDir:             meta.RunDir,
-		GitRoot:            meta.GitRoot,
+		WorkingDir:         meta.GitRoot,
 		BaseBranch:         meta.BaseBranch,
 	}
 

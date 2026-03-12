@@ -27,17 +27,17 @@ func Command() *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			storeDB, repoRoot, closeFn, err := openDB(cmd.Context())
+			storeDB, workingDir, closeFn, err := openDB(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer closeFn()
 
-			if !git.Available(cmd.Context(), repoRoot) {
+			if !git.Available(cmd.Context(), workingDir) {
 				return fmt.Errorf("current directory is not a git repository")
 			}
 
-			cfg, err := loadConfig(repoRoot)
+			cfg, err := loadConfig(workingDir)
 			if err != nil {
 				return err
 			}
@@ -46,7 +46,7 @@ func Command() *cobra.Command {
 			runStore := db.NewStore(storeDB)
 			pdcaFactory := pdca.NewFactory(cfg, runStore, tracker)
 
-			normaDir := filepath.Join(repoRoot, ".norma")
+			normaDir := filepath.Join(workingDir, ".norma")
 			if err := recoverDoingTasks(cmd.Context(), tracker, runStore, normaDir); err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func Command() *cobra.Command {
 				ActiveFeatureID: activeFeatureID,
 				ActiveEpicID:    activeEpicID,
 			}
-			loopAgent, err := normaloop.NewLoop(log.Logger, cfg, repoRoot, tracker, runStore, pdcaFactory, continueOnFail, policy)
+			loopAgent, err := normaloop.New(log.Logger, cfg, workingDir, tracker, runStore, pdcaFactory, continueOnFail, policy)
 			if err != nil {
 				return err
 			}

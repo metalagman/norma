@@ -139,7 +139,7 @@ func NormalizeACPConfig(cfg Config, executablePath string) (Config, error) {
 			return Config{}, fmt.Errorf("resolve executable path: empty")
 		}
 		normalized.Type = AgentTypeGenericACP
-		normalized.Cmd = []string{exePath, "proxy", "codex-acp"}
+		normalized.Cmd = []string{exePath, "tool", "codex-acp"}
 		if cfg.Model != "" {
 			normalized.Cmd = append(normalized.Cmd, "--codex-model", cfg.Model)
 		}

@@ -1,6 +1,6 @@
 //go:build integration && codex
 
-package proxycmd
+package toolcmd
 
 import (
 	"bytes"
@@ -24,7 +24,7 @@ func TestCodexACPProxyIntegration_InitializeAndNewSession(t *testing.T) {
 	repoRoot := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, repoRoot)
 
-	client, stderr := newProxyACPClient(t, repoRoot, normaBin)
+	client, stderr := newToolACPClient(t, repoRoot, normaBin)
 	initResp := mustInitialize(t, client, stderr)
 	if initResp.ProtocolVersion != acp.ProtocolVersion(acp.ProtocolVersionNumber) {
 		t.Fatalf("initialize protocol version = %d, want %d", initResp.ProtocolVersion, acp.ProtocolVersionNumber)
@@ -37,7 +37,7 @@ func TestCodexACPProxyIntegration_CustomName(t *testing.T) {
 	repoRoot := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, repoRoot)
 
-	client, stderr := newProxyACPClient(t, repoRoot, normaBin, "--name", "team-codex")
+	client, stderr := newToolACPClient(t, repoRoot, normaBin, "--name", "team-codex")
 	initResp := mustInitialize(t, client, stderr)
 	if initResp.AgentInfo == nil {
 		t.Fatal("initialize agentInfo is nil")
@@ -51,7 +51,7 @@ func TestCodexACPProxyIntegration_DefaultName(t *testing.T) {
 	repoRoot := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, repoRoot)
 
-	client, stderr := newProxyACPClient(t, repoRoot, normaBin)
+	client, stderr := newToolACPClient(t, repoRoot, normaBin)
 	initResp := mustInitialize(t, client, stderr)
 	if initResp.AgentInfo == nil {
 		t.Fatal("initialize agentInfo is nil")
@@ -65,7 +65,7 @@ func TestCodexACPProxyIntegration_RejectsPositionalArgs(t *testing.T) {
 	repoRoot := requireCodexEnvironment(t)
 	normaBin := buildNormaBinary(t, repoRoot)
 
-	client, stderr := newProxyACPClient(t, repoRoot, normaBin, "--", "--definitely-invalid-flag")
+	client, stderr := newToolACPClient(t, repoRoot, normaBin, "--", "--definitely-invalid-flag")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -134,10 +134,10 @@ func buildNormaBinary(t *testing.T, repoRoot string) string {
 	return binPath
 }
 
-func newProxyACPClient(t *testing.T, repoRoot, normaBin string, args ...string) (*acpagent.Client, *bytes.Buffer) {
+func newToolACPClient(t *testing.T, repoRoot, normaBin string, args ...string) (*acpagent.Client, *bytes.Buffer) {
 	t.Helper()
 
-	command := []string{normaBin, "proxy", "codex-acp"}
+	command := []string{normaBin, "tool", "codex-acp"}
 	command = append(command, args...)
 
 	var stderr bytes.Buffer

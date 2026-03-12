@@ -248,7 +248,7 @@ func TestRunCodexACPOneShot(t *testing.T) {
 		t.Fatalf("stderr = %q, want lifecycle log entry", got)
 	}
 	args := readArgsFile(t, argsFile)
-	wantArgs := []string{"--debug", "proxy", "codex-acp"}
+	wantArgs := []string{"--debug", "tool", "codex-acp"}
 	for _, want := range wantArgs {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)
@@ -502,7 +502,7 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4"}
+	want := []string{"/tmp/norma", "--debug", "tool", "codex-acp", "--codex-model", "gpt-5.4"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -517,7 +517,7 @@ func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "proxy", "codex-acp", "--codex-model", "gpt-5.4", "--name", "team-codex"}
+	want := []string{"/tmp/norma", "--debug", "tool", "codex-acp", "--codex-model", "gpt-5.4", "--name", "team-codex"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}

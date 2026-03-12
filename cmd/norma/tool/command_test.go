@@ -1,4 +1,4 @@
-package proxycmd
+package toolcmd
 
 import "testing"
 

@@ -9,6 +9,6 @@ type AgentInput struct {
 	AcceptanceCriteria []task.AcceptanceCriterion
 	TaskID             string
 	RunDir             string
-	GitRoot            string
+	WorkingDir         string
 	BaseBranch         string
 }

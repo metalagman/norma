@@ -207,8 +207,8 @@ budgets:
 	}
 	checkAgent := cfg.Agents[cfg.RoleIDs["check"]]
 	checkCmd := checkAgent.Cmd
-	if len(checkCmd) < 3 || checkCmd[1] != "proxy" || checkCmd[2] != "codex-acp" {
-		t.Fatalf("check agent cmd = %v, want codex proxy command", checkCmd)
+	if len(checkCmd) < 3 || checkCmd[1] != "tool" || checkCmd[2] != "codex-acp" {
+		t.Fatalf("check agent cmd = %v, want codex tool command", checkCmd)
 	}
 }
 

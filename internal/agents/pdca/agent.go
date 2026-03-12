@@ -392,12 +392,12 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	workspaceDir := filepath.Join(stepDir, "workspace")
 	branchName := fmt.Sprintf("norma/task/%s", a.runInput.TaskID)
 	l.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("mounting worktree")
-	if _, err := git.MountWorktree(ctx, a.runInput.GitRoot, workspaceDir, branchName, a.baseBranch); err != nil {
+	if _, err := git.MountWorktree(ctx, a.runInput.WorkingDir, workspaceDir, branchName, a.baseBranch); err != nil {
 		return nil, fmt.Errorf("mount worktree: %w", err)
 	}
 	defer func() {
 		l.Debug().Str("workspace", workspaceDir).Msg("removing worktree")
-		if err := git.RemoveWorktree(ctx, a.runInput.GitRoot, workspaceDir); err != nil {
+		if err := git.RemoveWorktree(ctx, a.runInput.WorkingDir, workspaceDir); err != nil {
 			l.Warn().Err(err).Str("workspace", workspaceDir).Msg("failed to remove worktree")
 		}
 	}()

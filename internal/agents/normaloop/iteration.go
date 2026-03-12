@@ -8,7 +8,7 @@ import (
 	"google.golang.org/adk/session"
 )
 
-func (w *Loop) newIterationAgent() (agent.Agent, error) {
+func (w *loopRuntime) newIterationAgent() (agent.Agent, error) {
 	return agent.New(agent.Config{
 		Name:        "Iteration",
 		Description: "Runs a single normaloop iteration.",
@@ -16,7 +16,7 @@ func (w *Loop) newIterationAgent() (agent.Agent, error) {
 	})
 }
 
-func (w *Loop) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (w *loopRuntime) runIteration(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	l := w.logger.With().
 		Str("agent_name", ctx.Agent().Name()).
 		Str("invocation_id", ctx.InvocationID()).

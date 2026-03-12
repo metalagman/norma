@@ -56,9 +56,9 @@ func TestNewRunner(t *testing.T) {
 }
 
 func TestAinvokeRunner_Run(t *testing.T) {
-	repoRoot, err := os.MkdirTemp("", "norma-agent-test-*")
+	workingDir, err := os.MkdirTemp("", "norma-agent-test-*")
 	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(repoRoot) }()
+	defer func() { _ = os.RemoveAll(workingDir) }()
 
 	cfg := config.AgentConfig{
 		Type: config.AgentTypeGenericACP,
@@ -73,8 +73,8 @@ func TestAinvokeRunner_Run(t *testing.T) {
 		Task: contracts.TaskInfo{ID: "task-1", Title: "title", Description: "desc", AcceptanceCriteria: []task.AcceptanceCriterion{{ID: "AC1", Text: "text"}}},
 		Step: contracts.StepInfo{Index: 1, Name: "plan"},
 		Paths: contracts.RequestPaths{
-			WorkspaceDir: repoRoot,
-			RunDir:       repoRoot,
+			WorkspaceDir: workingDir,
+			RunDir:       workingDir,
 		},
 		Budgets: contracts.Budgets{
 			MaxIterations: 1,

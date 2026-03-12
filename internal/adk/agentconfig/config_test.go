@@ -150,7 +150,7 @@ func TestNormalizeACPConfig(t *testing.T) {
 			exec: execPath,
 			want: Config{
 				Type:      AgentTypeGenericACP,
-				Cmd:       []string{execPath, "proxy", "codex-acp", "--codex-model", "gpt-5-codex"},
+				Cmd:       []string{execPath, "tool", "codex-acp", "--codex-model", "gpt-5-codex"},
 				Model:     "gpt-5-codex",
 				ExtraArgs: []string{"--trace"},
 			},
@@ -248,7 +248,7 @@ func TestNormalizeACPConfigs(t *testing.T) {
 	if checkCfg.Type != AgentTypeGenericACP {
 		t.Fatalf("check type = %q, want %q", checkCfg.Type, AgentTypeGenericACP)
 	}
-	if len(checkCfg.Cmd) < 3 || checkCfg.Cmd[0] != execPath || checkCfg.Cmd[1] != "proxy" || checkCfg.Cmd[2] != "codex-acp" {
-		t.Fatalf("check cmd = %v, want codex proxy command", checkCfg.Cmd)
+	if len(checkCfg.Cmd) < 3 || checkCfg.Cmd[0] != execPath || checkCfg.Cmd[1] != "tool" || checkCfg.Cmd[2] != "codex-acp" {
+		t.Fatalf("check cmd = %v, want codex tool command", checkCfg.Cmd)
 	}
 }

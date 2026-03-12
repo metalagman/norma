@@ -1,30 +1,30 @@
-# Codex ACP Proxy
+# Codex ACP Bridge
 
 This command runs `codex mcp-server` and exposes it as an ACP agent over stdio.
 
 Command:
 
 ```bash
-norma proxy codex-acp
+norma tool codex-acp
 ```
 
 ## Why this exists
 
 - Norma ACP runners need an ACP endpoint.
 - Codex CLI exposes MCP (`codex mcp-server`), not ACP directly.
-- `norma proxy codex-acp` bridges MCP tools (`codex`, `codex-reply`) into ACP session calls.
+- `norma tool codex-acp` bridges MCP tools (`codex`, `codex-reply`) into ACP session calls.
 
 ## Usage
 
 ```bash
-# Start proxy with defaults
-norma proxy codex-acp
+# Start bridge with defaults
+norma tool codex-acp
 
 # Set ACP agent name seen by ACP clients in initialize.agentInfo.name
-norma proxy codex-acp --name team-codex
+norma tool codex-acp --name team-codex
 
 # Configure Codex MCP `codex` tool args
-norma proxy codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
+norma tool codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
 ```
 
 ## Flags

@@ -32,33 +32,31 @@ type runStatusStore interface {
 	DB() *sql.DB
 }
 
-// Loop orchestrates repeated task execution for `norma loop`.
-type Loop struct {
-	agent.Agent
-	logger         zerolog.Logger
-	cfg            config.Config
-	repoRoot       string
-	normaDir       string
-	tracker        task.Tracker
-	runStore       runStatusStore
-	factory        runpkg.AgentFactory
+type loopRuntime struct {
+	logger               zerolog.Logger
+	cfg                  config.Config
+	workingDir           string
+	normaDir             string
+	tracker              task.Tracker
+	runStore             runStatusStore
+	factory              runpkg.AgentFactory
 	continueOnFail       bool
 	policy               task.SelectionPolicy
 	overrideBackoffSteps []time.Duration
 }
 
-// NewLoop constructs the normaloop ADK loop agent runtime.
-func NewLoop(logger zerolog.Logger, cfg config.Config, repoRoot string, tracker task.Tracker, runStore runStatusStore, factory runpkg.AgentFactory, continueOnFail bool, policy task.SelectionPolicy) (*Loop, error) {
-	absRoot, err := filepath.Abs(repoRoot)
+// New constructs the normaloop ADK loop agent runtime.
+func New(logger zerolog.Logger, cfg config.Config, workingDir string, tracker task.Tracker, runStore runStatusStore, factory runpkg.AgentFactory, continueOnFail bool, policy task.SelectionPolicy) (agent.Agent, error) {
+	absWorkingDir, err := filepath.Abs(workingDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve absolute repo root: %w", err)
+		return nil, fmt.Errorf("resolve absolute working dir: %w", err)
 	}
 
-	w := &Loop{
+	w := &loopRuntime{
 		logger:         logger.With().Str("component", "normaloop").Logger(),
 		cfg:            cfg,
-		repoRoot:       absRoot,
-		normaDir:       filepath.Join(absRoot, ".norma"),
+		workingDir:     absWorkingDir,
+		normaDir:       filepath.Join(absWorkingDir, ".norma"),
 		tracker:        tracker,
 		runStore:       runStore,
 		factory:        factory,
@@ -79,11 +77,10 @@ func NewLoop(logger zerolog.Logger, cfg config.Config, repoRoot string, tracker 
 		return nil, fmt.Errorf("create normaloop loop agent: %w", err)
 	}
 
-	w.Agent = loopAgent
-	return w, nil
+	return loopAgent, nil
 }
 
-func (w *Loop) newLoopAgent(selectorAgent, iterationAgent agent.Agent) (agent.Agent, error) {
+func (w *loopRuntime) newLoopAgent(selectorAgent, iterationAgent agent.Agent) (agent.Agent, error) {
 	return loopagent.New(loopagent.Config{
 		MaxIterations: maxLoopIterations,
 		AgentConfig: agent.Config{
