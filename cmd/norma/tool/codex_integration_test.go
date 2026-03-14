@@ -21,23 +21,23 @@ import (
 const testTimeout = 45 * time.Second
 
 func TestCodexACPProxyIntegration_InitializeAndNewSession(t *testing.T) {
-	repoRoot := requireCodexEnvironment(t)
-	normaBin := buildNormaBinary(t, repoRoot)
+	workingDir := requireCodexEnvironment(t)
+	normaBin := buildNormaBinary(t, workingDir)
 
-	client, stderr := newToolACPClient(t, repoRoot, normaBin)
+	client, stderr := newToolACPClient(t, workingDir, normaBin)
 	initResp := mustInitialize(t, client, stderr)
 	if initResp.ProtocolVersion != acp.ProtocolVersion(acp.ProtocolVersionNumber) {
 		t.Fatalf("initialize protocol version = %d, want %d", initResp.ProtocolVersion, acp.ProtocolVersionNumber)
 	}
 
-	mustNewSession(t, client, stderr, repoRoot)
+	mustNewSession(t, client, stderr, workingDir)
 }
 
 func TestCodexACPProxyIntegration_CustomName(t *testing.T) {
-	repoRoot := requireCodexEnvironment(t)
-	normaBin := buildNormaBinary(t, repoRoot)
+	workingDir := requireCodexEnvironment(t)
+	normaBin := buildNormaBinary(t, workingDir)
 
-	client, stderr := newToolACPClient(t, repoRoot, normaBin, "--name", "team-codex")
+	client, stderr := newToolACPClient(t, workingDir, normaBin, "--name", "team-codex")
 	initResp := mustInitialize(t, client, stderr)
 	if initResp.AgentInfo == nil {
 		t.Fatal("initialize agentInfo is nil")
@@ -48,10 +48,10 @@ func TestCodexACPProxyIntegration_CustomName(t *testing.T) {
 }
 
 func TestCodexACPProxyIntegration_DefaultName(t *testing.T) {
-	repoRoot := requireCodexEnvironment(t)
-	normaBin := buildNormaBinary(t, repoRoot)
+	workingDir := requireCodexEnvironment(t)
+	normaBin := buildNormaBinary(t, workingDir)
 
-	client, stderr := newToolACPClient(t, repoRoot, normaBin)
+	client, stderr := newToolACPClient(t, workingDir, normaBin)
 	initResp := mustInitialize(t, client, stderr)
 	if initResp.AgentInfo == nil {
 		t.Fatal("initialize agentInfo is nil")
@@ -62,10 +62,10 @@ func TestCodexACPProxyIntegration_DefaultName(t *testing.T) {
 }
 
 func TestCodexACPProxyIntegration_RejectsPositionalArgs(t *testing.T) {
-	repoRoot := requireCodexEnvironment(t)
-	normaBin := buildNormaBinary(t, repoRoot)
+	workingDir := requireCodexEnvironment(t)
+	normaBin := buildNormaBinary(t, workingDir)
 
-	client, stderr := newToolACPClient(t, repoRoot, normaBin, "--", "--definitely-invalid-flag")
+	client, stderr := newToolACPClient(t, workingDir, normaBin, "--", "--definitely-invalid-flag")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -115,18 +115,18 @@ func findRepoRoot(t *testing.T) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("could not locate repo root containing go.mod (started from %q)", dir)
+			t.Fatalf("could not locate working dir containing go.mod (started from %q)", dir)
 		}
 		dir = parent
 	}
 }
 
-func buildNormaBinary(t *testing.T, repoRoot string) string {
+func buildNormaBinary(t *testing.T, workingDir string) string {
 	t.Helper()
 
 	binPath := filepath.Join(t.TempDir(), "norma")
 	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/norma")
-	cmd.Dir = repoRoot
+	cmd.Dir = workingDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build norma binary failed: %v | output=%s", err, strings.TrimSpace(string(out)))
@@ -134,16 +134,16 @@ func buildNormaBinary(t *testing.T, repoRoot string) string {
 	return binPath
 }
 
-func newToolACPClient(t *testing.T, repoRoot, normaBin string, args ...string) (*acpagent.Client, *bytes.Buffer) {
+func newToolACPClient(t *testing.T, workingDir, normaBin string, args ...string) (*acpagent.Client, *bytes.Buffer) {
 	t.Helper()
 
-	command := []string{normaBin, "tool", "codex-acp"}
+	command := []string{normaBin, "tool", "codex-acp-bridge"}
 	command = append(command, args...)
 
 	var stderr bytes.Buffer
 	client, err := acpagent.NewClient(context.Background(), acpagent.ClientConfig{
 		Command:    command,
-		WorkingDir: repoRoot,
+		WorkingDir: workingDir,
 		Stderr:     &stderr,
 	})
 	if err != nil {

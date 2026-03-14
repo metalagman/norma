@@ -11,6 +11,9 @@ func TestNormalizeAgentAliases(t *testing.T) {
 				Type:  AgentTypeCodexACP,
 				Model: "gpt-5-codex",
 			},
+			"copilot_alias": {
+				Type: AgentTypeCopilotACP,
+			},
 			"generic_acp": {
 				Type: AgentTypeGenericACP,
 				Cmd:  []string{"custom-acp"},
@@ -27,8 +30,16 @@ func TestNormalizeAgentAliases(t *testing.T) {
 	if acpCfg.Type != AgentTypeGenericACP {
 		t.Fatalf("acp_alias type = %q, want %q", acpCfg.Type, AgentTypeGenericACP)
 	}
-	if len(acpCfg.Cmd) < 3 || acpCfg.Cmd[0] != "/tmp/norma" || acpCfg.Cmd[1] != "tool" || acpCfg.Cmd[2] != "codex-acp" {
+	if len(acpCfg.Cmd) < 3 || acpCfg.Cmd[0] != "/tmp/norma" || acpCfg.Cmd[1] != "tool" || acpCfg.Cmd[2] != "codex-acp-bridge" {
 		t.Fatalf("acp_alias cmd = %v, want codex acp tool command", acpCfg.Cmd)
+	}
+
+	copilotCfg := normalized.Agents["copilot_alias"]
+	if copilotCfg.Type != AgentTypeGenericACP {
+		t.Fatalf("copilot_alias type = %q, want %q", copilotCfg.Type, AgentTypeGenericACP)
+	}
+	if len(copilotCfg.Cmd) < 2 || copilotCfg.Cmd[0] != "copilot" || copilotCfg.Cmd[1] != "--acp" {
+		t.Fatalf("copilot_alias cmd = %v, want copilot --acp", copilotCfg.Cmd)
 	}
 
 	genericCfg := normalized.Agents["generic_acp"]

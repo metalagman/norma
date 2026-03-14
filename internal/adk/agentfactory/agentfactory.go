@@ -80,6 +80,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.Config, req Creat
 		Name:              req.Name,
 		Description:       req.Description,
 		Model:             cfg.Model,
+		Mode:              cfg.Mode,
 		SystemPrompt:      req.SystemInstruction,
 		Command:           cmd,
 		WorkingDir:        req.WorkingDirectory,

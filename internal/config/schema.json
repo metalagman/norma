@@ -54,7 +54,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["generic_acp", "codex_acp", "opencode_acp", "gemini_acp"]
+          "enum": ["generic_acp", "codex_acp", "opencode_acp", "gemini_acp", "copilot_acp"]
         },
         "cmd": {
           "type": "array",
@@ -72,6 +72,10 @@
           }
         },
         "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
           "type": "string",
           "minLength": 1
         },
@@ -109,7 +113,7 @@
           "if": {
             "properties": {
               "type": {
-                "enum": ["codex_acp", "opencode_acp", "gemini_acp"]
+                "enum": ["codex_acp", "opencode_acp", "gemini_acp", "copilot_acp"]
               }
             }
           },

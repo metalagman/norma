@@ -138,11 +138,14 @@ agents:
   gemini_acp_agent:
     type: gemini_acp
     model: gemini-3-flash-preview
+    mode: code
   opencode_acp_agent:
     type: opencode_acp
     model: opencode/big-pickle
   codex_acp_agent:
     type: codex_acp
+  copilot_acp_agent:
+    type: copilot_acp
   custom_acp_agent:
     type: generic_acp
     cmd:
@@ -154,7 +157,7 @@ profiles:
       plan: gemini_acp_agent
       do: opencode_acp_agent
       check: codex_acp_agent
-      act: custom_acp_agent
+      act: copilot_acp_agent
     planner: gemini_acp_agent
 budgets:
   max_iterations: 2
@@ -192,13 +195,16 @@ budgets:
 	checkRole("plan", "gemini_acp_agent", genericACPType)
 	checkRole("do", "opencode_acp_agent", genericACPType)
 	checkRole("check", "codex_acp_agent", genericACPType)
-	checkRole("act", "custom_acp_agent", genericACPType)
+	checkRole("act", "copilot_acp_agent", genericACPType)
 	checkRole("planner", "gemini_acp_agent", genericACPType)
 
 	planAgent := cfg.Agents[cfg.RoleIDs["plan"]]
 	planCmd := planAgent.Cmd
 	if len(planCmd) < 4 || planCmd[0] != "gemini" || planCmd[1] != "--experimental-acp" || planCmd[2] != "--model" || planCmd[3] != "gemini-3-flash-preview" {
 		t.Fatalf("plan agent cmd = %v, want gemini ACP command with model", planCmd)
+	}
+	if planAgent.Mode != "code" {
+		t.Fatalf("plan agent mode = %q, want %q", planAgent.Mode, "code")
 	}
 	doAgent := cfg.Agents[cfg.RoleIDs["do"]]
 	doCmd := doAgent.Cmd
@@ -207,8 +213,13 @@ budgets:
 	}
 	checkAgent := cfg.Agents[cfg.RoleIDs["check"]]
 	checkCmd := checkAgent.Cmd
-	if len(checkCmd) < 3 || checkCmd[1] != "tool" || checkCmd[2] != "codex-acp" {
+	if len(checkCmd) < 3 || checkCmd[1] != "tool" || checkCmd[2] != "codex-acp-bridge" {
 		t.Fatalf("check agent cmd = %v, want codex tool command", checkCmd)
+	}
+	actAgent := cfg.Agents[cfg.RoleIDs["act"]]
+	actCmd := actAgent.Cmd
+	if len(actCmd) < 2 || actCmd[0] != "copilot" || actCmd[1] != "--acp" {
+		t.Fatalf("act agent cmd = %v, want copilot --acp command", actCmd)
 	}
 }
 

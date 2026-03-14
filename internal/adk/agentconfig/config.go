@@ -11,10 +11,11 @@ import (
 
 // Config describes how to run an agent.
 type Config struct {
-	Type      string   `json:"type"                 mapstructure:"type"       validate:"required,oneof=generic_acp codex_acp opencode_acp gemini_acp"`
+	Type      string   `json:"type"                 mapstructure:"type"       validate:"required,oneof=generic_acp codex_acp opencode_acp gemini_acp copilot_acp"`
 	Cmd       []string `json:"cmd,omitempty"        mapstructure:"cmd"`
 	ExtraArgs []string `json:"extra_args,omitempty" mapstructure:"extra_args"`
 	Model     string   `json:"model,omitempty"      mapstructure:"model"      validate:"omitempty,min=1"`
+	Mode      string   `json:"mode,omitempty"       mapstructure:"mode"       validate:"omitempty,min=1"`
 	BaseURL   string   `json:"base_url,omitempty"   mapstructure:"base_url"   validate:"omitempty,min=1"`
 	APIKey    string   `json:"api_key,omitempty"    mapstructure:"api_key"    validate:"omitempty,min=1"`
 	Timeout   int      `json:"timeout,omitempty"    mapstructure:"timeout"    validate:"omitempty,min=1"`
@@ -53,7 +54,7 @@ func (c Config) Validate() error {
 		if len(c.Cmd) == 0 {
 			errs = append(errs, fmt.Sprintf("cmd is required for type %s", c.Type))
 		}
-	case AgentTypeCodexACP, AgentTypeOpenCodeACP, AgentTypeGeminiACP:
+	case AgentTypeCodexACP, AgentTypeOpenCodeACP, AgentTypeGeminiACP, AgentTypeCopilotACP:
 		if len(c.Cmd) > 0 {
 			errs = append(errs, fmt.Sprintf("cmd must be omitted for type %s", c.Type))
 		}
@@ -102,12 +103,14 @@ const (
 	AgentTypeCodexACP = "codex_acp"
 	// AgentTypeOpenCodeACP is the alias for OpenCode CLI ACP mode.
 	AgentTypeOpenCodeACP = "opencode_acp"
+	// AgentTypeCopilotACP is the alias for Copilot CLI ACP mode.
+	AgentTypeCopilotACP = "copilot_acp"
 )
 
 // IsACPType reports whether an agent type uses the ACP runtime.
 func IsACPType(agentType string) bool {
 	switch strings.TrimSpace(agentType) {
-	case AgentTypeGenericACP, AgentTypeGeminiACP, AgentTypeOpenCodeACP, AgentTypeCodexACP:
+	case AgentTypeGenericACP, AgentTypeGeminiACP, AgentTypeOpenCodeACP, AgentTypeCodexACP, AgentTypeCopilotACP:
 		return true
 	default:
 		return false
@@ -139,10 +142,13 @@ func NormalizeACPConfig(cfg Config, executablePath string) (Config, error) {
 			return Config{}, fmt.Errorf("resolve executable path: empty")
 		}
 		normalized.Type = AgentTypeGenericACP
-		normalized.Cmd = []string{exePath, "tool", "codex-acp"}
+		normalized.Cmd = []string{exePath, "tool", "codex-acp-bridge"}
 		if cfg.Model != "" {
 			normalized.Cmd = append(normalized.Cmd, "--codex-model", cfg.Model)
 		}
+	case AgentTypeCopilotACP:
+		normalized.Type = AgentTypeGenericACP
+		normalized.Cmd = []string{"copilot", "--acp"}
 	}
 
 	return normalized, nil

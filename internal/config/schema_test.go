@@ -11,6 +11,10 @@ func TestValidateSettings_AcceptACPTypes(t *testing.T) {
 			"planner": map[string]any{
 				"type":  "gemini_acp",
 				"model": "gemini-3-flash-preview",
+				"mode":  "code",
+			},
+			"copilot": map[string]any{
+				"type": "copilot_acp",
 			},
 			"worker": map[string]any{
 				"type": "generic_acp",
@@ -21,7 +25,7 @@ func TestValidateSettings_AcceptACPTypes(t *testing.T) {
 			"default": map[string]any{
 				"pdca": map[string]any{
 					"plan":  "planner",
-					"do":    "worker",
+					"do":    "copilot",
 					"check": "worker",
 					"act":   "worker",
 				},

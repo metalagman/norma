@@ -55,6 +55,7 @@ const (
 	AgentTypeCodexACP    = agentconfig.AgentTypeCodexACP
 	AgentTypeOpenCodeACP = agentconfig.AgentTypeOpenCodeACP
 	AgentTypeGeminiACP   = agentconfig.AgentTypeGeminiACP
+	AgentTypeCopilotACP  = agentconfig.AgentTypeCopilotACP
 )
 
 // IsACPType reports whether an agent type uses the ACP runtime.

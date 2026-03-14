@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	acpcmd "github.com/metalagman/norma/cmd/norma/playground/acp"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -25,7 +24,6 @@ const (
 	methodSessionUpdate     = "session/update"
 	updateAgentMessageChunk = "agent_message_chunk"
 	sessionOneHelloResponse = "session-1:hello\n"
-	acpSubcommandPECL       = "pecl"
 	acpSubcommandGemini     = "gemini"
 	acpSubcommandOpenCode   = "opencode"
 	acpSubcommandCodex      = "codex"
@@ -44,28 +42,21 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 		t.Fatalf("subcommand = %v, want acp", sub)
 	}
 
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandPECL})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandPECL {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandPECL)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandPECL, acpSubcommandGemini})
+	sub, _, err = cmd.Find([]string{"acp", acpSubcommandGemini})
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
 	if sub == nil || sub.Name() != acpSubcommandGemini {
 		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandGemini)
 	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandPECL, acpSubcommandOpenCode})
+	sub, _, err = cmd.Find([]string{"acp", acpSubcommandOpenCode})
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
 	if sub == nil || sub.Name() != acpSubcommandOpenCode {
 		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandOpenCode)
 	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandPECL, acpSubcommandCodex})
+	sub, _, err = cmd.Find([]string{"acp", acpSubcommandCodex})
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
@@ -127,13 +118,6 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 	}
 	if sub == nil || sub.Name() != acpSubcommandCodex {
 		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandCodex)
-	}
-	sub, _, err = cmd.Find([]string{"codex-mcp-server"})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != "codex-mcp-server" {
-		t.Fatalf("subcommand = %v, want codex-mcp-server", sub)
 	}
 	sub, _, err = cmd.Find([]string{structuredSubcmd})
 	if err != nil {
@@ -248,7 +232,7 @@ func TestRunCodexACPOneShot(t *testing.T) {
 		t.Fatalf("stderr = %q, want lifecycle log entry", got)
 	}
 	args := readArgsFile(t, argsFile)
-	wantArgs := []string{"--debug", "tool", "codex-acp"}
+	wantArgs := []string{"tool", "codex-acp-bridge"}
 	for _, want := range wantArgs {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)
@@ -384,116 +368,6 @@ func TestRunACPInfoJSON(t *testing.T) {
 	}
 }
 
-func TestRunCodexMCPServerHumanOutput(t *testing.T) {
-	wrapper, argsFile := writeCodexMCPWrapper(t, "full")
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	err := runCodexMCPServer(context.Background(), t.TempDir(), codexMCPServerOptions{
-		CodexBin:  wrapper,
-		CodexArgs: []string{"--trace"},
-	}, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("runCodexMCPServer() error = %v", err)
-	}
-
-	out := stdout.String()
-	for _, want := range []string{
-		"Server: playground-mcp-helper",
-		"Tools (1):",
-		"- echo: Echoes text input",
-		"Prompts (1):",
-		"- greet: Greets the provided name",
-		"Resources (1):",
-		"- file:///playground/info.txt: Playground info resource",
-		"Resource templates (1):",
-		"- file:///playground/{name}: Playground resource template",
-		"ADK tools (1):",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("stdout = %q, want substring %q", out, want)
-		}
-	}
-	if got := stderr.String(); !strings.Contains(got, "starting Codex MCP server playground") {
-		t.Fatalf("stderr = %q, want lifecycle log entry", got)
-	}
-
-	args := readArgsFile(t, argsFile)
-	for _, want := range []string{"mcp-server", "--trace"} {
-		if !containsArg(args, want) {
-			t.Fatalf("args %v do not contain %q", args, want)
-		}
-	}
-}
-
-func TestRunCodexMCPServerJSONOutput(t *testing.T) {
-	wrapper, _ := writeCodexMCPWrapper(t, "full")
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	err := runCodexMCPServer(context.Background(), t.TempDir(), codexMCPServerOptions{
-		CodexBin: wrapper,
-		JSON:     true,
-	}, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("runCodexMCPServer() error = %v", err)
-	}
-
-	var got codexMCPInspectOutput
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("json.Unmarshal(stdout) error = %v; stdout=%q", err, stdout.String())
-	}
-	if got.Initialize == nil || got.Initialize.ServerInfo == nil {
-		t.Fatalf("initialize/serverInfo missing in output: %+v", got)
-	}
-	if got.Initialize.ServerInfo.Name != "playground-mcp-helper" {
-		t.Fatalf("serverInfo.name = %q, want %q", got.Initialize.ServerInfo.Name, "playground-mcp-helper")
-	}
-	if len(got.Tools) != 1 || got.Tools[0].Name != "echo" {
-		t.Fatalf("tools = %+v, want one echo tool", got.Tools)
-	}
-	if len(got.Prompts) != 1 || got.Prompts[0].Name != "greet" {
-		t.Fatalf("prompts = %+v, want one greet prompt", got.Prompts)
-	}
-	if len(got.Resources) != 1 || got.Resources[0].URI != "file:///playground/info.txt" {
-		t.Fatalf("resources = %+v, want one playground resource", got.Resources)
-	}
-	if len(got.ResourceTemplates) != 1 || got.ResourceTemplates[0].URITemplate != "file:///playground/{name}" {
-		t.Fatalf("resourceTemplates = %+v, want one playground template", got.ResourceTemplates)
-	}
-	if !got.Support.Tools || !got.Support.Prompts || !got.Support.Resources || !got.Support.ResourceTemplates {
-		t.Fatalf("support = %+v, want all true", got.Support)
-	}
-	if len(got.ADKTools) != 1 || got.ADKTools[0].Name != "echo" {
-		t.Fatalf("adk tools = %+v, want one echo tool", got.ADKTools)
-	}
-}
-
-func TestRunCodexMCPServerToolsOnlyMarksUnsupportedFeatures(t *testing.T) {
-	wrapper, _ := writeCodexMCPWrapper(t, "tools-only")
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	err := runCodexMCPServer(context.Background(), t.TempDir(), codexMCPServerOptions{
-		CodexBin: wrapper,
-	}, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("runCodexMCPServer() error = %v", err)
-	}
-	out := stdout.String()
-	for _, want := range []string{
-		"Tools (1):",
-		"Prompts: unsupported",
-		"Resources: unsupported",
-		"Resource templates: unsupported",
-		"ADK tools (1):",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("stdout = %q, want substring %q", out, want)
-		}
-	}
-}
-
 func TestBuildCodexACPCommand(t *testing.T) {
 	got, err := acpcmd.BuildCodexACPCommand(acpcmd.CodexOptions{
 		BridgeBin: "/tmp/norma",
@@ -502,7 +376,7 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "tool", "codex-acp", "--codex-model", "gpt-5.4"}
+	want := []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5.4"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -517,7 +391,7 @@ func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "--debug", "tool", "codex-acp", "--codex-model", "gpt-5.4", "--name", "team-codex"}
+	want := []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5.4", "--name", "team-codex"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -563,7 +437,7 @@ func writeCodexACPWrapper(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args.txt")
-	wrapperPath := filepath.Join(dir, "codex-acp-wrapper.sh")
+	wrapperPath := filepath.Join(dir, "codex-acp-bridge-wrapper.sh")
 	script := fmt.Sprintf(`#!/bin/sh
 : > %s
 for arg in "$@"; do
@@ -571,24 +445,6 @@ for arg in "$@"; do
 done
 exec env GO_WANT_PLAYGROUND_ACP_HELPER=1 %s -test.run=TestPlaygroundACPHelperProcess -- "$@"
 `, shellQuote(argsFile), shellQuote(argsFile), shellQuote(os.Args[0]))
-	if err := os.WriteFile(wrapperPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", wrapperPath, err)
-	}
-	return wrapperPath, argsFile
-}
-
-func writeCodexMCPWrapper(t *testing.T, mode string) (string, string) {
-	t.Helper()
-	dir := t.TempDir()
-	argsFile := filepath.Join(dir, "args.txt")
-	wrapperPath := filepath.Join(dir, "codex-wrapper.sh")
-	script := fmt.Sprintf(`#!/bin/sh
-: > %s
-for arg in "$@"; do
-  printf '%%s\n' "$arg" >> %s
-done
-exec env GO_WANT_PLAYGROUND_MCP_HELPER=1 PLAYGROUND_MCP_HELPER_MODE=%s %s -test.run=TestPlaygroundMCPHelperProcess -- "$@"
-`, shellQuote(argsFile), shellQuote(argsFile), shellQuote(mode), shellQuote(os.Args[0]))
 	if err := os.WriteFile(wrapperPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", wrapperPath, err)
 	}
@@ -629,14 +485,6 @@ func TestPlaygroundACPHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestPlaygroundMCPHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_PLAYGROUND_MCP_HELPER") != "1" {
-		return
-	}
-	mustHelper(runPlaygroundMCPHelper(context.Background(), os.Getenv("PLAYGROUND_MCP_HELPER_MODE")))
-	os.Exit(0)
-}
-
 func runPlaygroundACPHelper(stdin *os.File, stdout *os.File) {
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -664,80 +512,6 @@ func runPlaygroundACPHelper(stdin *os.File, stdout *os.File) {
 			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Error: &helperError{Code: -32601, Message: "unsupported"}})
 		}
 	}
-}
-
-func runPlaygroundMCPHelper(ctx context.Context, mode string) error {
-	server := mcp.NewServer(&mcp.Implementation{Name: "playground-mcp-helper", Version: "v1.0.0"}, nil)
-
-	if mode == "codex-tools" {
-		mcp.AddTool(server, &mcp.Tool{Name: "codex", Description: "Starts a codex thread"}, func(_ context.Context, _ *mcp.CallToolRequest, input playgroundCodexToolInput) (*mcp.CallToolResult, playgroundCodexToolOutput, error) {
-			return nil, playgroundCodexToolOutput{
-				ThreadID: "thread-test",
-				Content:  "codex:" + input.Prompt,
-			}, nil
-		})
-		mcp.AddTool(server, &mcp.Tool{Name: "codex-reply", Description: "Continues a codex thread"}, func(_ context.Context, _ *mcp.CallToolRequest, input playgroundCodexReplyInput) (*mcp.CallToolResult, playgroundCodexToolOutput, error) {
-			return nil, playgroundCodexToolOutput{
-				ThreadID: input.ThreadID,
-				Content:  "reply:" + input.Prompt,
-			}, nil
-		})
-		return server.Run(ctx, &mcp.StdioTransport{})
-	}
-
-	mcp.AddTool(server, &mcp.Tool{Name: "echo", Description: "Echoes text input"}, func(_ context.Context, _ *mcp.CallToolRequest, input playgroundEchoInput) (*mcp.CallToolResult, playgroundEchoOutput, error) {
-		return nil, playgroundEchoOutput{Echo: input.Text}, nil
-	})
-
-	if mode != "tools-only" {
-		server.AddPrompt(&mcp.Prompt{
-			Name:        "greet",
-			Description: "Greets the provided name",
-			Arguments: []*mcp.PromptArgument{
-				{Name: "name", Description: "Name to greet", Required: true},
-			},
-		}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-			name := req.Params.Arguments["name"]
-			return &mcp.GetPromptResult{
-				Description: "Greeting prompt",
-				Messages: []*mcp.PromptMessage{
-					{Role: "user", Content: &mcp.TextContent{Text: "Hello " + name}},
-				},
-			}, nil
-		})
-		server.AddResource(&mcp.Resource{
-			URI:         "file:///playground/info.txt",
-			Name:        "playground-info",
-			Description: "Playground info resource",
-			MIMEType:    "text/plain",
-		}, func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			return &mcp.ReadResourceResult{
-				Contents: []*mcp.ResourceContents{
-					{
-						URI:      req.Params.URI,
-						MIMEType: "text/plain",
-						Text:     "playground resource",
-					},
-				},
-			}, nil
-		})
-		server.AddResourceTemplate(&mcp.ResourceTemplate{
-			Name:        "playground-template",
-			URITemplate: "file:///playground/{name}",
-			Description: "Playground resource template",
-		}, func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			return &mcp.ReadResourceResult{
-				Contents: []*mcp.ResourceContents{
-					{
-						URI:      req.Params.URI,
-						MIMEType: "text/plain",
-						Text:     "playground template resource",
-					},
-				},
-			}, nil
-		})
-	}
-	return server.Run(ctx, &mcp.StdioTransport{})
 }
 
 type helperEnvelope struct {
@@ -786,28 +560,6 @@ type helperSessionNotification struct {
 type helperSessionUpdate struct {
 	SessionUpdate string             `json:"sessionUpdate"`
 	Content       *helperContentPart `json:"content,omitempty"`
-}
-
-type playgroundEchoInput struct {
-	Text string `json:"text" jsonschema:"text to echo"`
-}
-
-type playgroundEchoOutput struct {
-	Echo string `json:"echo" jsonschema:"echoed text"`
-}
-
-type playgroundCodexToolInput struct {
-	Prompt string `json:"prompt" jsonschema:"prompt text"`
-}
-
-type playgroundCodexReplyInput struct {
-	ThreadID string `json:"threadId" jsonschema:"thread id"`
-	Prompt   string `json:"prompt"   jsonschema:"prompt text"`
-}
-
-type playgroundCodexToolOutput struct {
-	ThreadID string `json:"threadId" jsonschema:"thread id"`
-	Content  string `json:"content"  jsonschema:"assistant response"`
 }
 
 func writeHelperUpdate(stdout *os.File, sessionID, text string) {

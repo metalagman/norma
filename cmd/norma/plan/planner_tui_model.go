@@ -158,7 +158,7 @@ func (m *plannerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					val = "No answer provided."
 				}
 				m.responseChan <- val
-				m.history.WriteString(fmt.Sprintf("\n> %s\n", val))
+				_, _ = fmt.Fprintf(&m.history, "\n> %s\n", val)
 				m.textinput.Reset()
 				m.waitingForHuman = false
 				m.waitingResponse = true

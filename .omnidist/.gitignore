@@ -1,0 +1,7 @@
+# omnidist generated artifacts
+dist/
+npm/
+uv/
+*/dist/
+*/npm/
+*/uv/

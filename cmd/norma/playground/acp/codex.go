@@ -89,7 +89,7 @@ func BuildCodexACPCommand(opts CodexOptions) ([]string, error) {
 		}
 	}
 
-	cmd := []string{bridgeBin, "--debug", "tool", "codex-acp"}
+	cmd := []string{bridgeBin, "tool", "codex-acp-bridge"}
 	if strings.TrimSpace(opts.Model) != "" {
 		cmd = append(cmd, "--codex-model", strings.TrimSpace(opts.Model))
 	}

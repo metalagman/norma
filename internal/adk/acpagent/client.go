@@ -24,6 +24,7 @@ var (
 	errSessionIDRequired = errors.New("acp session id is required")
 	errPromptRequired    = errors.New("acp prompt is required")
 	errModelRequired     = errors.New("acp model is required")
+	errModeRequired      = errors.New("acp mode is required")
 )
 
 const (
@@ -235,23 +236,44 @@ func (c *Client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResp
 	return resp, nil
 }
 
-// CreateSession creates a new ACP session and applies a configured session
-// model when requested.
-func (c *Client) CreateSession(ctx context.Context, cwd, model string) (acp.NewSessionResponse, error) {
+// CreateSession creates a new ACP session and applies configured session
+// model/mode when requested.
+func (c *Client) CreateSession(ctx context.Context, cwd, model, mode string) (acp.NewSessionResponse, error) {
 	resp, err := c.NewSession(ctx, cwd)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
 
 	trimmedModel := strings.TrimSpace(model)
-	if trimmedModel == "" {
-		return resp, nil
+	if trimmedModel != "" {
+		if err := c.SetSessionModel(ctx, string(resp.SessionId), trimmedModel); err != nil {
+			if isACPMethodNotFoundError(err) {
+				c.logger.Debug().
+					Str("session_id", string(resp.SessionId)).
+					Str("model", trimmedModel).
+					Msg("acp session/set_model unsupported; continuing")
+			} else {
+				return acp.NewSessionResponse{}, fmt.Errorf("set acp session model: %w", err)
+			}
+		} else if resp.Models != nil {
+			resp.Models.CurrentModelId = acp.ModelId(trimmedModel)
+		}
 	}
-	if err := c.SetSessionModel(ctx, string(resp.SessionId), trimmedModel); err != nil {
-		return resp, nil
-	}
-	if resp.Models != nil {
-		resp.Models.CurrentModelId = acp.ModelId(trimmedModel)
+
+	trimmedMode := strings.TrimSpace(mode)
+	if trimmedMode != "" {
+		if err := c.SetSessionMode(ctx, string(resp.SessionId), trimmedMode); err != nil {
+			if isACPMethodNotFoundError(err) {
+				c.logger.Debug().
+					Str("session_id", string(resp.SessionId)).
+					Str("mode", trimmedMode).
+					Msg("acp session/set_mode unsupported; continuing")
+			} else {
+				return acp.NewSessionResponse{}, fmt.Errorf("set acp session mode: %w", err)
+			}
+		} else if resp.Modes != nil {
+			resp.Modes.CurrentModeId = acp.SessionModeId(trimmedMode)
+		}
 	}
 	return resp, nil
 }
@@ -282,6 +304,39 @@ func (c *Client) SetSessionModel(ctx context.Context, sessionID, model string) e
 		Str("model", trimmedModel).
 		Msg("acp session/set_model succeeded")
 	return nil
+}
+
+// SetSessionMode selects the active mode for an ACP session.
+func (c *Client) SetSessionMode(ctx context.Context, sessionID, mode string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return errSessionIDRequired
+	}
+	trimmedMode := strings.TrimSpace(mode)
+	if trimmedMode == "" {
+		return errModeRequired
+	}
+
+	c.logger.Debug().
+		Str("session_id", sessionID).
+		Str("mode", trimmedMode).
+		Msg("sending acp session/set_mode")
+	_, err := c.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
+		SessionId: acp.SessionId(sessionID),
+		ModeId:    acp.SessionModeId(trimmedMode),
+	})
+	if err != nil {
+		return err
+	}
+	c.logger.Debug().
+		Str("session_id", sessionID).
+		Str("mode", trimmedMode).
+		Msg("acp session/set_mode succeeded")
+	return nil
+}
+
+func isACPMethodNotFoundError(err error) bool {
+	var reqErr *acp.RequestError
+	return errors.As(err, &reqErr) && reqErr.Code == -32601
 }
 
 // Prompt sends a prompt to an ACP session and streams session updates.

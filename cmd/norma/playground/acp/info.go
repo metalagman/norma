@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/metalagman/norma/internal/adk/acpinspect"
+	"github.com/metalagman/norma/internal/inspect/acpinspect"
 )
 
 func runACPInfo(

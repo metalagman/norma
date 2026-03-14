@@ -22,6 +22,7 @@ type RunConfig struct {
 	Component    string
 	StartMessage string
 	JSONOutput   bool
+	LogLevel     zerolog.Level
 	Stdout       io.Writer
 	Stderr       io.Writer
 }
@@ -44,9 +45,6 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		cfg.Stderr = io.Discard
 	}
 
-	restoreLogLevel := forceGlobalDebugLogging()
-	defer restoreLogLevel()
-
 	component := strings.TrimSpace(cfg.Component)
 	if component == "" {
 		component = "acp.inspect"
@@ -58,11 +56,11 @@ func Run(ctx context.Context, cfg RunConfig) error {
 
 	lockedStderr := &syncWriter{writer: cfg.Stderr}
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: lockedStderr, TimeFormat: time.RFC3339}).
-		Level(zerolog.DebugLevel).
+		Level(cfg.LogLevel).
 		With().Timestamp().Str("component", component).Logger()
 
 	logger.Info().
-		Str("repo_root", cfg.WorkingDir).
+		Str("working_dir", cfg.WorkingDir).
 		Strs("command", cfg.Command).
 		Msg(startMessage)
 
@@ -85,7 +83,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return fmt.Errorf("initialize acp client: %w", err)
 	}
-	sessionResp, err := client.CreateSession(ctx, cfg.WorkingDir, cfg.SessionModel)
+	sessionResp, err := client.CreateSession(ctx, cfg.WorkingDir, cfg.SessionModel, "")
 	if err != nil {
 		return fmt.Errorf("create acp session: %w", err)
 	}
@@ -227,14 +225,6 @@ func writeSessionModelSummary(stdout io.Writer, models *acp.SessionModelState) e
 		}
 	}
 	return nil
-}
-
-func forceGlobalDebugLogging() func() {
-	prev := zerolog.GlobalLevel()
-	zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	return func() {
-		zerolog.SetGlobalLevel(prev)
-	}
 }
 
 type syncWriter struct {

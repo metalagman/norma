@@ -120,6 +120,8 @@ agents:
     model: opencode/big-pickle
   codex_acp_agent:
     type: codex_acp
+  copilot_acp_agent:
+    type: copilot_acp
   custom_generic_acp_agent:
     type: generic_acp
     cmd: ["custom-acp-cli", "--acp"]

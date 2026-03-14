@@ -26,6 +26,8 @@ type Config struct {
 	Description string
 	// Model is the specific LLM model identifier to use.
 	Model string
+	// Mode is the ACP session mode identifier to use.
+	Mode string
 	// SystemPrompt is an optional system-level instruction for the agent.
 	SystemPrompt string
 	// ClientName is the name reported to the ACP server during initialization.
@@ -52,6 +54,7 @@ type Agent struct {
 	client       *Client
 	workingDir   string
 	sessionModel string
+	sessionMode  string
 	systemPrompt string
 	logger       zerolog.Logger
 	sessionMu    sync.Mutex
@@ -111,6 +114,7 @@ func New(cfg Config) (*Agent, error) {
 		client:       client,
 		workingDir:   cfg.WorkingDir,
 		sessionModel: strings.TrimSpace(cfg.Model),
+		sessionMode:  strings.TrimSpace(cfg.Mode),
 		systemPrompt: strings.TrimSpace(cfg.SystemPrompt),
 		logger:       l,
 		remoteByADK:  make(map[string]string),
@@ -288,7 +292,7 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 		a.logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
 		return sessionID, nil
 	}
-	resp, err := a.client.CreateSession(ctx, a.workingDir, a.sessionModel)
+	resp, err := a.client.CreateSession(ctx, a.workingDir, a.sessionModel, a.sessionMode)
 	if err != nil {
 		return "", err
 	}
@@ -299,6 +303,9 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, adkSessionID string) (s
 		Str("acp_session_id", sessionID)
 	if a.sessionModel != "" {
 		event = event.Str("model", a.sessionModel)
+	}
+	if a.sessionMode != "" {
+		event = event.Str("mode", a.sessionMode)
 	}
 	event.Msg("created new acp session for adk session")
 	return sessionID, nil

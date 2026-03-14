@@ -10,15 +10,6 @@ func Command() *cobra.Command {
 		SilenceUsage: true,
 	}
 
-	peclCmd := &cobra.Command{
-		Use:          "pecl",
-		Short:        "Run ACP playground CLIs",
-		SilenceUsage: true,
-	}
-	peclCmd.AddCommand(GeminiCommand())
-	peclCmd.AddCommand(OpenCodeCommand())
-	peclCmd.AddCommand(CodexCommand())
-
 	infoCmd := &cobra.Command{
 		Use:          "info",
 		Short:        "Inspect ACP CLI capabilities and auth methods",
@@ -37,7 +28,9 @@ func Command() *cobra.Command {
 	webCmd.AddCommand(OpenCodeWebCommand())
 	webCmd.AddCommand(CodexWebCommand())
 
-	cmd.AddCommand(peclCmd)
+	cmd.AddCommand(GeminiCommand())
+	cmd.AddCommand(OpenCodeCommand())
+	cmd.AddCommand(CodexCommand())
 	cmd.AddCommand(infoCmd)
 	cmd.AddCommand(webCmd)
 	return cmd

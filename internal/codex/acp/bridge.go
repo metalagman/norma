@@ -19,7 +19,7 @@ import (
 )
 
 // DefaultAgentName is the default ACP agent name reported by the proxy.
-const DefaultAgentName = "norma-codex-acp-proxy"
+const DefaultAgentName = "norma-codex-acp-bridge"
 
 var (
 	validCodexApprovalPolicies = map[string]struct{}{
@@ -47,12 +47,13 @@ type Options struct {
 	CodexModel                 string
 	CodexProfile               string
 	CodexSandbox               string
+	LogLevel                   *zerolog.Level
 }
 
 type codexACPProxyAgent struct {
-	mcpSession         codexMCPToolSession
 	agentName          string
 	defaultCodexConfig codexToolConfig
+	sessionFactory     codexMCPToolSessionFactory
 	logger             zerolog.Logger
 
 	connMu sync.RWMutex
@@ -65,10 +66,12 @@ type codexACPProxyAgent struct {
 }
 
 type codexProxySessionState struct {
-	cwd    string
-	thread string
-	model  string
-	cancel context.CancelFunc
+	cwd     string
+	thread  string
+	model   string
+	mode    string
+	backend codexMCPToolSession
+	cancel  context.CancelFunc
 }
 
 type codexToolConfig struct {
@@ -173,44 +176,22 @@ type codexMCPToolSession interface {
 	Wait() error
 }
 
+type codexMCPToolSessionFactory func(ctx context.Context, cwd string) (codexMCPToolSession, error)
+
 type codexACPSessionUpdater interface {
 	SessionUpdate(ctx context.Context, params acp.SessionNotification) error
 }
 
-type exitCodeError struct {
-	code int
-	err  error
-}
-
-func (e *exitCodeError) Error() string {
-	if e == nil || e.err == nil {
-		return "command exited with error"
-	}
-	return e.err.Error()
-}
-
-func (e *exitCodeError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.err
-}
-
-func (e *exitCodeError) ExitCode() int {
-	if e == nil || e.code <= 0 {
-		return 1
-	}
-	return e.code
-}
-
 // RunProxy starts a Codex MCP server and exposes it as an ACP agent over stdio.
-func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reader, stdout, stderr io.Writer) error {
+func RunProxy(ctx context.Context, workingDir string, opts Options, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err := opts.validate(); err != nil {
 		return err
 	}
 	lockedStderr := &syncWriter{writer: stderr}
 	logLevel := zerolog.InfoLevel
-	if normalogging.DebugEnabled() {
+	if opts.LogLevel != nil {
+		logLevel = *opts.LogLevel
+	} else if normalogging.DebugEnabled() {
 		logLevel = zerolog.DebugLevel
 	}
 	logger := zerolog.New(zerolog.ConsoleWriter{
@@ -229,60 +210,32 @@ func RunProxy(ctx context.Context, repoRoot string, opts Options, stdin io.Reade
 		agentName = DefaultAgentName
 	}
 	logger.Debug().
-		Str("repo_root", repoRoot).
+		Str("working_dir", workingDir).
 		Str("agent_name", agentName).
 		Strs("command", command).
 		Msg("starting codex acp proxy")
 
-	mcpSession, err := connectCodexMCPProxySession(ctx, repoRoot, command, agentName, lockedStderr, logger)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to connect codex mcp session")
-		return err
+	sessionFactory := func(factoryCtx context.Context, sessionCWD string) (codexMCPToolSession, error) {
+		return connectCodexMCPProxySession(factoryCtx, workingDir, sessionCWD, command, agentName, lockedStderr, logger)
 	}
-	defer func() {
-		logger.Debug().Msg("closing codex mcp session")
-		_ = mcpSession.Close()
-	}()
-
-	if err := ensureCodexProxyTools(ctx, mcpSession, logger); err != nil {
+	if err := validateCodexMCPFactory(ctx, sessionFactory, workingDir, logger); err != nil {
 		logger.Error().Err(err).Msg("required codex tools validation failed")
 		return err
 	}
 
-	proxy := newCodexACPProxyAgent(mcpSession, agentName, opts.codexToolConfig(), logger)
+	proxy := newCodexACPProxyAgentWithFactory(sessionFactory, agentName, opts.codexToolConfig(), logger)
 	conn := acp.NewAgentSideConnection(proxy, stdout, stdin)
 	proxy.setConnection(conn)
 	logger.Debug().Msg("acp connection initialized")
 
-	backendDone := make(chan error, 1)
-	go func() {
-		backendDone <- mcpSession.Wait()
-	}()
-
 	select {
 	case <-conn.Done():
 		logger.Debug().Msg("acp client disconnected")
-		_ = mcpSession.Close()
-		_ = awaitBackendStop(backendDone, 2*time.Second)
+		proxy.closeAllSessionBackends()
 		return nil
-	case err := <-backendDone:
-		if err == nil {
-			logger.Error().Msg("codex mcp-server exited before acp client disconnected")
-			return &exitCodeError{
-				code: 1,
-				err:  errors.New("codex mcp-server exited before ACP client disconnected"),
-			}
-		}
-		code := extractExitCode(err)
-		logger.Error().Err(err).Int("exit_code", code).Msg("codex mcp-server exited")
-		return &exitCodeError{
-			code: code,
-			err:  fmt.Errorf("codex mcp-server exited: %w", err),
-		}
 	case <-ctx.Done():
 		logger.Warn().Err(ctx.Err()).Msg("proxy context canceled")
-		_ = mcpSession.Close()
-		_ = awaitBackendStop(backendDone, 2*time.Second)
+		proxy.closeAllSessionBackends()
 		return ctx.Err()
 	}
 }
@@ -293,15 +246,38 @@ func buildCodexMCPCommand(opts Options) []string {
 	return command
 }
 
-func connectCodexMCPProxySession(ctx context.Context, repoRoot string, command []string, agentName string, stderr io.Writer, logger zerolog.Logger) (codexMCPToolSession, error) {
+func validateCodexMCPFactory(ctx context.Context, factory codexMCPToolSessionFactory, cwd string, logger zerolog.Logger) error {
+	session, err := factory(ctx, cwd)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = session.Close()
+		_ = awaitBackendStop(session, 2*time.Second)
+	}()
+	return ensureCodexProxyTools(ctx, session, logger)
+}
+
+func connectCodexMCPProxySession(
+	ctx context.Context,
+	workingDir string,
+	sessionCWD string,
+	command []string,
+	agentName string,
+	stderr io.Writer,
+	logger zerolog.Logger,
+) (codexMCPToolSession, error) {
 	if len(command) == 0 {
 		return nil, errors.New("empty codex command")
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: agentName, Version: "v0.0.1"}, nil)
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-	cmd.Dir = repoRoot
+	cmd.Dir = strings.TrimSpace(sessionCWD)
+	if cmd.Dir == "" {
+		cmd.Dir = workingDir
+	}
 	cmd.Stderr = stderr
-	logger.Debug().Str("cwd", repoRoot).Strs("command", command).Msg("connecting mcp command transport")
+	logger.Debug().Str("cwd", cmd.Dir).Strs("command", command).Msg("connecting mcp command transport")
 	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connect to mcp command: %w", err)
@@ -359,14 +335,28 @@ func ensureCodexProxyTools(ctx context.Context, session codexMCPToolSession, log
 }
 
 func newCodexACPProxyAgent(mcpSession codexMCPToolSession, agentName string, defaultCodexConfig codexToolConfig, logger zerolog.Logger) *codexACPProxyAgent {
+	return newCodexACPProxyAgentWithFactory(
+		func(context.Context, string) (codexMCPToolSession, error) { return mcpSession, nil },
+		agentName,
+		defaultCodexConfig,
+		logger,
+	)
+}
+
+func newCodexACPProxyAgentWithFactory(
+	sessionFactory codexMCPToolSessionFactory,
+	agentName string,
+	defaultCodexConfig codexToolConfig,
+	logger zerolog.Logger,
+) *codexACPProxyAgent {
 	name := strings.TrimSpace(agentName)
 	if name == "" {
 		name = DefaultAgentName
 	}
 	return &codexACPProxyAgent{
-		mcpSession:         mcpSession,
 		agentName:          name,
 		defaultCodexConfig: defaultCodexConfig.withModel(defaultCodexConfig.Model),
+		sessionFactory:     sessionFactory,
 		logger:             logger.With().Str("agent_name", name).Logger(),
 		sessions:           make(map[acp.SessionId]*codexProxySessionState),
 	}
@@ -417,7 +407,7 @@ func (a *codexACPProxyAgent) Cancel(_ context.Context, params acp.CancelNotifica
 	return nil
 }
 
-func (a *codexACPProxyAgent) NewSession(_ context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+func (a *codexACPProxyAgent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	sessionID := acp.SessionId(fmt.Sprintf("session-%d", atomic.AddUint64(&a.nextSessionID, 1)))
 
 	a.mu.Lock()
@@ -439,6 +429,12 @@ func (a *codexACPProxyAgent) NewSession(_ context.Context, params acp.NewSession
 				{ModelId: acp.ModelId(a.defaultCodexConfig.Model), Name: a.defaultCodexConfig.Model},
 			},
 		}
+	}
+	if err := a.ensureSessionBackend(ctx, sessionID); err != nil {
+		a.mu.Lock()
+		delete(a.sessions, sessionID)
+		a.mu.Unlock()
+		return acp.NewSessionResponse{}, err
 	}
 	return resp, nil
 }
@@ -463,11 +459,34 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 		a.mu.Unlock()
 		return acp.PromptResponse{}, acp.NewInvalidRequest("prompt already active for session")
 	}
+	backend := state.backend
+	a.mu.Unlock()
+	if backend == nil {
+		if err := a.ensureSessionBackend(ctx, params.SessionId); err != nil {
+			return acp.PromptResponse{}, err
+		}
+	}
+
+	a.mu.Lock()
+	state, ok = a.sessions[params.SessionId]
+	if !ok {
+		a.mu.Unlock()
+		return acp.PromptResponse{}, acp.NewInvalidParams("session not found")
+	}
+	if state.cancel != nil {
+		a.mu.Unlock()
+		return acp.PromptResponse{}, acp.NewInvalidRequest("prompt already active for session")
+	}
+	if state.backend == nil {
+		a.mu.Unlock()
+		return acp.PromptResponse{}, errors.New("session backend unavailable")
+	}
 	promptCtx, cancel := context.WithCancel(ctx)
 	state.cancel = cancel
 	threadID := state.thread
 	cwd := state.cwd
 	model := state.model
+	backend = state.backend
 	a.mu.Unlock()
 
 	defer func() {
@@ -500,7 +519,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 		return acp.PromptResponse{}, err
 	}
 
-	result, err := a.mcpSession.CallTool(promptCtx, &mcp.CallToolParams{
+	result, err := backend.CallTool(promptCtx, &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: toolArgs,
 	})
@@ -580,24 +599,145 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 }
 
 func (a *codexACPProxyAgent) SetSessionMode(_ context.Context, params acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
-	_ = params
-	a.logger.Debug().Msg("received set_session_mode")
+	nextMode := strings.TrimSpace(string(params.ModeId))
+	backend, changed, err := a.setSessionConfig(params.SessionId, func(state *codexProxySessionState) bool {
+		if state.mode == nextMode {
+			return false
+		}
+		state.mode = nextMode
+		return true
+	})
+	if err != nil {
+		return acp.SetSessionModeResponse{}, err
+	}
+	if changed && backend != nil {
+		_ = backend.Close()
+		_ = awaitBackendStop(backend, 2*time.Second)
+	}
+	a.logger.Debug().
+		Str("session_id", string(params.SessionId)).
+		Str("mode", nextMode).
+		Bool("reset_backend", changed).
+		Msg("received set_session_mode")
 	return acp.SetSessionModeResponse{}, nil
 }
 
 func (a *codexACPProxyAgent) SetSessionModel(_ context.Context, params acp.SetSessionModelRequest) (acp.SetSessionModelResponse, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	state, ok := a.sessions[params.SessionId]
-	if !ok {
-		return acp.SetSessionModelResponse{}, acp.NewInvalidParams("session not found")
+	nextModel := strings.TrimSpace(string(params.ModelId))
+	backend, changed, err := a.setSessionConfig(params.SessionId, func(state *codexProxySessionState) bool {
+		if state.model == nextModel {
+			return false
+		}
+		state.model = nextModel
+		return true
+	})
+	if err != nil {
+		return acp.SetSessionModelResponse{}, err
 	}
-	state.model = strings.TrimSpace(string(params.ModelId))
+	if changed && backend != nil {
+		_ = backend.Close()
+		_ = awaitBackendStop(backend, 2*time.Second)
+	}
 	a.logger.Debug().
 		Str("session_id", string(params.SessionId)).
-		Str("model", state.model).
+		Str("model", nextModel).
+		Bool("reset_backend", changed).
 		Msg("received set_session_model")
 	return acp.SetSessionModelResponse{}, nil
+}
+
+func (a *codexACPProxyAgent) setSessionConfig(
+	sessionID acp.SessionId,
+	apply func(*codexProxySessionState) bool,
+) (codexMCPToolSession, bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	state, ok := a.sessions[sessionID]
+	if !ok {
+		return nil, false, acp.NewInvalidParams("session not found")
+	}
+	if state.cancel != nil {
+		return nil, false, acp.NewInvalidRequest("cannot update session config while prompt is active")
+	}
+	backend := state.backend
+	changed := apply(state)
+	if changed {
+		state.thread = ""
+		state.backend = nil
+	}
+	return backend, changed, nil
+}
+
+func (a *codexACPProxyAgent) ensureSessionBackend(ctx context.Context, sessionID acp.SessionId) error {
+	a.mu.Lock()
+	state, ok := a.sessions[sessionID]
+	if !ok {
+		a.mu.Unlock()
+		return acp.NewInvalidParams("session not found")
+	}
+	if state.backend != nil {
+		a.mu.Unlock()
+		return nil
+	}
+	sessionCWD := state.cwd
+	a.mu.Unlock()
+
+	backend, err := a.sessionFactory(ctx, sessionCWD)
+	if err != nil {
+		return fmt.Errorf("create codex session backend: %w", err)
+	}
+	if err := ensureCodexProxyTools(ctx, backend, a.logger.With().Str("session_id", string(sessionID)).Logger()); err != nil {
+		_ = backend.Close()
+		_ = awaitBackendStop(backend, 2*time.Second)
+		return err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state, ok = a.sessions[sessionID]
+	if !ok {
+		_ = backend.Close()
+		_ = awaitBackendStop(backend, 2*time.Second)
+		return acp.NewInvalidParams("session not found")
+	}
+	if state.backend != nil {
+		_ = backend.Close()
+		_ = awaitBackendStop(backend, 2*time.Second)
+		return nil
+	}
+	state.backend = backend
+	return nil
+}
+
+func (a *codexACPProxyAgent) closeAllSessionBackends() {
+	type backendEntry struct {
+		sessionID acp.SessionId
+		backend   codexMCPToolSession
+	}
+	entries := make([]backendEntry, 0)
+
+	a.mu.Lock()
+	for sessionID, state := range a.sessions {
+		if state.cancel != nil {
+			state.cancel()
+			state.cancel = nil
+		}
+		if state.backend != nil {
+			entries = append(entries, backendEntry{sessionID: sessionID, backend: state.backend})
+			state.backend = nil
+		}
+	}
+	a.mu.Unlock()
+
+	for _, entry := range entries {
+		if err := entry.backend.Close(); err != nil {
+			a.logger.Warn().Err(err).Str("session_id", string(entry.sessionID)).Msg("failed to close session backend")
+		}
+		if err := awaitBackendStop(entry.backend, 2*time.Second); err != nil {
+			a.logger.Warn().Err(err).Str("session_id", string(entry.sessionID)).Msg("failed waiting for session backend stop")
+		}
+	}
 }
 
 func (a *codexACPProxyAgent) sendUpdate(ctx context.Context, sessionID acp.SessionId, update acp.SessionUpdate) error {
@@ -745,27 +885,20 @@ func extractCodexToolResult(result *mcp.CallToolResult) (threadID string, text s
 	return threadID, ""
 }
 
-func awaitBackendStop(ch <-chan error, timeout time.Duration) error {
+func awaitBackendStop(backend codexMCPToolSession, timeout time.Duration) error {
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
+	done := make(chan error, 1)
+	go func() {
+		done <- backend.Wait()
+	}()
 	select {
-	case err := <-ch:
+	case err := <-done:
 		return err
 	case <-time.After(timeout):
 		return errors.New("timeout waiting for codex mcp-server shutdown")
 	}
-}
-
-func extractExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-	return 1
 }
 
 type syncWriter struct {

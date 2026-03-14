@@ -19,7 +19,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 - **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/metalagman/beads). Task state, structured work plans, and full run journals are persisted in Beads `notes`, synchronized via Git.
 - **Intelligent Resumption:** Using granular labels like `norma-has-plan` and `norma-has-do`, norma can resume interrupted runs or skip already completed steps across different machines.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
-- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`).
+- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`, `copilot_acp`).
 - **Ralph-Style Run Journal:** Persists structured per-step progress in task notes (`TaskState.journal`) for resumable run history.
 
 ---
@@ -43,6 +43,7 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 | **Gemini** | `gemini_acp` | Native support for the Gemini CLI with tool-calling and code-reading capabilities. |
 | **OpenCode** | `opencode_acp` | Deep integration with OpenCode for high-performance coding tasks. |
 | **Codex** | `codex_acp` | Optimized bridge for OpenAI Codex-style CLI tools via Norma's Codex ACP bridge. |
+| **Copilot** | `copilot_acp` | Runs Copilot CLI in ACP mode via `copilot --acp`. |
 
 ---
 
@@ -77,6 +78,8 @@ agents:
   opencode_acp_agent:
     type: opencode_acp
     model: opencode/big-pickle
+  copilot_acp_agent:
+    type: copilot_acp
 
 profiles:
   default:
@@ -129,15 +132,15 @@ Use `norma plan` to break a high-level epic into Beads epic/feature/task hierarc
 norma plan "Build multi-tenant billing and subscription management"
 ```
 
-### 6. Experimental Gemini ACP Playground
-Use the playground command to talk to Gemini CLI through ACP and Go ADK without changing your normal Norma agent configuration.
+### 6. Experimental ACP Playground
+Use the playground ACP commands to talk to model CLIs through ACP and Go ADK without changing your normal Norma agent configuration.
 
 ```bash
 # One-shot prompt
-norma playground gemini-acp --prompt "summarize this repository"
+norma playground acp gemini --prompt "summarize this repository"
 
 # Interactive REPL
-norma playground gemini-acp
+norma playground acp gemini
 ```
 
 Notes:
@@ -150,19 +153,20 @@ Use the tool command to expose `codex mcp-server` as ACP over stdio.
 
 ```bash
 # Start bridge with default ACP agent name
-norma tool codex-acp
+norma tool codex-acp-bridge
 
 # Override ACP agent name
-norma tool codex-acp --name team-codex
+norma tool codex-acp-bridge --name team-codex
 
 # Set Codex MCP `codex` tool config arguments
-norma tool codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
+norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-write
 ```
 
 Notes:
 - `--name` sets ACP `initialize.agentInfo.name`.
 - `--codex-*` flags configure the initial MCP `codex` tool call.
 - Full reference: [docs/codex-acp-bridge.md](docs/codex-acp-bridge.md).
+- Standalone binary is also available as `codex-acp-bridge`.
 
 ### 8. Generic ACP Inspector (`acp-dump`)
 Inspect any stdio ACP server command without changing Norma config.
@@ -175,13 +179,67 @@ norma tool acp-dump -- opencode acp
 norma tool acp-dump --json -- gemini --experimental-acp
 ```
 
-### 9. Generic ACP REPL (`acp-repl`)
+Standalone binary is also available as `acp-dump`.
+
+### 9. Generic MCP Inspector (`mcp-dump`)
+Inspect any stdio MCP server command and dump capabilities plus MCP tool schemas.
+
+```bash
+# Human-readable summary
+norma tool mcp-dump -- codex mcp-server
+
+# JSON output for scripts
+norma tool mcp-dump --json -- codex mcp-server
+```
+
+Standalone binary is also available as `mcp-dump`.
+
+### 10. Generic ACP REPL (`acp-repl`)
 Run an interactive terminal REPL against any stdio ACP server command.
 
 ```bash
 norma tool acp-repl -- opencode acp
+norma tool acp-repl --model opencode/big-pickle --mode coding -- opencode acp
 norma tool acp-repl -- gemini --experimental-acp
 ```
+
+Standalone binary is also available as `acp-repl`.
+
+### 11. Omnidist Multi-Profile Distribution
+Norma uses [Omnidist](https://github.com/metalagman/omnidist) profiles for build/stage/verify/publish flows across all command binaries.
+
+Profiles configured in `.omnidist/omnidist.yaml`:
+- `acp-dump`
+- `mcp-dump`
+- `acp-repl`
+- `codex-acp-bridge`
+
+Quickstart per profile:
+
+```bash
+omnidist --profile acp-dump quickstart
+omnidist --profile mcp-dump quickstart
+omnidist --profile acp-repl quickstart
+omnidist --profile codex-acp-bridge quickstart
+```
+
+Run build pipeline for a profile:
+
+```bash
+omnidist --profile <profile> build
+omnidist --profile <profile> stage
+omnidist --profile <profile> verify
+omnidist --profile <profile> npm publish
+```
+
+GitHub release workflows are split per profile and run on `v*` tag pushes:
+- `omnidist-release-acp-dump.yml`
+- `omnidist-release-mcp-dump.yml`
+- `omnidist-release-acp-repl.yml`
+- `omnidist-release-codex-acp-bridge.yml`
+
+Publishing uses:
+- `NPM_PUBLISH_TOKEN` for npm
 
 ---
 

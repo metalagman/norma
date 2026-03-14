@@ -92,7 +92,7 @@ func TestClientCreateSessionSetsModel(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4")
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "")
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestClientCreateSessionIgnoresSetModelUnsupported(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4")
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "")
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestClientCreateSessionIgnoresSetModelUnsupported(t *testing.T) {
 	}
 }
 
-func TestClientCreateSessionIgnoresSetModelRequestError(t *testing.T) {
+func TestClientCreateSessionFailsOnSetModelRequestError(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommandWithEnv(t, map[string]string{
 			"GO_EXPECT_SESSION_MODEL": "different/model",
@@ -138,12 +138,75 @@ func TestClientCreateSessionIgnoresSetModelRequestError(t *testing.T) {
 	if _, err := client.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	sess, err := client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4")
+	_, err = client.CreateSession(context.Background(), t.TempDir(), "openai/gpt-5.4", "")
+	if err == nil {
+		t.Fatal("CreateSession() error = nil, want set model error")
+	}
+}
+
+func TestClientCreateSessionSetsMode(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_MODE": "code",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "", "code")
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
 	}
 	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
 		t.Fatal("CreateSession() returned empty session id")
+	}
+}
+
+func TestClientCreateSessionIgnoresSetModeUnsupported(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_DISABLE_SET_MODE": "1",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sess, err := client.CreateSession(context.Background(), t.TempDir(), "", "code")
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	if got := strings.TrimSpace(string(sess.SessionId)); got == "" {
+		t.Fatal("CreateSession() returned empty session id")
+	}
+}
+
+func TestClientCreateSessionFailsOnSetModeRequestError(t *testing.T) {
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_MODE": "different-mode",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	_, err = client.CreateSession(context.Background(), t.TempDir(), "", "code")
+	if err == nil {
+		t.Fatal("CreateSession() error = nil, want set mode error")
 	}
 }
 
@@ -830,7 +893,9 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedClientName := os.Getenv("GO_EXPECT_CLIENT_NAME")
 	expectedClientVersion := os.Getenv("GO_EXPECT_CLIENT_VERSION")
 	expectedSessionModel := os.Getenv("GO_EXPECT_SESSION_MODEL")
+	expectedSessionMode := os.Getenv("GO_EXPECT_SESSION_MODE")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
+	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
 
 	for scanner.Scan() {
 		var msg helperEnvelope
@@ -880,6 +945,26 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 				continue
 			}
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperSetSessionModelResponse{})})
+		case acp.AgentMethodSessionSetMode:
+			if disableSetMode {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32601, Message: "unsupported"},
+				})
+				continue
+			}
+			var req helperSetSessionModeRequest
+			must(json.Unmarshal(msg.Params, &req))
+			if expectedSessionMode != "" && req.ModeID != expectedSessionMode {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected session mode: %s", req.ModeID)},
+				})
+				continue
+			}
+			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperSetSessionModeResponse{})})
 		case acp.AgentMethodSessionPrompt:
 			var req helperPromptRequest
 			must(json.Unmarshal(msg.Params, &req))
@@ -1032,6 +1117,13 @@ type helperSetSessionModelRequest struct {
 }
 
 type helperSetSessionModelResponse struct{}
+
+type helperSetSessionModeRequest struct {
+	SessionID string `json:"sessionId"`
+	ModeID    string `json:"modeId"`
+}
+
+type helperSetSessionModeResponse struct{}
 
 type helperPromptRequest struct {
 	SessionID string              `json:"sessionId"`

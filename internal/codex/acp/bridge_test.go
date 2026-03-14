@@ -339,6 +339,171 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 	}
 }
 
+func TestCodexACPProxySessionFactoryCreatesDistinctBackendsPerSession(t *testing.T) {
+	backends := make([]*fakeCodexMCPToolSession, 0, 2)
+	factoryCalls := 0
+	agent := newCodexACPProxyAgentWithFactory(
+		func(context.Context, string) (codexMCPToolSession, error) {
+			factoryCalls++
+			backend := &fakeCodexMCPToolSession{
+				listTools: []*mcp.Tool{{Name: codexToolName}, {Name: codexReplyToolName}},
+			}
+			backends = append(backends, backend)
+			return backend, nil
+		},
+		"test-agent",
+		codexToolConfig{},
+		zerolog.Nop(),
+	)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	first, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work-1"})
+	if err != nil {
+		t.Fatalf("first NewSession() error = %v", err)
+	}
+	second, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work-2"})
+	if err != nil {
+		t.Fatalf("second NewSession() error = %v", err)
+	}
+
+	if first.SessionId == second.SessionId {
+		t.Fatalf("session ids must differ, got %q", first.SessionId)
+	}
+	if factoryCalls != 2 {
+		t.Fatalf("factory calls = %d, want 2", factoryCalls)
+	}
+	if len(backends) != 2 || backends[0] == backends[1] {
+		t.Fatalf("expected distinct backend instances, got %#v", backends)
+	}
+}
+
+func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
+	backends := make([]*fakeCodexMCPToolSession, 0, 2)
+	agent := newCodexACPProxyAgentWithFactory(
+		func(context.Context, string) (codexMCPToolSession, error) {
+			backend := &fakeCodexMCPToolSession{
+				listTools: []*mcp.Tool{{Name: codexToolName}, {Name: codexReplyToolName}},
+				callResults: []*mcp.CallToolResult{
+					{
+						StructuredContent: map[string]any{
+							"threadId": "thread-1",
+							"content":  "response",
+						},
+					},
+				},
+			}
+			backends = append(backends, backend)
+			return backend, nil
+		},
+		"test-agent",
+		codexToolConfig{},
+		zerolog.Nop(),
+	)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	if _, err := agent.Prompt(context.Background(), acp.PromptRequest{
+		SessionId: newResp.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock("first prompt")},
+	}); err != nil {
+		t.Fatalf("first Prompt() error = %v", err)
+	}
+	if len(backends) != 1 {
+		t.Fatalf("backend count after first prompt = %d, want 1", len(backends))
+	}
+	firstCalls := backends[0].callsSnapshot()
+	if len(firstCalls) == 0 || firstCalls[0].Name != codexToolName {
+		t.Fatalf("first backend calls = %+v, want initial %q call", firstCalls, codexToolName)
+	}
+
+	if _, err := agent.SetSessionModel(context.Background(), acp.SetSessionModelRequest{
+		SessionId: newResp.SessionId,
+		ModelId:   "gpt-new",
+	}); err != nil {
+		t.Fatalf("SetSessionModel() error = %v", err)
+	}
+	if got := backends[0].closeCallsCount(); got == 0 {
+		t.Fatalf("first backend close calls = %d, want > 0", got)
+	}
+
+	if _, err := agent.Prompt(context.Background(), acp.PromptRequest{
+		SessionId: newResp.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock("second prompt")},
+	}); err != nil {
+		t.Fatalf("second Prompt() error = %v", err)
+	}
+	if len(backends) != 2 {
+		t.Fatalf("backend count after model change prompt = %d, want 2", len(backends))
+	}
+	secondCalls := backends[1].callsSnapshot()
+	if len(secondCalls) == 0 || secondCalls[0].Name != codexToolName {
+		t.Fatalf("second backend calls = %+v, want thread-reset %q call", secondCalls, codexToolName)
+	}
+}
+
+func TestCodexACPProxySetModeResetsThreadAndBackend(t *testing.T) {
+	backends := make([]*fakeCodexMCPToolSession, 0, 2)
+	agent := newCodexACPProxyAgentWithFactory(
+		func(context.Context, string) (codexMCPToolSession, error) {
+			backend := &fakeCodexMCPToolSession{
+				listTools: []*mcp.Tool{{Name: codexToolName}, {Name: codexReplyToolName}},
+				callResults: []*mcp.CallToolResult{
+					{
+						StructuredContent: map[string]any{
+							"threadId": "thread-1",
+							"content":  "response",
+						},
+					},
+				},
+			}
+			backends = append(backends, backend)
+			return backend, nil
+		},
+		"test-agent",
+		codexToolConfig{},
+		zerolog.Nop(),
+	)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	if _, err := agent.Prompt(context.Background(), acp.PromptRequest{
+		SessionId: newResp.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock("first prompt")},
+	}); err != nil {
+		t.Fatalf("first Prompt() error = %v", err)
+	}
+
+	if _, err := agent.SetSessionMode(context.Background(), acp.SetSessionModeRequest{
+		SessionId: newResp.SessionId,
+		ModeId:    "code",
+	}); err != nil {
+		t.Fatalf("SetSessionMode() error = %v", err)
+	}
+	if got := backends[0].closeCallsCount(); got == 0 {
+		t.Fatalf("first backend close calls = %d, want > 0", got)
+	}
+
+	if _, err := agent.Prompt(context.Background(), acp.PromptRequest{
+		SessionId: newResp.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock("second prompt")},
+	}); err != nil {
+		t.Fatalf("second Prompt() error = %v", err)
+	}
+	if len(backends) != 2 {
+		t.Fatalf("backend count after mode change prompt = %d, want 2", len(backends))
+	}
+	secondCalls := backends[1].callsSnapshot()
+	if len(secondCalls) == 0 || secondCalls[0].Name != codexToolName {
+		t.Fatalf("second backend calls = %+v, want thread-reset %q call", secondCalls, codexToolName)
+	}
+}
+
 func TestCodexACPProxyInitializeUsesConfiguredAgentName(t *testing.T) {
 	agent := newCodexACPProxyAgent(&fakeCodexMCPToolSession{}, "team-codex", codexToolConfig{}, zerolog.Nop())
 	resp, err := agent.Initialize(context.Background(), acp.InitializeRequest{})
@@ -499,6 +664,7 @@ type fakeCodexMCPToolSession struct {
 	closeErr    error
 	waitErr     error
 	calls       []fakeCodexToolCall
+	closeCalls  int
 }
 
 func (s *fakeCodexMCPToolSession) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
@@ -532,6 +698,7 @@ func (s *fakeCodexMCPToolSession) ListTools(_ context.Context, _ *mcp.ListToolsP
 func (s *fakeCodexMCPToolSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closeCalls++
 	return s.closeErr
 }
 
@@ -547,6 +714,12 @@ func (s *fakeCodexMCPToolSession) callsSnapshot() []fakeCodexToolCall {
 	out := make([]fakeCodexToolCall, len(s.calls))
 	copy(out, s.calls)
 	return out
+}
+
+func (s *fakeCodexMCPToolSession) closeCallsCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closeCalls
 }
 
 type fakeACPSessionUpdater struct {
