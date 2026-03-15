@@ -46,3 +46,6 @@ Thumbs.db
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Beads runtime logs
+.beads/*.log
