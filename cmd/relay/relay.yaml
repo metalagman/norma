@@ -16,8 +16,8 @@ relay:
       # Register outgoing Telegram webhook URL.
       # Required when webhook.enabled=true.
       url: ""
-      # Optional Telegram secret token protection.
-      secret_token: ""
+      # Optional Telegram webhook auth token protection.
+      auth_token: ""
       # Enable local HTTP endpoint for incoming Telegram webhook updates.
       # If false, relay uses polling mode.
       enabled: false

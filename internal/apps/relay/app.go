@@ -44,11 +44,11 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 	tgbotkitCfg := tgbotkit.Config{
 		Token: cfg.Relay.Telegram.Token,
 		Webhook: tgbotkit.WebhookConfig{
-			Enabled:     cfg.Relay.Telegram.Webhook.Enabled,
-			ListenAddr:  cfg.Relay.Telegram.Webhook.ListenAddr,
-			Path:        cfg.Relay.Telegram.Webhook.Path,
-			URL:         cfg.Relay.Telegram.Webhook.URL,
-			SecretToken: cfg.Relay.Telegram.Webhook.SecretToken,
+			Enabled:    cfg.Relay.Telegram.Webhook.Enabled,
+			ListenAddr: cfg.Relay.Telegram.Webhook.ListenAddr,
+			Path:       cfg.Relay.Telegram.Webhook.Path,
+			URL:        cfg.Relay.Telegram.Webhook.URL,
+			AuthToken:  cfg.Relay.Telegram.Webhook.AuthToken,
 		},
 	}
 

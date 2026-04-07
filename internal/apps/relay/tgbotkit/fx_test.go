@@ -64,11 +64,11 @@ func TestNewUpdateSource_WebhookModeReturnsWebhookSource(t *testing.T) {
 	src, err := NewUpdateSource(
 		Config{
 			Webhook: WebhookConfig{
-				Enabled:     true,
-				ListenAddr:  "127.0.0.1:0",
-				Path:        "/telegram/webhook",
-				URL:         "https://example.com/webhook",
-				SecretToken: "secret",
+				Enabled:    true,
+				ListenAddr: "127.0.0.1:0",
+				Path:       "/telegram/webhook",
+				URL:        "https://example.com/webhook",
+				AuthToken:  "secret",
 			},
 		},
 		newTestTelegramClient(t),
@@ -90,11 +90,11 @@ func TestWebhookUpdateSource_StartServesConfiguredPathAndToken(t *testing.T) {
 	srcAny, err := newWebhookUpdateSource(
 		Config{
 			Webhook: WebhookConfig{
-				Enabled:     true,
-				ListenAddr:  "127.0.0.1:0",
-				Path:        "/telegram/webhook",
-				URL:         "https://example.com/webhook",
-				SecretToken: "my-secret-token",
+				Enabled:    true,
+				ListenAddr: "127.0.0.1:0",
+				Path:       "/telegram/webhook",
+				URL:        "https://example.com/webhook",
+				AuthToken:  "my-secret-token",
 			},
 		},
 		newTestTelegramClient(t),

@@ -112,7 +112,7 @@ func newWebhookUpdateSource(
 ) (runtime.UpdateSource, error) {
 	wh, err := webhook.New(
 		webhook.NewOptions(
-			webhook.WithToken(strings.TrimSpace(cfg.Webhook.SecretToken)),
+			webhook.WithToken(strings.TrimSpace(cfg.Webhook.AuthToken)),
 			webhook.WithUrl(strings.TrimSpace(cfg.Webhook.URL)),
 			webhook.WithClient(client),
 		),
@@ -132,7 +132,7 @@ func newWebhookUpdateSource(
 		listenAddr:    listenAddr,
 		path:          path,
 		logger:        l,
-		secretEnabled: strings.TrimSpace(cfg.Webhook.SecretToken) != "",
+		secretEnabled: strings.TrimSpace(cfg.Webhook.AuthToken) != "",
 	}, nil
 }
 

@@ -47,7 +47,7 @@ profiles: {}
 - `relay.telegram.token`: bot token (required)
 - `relay.telegram.webhook.enabled`: enable local HTTP webhook endpoint (`true` => webhook mode, `false` => polling mode; default: `false`)
 - `relay.telegram.webhook.url`: outgoing Telegram webhook URL (required when `relay.telegram.webhook.enabled=true`)
-- `relay.telegram.webhook.secret_token`: optional webhook secret token
+- `relay.telegram.webhook.auth_token`: optional webhook auth token
 - `relay.telegram.webhook.listen_addr`: local webhook listen address (default: `0.0.0.0:8080`)
 - `relay.telegram.webhook.path`: local webhook path (default: `/telegram/webhook`)
 

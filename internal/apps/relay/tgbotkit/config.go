@@ -8,9 +8,9 @@ type Config struct {
 
 // WebhookConfig holds Telegram webhook receiver settings.
 type WebhookConfig struct {
-	Enabled     bool   `mapstructure:"enabled"`
-	ListenAddr  string `mapstructure:"listen_addr"`
-	Path        string `mapstructure:"path"`
-	URL         string `mapstructure:"url"`
-	SecretToken string `mapstructure:"secret_token"`
+	Enabled    bool   `mapstructure:"enabled"`
+	ListenAddr string `mapstructure:"listen_addr"`
+	Path       string `mapstructure:"path"`
+	URL        string `mapstructure:"url"`
+	AuthToken  string `mapstructure:"auth_token"`
 }

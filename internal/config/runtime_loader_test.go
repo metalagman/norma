@@ -14,8 +14,9 @@ type relayConfigDocumentForTest struct {
 		RootAgent string `mapstructure:"root_agent"`
 		Telegram  struct {
 			Webhook struct {
-				URL     string `mapstructure:"url"`
-				Enabled bool   `mapstructure:"enabled"`
+				URL       string `mapstructure:"url"`
+				Enabled   bool   `mapstructure:"enabled"`
+				AuthToken string `mapstructure:"auth_token"`
 			} `mapstructure:"webhook"`
 		} `mapstructure:"telegram"`
 		Logger struct {
@@ -81,6 +82,7 @@ func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
 	workingDir := t.TempDir()
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_URL", "https://example.com/webhook")
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
+	t.Setenv("RELAY_TELEGRAM_WEBHOOK_AUTH_TOKEN", "auth-token")
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
   agents:
@@ -109,6 +111,7 @@ profiles:
     webhook:
       url: ""
       enabled: false
+      auth_token: ""
 `),
 		},
 		&doc,
@@ -125,6 +128,9 @@ profiles:
 	}
 	if !doc.Relay.Telegram.Webhook.Enabled {
 		t.Fatalf("telegram.webhook.enabled = false, want true from env")
+	}
+	if got := doc.Relay.Telegram.Webhook.AuthToken; got != "auth-token" {
+		t.Fatalf("telegram.webhook.auth_token = %q, want auth-token from env", got)
 	}
 	if got := doc.Relay.Logger.Level; got != "debug" {
 		t.Fatalf("logger.level = %q, want debug", got)
