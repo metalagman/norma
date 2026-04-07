@@ -34,9 +34,10 @@ func TestBundledMCPServerIDs(t *testing.T) {
 
 func TestMergeMCPServerIDs(t *testing.T) {
 	explicit := []string{" custom.one ", "norma.state", "", "custom.one", "custom.two"}
-	got := mergeMCPServerIDs(explicit, true)
-	want := []string{"norma.config", "norma.state", "norma.relay", "norma.workspace", "custom.one", "custom.two"}
+	extra := []string{"relay.extra", "custom.two", " "}
+	got := mergeMCPServerIDs(explicit, extra, true)
+	want := []string{"norma.config", "norma.state", "norma.relay", "norma.workspace", "custom.one", "custom.two", "relay.extra"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mergeMCPServerIDs(%#v, true) = %#v, want %#v", explicit, got, want)
+		t.Fatalf("mergeMCPServerIDs(%#v, %#v, true) = %#v, want %#v", explicit, extra, got, want)
 	}
 }

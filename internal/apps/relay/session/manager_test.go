@@ -74,6 +74,26 @@ func TestStopSession_UsesNonCanceledCleanupContext(t *testing.T) {
 	}
 }
 
+func TestExtraMCPServerIDsForTopic_RootOnly(t *testing.T) {
+	m := &Manager{rootMCPServerIDs: []string{"srv.one", "srv.two"}}
+
+	gotRoot := m.extraMCPServerIDsForTopic(0)
+	if strings.Join(gotRoot, ",") != "srv.one,srv.two" {
+		t.Fatalf("extraMCPServerIDsForTopic(0) = %#v, want [srv.one srv.two]", gotRoot)
+	}
+
+	gotTopic := m.extraMCPServerIDsForTopic(42)
+	if gotTopic != nil {
+		t.Fatalf("extraMCPServerIDsForTopic(42) = %#v, want nil", gotTopic)
+	}
+
+	// Ensure returned root slice is detached.
+	gotRoot[0] = "mutated"
+	if m.rootMCPServerIDs[0] != "srv.one" {
+		t.Fatalf("rootMCPServerIDs mutated through returned slice: %#v", m.rootMCPServerIDs)
+	}
+}
+
 type fakeSessionStore struct {
 	deletedSessionID string
 	deleteCtxErr     error

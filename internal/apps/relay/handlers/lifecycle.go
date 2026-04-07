@@ -26,7 +26,6 @@ import (
 
 // InternalMCPManager controls startup/shutdown of internal MCP servers configured for relay.
 type InternalMCPManager struct {
-	serverIDs        []string
 	workspaceEnabled bool
 	started          bool
 	mu               sync.RWMutex
@@ -50,21 +49,18 @@ type internalMCPParams struct {
 	fx.In
 
 	LC               fx.Lifecycle
-	ServerIDs        []string `name:"relay_internal_mcp_servers"`
-	WorkspaceEnabled bool     `name:"relay_workspace_enabled"`
+	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
 	Logger           zerolog.Logger
 	Registry         *mcpregistry.MapRegistry
 	WorkingDir       string
 	SessionManager   *session.Manager
 	Messenger        *messenger.Messenger
 	StateStore       sessionmcp.Store
-	RelayMCPAddr     string `name:"relay_mcp_addr" optional:"true"`
 }
 
 // NewInternalMCPManager creates an internal MCP lifecycle manager.
 func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 	manager := &InternalMCPManager{
-		serverIDs:        append([]string(nil), params.ServerIDs...),
 		workspaceEnabled: params.WorkspaceEnabled,
 		logger:           params.Logger.With().Str("component", "relay.internal_mcp").Logger(),
 		registry:         params.Registry,
@@ -76,20 +72,10 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 
 	params.LC.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			manager.logger.Info().Int("servers", len(manager.serverIDs)).Msg("starting internal MCP servers")
+			manager.logger.Info().Msg("starting bundled internal MCP servers")
 
-			// 1. Ensure bundled core servers are started if not already configured.
-			if err := manager.ensureBundledServers(ctx, params.RelayMCPAddr); err != nil {
+			if err := manager.ensureBundledServers(ctx); err != nil {
 				return fmt.Errorf("ensuring bundled servers: %w", err)
-			}
-
-			// 2. Log any other configured internal servers.
-			for _, id := range manager.serverIDs {
-				serverID := strings.TrimSpace(id)
-				if serverID == "" || isBundled(serverID) {
-					continue
-				}
-				manager.logger.Info().Str("server_id", serverID).Msg("internal MCP server configured")
 			}
 
 			manager.mu.Lock()
@@ -116,7 +102,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 	return manager
 }
 
-func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPAddr string) error {
+func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 	if m.stateStore == nil {
 		return fmt.Errorf("relay state store is required")
 	}
@@ -125,56 +111,45 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 	routes := make([]string, 0, 5)
 
 	// norma.config
-	if _, ok := m.registry.Get(bundledConfigServerID); !ok {
-		configPath := selectConfigPath(m.workingDir, "relay")
-		svc, err := configmcp.NewConfigService(configPath)
+	configPath := selectConfigPath(m.workingDir, "relay")
+	svc, err := configmcp.NewConfigService(configPath)
+	if err != nil {
+		m.logger.Warn().Err(err).Msg("failed to create config service")
+	} else {
+		server, err := configmcp.NewServer(svc)
 		if err != nil {
-			m.logger.Warn().Err(err).Msg("failed to create config service")
-		} else {
-			server, err := configmcp.NewServer(svc)
-			if err != nil {
-				return fmt.Errorf("build bundled config MCP server: %w", err)
-			}
-			handlersByID[bundledConfigServerID] = streamableHandlerForServer(server)
-			routes = append(routes, bundledRoutePath(bundledConfigServerID))
+			return fmt.Errorf("build bundled config MCP server: %w", err)
 		}
+		handlersByID[bundledConfigServerID] = streamableHandlerForServer(server)
+		routes = append(routes, bundledRoutePath(bundledConfigServerID))
 	}
 
 	// norma.state
-	if _, ok := m.registry.Get(bundledStateServerID); !ok {
-		server, err := sessionmcp.NewServer(m.stateStore)
-		if err != nil {
-			return fmt.Errorf("build bundled state MCP server: %w", err)
-		}
-		handlersByID[bundledStateServerID] = streamableHandlerForServer(server)
-		routes = append(routes, bundledRoutePath(bundledStateServerID))
+	stateServer, err := sessionmcp.NewServer(m.stateStore)
+	if err != nil {
+		return fmt.Errorf("build bundled state MCP server: %w", err)
 	}
+	handlersByID[bundledStateServerID] = streamableHandlerForServer(stateServer)
+	routes = append(routes, bundledRoutePath(bundledStateServerID))
 
 	// norma.relay
-	if _, ok := m.registry.Get(bundledRelayServerID); !ok || relayMCPAddr != "" {
-		// If it's already in factory but relayMCPAddr is set, it means it was configured in app.go
-		// and we should start it on that address.
-		// If it's NOT in factory, we start it on a random port.
-		svc := session.NewRelayMCPServer(m.sessionManager, m.messenger)
-		server, err := relaymcp.NewServer(svc)
-		if err != nil {
-			return fmt.Errorf("build bundled relay MCP server: %w", err)
-		}
-		handlersByID[bundledRelayServerID] = streamableHandlerForServer(server)
-		routes = append(routes, bundledRoutePath(bundledRelayServerID), "/mcp")
+	relaySvc := session.NewRelayMCPServer(m.sessionManager, m.messenger)
+	relayServer, err := relaymcp.NewServer(relaySvc)
+	if err != nil {
+		return fmt.Errorf("build bundled relay MCP server: %w", err)
 	}
+	handlersByID[bundledRelayServerID] = streamableHandlerForServer(relayServer)
+	routes = append(routes, bundledRoutePath(bundledRelayServerID), "/mcp")
 
 	// norma.workspace
 	if m.workspaceEnabled {
-		if _, ok := m.registry.Get(bundledWorkspaceServerID); !ok {
-			svc := session.NewWorkspaceMCPServer(m.sessionManager)
-			server, err := workspacemcp.NewServer(svc)
-			if err != nil {
-				return fmt.Errorf("build bundled workspace MCP server: %w", err)
-			}
-			handlersByID[bundledWorkspaceServerID] = streamableHandlerForServer(server)
-			routes = append(routes, bundledRoutePath(bundledWorkspaceServerID))
+		workspaceSvc := session.NewWorkspaceMCPServer(m.sessionManager)
+		workspaceServer, err := workspacemcp.NewServer(workspaceSvc)
+		if err != nil {
+			return fmt.Errorf("build bundled workspace MCP server: %w", err)
 		}
+		handlersByID[bundledWorkspaceServerID] = streamableHandlerForServer(workspaceServer)
+		routes = append(routes, bundledRoutePath(bundledWorkspaceServerID))
 	} else {
 		m.logger.Info().Msg("workspace mode disabled; skipping bundled workspace server")
 	}
@@ -183,12 +158,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context, relayMCPA
 		return nil
 	}
 
-	listenAddr := strings.TrimSpace(relayMCPAddr)
-	if listenAddr == "" {
-		listenAddr = "127.0.0.1:0"
-	}
-
-	res, err := startBundledMCPHTTPServer(ctx, listenAddr, handlersByID)
+	res, err := startBundledMCPHTTPServer(ctx, "127.0.0.1:0", handlersByID)
 	if err != nil {
 		return fmt.Errorf("start bundled MCP listener: %w", err)
 	}

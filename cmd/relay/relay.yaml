@@ -47,12 +47,6 @@ relay:
     # In on mode, relay fails fast if working_dir is not a git repository.
     mode: "auto"
 
-  # Internal MCP servers to start with relay lifecycle.
-  # Server implementations are wired incrementally.
-  # Optional bind address for bundled relay MCP HTTP listener.
-  # Empty means auto-bind on a local ephemeral port.
-  # mcp:
-  #   address: ""
-
-  internal_mcp:
-    servers: []
+  # Extra MCP server IDs (from norma.mcp_servers) injected into the root session.
+  # Effective root MCP IDs are: bundled defaults + root agent mcp_servers + relay.mcp_servers.
+  mcp_servers: []

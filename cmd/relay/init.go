@@ -148,7 +148,7 @@ func buildRelayInitDocument() (map[string]any, []string, error) {
 	if !ok {
 		return nil, nil, fmt.Errorf("default relay template is missing relay section")
 	}
-	ensureRelayMCPAddressDefault(relaySection)
+	ensureRelayMCPServersDefault(relaySection)
 
 	agentIDs := make([]string, 0, len(detectedAgents))
 	for _, detected := range detectedAgents {
@@ -227,23 +227,19 @@ func buildRelayInitProfiles(agentIDs []string) map[string]any {
 	return profiles
 }
 
-func ensureRelayMCPAddressDefault(relaySection map[string]any) {
-	defaultMCP := map[string]any{"address": ""}
-
-	rawMCP, exists := relaySection["mcp"]
-	if !exists {
-		relaySection["mcp"] = defaultMCP
+func ensureRelayMCPServersDefault(relaySection map[string]any) {
+	raw, exists := relaySection["mcp_servers"]
+	if !exists || raw == nil {
+		relaySection["mcp_servers"] = []any{}
 		return
 	}
-	mcpSection, ok := toStringAnyMap(rawMCP)
-	if !ok {
-		relaySection["mcp"] = defaultMCP
+	if _, ok := raw.([]any); ok {
 		return
 	}
-	if _, ok := mcpSection["address"]; !ok {
-		mcpSection["address"] = ""
+	if _, ok := raw.([]string); ok {
+		return
 	}
-	relaySection["mcp"] = mcpSection
+	relaySection["mcp_servers"] = []any{}
 }
 
 func chooseRelayRootAgent(agentIDs []string, in io.Reader, out io.Writer, interactive bool) (string, error) {

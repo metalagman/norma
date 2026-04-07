@@ -61,6 +61,13 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	if got := telegramSection["token"]; got != "" {
 		t.Fatalf("relay.telegram.token = %#v, want empty string in non-interactive mode", got)
 	}
+	rawRelayMCPServers, ok := relaySection["mcp_servers"].([]any)
+	if !ok {
+		t.Fatalf("relay.mcp_servers type = %T, want []any", relaySection["mcp_servers"])
+	}
+	if len(rawRelayMCPServers) != 0 {
+		t.Fatalf("relay.mcp_servers = %#v, want empty", rawRelayMCPServers)
+	}
 
 	normaSection, ok := toStringAnyMap(doc["norma"])
 	if !ok {

@@ -69,13 +69,6 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 		mcpServers[k] = v
 	}
 	mcpReg := mcpregistry.New(mcpServers)
-	// If relay MCP address is configured, pre-register the external relay endpoint.
-	if cfg.Relay.MCP.Address != "" {
-		mcpReg.Set("norma.relay", agentconfig.MCPServerConfig{
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  fmt.Sprintf("http://%s/mcp", cfg.Relay.MCP.Address),
-		})
-	}
 
 	return fx.Module("relay",
 		fx.Supply(
@@ -134,14 +127,8 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 		),
 		fx.Provide(
 			fx.Annotate(
-				func() string { return cfg.Relay.MCP.Address },
-				fx.ResultTags(`name:"relay_mcp_addr"`),
-			),
-		),
-		fx.Provide(
-			fx.Annotate(
-				func() []string { return append([]string(nil), cfg.Relay.InternalMCP.Servers...) },
-				fx.ResultTags(`name:"relay_internal_mcp_servers"`),
+				func() []string { return append([]string(nil), cfg.Relay.MCPServers...) },
+				fx.ResultTags(`name:"relay_root_mcp_servers"`),
 			),
 		),
 		fx.Provide(

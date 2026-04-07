@@ -59,17 +59,18 @@ profiles: {}
   - Relative paths are resolved from `relay.working_dir`.
   - Default: `.config/relay`
 - owner auth token is generated at runtime per `relay serve` start and exposed via startup `auth_url` log field
-- `relay.mcp.address`: optional bind address for the shared bundled MCP HTTP listener
-  - Bundled routes on this listener:
+- bundled relay MCP listener always binds to local ephemeral address (`127.0.0.1:0`)
+  - bundled routes on this listener:
     - `/mcp` and `/mcp/norma.relay` for relay MCP
     - `/mcp/norma.config`
     - `/mcp/norma.state`
     - `/mcp/norma.workspace` (when workspace mode is enabled)
+- `relay.mcp_servers`: extra MCP server IDs for root session (resolved from `norma.mcp_servers`)
+  - effective root MCP IDs = bundled defaults + `norma.agents.<root>.mcp_servers` + `relay.mcp_servers` (deduplicated)
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)
   - `auto`: enable worktrees only when `working_dir` is a Git repo, otherwise fallback to `off`
-- `relay.internal_mcp.servers`: internal MCP server IDs to start with lifecycle
 - Relay is Beads-independent by default and does not auto-start bundled `norma.tasks` MCP.
 
 ## Session Model

@@ -86,6 +86,17 @@ type BuiltAgent struct {
 }
 
 func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, topicID int, agentName, workspaceDir string) (*BuiltAgent, error) {
+	return b.BuildWithMCPServerIDs(ctx, sessionID, chatID, topicID, agentName, workspaceDir, nil)
+}
+
+func (b *Builder) BuildWithMCPServerIDs(
+	ctx context.Context,
+	sessionID string,
+	chatID int64,
+	topicID int,
+	agentName, workspaceDir string,
+	extraMCPServerIDs []string,
+) (*BuiltAgent, error) {
 	branchName := fmt.Sprintf("norma/relay/%s", sessionID)
 	req := agentfactory.BuildRequest{
 		AgentID:           agentName,
@@ -93,7 +104,7 @@ func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, top
 		Description:       b.buildAgentDescription(agentName),
 		WorkingDirectory:  workspaceDir,
 		SystemInstruction: b.buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir),
-		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName),
+		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName, extraMCPServerIDs),
 	}
 
 	ag, err := b.factory.Build(ctx, req)
@@ -148,15 +159,15 @@ func (b *Builder) GetAgentInfo(agentName string) (description string, mcpServers
 	if !ok {
 		return agentName, bundledMCPServerIDs(b.workspaceEnabled)
 	}
-	return agentCfg.Description(agentName), mergeMCPServerIDs(agentCfg.MCPServers, b.workspaceEnabled)
+	return agentCfg.Description(agentName), mergeMCPServerIDs(agentCfg.MCPServers, nil, b.workspaceEnabled)
 }
 
-func (b *Builder) buildAgentMCPServerIDs(agentName string) []string {
+func (b *Builder) buildAgentMCPServerIDs(agentName string, extra []string) []string {
 	agentCfg, ok := b.normaCfg.Agents[agentName]
 	if !ok {
-		return bundledMCPServerIDs(b.workspaceEnabled)
+		return mergeMCPServerIDs(nil, extra, b.workspaceEnabled)
 	}
-	return mergeMCPServerIDs(agentCfg.MCPServers, b.workspaceEnabled)
+	return mergeMCPServerIDs(agentCfg.MCPServers, extra, b.workspaceEnabled)
 }
 
 func bundledMCPServerIDs(workspaceEnabled bool) []string {
@@ -167,10 +178,10 @@ func bundledMCPServerIDs(workspaceEnabled bool) []string {
 	return servers
 }
 
-func mergeMCPServerIDs(explicit []string, workspaceEnabled bool) []string {
+func mergeMCPServerIDs(explicit, extra []string, workspaceEnabled bool) []string {
 	base := bundledMCPServerIDs(workspaceEnabled)
-	out := make([]string, 0, len(base)+len(explicit))
-	seen := make(map[string]struct{}, len(base)+len(explicit))
+	out := make([]string, 0, len(base)+len(explicit)+len(extra))
+	seen := make(map[string]struct{}, len(base)+len(explicit)+len(extra))
 
 	appendUnique := func(id string) {
 		trimmed := strings.TrimSpace(id)
@@ -188,6 +199,9 @@ func mergeMCPServerIDs(explicit []string, workspaceEnabled bool) []string {
 		appendUnique(id)
 	}
 	for _, id := range explicit {
+		appendUnique(id)
+	}
+	for _, id := range extra {
 		appendUnique(id)
 	}
 

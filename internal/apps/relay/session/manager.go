@@ -23,6 +23,7 @@ const cleanupTimeout = 10 * time.Second
 // Manager manages per-topic ADK agent sessions and persists session metadata.
 type Manager struct {
 	agentBuilder     *agent.Builder
+	rootMCPServerIDs []string
 	workingDir       string
 	tgClient         client.ClientWithResponsesInterface
 	workspaces       *agent.WorkspaceManager
@@ -43,6 +44,7 @@ type ManagerParams struct {
 
 	LC               fx.Lifecycle
 	AgentBuilder     *agent.Builder
+	RootMCPServerIDs []string `name:"relay_root_mcp_servers"`
 	WorkingDir       string
 	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
 	TGClient         client.ClientWithResponsesInterface
@@ -60,6 +62,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 
 	m := &Manager{
 		agentBuilder:     p.AgentBuilder,
+		rootMCPServerIDs: append([]string(nil), p.RootMCPServerIDs...),
 		workingDir:       p.WorkingDir,
 		tgClient:         p.TGClient,
 		workspaces:       agent.NewWorkspaceManager(p.WorkingDir),
@@ -106,6 +109,13 @@ func (m *Manager) SessionBranchName(sessionID string) string {
 	return fmt.Sprintf("norma/relay/%s", sessionID)
 }
 
+func (m *Manager) extraMCPServerIDsForTopic(topicID int) []string {
+	if topicID != 0 || len(m.rootMCPServerIDs) == 0 {
+		return nil
+	}
+	return append([]string(nil), m.rootMCPServerIDs...)
+}
+
 // CreateSession builds an agent for the given topic and stores it in memory.
 func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, agentName string) error {
 	sessionID := m.sessionID(chatID, topicID)
@@ -138,7 +148,15 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 		m.logger.Debug().Str("session_id", sessionID).Str("workspace", workspaceDir).Msg("workspace created")
 	}
 
-	built, err := m.agentBuilder.Build(m.rootCtx, sessionID, chatID, topicID, agentName, workspaceDir)
+	built, err := m.agentBuilder.BuildWithMCPServerIDs(
+		m.rootCtx,
+		sessionID,
+		chatID,
+		topicID,
+		agentName,
+		workspaceDir,
+		m.extraMCPServerIDsForTopic(topicID),
+	)
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")
 		if m.workspaceEnabled {
@@ -309,7 +327,15 @@ func (m *Manager) EnsureSession(ctx context.Context, chatID int64, topicID int, 
 		}
 	}
 
-	built, err := m.agentBuilder.Build(m.rootCtx, sessionID, chatID, topicID, agentName, workspaceDir)
+	built, err := m.agentBuilder.BuildWithMCPServerIDs(
+		m.rootCtx,
+		sessionID,
+		chatID,
+		topicID,
+		agentName,
+		workspaceDir,
+		m.extraMCPServerIDsForTopic(topicID),
+	)
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")
 		if m.workspaceEnabled {

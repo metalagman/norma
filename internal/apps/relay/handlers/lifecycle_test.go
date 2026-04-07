@@ -130,7 +130,7 @@ func TestEnsureBundledServers_RegistersSharedListenerURLs(t *testing.T) {
 		stateStore:       sessionmcp.NewMemoryStore(),
 	}
 
-	if err := manager.ensureBundledServers(ctx, ""); err != nil {
+	if err := manager.ensureBundledServers(ctx); err != nil {
 		t.Fatalf("ensureBundledServers() error = %v", err)
 	}
 	t.Cleanup(func() {
