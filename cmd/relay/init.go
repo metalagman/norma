@@ -5,31 +5,49 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
-	initcmd "github.com/normahq/norma/cmd/norma/init"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
 const relayConfigFileName = "relay.yaml"
 
+const (
+	relayInitCodexModel      = "gpt-5.3-codex"
+	relayInitClaudeCodeModel = "claude-sonnet-4-6"
+)
+
+type relayInitAgentTemplate struct {
+	ID           string
+	Type         string
+	Model        string
+	DetectBinary []string
+}
+
+var relayInitAgentTemplates = []relayInitAgentTemplate{
+	{ID: "codex", Type: "codex_acp", Model: relayInitCodexModel, DetectBinary: []string{"codex"}},
+	{ID: "opencode", Type: "opencode_acp", Model: "opencode/big-pickle", DetectBinary: []string{"opencode"}},
+	{ID: "copilot", Type: "copilot_acp", Model: "gpt-5-codex", DetectBinary: []string{"copilot"}},
+	{ID: "gemini", Type: "gemini_acp", Model: "gemini-3-flash-preview", DetectBinary: []string{"gemini"}},
+	{ID: "claude_code", Type: "claude_code_acp", Model: relayInitClaudeCodeModel, DetectBinary: []string{"claudecode", "claude"}},
+}
+
 var (
 	relayInitInput         io.Reader = os.Stdin
 	relayInitOutput        io.Writer = os.Stdout
 	relayInitIsInteractive           = defaultRelayInitIsInteractive
+	relayInitLookPath                = exec.LookPath
 )
 
 func initCommand() *cobra.Command {
-	var relayRootAgent string
-
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize relay config in the current repository",
-		Long:  "Create .norma/relay.yaml with relay defaults and a selected relay.root_agent.",
+		Long:  "Create .norma/relay.yaml with relay defaults and autodetected runtime agents.",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			workingDir, err := os.Getwd()
 			if err != nil {
@@ -55,14 +73,7 @@ func initCommand() *cobra.Command {
 
 			interactive := relayInitIsInteractive()
 			inputReader := bufio.NewReader(relayInitInput)
-
-			selectedRootAgent, err := chooseRelayRootAgent(
-				relayRootAgent,
-				agentIDs,
-				inputReader,
-				relayInitOutput,
-				interactive,
-			)
+			selectedRootAgent, err := chooseRelayRootAgent(agentIDs, inputReader, relayInitOutput, interactive)
 			if err != nil {
 				return err
 			}
@@ -97,23 +108,15 @@ func initCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(
-		&relayRootAgent,
-		"relay-root-agent",
-		"",
-		"relay root agent id (required in non-interactive mode)",
-	)
-
 	return cmd
 }
 
 func buildRelayInitDocument() (map[string]any, []string, error) {
-	var doc map[string]any
-	if err := yaml.Unmarshal([]byte(initcmd.DefaultConfigYAML), &doc); err != nil {
-		return nil, nil, fmt.Errorf("parse default norma config template: %w", err)
-	}
-	if err := normalizeRelayInitAgentIDs(doc); err != nil {
-		return nil, nil, err
+	detectedAgents := detectRelayInitAgents()
+	if len(detectedAgents) == 0 {
+		return nil, nil, fmt.Errorf(
+			"no supported agent CLI detected in PATH; install at least one of: codex, opencode, copilot, gemini, claudecode/claude",
+		)
 	}
 
 	var relayDefaults map[string]any
@@ -126,111 +129,81 @@ func buildRelayInitDocument() (map[string]any, []string, error) {
 		return nil, nil, fmt.Errorf("default relay template is missing relay section")
 	}
 	ensureRelayMCPAddressDefault(relaySection)
-	doc["relay"] = relaySection
 
-	agentIDs, err := extractAgentIDs(doc)
-	if err != nil {
-		return nil, nil, err
+	agentIDs := make([]string, 0, len(detectedAgents))
+	for _, detected := range detectedAgents {
+		agentIDs = append(agentIDs, detected.ID)
 	}
+
+	doc := map[string]any{
+		"norma": map[string]any{
+			"agents": buildRelayInitAgents(detectedAgents),
+		},
+		"relay":    relaySection,
+		"profiles": buildRelayInitProfiles(agentIDs),
+	}
+
 	return doc, agentIDs, nil
 }
 
-func normalizeRelayInitAgentIDs(doc map[string]any) error {
-	normaSection, ok := toStringAnyMap(doc["norma"])
-	if !ok {
-		return fmt.Errorf("default template is missing norma section")
-	}
-	agents, ok := toStringAnyMap(normaSection["agents"])
-	if !ok || len(agents) == 0 {
-		return fmt.Errorf("default template does not define norma.agents")
-	}
-
-	renames := map[string]string{
-		"gemini_acp_agent":      "gemini",
-		"opencode_acp_agent":    "opencode",
-		"codex_acp_agent":       "codex",
-		"copilot_acp":           "copilot",
-		"claude_code_acp_agent": "claude_code",
-	}
-	for oldID, newID := range renames {
-		value, exists := agents[oldID]
-		if !exists {
-			continue
+func detectRelayInitAgents() []relayInitAgentTemplate {
+	detected := make([]relayInitAgentTemplate, 0, len(relayInitAgentTemplates))
+	for _, template := range relayInitAgentTemplates {
+		for _, binary := range template.DetectBinary {
+			if _, err := relayInitLookPath(binary); err == nil {
+				detected = append(detected, template)
+				break
+			}
 		}
-		if _, collision := agents[newID]; collision {
-			return fmt.Errorf("cannot rename default agent id %q to %q: target already exists", oldID, newID)
-		}
-		agents[newID] = value
-		delete(agents, oldID)
 	}
-	normaSection["agents"] = agents
-	doc["norma"] = normaSection
-
-	replaceAgentReferencesInPlace(doc, renames, "")
-	deleteAgentReferencesInPlace(doc, "custom_generic_acp_agent")
-	deleteAgentReferencesInPlace(doc, "custom_generic")
-	delete(agents, "custom_generic_acp_agent")
-	delete(agents, "custom_generic")
-	return nil
+	return detected
 }
 
-func replaceAgentReferencesInPlace(value any, renames map[string]string, parentKey string) any {
-	switch v := value.(type) {
-	case map[string]any:
-		for key, entry := range v {
-			v[key] = replaceAgentReferencesInPlace(entry, renames, key)
+func buildRelayInitAgents(detected []relayInitAgentTemplate) map[string]any {
+	agents := make(map[string]any, len(detected)+1)
+	poolMembers := make([]any, 0, len(detected))
+
+	for _, agentTemplate := range detected {
+		agentBlock := map[string]any{"type": agentTemplate.Type}
+		typeConfig := map[string]any{}
+		if strings.TrimSpace(agentTemplate.Model) != "" {
+			typeConfig["model"] = agentTemplate.Model
 		}
-		return v
-	case []any:
-		for i, entry := range v {
-			v[i] = replaceAgentReferencesInPlace(entry, renames, parentKey)
-		}
-		return v
-	case string:
-		if parentKey == "type" {
-			return v
-		}
-		if renamed, ok := renames[v]; ok {
-			return renamed
-		}
-		return v
-	default:
-		return value
+		agentBlock[agentTemplate.Type] = typeConfig
+		agents[agentTemplate.ID] = agentBlock
+		poolMembers = append(poolMembers, agentTemplate.ID)
 	}
+
+	agents["pool"] = map[string]any{
+		"type": "pool",
+		"pool": map[string]any{
+			"members": poolMembers,
+		},
+	}
+
+	return agents
 }
 
-func deleteAgentReferencesInPlace(value any, target string) {
-	switch v := value.(type) {
-	case map[string]any:
-		for key, entry := range v {
-			if key == "agents" {
-				continue
-			}
-			switch typedEntry := entry.(type) {
-			case string:
-				if typedEntry == target {
-					delete(v, key)
-					continue
-				}
-			case []any:
-				filtered := make([]any, 0, len(typedEntry))
-				for _, item := range typedEntry {
-					if s, ok := item.(string); ok && s == target {
-						continue
-					}
-					filtered = append(filtered, item)
-				}
-				v[key] = filtered
-				deleteAgentReferencesInPlace(filtered, target)
-				continue
-			}
-			deleteAgentReferencesInPlace(entry, target)
-		}
-	case []any:
-		for _, item := range v {
-			deleteAgentReferencesInPlace(item, target)
+func buildRelayInitProfiles(agentIDs []string) map[string]any {
+	profiles := make(map[string]any, len(agentIDs)+1)
+	if len(agentIDs) == 0 {
+		return profiles
+	}
+
+	profiles["default"] = map[string]any{
+		"relay": map[string]any{
+			"root_agent": agentIDs[0],
+		},
+	}
+	for _, id := range agentIDs {
+		profiles[id] = map[string]any{
+			"relay": map[string]any{
+				"root_agent": id,
+			},
 		}
 	}
+
+	return profiles
 }
 
 func ensureRelayMCPAddressDefault(relaySection map[string]any) {
@@ -252,53 +225,13 @@ func ensureRelayMCPAddressDefault(relaySection map[string]any) {
 	relaySection["mcp"] = mcpSection
 }
 
-func extractAgentIDs(doc map[string]any) ([]string, error) {
-	normaSection, ok := toStringAnyMap(doc["norma"])
-	if !ok {
-		return nil, fmt.Errorf("default template is missing norma section")
+func chooseRelayRootAgent(agentIDs []string, in io.Reader, out io.Writer, interactive bool) (string, error) {
+	if len(agentIDs) == 0 {
+		return "", fmt.Errorf("no agent ids are available for relay.root_agent selection")
 	}
-
-	agents, ok := toStringAnyMap(normaSection["agents"])
-	if !ok || len(agents) == 0 {
-		return nil, fmt.Errorf("default template does not define norma.agents")
-	}
-
-	ids := make([]string, 0, len(agents))
-	for id := range agents {
-		trimmedID := strings.TrimSpace(id)
-		if trimmedID == "" {
-			continue
-		}
-		ids = append(ids, trimmedID)
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("default template does not define usable norma agent ids")
-	}
-
-	sort.Strings(ids)
-	return ids, nil
-}
-
-func chooseRelayRootAgent(provided string, agentIDs []string, in io.Reader, out io.Writer, interactive bool) (string, error) {
-	selected := strings.TrimSpace(provided)
-	if selected != "" {
-		if !contains(agentIDs, selected) {
-			return "", fmt.Errorf(
-				"--relay-root-agent %q not found; available agent ids: %s",
-				selected,
-				strings.Join(agentIDs, ", "),
-			)
-		}
-		return selected, nil
-	}
-
 	if !interactive {
-		return "", fmt.Errorf(
-			"--relay-root-agent is required in non-interactive mode; available agent ids: %s",
-			strings.Join(agentIDs, ", "),
-		)
+		return agentIDs[0], nil
 	}
-
 	return promptRelayRootAgent(agentIDs, in, out)
 }
 
@@ -365,6 +298,24 @@ func setRelayRootAgent(doc map[string]any, rootAgent string) error {
 	}
 	relaySection["root_agent"] = rootAgent
 	doc["relay"] = relaySection
+
+	profilesSection, ok := toStringAnyMap(doc["profiles"])
+	if !ok {
+		return nil
+	}
+	defaultProfile, ok := toStringAnyMap(profilesSection["default"])
+	if !ok {
+		return nil
+	}
+	relayProfile, ok := toStringAnyMap(defaultProfile["relay"])
+	if !ok {
+		return nil
+	}
+	relayProfile["root_agent"] = rootAgent
+	defaultProfile["relay"] = relayProfile
+	profilesSection["default"] = defaultProfile
+	doc["profiles"] = profilesSection
+
 	return nil
 }
 

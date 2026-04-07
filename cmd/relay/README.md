@@ -17,14 +17,8 @@ go install github.com/normahq/norma/cmd/relay@latest
 relay init
 ```
 
-Non-interactive mode:
-
-```bash
-relay init --relay-root-agent gemini
-```
-
 This creates `.norma/relay.yaml` and prompts for:
-- `relay.root_agent` (required)
+- `relay.root_agent` (required, auto-detected agents only; default by priority: codex, opencode, copilot, gemini, claude_code)
 - `relay.telegram.token` (optional, press Enter to skip)
 
 3. Set or override Telegram token with env:
