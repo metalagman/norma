@@ -27,19 +27,19 @@ import (
 )
 
 // App creates a new fx.App for the relay bot with the provided configuration.
-func App(cfg Config, normaCfg runtimeconfig.NormaConfig) *fx.App {
+func App(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) *fx.App {
 	return fx.New(
 		fx.WithLogger(
 			fxlogger.WithZerolog(
 				log.Logger.With().Str("component", "relay").Logger(),
 			),
 		),
-		Module(cfg, normaCfg),
+		Module(cfg, normaCfg, ownerToken),
 	)
 }
 
 // Module returns the fx.Module for the relay bot, initialized with the provided configurations.
-func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
+func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) fx.Option {
 	// Convert relay config to tgbotkit config.
 	tgbotkitCfg := tgbotkit.Config{
 		Token: cfg.Relay.Telegram.Token,
@@ -146,7 +146,7 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig) fx.Option {
 		),
 		fx.Provide(
 			fx.Annotate(
-				func() string { return cfg.Relay.Auth.OwnerToken },
+				func() string { return strings.TrimSpace(ownerToken) },
 				fx.ResultTags(`name:"relay_auth_token"`),
 			),
 		),

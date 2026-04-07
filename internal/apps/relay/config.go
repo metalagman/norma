@@ -9,7 +9,6 @@ type Config struct {
 type RelayConfig struct {
 	RootAgent   string            `mapstructure:"root_agent"`
 	Telegram    TelegramConfig    `mapstructure:"telegram"`
-	Auth        AuthConfig        `mapstructure:"auth"`
 	Logger      LoggerConfig      `mapstructure:"logger"`
 	WorkingDir  string            `mapstructure:"working_dir"`
 	StateDir    string            `mapstructure:"state_dir"`
@@ -31,12 +30,6 @@ type WebhookConfig struct {
 	Path        string `mapstructure:"path"`
 	URL         string `mapstructure:"url"`
 	SecretToken string `mapstructure:"secret_token"`
-}
-
-// AuthConfig holds the authentication configuration.
-type AuthConfig struct {
-	OwnerToken string `mapstructure:"owner_token"`
-	OwnerID    int64  `mapstructure:"owner_id"`
 }
 
 // LoggerConfig holds the logger configuration.

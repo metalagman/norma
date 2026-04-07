@@ -47,7 +47,7 @@ Relay config is loaded from one selected file (priority order):
 - `relay.state_dir`: relay state directory for persistent relay SQLite state (`relay.db`).
   - Stores owner/app KV, `norma.state` MCP KV, session metadata, and Telegram polling offset.
   - Relative paths are resolved from `relay.working_dir`.
-- `relay.auth.owner_token`: generated at runtime per server start
+- owner auth token is generated at runtime per `relay serve` start and exposed via startup `auth_url` log field
 - `relay.mcp.address`: optional bind address for the shared bundled MCP HTTP listener
   - Bundled routes on this listener:
     - `/mcp` and `/mcp/norma.relay` for relay MCP

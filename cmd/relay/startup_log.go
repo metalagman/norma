@@ -26,7 +26,6 @@ func logRelayStartup(ctx context.Context, botToken, ownerToken string) {
 	}
 
 	event := log.Info().
-		Str("owner_token", ownerToken).
 		Str("auth_url", buildAuthURL(identity.username, ownerToken))
 	if identity.name != "" {
 		event = event.Str("bot_name", identity.name)

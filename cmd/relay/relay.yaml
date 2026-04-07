@@ -26,11 +26,6 @@ relay:
       # Local HTTP path that receives webhook updates.
       path: "/telegram/webhook"
 
-  auth:
-    # Owner token is generated at runtime (one-time use)
-    owner_token: ""
-    owner_id: 0
-
   logger:
     level: "info"
     pretty: true

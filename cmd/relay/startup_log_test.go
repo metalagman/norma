@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/client"
 )
 
@@ -105,4 +109,23 @@ func TestBuildAuthURL(t *testing.T) {
 			t.Fatalf("buildAuthURL() = %q, want %q", got, want)
 		}
 	})
+}
+
+func TestLogRelayStartup_DoesNotLogOwnerTokenField(t *testing.T) {
+	var buf bytes.Buffer
+	prevLogger := log.Logger
+	log.Logger = zerolog.New(&buf)
+	t.Cleanup(func() {
+		log.Logger = prevLogger
+	})
+
+	logRelayStartup(context.Background(), "", "token123")
+
+	output := buf.String()
+	if !strings.Contains(output, `"auth_url":"https://t.me/<bot_username>?start=token123"`) {
+		t.Fatalf("startup log missing auth_url field, output=%q", output)
+	}
+	if strings.Contains(output, `"owner_token"`) {
+		t.Fatalf("startup log must not include owner_token field, output=%q", output)
+	}
 }

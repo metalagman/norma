@@ -68,8 +68,7 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("generating owner token: %w", err)
 			}
 
-			relayCfg.Relay.Auth.OwnerToken = ownerToken
-			app := relay.App(relayCfg, doc.Norma)
+			app := relay.App(relayCfg, doc.Norma, ownerToken)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
