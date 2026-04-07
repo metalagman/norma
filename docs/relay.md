@@ -28,7 +28,7 @@ Internal MCP v1 scope is config + lifecycle plumbing; server implementations can
 Relay config is loaded from one selected file (priority order):
 
 1. Embedded defaults (`cmd/relay/relay.yaml`)
-2. Runtime config in `.norma/relay.yaml` (primary) or `.norma/config.yaml` (fallback)
+2. Runtime config in `.config/relay/config.yaml`
 3. Profile app overrides in the same file (`profiles.<name>.relay.*`)
 4. Environment variables (`RELAY_*`) via Viper env mapping
 

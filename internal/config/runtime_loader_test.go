@@ -82,7 +82,7 @@ func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_URL", "https://example.com/webhook")
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "relay.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -137,7 +137,7 @@ profiles:
 	}
 }
 
-func TestLoadConfigDocument_PrefersAppSpecificFileOverCoreConfigWithoutMerging(t *testing.T) {
+func TestLoadConfigDocument_UsesDedicatedRelayConfigPathWithoutLegacyMerge(t *testing.T) {
 	workingDir := t.TempDir()
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
@@ -154,10 +154,13 @@ cli:
     act: agent
 relay:
   root_agent: from_core_file
+  telegram:
+    webhook:
+      url: https://legacy.example/webhook
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "relay.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
   agents:
     agent:
       type: generic_acp
@@ -170,7 +173,7 @@ cli:
     check: agent
     act: agent
 relay:
-  root_agent: from_relay_file
+  root_agent: from_dedicated_relay_config
 `); err != nil {
 		t.Fatalf("write relay config: %v", err)
 	}
@@ -185,15 +188,15 @@ relay:
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
 
-	if got := doc.Relay.RootAgent; got != "from_relay_file" {
-		t.Fatalf("root_agent = %q, want from_relay_file", got)
+	if got := doc.Relay.RootAgent; got != "from_dedicated_relay_config" {
+		t.Fatalf("root_agent = %q, want from_dedicated_relay_config", got)
 	}
 	if got := doc.Relay.Telegram.Webhook.URL; got != "" {
-		t.Fatalf("relay.telegram.webhook unexpectedly loaded from config.yaml; app-specific file should be used without merge")
+		t.Fatalf("relay.telegram.webhook unexpectedly loaded from legacy core config")
 	}
 }
 
-func TestLoadConfigDocument_FallsBackToCoreConfigWhenAppSpecificMissing(t *testing.T) {
+func TestLoadConfigDocument_DoesNotFallbackToLegacyCoreWhenDedicatedRelayConfigMissing(t *testing.T) {
 	workingDir := t.TempDir()
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
@@ -220,12 +223,8 @@ relay:
 		appconfig.AppLoadOptions{AppName: "relay"},
 		&doc,
 	)
-	if err != nil {
-		t.Fatalf("LoadConfigDocument: %v", err)
-	}
-
-	if got := doc.Relay.RootAgent; got != "from_core_file" {
-		t.Fatalf("root_agent = %q, want from_core_file", got)
+	if err == nil {
+		t.Fatal("LoadConfigDocument returned nil error, want config not found for dedicated relay path")
 	}
 }
 

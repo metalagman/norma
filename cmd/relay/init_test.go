@@ -42,6 +42,8 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 		t.Fatalf("init command failed: %v", err)
 	}
 
+	assertRelayInitArtifacts(t, workingDir)
+
 	doc := mustReadRelayDoc(t, workingDir)
 	assertNoCLISection(t, doc)
 
@@ -194,7 +196,7 @@ func TestInitCommand_FailsWhenConfigAlreadyExists(t *testing.T) {
 	workingDir := setWorkingDir(t)
 	setDetectedBinaries(t, "codex")
 
-	configPath := filepath.Join(workingDir, ".norma", relayConfigFileName)
+	configPath := filepath.Join(workingDir, relayConfigRelDir, relayConfigFileName)
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -328,7 +330,7 @@ func setDetectedBinaries(t *testing.T, binaries ...string) {
 
 func mustReadRelayDoc(t *testing.T, workingDir string) map[string]any {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join(workingDir, ".norma", relayConfigFileName))
+	content, err := os.ReadFile(filepath.Join(workingDir, relayConfigRelDir, relayConfigFileName))
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
@@ -337,6 +339,28 @@ func mustReadRelayDoc(t *testing.T, workingDir string) map[string]any {
 		t.Fatalf("unmarshal config: %v", err)
 	}
 	return doc
+}
+
+func assertRelayInitArtifacts(t *testing.T, workingDir string) {
+	t.Helper()
+
+	gitignorePath := filepath.Join(workingDir, relayConfigRelDir, ".gitignore")
+	content, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("read %s: %v", gitignorePath, err)
+	}
+	if got, want := string(content), "*\n!.gitignore\n!config.yaml\n"; got != want {
+		t.Fatalf("%s content = %q, want %q", gitignorePath, got, want)
+	}
+
+	stateDir := filepath.Join(workingDir, relayRuntimeStatePath)
+	info, err := os.Stat(stateDir)
+	if err != nil {
+		t.Fatalf("stat %s: %v", stateDir, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a directory", stateDir)
+	}
 }
 
 func mustMap(t *testing.T, parent map[string]any, key string) map[string]any {

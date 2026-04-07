@@ -14,7 +14,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const relayConfigFileName = "relay.yaml"
+const (
+	relayConfigFileName   = "config.yaml"
+	relayConfigRelDir     = ".config/relay"
+	relayRuntimeStatePath = ".norma/relay"
+)
 
 const (
 	relayInitCodexModel      = "gpt-5.3-codex"
@@ -47,23 +51,30 @@ func initCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize relay config in the current repository",
-		Long:  "Create .norma/relay.yaml with relay defaults and autodetected runtime agents.",
+		Long:  "Create .config/relay/config.yaml with relay defaults and autodetected runtime agents.",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			workingDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("getting working directory: %w", err)
 			}
 
-			normaDir := filepath.Join(workingDir, ".norma")
-			if err := os.MkdirAll(normaDir, 0o700); err != nil {
-				return fmt.Errorf("create .norma directory: %w", err)
+			relayConfigDir := filepath.Join(workingDir, relayConfigRelDir)
+			if err := os.MkdirAll(relayConfigDir, 0o700); err != nil {
+				return fmt.Errorf("create relay config directory: %w", err)
 			}
 
-			configPath := filepath.Join(normaDir, relayConfigFileName)
+			configPath := filepath.Join(relayConfigDir, relayConfigFileName)
 			if _, err := os.Stat(configPath); err == nil {
 				return fmt.Errorf("%s already exists", configPath)
 			} else if !os.IsNotExist(err) {
 				return fmt.Errorf("stat %s: %w", configPath, err)
+			}
+			if err := writeRelayConfigGitignore(relayConfigDir); err != nil {
+				return err
+			}
+
+			if err := os.MkdirAll(filepath.Join(workingDir, relayRuntimeStatePath), 0o700); err != nil {
+				return fmt.Errorf("create relay runtime state directory: %w", err)
 			}
 
 			doc, agentIDs, err := buildRelayInitDocument()
@@ -109,6 +120,15 @@ func initCommand() *cobra.Command {
 	}
 
 	return cmd
+}
+
+func writeRelayConfigGitignore(configDir string) error {
+	gitignorePath := filepath.Join(configDir, ".gitignore")
+	content := []byte("*\n!.gitignore\n!config.yaml\n")
+	if err := os.WriteFile(gitignorePath, content, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", gitignorePath, err)
+	}
+	return nil
 }
 
 func buildRelayInitDocument() (map[string]any, []string, error) {

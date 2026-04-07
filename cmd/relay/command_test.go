@@ -18,7 +18,7 @@ func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
 	workingDir := t.TempDir()
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
-	if err := writeFile(filepath.Join(workingDir, ".norma", "relay.yaml"), `norma:
+	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
   agents:
     relay_agent:
       type: opencode_acp
@@ -36,7 +36,7 @@ profiles:
     relay:
       root_agent: relay_agent
 `); err != nil {
-		t.Fatalf("write relay.yaml: %v", err)
+		t.Fatalf("write relay config: %v", err)
 	}
 
 	var doc relayTestConfigDocument

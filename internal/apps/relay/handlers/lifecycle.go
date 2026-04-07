@@ -277,6 +277,10 @@ func startBundledMCPHTTPServer(ctx context.Context, addr string, handlersByID ma
 }
 
 func selectConfigPath(workDir, appName string) string {
+	if appName == "relay" {
+		return filepath.Join(workDir, ".config", "relay", "config.yaml")
+	}
+
 	appPath := filepath.Join(workDir, ".norma", appName+".yaml")
 	if info, err := os.Stat(appPath); err == nil && !info.IsDir() {
 		return appPath

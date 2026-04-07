@@ -17,7 +17,7 @@ go install github.com/normahq/norma/cmd/relay@latest
 relay init
 ```
 
-This creates `.norma/relay.yaml` and prompts for:
+This creates `.config/relay/config.yaml` and prompts for:
 - `relay.root_agent` (required, auto-detected agents only; default by priority: codex, opencode, copilot, gemini, claude_code)
 - `relay.telegram.token` (optional, press Enter to skip)
 
@@ -49,7 +49,7 @@ To stop:
 ## Config
 
 Primary relay config file:
-- `.norma/relay.yaml`
+- `.config/relay/config.yaml`
 
 Common keys:
 - `relay.root_agent`
@@ -62,7 +62,7 @@ Environment overrides use `RELAY_*` (for example, `RELAY_TELEGRAM_TOKEN`).
 ## Troubleshooting
 
 - `telegram token is required`:
-  - set `RELAY_TELEGRAM_TOKEN`, or set `relay.telegram.token` in `.norma/relay.yaml`.
+  - set `RELAY_TELEGRAM_TOKEN`, or set `relay.telegram.token` in `.config/relay/config.yaml`.
 - `relay.root_agent is required`:
   - run `relay init` again (new repo) or set `relay.root_agent` to an ID from `norma.agents`.
 - `agent "<id>" not available` on `/new`:
