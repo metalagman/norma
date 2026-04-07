@@ -249,6 +249,7 @@ Profiles configured in `.omnidist/omnidist.yaml`:
 - `mcp-dump`
 - `acp-repl`
 - `codex-acp-bridge`
+- `relay`
 
 npm distributions use the `@normahq` scope:
 - `@normahq/norma`
@@ -256,6 +257,7 @@ npm distributions use the `@normahq` scope:
 - `@normahq/mcp-dump`
 - `@normahq/acp-repl`
 - `@normahq/codex-acp-bridge`
+- `@normahq/relay`
 
 Quickstart per profile:
 
@@ -265,6 +267,7 @@ omnidist --profile acp-dump quickstart
 omnidist --profile mcp-dump quickstart
 omnidist --profile acp-repl quickstart
 omnidist --profile codex-acp-bridge quickstart
+omnidist --profile relay quickstart
 ```
 
 Run build pipeline for a profile:
@@ -281,6 +284,7 @@ GitHub release workflows are split per profile and run on `v*` tag pushes:
 - `omnidist-release-mcp-dump.yml`
 - `omnidist-release-acp-repl.yml`
 - `omnidist-release-codex-acp-bridge.yml`
+- `omnidist-release-relay.yml`
 
 Publishing uses npm only.
 

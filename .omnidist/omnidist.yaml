@@ -149,3 +149,40 @@ profiles:
           - agent
           - bridge
           - cli
+
+  relay:
+    tool:
+      name: relay
+      main: ./cmd/relay
+    readme-path: ./cmd/relay/README.md
+    version:
+      source: fixed
+      fixed: 0.0.3
+    targets:
+      - os: darwin
+        arch: amd64
+      - os: darwin
+        arch: arm64
+      - os: linux
+        arch: amd64
+      - os: linux
+        arch: arm64
+      - os: windows
+        arch: amd64
+    build:
+      ldflags: -s -w
+      tags: []
+      cgo: false
+    distributions:
+      npm:
+        package: '@normahq/relay'
+        registry: https://registry.npmjs.org
+        access: public
+        include-readme: true
+        keywords:
+          - ai
+          - llm
+          - relay
+          - telegram
+          - agent
+          - cli
