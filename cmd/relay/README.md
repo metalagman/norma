@@ -23,9 +23,11 @@ Non-interactive mode:
 relay init --relay-root-agent gemini
 ```
 
-This creates `.norma/relay.yaml`.
+This creates `.norma/relay.yaml` and prompts for:
+- `relay.root_agent` (required)
+- `relay.telegram.token` (optional, press Enter to skip)
 
-3. Set Telegram token:
+3. Set or override Telegram token with env:
 
 ```bash
 export RELAY_TELEGRAM_TOKEN=<your_bot_token>

@@ -53,12 +53,15 @@ func initCommand() *cobra.Command {
 				return err
 			}
 
+			interactive := relayInitIsInteractive()
+			inputReader := bufio.NewReader(relayInitInput)
+
 			selectedRootAgent, err := chooseRelayRootAgent(
 				relayRootAgent,
 				agentIDs,
-				relayInitInput,
+				inputReader,
 				relayInitOutput,
-				relayInitIsInteractive(),
+				interactive,
 			)
 			if err != nil {
 				return err
@@ -66,6 +69,15 @@ func initCommand() *cobra.Command {
 
 			if err := setRelayRootAgent(doc, selectedRootAgent); err != nil {
 				return err
+			}
+			if interactive {
+				telegramToken, promptErr := promptRelayTelegramToken(inputReader, relayInitOutput)
+				if promptErr != nil {
+					return promptErr
+				}
+				if err := setRelayTelegramToken(doc, telegramToken); err != nil {
+					return err
+				}
 			}
 
 			content, err := yaml.Marshal(doc)
@@ -301,7 +313,7 @@ func promptRelayRootAgent(agentIDs []string, in io.Reader, out io.Writer) (strin
 	}
 	_, _ = fmt.Fprintf(out, "Enter number or agent id [1]: ")
 
-	reader := bufio.NewReader(in)
+	reader := asBufferedReader(in)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil && err != io.EOF {
@@ -336,12 +348,37 @@ func promptRelayRootAgent(agentIDs []string, in io.Reader, out io.Writer) (strin
 	}
 }
 
+func promptRelayTelegramToken(in io.Reader, out io.Writer) (string, error) {
+	_, _ = fmt.Fprintln(out, "Enter Telegram bot token (optional, press Enter to skip): ")
+	reader := asBufferedReader(in)
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", fmt.Errorf("read relay.telegram.token: %w", err)
+	}
+	return strings.TrimSpace(line), nil
+}
+
 func setRelayRootAgent(doc map[string]any, rootAgent string) error {
 	relaySection, ok := toStringAnyMap(doc["relay"])
 	if !ok {
 		return fmt.Errorf("relay section is missing from generated config")
 	}
 	relaySection["root_agent"] = rootAgent
+	doc["relay"] = relaySection
+	return nil
+}
+
+func setRelayTelegramToken(doc map[string]any, token string) error {
+	relaySection, ok := toStringAnyMap(doc["relay"])
+	if !ok {
+		return fmt.Errorf("relay section is missing from generated config")
+	}
+	telegramSection, ok := toStringAnyMap(relaySection["telegram"])
+	if !ok {
+		return fmt.Errorf("relay.telegram section is missing from generated config")
+	}
+	telegramSection["token"] = token
+	relaySection["telegram"] = telegramSection
 	doc["relay"] = relaySection
 	return nil
 }
@@ -363,6 +400,13 @@ func toStringAnyMap(raw any) (map[string]any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func asBufferedReader(in io.Reader) *bufio.Reader {
+	if reader, ok := in.(*bufio.Reader); ok {
+		return reader
+	}
+	return bufio.NewReader(in)
 }
 
 func contains(items []string, target string) bool {

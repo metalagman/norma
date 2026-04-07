@@ -11,6 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const testRelayRootAgentGemini = "gemini"
+
 func TestInitCommand_CreatesRelayConfigWithSelectedRootAgent(t *testing.T) {
 	workingDir := t.TempDir()
 	prevWD, err := os.Getwd()
@@ -38,7 +40,7 @@ func TestInitCommand_CreatesRelayConfigWithSelectedRootAgent(t *testing.T) {
 	relayInitIsInteractive = func() bool { return false }
 
 	cmd := initCommand()
-	cmd.SetArgs([]string{"--relay-root-agent", "gemini"})
+	cmd.SetArgs([]string{"--relay-root-agent", testRelayRootAgentGemini})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init command failed: %v", err)
 	}
@@ -57,8 +59,15 @@ func TestInitCommand_CreatesRelayConfigWithSelectedRootAgent(t *testing.T) {
 	if !ok {
 		t.Fatalf("relay section missing in %s", configPath)
 	}
-	if got := relaySection["root_agent"]; got != "gemini" {
-		t.Fatalf("relay.root_agent = %#v, want gemini", got)
+	if got := relaySection["root_agent"]; got != testRelayRootAgentGemini {
+		t.Fatalf("relay.root_agent = %#v, want %s", got, testRelayRootAgentGemini)
+	}
+	telegramSection, ok := toStringAnyMap(relaySection["telegram"])
+	if !ok {
+		t.Fatal("relay.telegram section missing in generated config")
+	}
+	if got := telegramSection["token"]; got != "" {
+		t.Fatalf("relay.telegram.token = %#v, want empty string in non-interactive mode", got)
 	}
 
 	normaSection, ok := toStringAnyMap(doc["norma"])
@@ -100,6 +109,115 @@ func TestInitCommand_CreatesRelayConfigWithSelectedRootAgent(t *testing.T) {
 	}
 }
 
+func TestInitCommand_InteractivePromptsAndStoresTelegramToken(t *testing.T) {
+	workingDir := t.TempDir()
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get wd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevInput := relayInitInput
+	prevOutput := relayInitOutput
+	prevInteractive := relayInitIsInteractive
+	t.Cleanup(func() {
+		relayInitInput = prevInput
+		relayInitOutput = prevOutput
+		relayInitIsInteractive = prevInteractive
+	})
+
+	relayInitInput = strings.NewReader(testRelayRootAgentGemini + "\nmy-token\n")
+	relayInitOutput = &bytes.Buffer{}
+	relayInitIsInteractive = func() bool { return true }
+
+	cmd := initCommand()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init command failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workingDir, ".norma", relayConfigFileName))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(content, &doc); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	relaySection, ok := toStringAnyMap(doc["relay"])
+	if !ok {
+		t.Fatal("relay section missing in generated config")
+	}
+	if got := relaySection["root_agent"]; got != testRelayRootAgentGemini {
+		t.Fatalf("relay.root_agent = %#v, want %s", got, testRelayRootAgentGemini)
+	}
+	telegramSection, ok := toStringAnyMap(relaySection["telegram"])
+	if !ok {
+		t.Fatal("relay.telegram section missing in generated config")
+	}
+	if got := telegramSection["token"]; got != "my-token" {
+		t.Fatalf("relay.telegram.token = %#v, want my-token", got)
+	}
+}
+
+func TestInitCommand_InteractiveAllowsEmptyTelegramToken(t *testing.T) {
+	workingDir := t.TempDir()
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get wd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	prevInput := relayInitInput
+	prevOutput := relayInitOutput
+	prevInteractive := relayInitIsInteractive
+	t.Cleanup(func() {
+		relayInitInput = prevInput
+		relayInitOutput = prevOutput
+		relayInitIsInteractive = prevInteractive
+	})
+
+	relayInitInput = strings.NewReader(testRelayRootAgentGemini + "\n\n")
+	relayInitOutput = &bytes.Buffer{}
+	relayInitIsInteractive = func() bool { return true }
+
+	cmd := initCommand()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init command failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workingDir, ".norma", relayConfigFileName))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(content, &doc); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	relaySection, ok := toStringAnyMap(doc["relay"])
+	if !ok {
+		t.Fatal("relay section missing in generated config")
+	}
+	telegramSection, ok := toStringAnyMap(relaySection["telegram"])
+	if !ok {
+		t.Fatal("relay.telegram section missing in generated config")
+	}
+	if got := telegramSection["token"]; got != "" {
+		t.Fatalf("relay.telegram.token = %#v, want empty string", got)
+	}
+}
+
 func TestInitCommand_FailsWhenConfigAlreadyExists(t *testing.T) {
 	workingDir := t.TempDir()
 	prevWD, err := os.Getwd()
@@ -122,7 +240,7 @@ func TestInitCommand_FailsWhenConfigAlreadyExists(t *testing.T) {
 	}
 
 	cmd := initCommand()
-	cmd.SetArgs([]string{"--relay-root-agent", "gemini"})
+	cmd.SetArgs([]string{"--relay-root-agent", testRelayRootAgentGemini})
 	err = cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error when relay config already exists")
@@ -199,7 +317,7 @@ func TestInitCommand_GeneratedConfigLoadableByRelayLoader(t *testing.T) {
 	if selectedProfile != "default" {
 		t.Fatalf("selected profile = %q, want default", selectedProfile)
 	}
-	if got := doc.Relay.RootAgent; got != "gemini" {
-		t.Fatalf("doc.Relay.RootAgent = %q, want gemini", got)
+	if got := doc.Relay.RootAgent; got != testRelayRootAgentGemini {
+		t.Fatalf("doc.Relay.RootAgent = %q, want %s", got, testRelayRootAgentGemini)
 	}
 }
