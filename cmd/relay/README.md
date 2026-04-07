@@ -52,10 +52,12 @@ Primary relay config file:
 - `.config/relay/config.yaml`
 
 Common keys:
+- `norma.agents`
+- `norma.mcp_servers`
 - `relay.root_agent`
 - `relay.telegram.token`
 - `relay.workspace.mode` (`on|off|auto`)
-- `relay.state_dir`
+- `relay.state_dir` (default `.config/relay`)
 
 Environment overrides use `RELAY_*` (for example, `RELAY_TELEGRAM_TOKEN`).
 

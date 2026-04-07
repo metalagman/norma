@@ -32,6 +32,16 @@ Relay config is loaded from one selected file (priority order):
 3. Profile app overrides in the same file (`profiles.<name>.relay.*`)
 4. Environment variables (`RELAY_*`) via Viper env mapping
 
+Config shape:
+
+```yaml
+norma:
+  agents: {}
+  mcp_servers: {}
+relay: {}
+profiles: {}
+```
+
 ### Telegram settings
 
 - `relay.telegram.token`: bot token (required)
@@ -47,6 +57,7 @@ Relay config is loaded from one selected file (priority order):
 - `relay.state_dir`: relay state directory for persistent relay SQLite state (`relay.db`).
   - Stores owner/app KV, `norma.state` MCP KV, session metadata, and Telegram polling offset.
   - Relative paths are resolved from `relay.working_dir`.
+  - Default: `.config/relay`
 - owner auth token is generated at runtime per `relay serve` start and exposed via startup `auth_url` log field
 - `relay.mcp.address`: optional bind address for the shared bundled MCP HTTP listener
   - Bundled routes on this listener:

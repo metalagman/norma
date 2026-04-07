@@ -17,7 +17,7 @@ import (
 const (
 	relayConfigFileName   = "config.yaml"
 	relayConfigRelDir     = ".config/relay"
-	relayRuntimeStatePath = ".norma/relay"
+	relayRuntimeStatePath = ".config/relay"
 )
 
 const (
@@ -157,7 +157,8 @@ func buildRelayInitDocument() (map[string]any, []string, error) {
 
 	doc := map[string]any{
 		"norma": map[string]any{
-			"agents": buildRelayInitAgents(detectedAgents),
+			"agents":      buildRelayInitAgents(detectedAgents),
+			"mcp_servers": map[string]any{},
 		},
 		"relay":    relaySection,
 		"profiles": buildRelayInitProfiles(agentIDs),

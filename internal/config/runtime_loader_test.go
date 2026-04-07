@@ -88,12 +88,6 @@ func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
       type: generic_acp
       generic_acp:
         cmd: ["agent"]
-cli:
-  pdca:
-    plan: agent
-    do: agent
-    check: agent
-    act: agent
 relay:
   root_agent: from_relay_file
 profiles:
@@ -166,12 +160,6 @@ relay:
       type: generic_acp
       generic_acp:
         cmd: ["relay-agent"]
-cli:
-  pdca:
-    plan: agent
-    do: agent
-    check: agent
-    act: agent
 relay:
   root_agent: from_dedicated_relay_config
 `); err != nil {

@@ -66,9 +66,17 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	if !ok {
 		t.Fatal("norma section missing in generated config")
 	}
+	assertMapHasOnlyKeys(t, normaSection, []string{"agents", "mcp_servers"})
 	agents, ok := toStringAnyMap(normaSection["agents"])
 	if !ok {
 		t.Fatal("norma.agents missing in generated config")
+	}
+	mcpServers, ok := toStringAnyMap(normaSection["mcp_servers"])
+	if !ok {
+		t.Fatal("norma.mcp_servers missing in generated config")
+	}
+	if len(mcpServers) != 0 {
+		t.Fatalf("norma.mcp_servers = %#v, want empty map", mcpServers)
 	}
 	assertMapHasOnlyKeys(t, agents, []string{"codex", "opencode", "copilot", "gemini", "claude_code", "pool"})
 	assertAgentModel(t, agents, "codex", "codex_acp", relayInitCodexModel)

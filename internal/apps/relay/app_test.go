@@ -41,12 +41,12 @@ func TestResolveWorkingDir_RelativeBecomesAbsolute(t *testing.T) {
 func TestResolveStateDir_RelativeUsesWorkingDir(t *testing.T) {
 	workingDir := "/tmp/norma-relay-work"
 
-	got, err := resolveStateDir(workingDir, ".norma/relay")
+	got, err := resolveStateDir(workingDir, ".config/relay")
 	if err != nil {
 		t.Fatalf("resolveStateDir returned error: %v", err)
 	}
 
-	want, err := filepath.Abs(filepath.Join(workingDir, ".norma/relay"))
+	want, err := filepath.Abs(filepath.Join(workingDir, ".config/relay"))
 	if err != nil {
 		t.Fatalf("filepath.Abs: %v", err)
 	}

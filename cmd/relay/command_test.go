@@ -24,13 +24,6 @@ func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
       type: opencode_acp
       opencode_acp:
         model: opencode/big-pickle
-cli:
-  pdca:
-    plan: relay_agent
-    do: relay_agent
-    check: relay_agent
-    act: relay_agent
-  planner: relay_agent
 profiles:
   default:
     relay:
