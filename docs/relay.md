@@ -65,8 +65,8 @@ profiles: {}
     - `/mcp/norma.config`
     - `/mcp/norma.state`
     - `/mcp/norma.workspace` (when workspace mode is enabled)
-- `relay.mcp_servers`: extra MCP server IDs for root session (resolved from `norma.mcp_servers`)
-  - effective root MCP IDs = bundled defaults + `norma.agents.<root>.mcp_servers` + `relay.mcp_servers` (deduplicated)
+- `relay.mcp_servers`: extra MCP server IDs for all relay-started sessions (resolved from `norma.mcp_servers`)
+  - effective MCP IDs = bundled defaults + `norma.agents.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)

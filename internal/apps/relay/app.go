@@ -128,7 +128,7 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 		fx.Provide(
 			fx.Annotate(
 				func() []string { return append([]string(nil), cfg.Relay.MCPServers...) },
-				fx.ResultTags(`name:"relay_root_mcp_servers"`),
+				fx.ResultTags(`name:"relay_mcp_servers"`),
 			),
 		),
 		fx.Provide(

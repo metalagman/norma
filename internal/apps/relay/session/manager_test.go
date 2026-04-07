@@ -74,23 +74,29 @@ func TestStopSession_UsesNonCanceledCleanupContext(t *testing.T) {
 	}
 }
 
-func TestExtraMCPServerIDsForTopic_RootOnly(t *testing.T) {
-	m := &Manager{rootMCPServerIDs: []string{"srv.one", "srv.two"}}
+func TestExtraMCPServerIDs_ForAllSessions(t *testing.T) {
+	m := &Manager{relayMCPServerIDs: []string{"srv.one", "srv.two"}}
 
-	gotRoot := m.extraMCPServerIDsForTopic(0)
-	if strings.Join(gotRoot, ",") != "srv.one,srv.two" {
-		t.Fatalf("extraMCPServerIDsForTopic(0) = %#v, want [srv.one srv.two]", gotRoot)
+	got := m.extraMCPServerIDs()
+	if strings.Join(got, ",") != "srv.one,srv.two" {
+		t.Fatalf("extraMCPServerIDs() = %#v, want [srv.one srv.two]", got)
 	}
 
-	gotTopic := m.extraMCPServerIDsForTopic(42)
-	if gotTopic != nil {
-		t.Fatalf("extraMCPServerIDsForTopic(42) = %#v, want nil", gotTopic)
+	// Ensure returned slice is detached.
+	got[0] = "mutated"
+	if m.relayMCPServerIDs[0] != "srv.one" {
+		t.Fatalf("relayMCPServerIDs mutated through returned slice: %#v", m.relayMCPServerIDs)
 	}
+}
 
-	// Ensure returned root slice is detached.
-	gotRoot[0] = "mutated"
-	if m.rootMCPServerIDs[0] != "srv.one" {
-		t.Fatalf("rootMCPServerIDs mutated through returned slice: %#v", m.rootMCPServerIDs)
+func TestMergeUniqueStringIDs(t *testing.T) {
+	base := []string{"norma.config", "norma.state", "shared"}
+	extra := []string{" custom.one ", "shared", "", "custom.two"}
+
+	got := mergeUniqueStringIDs(base, extra)
+	want := []string{"norma.config", "norma.state", "shared", "custom.one", "custom.two"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("mergeUniqueStringIDs(%#v, %#v) = %#v, want %#v", base, extra, got, want)
 	}
 }
 

@@ -56,7 +56,7 @@ Common keys:
 - `norma.mcp_servers`
 - `relay.root_agent`
 - `relay.telegram.token`
-- `relay.mcp_servers` (extra root-session MCP server IDs from `norma.mcp_servers`)
+- `relay.mcp_servers` (extra MCP server IDs for all relay-started sessions, from `norma.mcp_servers`)
 - `relay.workspace.mode` (`on|off|auto`)
 - `relay.state_dir` (default `.config/relay`)
 

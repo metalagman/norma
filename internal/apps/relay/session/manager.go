@@ -22,14 +22,14 @@ const cleanupTimeout = 10 * time.Second
 
 // Manager manages per-topic ADK agent sessions and persists session metadata.
 type Manager struct {
-	agentBuilder     *agent.Builder
-	rootMCPServerIDs []string
-	workingDir       string
-	tgClient         client.ClientWithResponsesInterface
-	workspaces       *agent.WorkspaceManager
-	workspaceEnabled bool
-	sessionStore     relaystate.SessionStore
-	logger           zerolog.Logger
+	agentBuilder      *agent.Builder
+	relayMCPServerIDs []string
+	workingDir        string
+	tgClient          client.ClientWithResponsesInterface
+	workspaces        *agent.WorkspaceManager
+	workspaceEnabled  bool
+	sessionStore      relaystate.SessionStore
+	logger            zerolog.Logger
 
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
@@ -42,14 +42,14 @@ type Manager struct {
 type ManagerParams struct {
 	fx.In
 
-	LC               fx.Lifecycle
-	AgentBuilder     *agent.Builder
-	RootMCPServerIDs []string `name:"relay_root_mcp_servers"`
-	WorkingDir       string
-	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
-	TGClient         client.ClientWithResponsesInterface
-	StateProvider    relaystate.Provider
-	Logger           zerolog.Logger
+	LC                fx.Lifecycle
+	AgentBuilder      *agent.Builder
+	RelayMCPServerIDs []string `name:"relay_mcp_servers"`
+	WorkingDir        string
+	WorkspaceEnabled  bool `name:"relay_workspace_enabled"`
+	TGClient          client.ClientWithResponsesInterface
+	StateProvider     relaystate.Provider
+	Logger            zerolog.Logger
 }
 
 // NewManager creates a session Manager.
@@ -61,17 +61,17 @@ func NewManager(p ManagerParams) (*Manager, error) {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
 	m := &Manager{
-		agentBuilder:     p.AgentBuilder,
-		rootMCPServerIDs: append([]string(nil), p.RootMCPServerIDs...),
-		workingDir:       p.WorkingDir,
-		tgClient:         p.TGClient,
-		workspaces:       agent.NewWorkspaceManager(p.WorkingDir),
-		workspaceEnabled: p.WorkspaceEnabled,
-		sessionStore:     p.StateProvider.Sessions(),
-		logger:           p.Logger.With().Str("component", "relay.session_manager").Logger(),
-		rootCtx:          rootCtx,
-		rootCancel:       rootCancel,
-		sessions:         make(map[string]*TopicSession),
+		agentBuilder:      p.AgentBuilder,
+		relayMCPServerIDs: append([]string(nil), p.RelayMCPServerIDs...),
+		workingDir:        p.WorkingDir,
+		tgClient:          p.TGClient,
+		workspaces:        agent.NewWorkspaceManager(p.WorkingDir),
+		workspaceEnabled:  p.WorkspaceEnabled,
+		sessionStore:      p.StateProvider.Sessions(),
+		logger:            p.Logger.With().Str("component", "relay.session_manager").Logger(),
+		rootCtx:           rootCtx,
+		rootCancel:        rootCancel,
+		sessions:          make(map[string]*TopicSession),
 	}
 
 	p.LC.Append(fx.Hook{
@@ -97,7 +97,8 @@ func (m *Manager) ValidateAgent(agentName string) error {
 
 // GetAgentInfo returns the description and list of MCP server names for an agent.
 func (m *Manager) GetAgentInfo(agentName string) (string, []string) {
-	return m.agentBuilder.GetAgentInfo(agentName)
+	description, mcpServers := m.agentBuilder.GetAgentInfo(agentName)
+	return description, mergeUniqueStringIDs(mcpServers, m.relayMCPServerIDs)
 }
 
 func (m *Manager) sessionID(chatID int64, topicID int) string {
@@ -109,11 +110,40 @@ func (m *Manager) SessionBranchName(sessionID string) string {
 	return fmt.Sprintf("norma/relay/%s", sessionID)
 }
 
-func (m *Manager) extraMCPServerIDsForTopic(topicID int) []string {
-	if topicID != 0 || len(m.rootMCPServerIDs) == 0 {
+func mergeUniqueStringIDs(base, extra []string) []string {
+	if len(extra) == 0 {
+		return append([]string(nil), base...)
+	}
+
+	out := make([]string, 0, len(base)+len(extra))
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	appendUnique := func(raw string) {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return
+		}
+		if _, exists := seen[id]; exists {
+			return
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+
+	for _, id := range base {
+		appendUnique(id)
+	}
+	for _, id := range extra {
+		appendUnique(id)
+	}
+
+	return out
+}
+
+func (m *Manager) extraMCPServerIDs() []string {
+	if len(m.relayMCPServerIDs) == 0 {
 		return nil
 	}
-	return append([]string(nil), m.rootMCPServerIDs...)
+	return append([]string(nil), m.relayMCPServerIDs...)
 }
 
 // CreateSession builds an agent for the given topic and stores it in memory.
@@ -155,7 +185,7 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 		topicID,
 		agentName,
 		workspaceDir,
-		m.extraMCPServerIDsForTopic(topicID),
+		m.extraMCPServerIDs(),
 	)
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")
@@ -334,7 +364,7 @@ func (m *Manager) EnsureSession(ctx context.Context, chatID int64, topicID int, 
 		topicID,
 		agentName,
 		workspaceDir,
-		m.extraMCPServerIDsForTopic(topicID),
+		m.extraMCPServerIDs(),
 	)
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")

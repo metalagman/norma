@@ -47,6 +47,6 @@ relay:
     # In on mode, relay fails fast if working_dir is not a git repository.
     mode: "auto"
 
-  # Extra MCP server IDs (from norma.mcp_servers) injected into the root session.
-  # Effective root MCP IDs are: bundled defaults + root agent mcp_servers + relay.mcp_servers.
+  # Extra MCP server IDs (from norma.mcp_servers) injected into every relay-started session.
+  # Effective MCP IDs are: bundled defaults + agent mcp_servers + relay.mcp_servers.
   mcp_servers: []
