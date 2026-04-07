@@ -141,6 +141,8 @@ App configs can use app-specific environment prefixes (for example `RELAY_*` for
 
 ## 📖 Documentation
 
+- [Relay User Guide](cmd/relay/README.md)
+- [Relay Technical Spec](docs/relay.md)
 - [Planner and Interactive Planning](docs/planner.md)
 - [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
 - [NormaLoop Orchestration](docs/normaloop-agent.md)

@@ -3,12 +3,14 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
@@ -27,6 +29,7 @@ type CommandHandler struct {
 	ownerStore     *auth.OwnerStore
 	sessionManager commandSessionManager
 	messenger      *messenger.Messenger
+	agentIDs       []string
 }
 
 func BuildAgentWelcomeMessage(agentName, sessionID, agentDesc string, mcpServers []string) string {
@@ -39,6 +42,7 @@ type commandHandlerParams struct {
 	OwnerStore     *auth.OwnerStore
 	SessionManager *session.Manager
 	Messenger      *messenger.Messenger
+	NormaCfg       runtimeconfig.NormaConfig
 }
 
 // NewCommandHandler creates a new relay command handler.
@@ -47,6 +51,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		ownerStore:     params.OwnerStore,
 		sessionManager: params.SessionManager,
 		messenger:      params.Messenger,
+		agentIDs:       sortedAgentIDs(params.NormaCfg),
 	}
 }
 
@@ -79,7 +84,7 @@ func (h *CommandHandler) onNewCommand(ctx context.Context, event *events.Command
 
 	agentName := strings.TrimSpace(event.Args)
 	if agentName == "" {
-		if err := h.messenger.SendPlain(ctx, chatID, "Usage: /new <agent_name>\n\nAvailable agents: gemini_agent, opencode_agent, etc.", 0); err != nil {
+		if err := h.messenger.SendPlain(ctx, chatID, h.newCommandUsageMessage(), 0); err != nil {
 			return err
 		}
 		return nil
@@ -148,4 +153,25 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, event *events.Comma
 	}
 	h.sessionManager.StopSession(chatID, topicID)
 	return nil
+}
+
+func (h *CommandHandler) newCommandUsageMessage() string {
+	usage := "Usage: /new <agent_id>"
+	if len(h.agentIDs) == 0 {
+		return usage + "\n\nNo agents configured under norma.agents in relay config."
+	}
+	return usage + "\n\nAvailable agents: " + strings.Join(h.agentIDs, ", ")
+}
+
+func sortedAgentIDs(cfg runtimeconfig.NormaConfig) []string {
+	agentIDs := make([]string, 0, len(cfg.Agents))
+	for id := range cfg.Agents {
+		trimmedID := strings.TrimSpace(id)
+		if trimmedID == "" {
+			continue
+		}
+		agentIDs = append(agentIDs, trimmedID)
+	}
+	sort.Strings(agentIDs)
+	return agentIDs
 }

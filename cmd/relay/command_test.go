@@ -76,6 +76,9 @@ func TestNewRootCommand_RegistersCommandsAndFlags(t *testing.T) {
 	if _, _, err := cmd.Find([]string{"serve"}); err != nil {
 		t.Fatalf("serve command missing: %v", err)
 	}
+	if _, _, err := cmd.Find([]string{"init"}); err != nil {
+		t.Fatalf("init command missing: %v", err)
+	}
 	if _, _, err := cmd.Find([]string{"tool"}); err != nil {
 		t.Fatalf("tool command missing: %v", err)
 	}

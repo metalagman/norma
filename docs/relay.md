@@ -7,9 +7,9 @@
 - Runtime stack: `tgbotkit/runtime` + Google ADK runners.
 - Main agent: relay app key `relay.root_agent` (profile overrides via `profiles.<profile>.relay.root_agent`).
 - Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
-- Output streaming: dual `sendMessageDraft` channels.
-  - Response channel: MarkdownV2 escaped text.
-  - Thoughts/events channel: plain text.
+- Output streaming:
+  - Thought updates: Telegram Bot API `sendMessageDraft` (plain text).
+  - Final assistant response: Telegram Bot API `sendMessage` (MarkdownV2; retry without `parse_mode` on failure).
 - Auth model: one-time owner authorization with startup-generated token.
 
 ## Startup Order (Required)
@@ -25,10 +25,10 @@ Internal MCP v1 scope is config + lifecycle plumbing; server implementations can
 
 ## Configuration
 
-Relay config is merged from:
+Relay config is loaded from one selected file (priority order):
 
 1. Embedded defaults (`cmd/relay/relay.yaml`)
-2. Runtime config in `.norma/relay.yaml` or `.norma/config.yaml` (`relay.*`)
+2. Runtime config in `.norma/relay.yaml` (primary) or `.norma/config.yaml` (fallback)
 3. Profile app overrides in the same file (`profiles.<name>.relay.*`)
 4. Environment variables (`RELAY_*`) via Viper env mapping
 
@@ -79,42 +79,13 @@ Relay lazy-restores a topic session on first message after restart when metadata
 4. Relay calls ADK runner for that session.
 5. Relay streams partial updates to Telegram using Bot API `sendMessageDraft`.
 
-## Telegram Client Draft API
+## Telegram Messaging Behavior
 
-Partial model-response updates MUST be sent through the Telegram client method for Bot API `sendMessageDraft` (not `sendMessage`).
+Per model turn:
 
-### Request fields
-
-- `chat_id` (required)
-- `draft_id` (required, non-zero)
-- `text` (required)
-- `message_thread_id` (required for topic replies)
-- `parse_mode` (optional; use `MarkdownV2` for assistant response text)
-
-### Two draft streams per turn
-
-- Response draft stream:
-  - Contains assistant response text.
-  - Uses MarkdownV2-escaped text.
-- Events draft stream:
-  - Contains thoughts and tool-event updates.
-  - Uses plain text (no `parse_mode`).
-
-### Draft lifecycle contract
-
-1. At turn start, allocate two separate non-zero `draft_id` values:
-   - one for response
-   - one for events
-2. During the same turn, send each partial update to its stream using the same stream `draft_id`.
-3. Keep re-sending with the same `draft_id` as new partial text arrives (Telegram animates draft updates with the same ID).
-4. When the model turn completes, stop sending updates for both stream draft IDs.
-5. The last update sent for each stream is the final visible draft state for that turn.
-
-### Error handling
-
-- For response stream with `MarkdownV2`:
-  - If request fails, retry once without `parse_mode`.
-- Treat API bad requests or missing success body as failed draft updates and report/log them.
+1. Thought events are emitted as plain `sendMessageDraft` updates using a stable `draft_id`.
+2. Final assistant text is sent with `sendMessage` using MarkdownV2.
+3. If MarkdownV2 delivery fails, relay retries once without `parse_mode`.
 
 ## Subagent Spawn
 
@@ -156,8 +127,6 @@ Both paths create:
 6. Relay MCP `start_agent` creates topic + session and returns IDs.
 7. Restart clears in-memory sessions but topic sessions are lazy-restored from persisted metadata.
 8. Polling mode resumes from persisted Telegram offset in relay state DB.
-9. Partial updates are sent with Telegram Bot API `sendMessageDraft` (not `sendMessage`).
-10. Per turn, two non-zero draft streams are used and kept separate (response vs events).
-11. Reusing the same `draft_id` within each stream updates the same animated draft message.
-12. Response stream uses MarkdownV2 (with fallback retry without `parse_mode`), while events stream stays plain text.
+9. Partial thought updates are sent with Telegram Bot API `sendMessageDraft`.
+10. Final assistant response is sent with `sendMessage` using MarkdownV2 with fallback retry without `parse_mode`.
 13. `/close` in a topic closes that topic and stops the session; `/close` in root chat stops only root session.

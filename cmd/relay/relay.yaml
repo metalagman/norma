@@ -54,5 +54,10 @@ relay:
 
   # Internal MCP servers to start with relay lifecycle.
   # Server implementations are wired incrementally.
+  # Optional bind address for bundled relay MCP HTTP listener.
+  # Empty means auto-bind on a local ephemeral port.
+  # mcp:
+  #   address: ""
+
   internal_mcp:
     servers: []

@@ -60,7 +60,7 @@ func serveCommand() *cobra.Command {
 			relayCfg := relay.Config{Relay: doc.Relay}
 
 			if relayCfg.Relay.Telegram.Token == "" {
-				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: RELAY_TELEGRAM_TOKEN=<token>\n  - App config: relay.telegram.token in .norma/config.yaml or .norma/relay.yaml\n  - Profile override: profiles.<name>.relay.telegram.token in the same file")
+				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: RELAY_TELEGRAM_TOKEN=<token>\n  - App config: relay.telegram.token in .norma/relay.yaml (preferred) or .norma/config.yaml\n  - Profile override: profiles.<name>.relay.telegram.token in the same file")
 			}
 
 			ownerToken, err := auth.GenerateOwnerToken()

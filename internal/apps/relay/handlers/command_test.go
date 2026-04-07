@@ -92,6 +92,34 @@ func TestCommandHandlerOnCommand_CloseUnauthorized(t *testing.T) {
 	assertLastSentContains(t, tgClient, "Only the bot owner can use this command.")
 }
 
+func TestCommandHandlerOnCommand_NewWithoutArgs_ShowsConfiguredAgentIDs(t *testing.T) {
+	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEvent("new", "", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(sm.closeCalls) != 0 {
+		t.Fatalf("CloseTopic calls = %d, want 0", len(sm.closeCalls))
+	}
+	if len(sm.stopCalls) != 0 {
+		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
+	}
+	assertLastSentContains(t, tgClient, "Usage: /new <agent_id>")
+	assertLastSentContains(t, tgClient, "Available agents: alpha, beta")
+}
+
+func TestCommandHandlerNewUsageMessage_NoAgentsConfigured(t *testing.T) {
+	handler, _, _ := newCommandHandlerTestHarness(t)
+	handler.agentIDs = nil
+
+	got := handler.newCommandUsageMessage()
+	if !strings.Contains(got, "No agents configured under norma.agents in relay config.") {
+		t.Fatalf("newCommandUsageMessage() = %q, want no-agents guidance", got)
+	}
+}
+
 type fakeCommandSessionManager struct {
 	closeCalls []closeTopicCall
 	stopCalls  []stopSessionCall
@@ -143,6 +171,7 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 		ownerStore:     ownerStore,
 		sessionManager: sessionManager,
 		messenger:      msg,
+		agentIDs:       []string{"alpha", "beta"},
 	}
 	return handler, sessionManager, tgClient
 }
