@@ -61,9 +61,6 @@ func LoadConfigDocument(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions, out
 	if !ok {
 		return "", fmt.Errorf("runtime config key %q is required", runtimeRootKey)
 	}
-	if err := rejectLegacyRuntimeAppKeys(runtimeSettings); err != nil {
-		return "", err
-	}
 	if err := ValidateSettings(runtimeSettings); err != nil {
 		return "", fmt.Errorf("validate runtime config: %w", err)
 	}
@@ -97,9 +94,6 @@ func loadResolvedSettings(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (
 	if settings == nil {
 		settings = map[string]any{}
 	}
-	if err := rejectLegacyRootRuntimeKeys(settings); err != nil {
-		return nil, "", err
-	}
 
 	selectedProfile, err := applyProfileOverlay(v, settings, runtimeOpts.Profile)
 	if err != nil {
@@ -111,9 +105,6 @@ func loadResolvedSettings(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (
 	settings = v.AllSettings()
 	if settings == nil {
 		settings = map[string]any{}
-	}
-	if err := rejectLegacyRootRuntimeKeys(settings); err != nil {
-		return nil, "", err
 	}
 
 	return settings, selectedProfile, nil
@@ -168,9 +159,6 @@ func applyProfileOverlay(v *viper.Viper, settings map[string]any, requestedProfi
 	overrideMap, ok := toStringAnyMap(rawOverride)
 	if !ok {
 		return "", fmt.Errorf("top-level profiles.%s must be an object", selected)
-	}
-	if err := rejectLegacyRuntimeKeysInOverride(selected, overrideMap); err != nil {
-		return "", err
 	}
 	if err := v.MergeConfigMap(overrideMap); err != nil {
 		return "", fmt.Errorf("merge top-level profiles.%s: %w", selected, err)
@@ -227,42 +215,6 @@ func searchedConfigPaths(roots []string, appName string) []string {
 		)
 	}
 	return paths
-}
-
-func rejectLegacyRootRuntimeKeys(root map[string]any) error {
-	legacy := []string{"agents", "mcps", "mcp_servers", "profile", "budgets", "retention"}
-	for _, key := range legacy {
-		if _, ok := root[key]; ok {
-			return fmt.Errorf("legacy top-level key %q is no longer supported; move runtime keys under %q and CLI settings under %q", key, runtimeRootKey, "cli")
-		}
-	}
-	return nil
-}
-
-func rejectLegacyRuntimeKeysInOverride(profileName string, override map[string]any) error {
-	legacy := []string{"agents", "mcps", "mcp_servers", "profile", "budgets", "retention", "pdca", "planner"}
-	for _, key := range legacy {
-		if _, ok := override[key]; ok {
-			return fmt.Errorf("legacy runtime key %q in top-level profiles.%s is not supported; nest runtime overrides under %q", key, profileName, runtimeRootKey)
-		}
-	}
-	return nil
-}
-
-func rejectLegacyRuntimeAppKeys(runtimeSettings map[string]any) error {
-	if _, ok := runtimeSettings["mcps"]; ok {
-		return fmt.Errorf("runtime key %q.%s is no longer supported; use %q.%s instead", runtimeRootKey, "mcps", runtimeRootKey, "mcp_servers")
-	}
-	if _, ok := runtimeSettings["profiles"]; ok {
-		return fmt.Errorf("runtime key %q.%s is no longer supported; move workflow settings under %q.%s", runtimeRootKey, "profiles", "cli", "pdca")
-	}
-	if _, ok := runtimeSettings["budgets"]; ok {
-		return fmt.Errorf("runtime key %q.%s is no longer supported; move it to %s.budgets", runtimeRootKey, "budgets", "cli")
-	}
-	if _, ok := runtimeSettings["retention"]; ok {
-		return fmt.Errorf("runtime key %q.%s is no longer supported; move it to %s.retention", runtimeRootKey, "retention", "cli")
-	}
-	return nil
 }
 
 func extractTopLevelProfiles(root map[string]any) (map[string]any, bool, error) {

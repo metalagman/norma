@@ -271,6 +271,124 @@ func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 	}
 }
 
+func TestLoadRuntime_IgnoresLegacyTopLevelRuntimeKeys(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `agents:
+  legacy_agent:
+    type: generic_acp
+    generic_acp:
+      cmd: ["legacy"]
+mcp_servers:
+  legacy:
+    type: stdio
+    cmd: ["legacy-mcp"]
+norma:
+  agents:
+    agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["current"]
+cli:
+  pdca:
+    plan: agent
+    do: agent
+    check: agent
+    act: agent
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	cfg, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir})
+	if err != nil {
+		t.Fatalf("LoadRuntime returned error: %v", err)
+	}
+	agentCfg := cfg.Norma.Agents["agent"]
+	if agentCfg.GenericACP == nil || len(agentCfg.GenericACP.Cmd) == 0 {
+		t.Fatalf("agent generic_acp block missing cmd: %#v", agentCfg)
+	}
+	if got := agentCfg.GenericACP.Cmd[0]; got != "current" {
+		t.Fatalf("agent generic_acp.cmd[0] = %q, want current", got)
+	}
+}
+
+func TestLoadRuntime_IgnoresLegacyNormaKeys(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
+  agents:
+    agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["current"]
+  mcps:
+    old:
+      type: stdio
+      cmd: ["old"]
+  profiles:
+    old:
+      pdca:
+        plan: old
+  budgets:
+    max_iterations: 1
+  retention:
+    keep_last: 1
+cli:
+  pdca:
+    plan: agent
+    do: agent
+    check: agent
+    act: agent
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	if _, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir}); err != nil {
+		t.Fatalf("LoadRuntime returned error: %v", err)
+	}
+}
+
+func TestLoadConfigDocument_IgnoresLegacyKeysInProfileOverride(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+  agents:
+    agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["agent"]
+relay:
+  root_agent: from_relay_file
+profiles:
+  default:
+    agents:
+      legacy_agent:
+        type: generic_acp
+        generic_acp:
+          cmd: ["legacy"]
+    pdca:
+      plan: legacy_agent
+    relay:
+      logger:
+        level: debug
+`); err != nil {
+		t.Fatalf("write relay config: %v", err)
+	}
+
+	var doc relayConfigDocumentForTest
+	selectedProfile, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: "default"},
+		appconfig.AppLoadOptions{AppName: "relay"},
+		&doc,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigDocument: %v", err)
+	}
+	if selectedProfile != "default" {
+		t.Fatalf("profile = %q, want default", selectedProfile)
+	}
+	if got := doc.Relay.Logger.Level; got != "debug" {
+		t.Fatalf("logger.level = %q, want debug", got)
+	}
+}
+
 func runtimeYAMLWithCmd(cmd string) string {
 	return `norma:
   agents:
