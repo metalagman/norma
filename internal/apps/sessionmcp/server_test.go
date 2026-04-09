@@ -31,18 +31,18 @@ func TestSessionStateServerListsTools(t *testing.T) {
 	}
 
 	want := []string{
-		"norma.state.clear",
-		"norma.state.delete",
-		"norma.state.get",
-		"norma.state.get_json",
-		"norma.state.list",
-		"norma.state.merge_json",
-		"norma.state.set",
-		"norma.state.set_json",
-		"norma.state.ns_get",
-		"norma.state.ns_list",
-		"norma.state.ns_set",
-		"norma.state.ns_set_json",
+		"relay.state.clear",
+		"relay.state.delete",
+		"relay.state.get",
+		"relay.state.get_json",
+		"relay.state.list",
+		"relay.state.merge_json",
+		"relay.state.set",
+		"relay.state.set_json",
+		"relay.state.ns_get",
+		"relay.state.ns_list",
+		"relay.state.ns_set",
+		"relay.state.ns_set_json",
 	}
 
 	if len(got) != len(want) {
@@ -56,14 +56,14 @@ func TestSetGetBasic(t *testing.T) {
 	_ = session.InitializeResult()
 
 	// Set a value
-	setResult := callTool(t, ctx, session, "norma.state.set", map[string]any{
+	setResult := callTool(t, ctx, session, "relay.state.set", map[string]any{
 		"key":   "mykey",
 		"value": "myvalue",
 	})
 	assertOk(t, setResult)
 
 	// Get the value
-	getResult := callTool(t, ctx, session, "norma.state.get", map[string]any{
+	getResult := callTool(t, ctx, session, "relay.state.get", map[string]any{
 		"key": "mykey",
 	})
 	payload := structuredResultMap(t, getResult)
@@ -80,7 +80,7 @@ func TestGetMissingKey(t *testing.T) {
 	defer cleanup()
 	_ = session.InitializeResult()
 
-	getResult := callTool(t, ctx, session, "norma.state.get", map[string]any{
+	getResult := callTool(t, ctx, session, "relay.state.get", map[string]any{
 		"key": "nonexistent",
 	})
 	payload := structuredResultMap(t, getResult)
@@ -95,7 +95,7 @@ func TestSetGetJSON(t *testing.T) {
 	_ = session.InitializeResult()
 
 	// Set a JSON value
-	setResult := callTool(t, ctx, session, "norma.state.set_json", map[string]any{
+	setResult := callTool(t, ctx, session, "relay.state.set_json", map[string]any{
 		"key": "config",
 		"value": map[string]any{
 			"timeout": 30,
@@ -105,7 +105,7 @@ func TestSetGetJSON(t *testing.T) {
 	assertOk(t, setResult)
 
 	// Get as JSON
-	getResult := callTool(t, ctx, session, "norma.state.get_json", map[string]any{
+	getResult := callTool(t, ctx, session, "relay.state.get_json", map[string]any{
 		"key": "config",
 	})
 	payload := structuredResultMap(t, getResult)
@@ -127,7 +127,7 @@ func TestMergeJSON(t *testing.T) {
 	_ = session.InitializeResult()
 
 	// Set initial value
-	_ = callTool(t, ctx, session, "norma.state.set_json", map[string]any{
+	_ = callTool(t, ctx, session, "relay.state.set_json", map[string]any{
 		"key": "state",
 		"value": map[string]any{
 			"count": 1,
@@ -136,7 +136,7 @@ func TestMergeJSON(t *testing.T) {
 	})
 
 	// Merge new fields
-	mergeResult := callTool(t, ctx, session, "norma.state.merge_json", map[string]any{
+	mergeResult := callTool(t, ctx, session, "relay.state.merge_json", map[string]any{
 		"key": "state",
 		"value": map[string]any{
 			"count": 2,
@@ -164,11 +164,11 @@ func TestListKeys(t *testing.T) {
 
 	// Set multiple keys
 	for _, k := range []string{"a:1", "a:2", "b:1"} {
-		_ = callTool(t, ctx, session, "norma.state.set", map[string]any{"key": k, "value": "v"})
+		_ = callTool(t, ctx, session, "relay.state.set", map[string]any{"key": k, "value": "v"})
 	}
 
 	// List all
-	allResult := callTool(t, ctx, session, "norma.state.list", map[string]any{})
+	allResult := callTool(t, ctx, session, "relay.state.list", map[string]any{})
 	allPayload := structuredResultMap(t, allResult)
 	allKeys := allPayload["keys"].([]any)
 	if len(allKeys) != 3 {
@@ -176,7 +176,7 @@ func TestListKeys(t *testing.T) {
 	}
 
 	// List with prefix
-	prefixResult := callTool(t, ctx, session, "norma.state.list", map[string]any{"prefix": "a:"})
+	prefixResult := callTool(t, ctx, session, "relay.state.list", map[string]any{"prefix": "a:"})
 	prefixPayload := structuredResultMap(t, prefixResult)
 	prefixKeys := prefixPayload["keys"].([]any)
 	if len(prefixKeys) != 2 {
@@ -190,21 +190,21 @@ func TestNamespaceIsolation(t *testing.T) {
 	_ = session.InitializeResult()
 
 	// Set in namespace "agent1"
-	_ = callTool(t, ctx, session, "norma.state.ns_set", map[string]any{
+	_ = callTool(t, ctx, session, "relay.state.ns_set", map[string]any{
 		"namespace": "agent1",
 		"key":       "state",
 		"value":     "value1",
 	})
 
 	// Set in namespace "agent2"
-	_ = callTool(t, ctx, session, "norma.state.ns_set", map[string]any{
+	_ = callTool(t, ctx, session, "relay.state.ns_set", map[string]any{
 		"namespace": "agent2",
 		"key":       "state",
 		"value":     "value2",
 	})
 
 	// Get from agent1
-	get1 := callTool(t, ctx, session, "norma.state.ns_get", map[string]any{
+	get1 := callTool(t, ctx, session, "relay.state.ns_get", map[string]any{
 		"namespace": "agent1",
 		"key":       "state",
 	})
@@ -214,7 +214,7 @@ func TestNamespaceIsolation(t *testing.T) {
 	}
 
 	// Get from agent2
-	get2 := callTool(t, ctx, session, "norma.state.ns_get", map[string]any{
+	get2 := callTool(t, ctx, session, "relay.state.ns_get", map[string]any{
 		"namespace": "agent2",
 		"key":       "state",
 	})
@@ -224,7 +224,7 @@ func TestNamespaceIsolation(t *testing.T) {
 	}
 
 	// List keys in agent1 namespace
-	list1 := callTool(t, ctx, session, "norma.state.ns_list", map[string]any{
+	list1 := callTool(t, ctx, session, "relay.state.ns_list", map[string]any{
 		"namespace": "agent1",
 	})
 	listPayload1 := structuredResultMap(t, list1)
@@ -244,11 +244,11 @@ func TestValidationErrors(t *testing.T) {
 		toolName string
 		args     map[string]any
 	}{
-		{"get empty key", "norma.state.get", map[string]any{"key": "   "}},
-		{"set empty key", "norma.state.set", map[string]any{"key": "  ", "value": "v"}},
-		{"ns_get empty namespace", "norma.state.ns_get", map[string]any{"namespace": "  ", "key": "k"}},
-		{"ns_set empty namespace", "norma.state.ns_set", map[string]any{"namespace": "  ", "key": "k", "value": "v"}},
-		{"ns_list empty namespace", "norma.state.ns_list", map[string]any{"namespace": "  "}},
+		{"get empty key", "relay.state.get", map[string]any{"key": "   "}},
+		{"set empty key", "relay.state.set", map[string]any{"key": "  ", "value": "v"}},
+		{"ns_get empty namespace", "relay.state.ns_get", map[string]any{"namespace": "  ", "key": "k"}},
+		{"ns_set empty namespace", "relay.state.ns_set", map[string]any{"namespace": "  ", "key": "k", "value": "v"}},
+		{"ns_list empty namespace", "relay.state.ns_list", map[string]any{"namespace": "  "}},
 	}
 
 	for _, tc := range tests {

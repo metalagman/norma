@@ -152,9 +152,17 @@ func NewServer(svc RelayService) (*mcp.Server, error) {
 		nil,
 	)
 
+	RegisterTools(server, svc)
+	return server, nil
+}
+
+// RegisterTools adds relay agent-management MCP tools to an existing server.
+func RegisterTools(server *mcp.Server, svc RelayService) {
+	if server == nil || svc == nil {
+		return
+	}
 	srv := &service{svc: svc}
 	srv.registerTools(server)
-	return server, nil
 }
 
 type service struct {
@@ -163,19 +171,19 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.relay.start_agent",
+		Name:        "relay.agents.start_agent",
 		Description: "Start a new relay agent session",
 	}, s.startAgent)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.relay.stop_agent",
+		Name:        "relay.agents.stop_agent",
 		Description: "Stop a running relay agent session",
 	}, s.stopAgent)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.relay.list_agents",
+		Name:        "relay.agents.list_agents",
 		Description: "List all active relay agent sessions",
 	}, s.listAgents)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.relay.get_agent",
+		Name:        "relay.agents.get_agent",
 		Description: "Get information about a specific relay agent session",
 	}, s.getAgent)
 }
@@ -200,31 +208,31 @@ type startAgentOutput struct {
 
 func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in startAgentInput) (*mcp.CallToolResult, startAgentOutput, error) {
 	if strings.TrimSpace(in.AgentName) == "" {
-		result, out := validationFailure("norma.relay.start_agent", "agent_name is required")
+		result, out := validationFailure("relay.agents.start_agent", "agent_name is required")
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
 
 	chatID := in.ChatID
 	if chatID == 0 {
 		if strings.TrimSpace(in.SessionID) == "" {
-			result, out := validationFailure("norma.relay.start_agent", "chat_id or session_id is required")
+			result, out := validationFailure("relay.agents.start_agent", "chat_id or session_id is required")
 			return result, startAgentOutput{ToolOutcome: out}, nil
 		}
 		parent, err := s.svc.GetSession(ctx, in.SessionID)
 		if err != nil {
-			result, out := backendFailure("norma.relay.start_agent", fmt.Errorf("resolve session context: %w", err))
+			result, out := backendFailure("relay.agents.start_agent", fmt.Errorf("resolve session context: %w", err))
 			return result, startAgentOutput{ToolOutcome: out}, nil
 		}
 		chatID = parent.ChatID
 		if chatID == 0 {
-			result, out := validationFailure("norma.relay.start_agent", fmt.Sprintf("session %q has no chat context", in.SessionID))
+			result, out := validationFailure("relay.agents.start_agent", fmt.Sprintf("session %q has no chat context", in.SessionID))
 			return result, startAgentOutput{ToolOutcome: out}, nil
 		}
 	}
 
 	info, err := s.svc.StartAgent(ctx, chatID, in.AgentName)
 	if err != nil {
-		result, out := backendFailure("norma.relay.start_agent", err)
+		result, out := backendFailure("relay.agents.start_agent", err)
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
 
@@ -247,12 +255,12 @@ type stopAgentInput struct {
 
 func (s *service) stopAgent(ctx context.Context, _ *mcp.CallToolRequest, in stopAgentInput) (*mcp.CallToolResult, ToolOutcome, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("norma.relay.stop_agent", "session_id is required")
+		result, out := validationFailure("relay.agents.stop_agent", "session_id is required")
 		return result, out, nil
 	}
 
 	if err := s.svc.StopAgent(ctx, in.SessionID); err != nil {
-		result, out := backendFailure("norma.relay.stop_agent", err)
+		result, out := backendFailure("relay.agents.stop_agent", err)
 		return result, out, nil
 	}
 
@@ -267,7 +275,7 @@ type listAgentsOutput struct {
 func (s *service) listAgents(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listAgentsOutput, error) {
 	agents, err := s.svc.ListAgents(ctx)
 	if err != nil {
-		result, out := backendFailure("norma.relay.list_agents", err)
+		result, out := backendFailure("relay.agents.list_agents", err)
 		return result, listAgentsOutput{ToolOutcome: out}, nil
 	}
 
@@ -288,13 +296,13 @@ type getAgentOutput struct {
 
 func (s *service) getAgent(ctx context.Context, _ *mcp.CallToolRequest, in getAgentInput) (*mcp.CallToolResult, getAgentOutput, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("norma.relay.get_agent", "session_id is required")
+		result, out := validationFailure("relay.agents.get_agent", "session_id is required")
 		return result, getAgentOutput{ToolOutcome: out}, nil
 	}
 
 	agent, err := s.svc.GetSession(ctx, in.SessionID)
 	if err != nil {
-		result, out := validationFailure("norma.relay.get_agent", fmt.Sprintf("session not found: %v", err))
+		result, out := validationFailure("relay.agents.get_agent", fmt.Sprintf("session not found: %v", err))
 		return result, getAgentOutput{ToolOutcome: out}, nil
 	}
 

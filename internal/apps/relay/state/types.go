@@ -9,7 +9,7 @@ import (
 const (
 	// NamespaceApp stores relay app internal state (for example owner auth).
 	NamespaceApp = "relay.app"
-	// NamespaceSessionMCP stores norma.state MCP key-value data.
+	// NamespaceSessionMCP stores relay.state MCP key-value data.
 	NamespaceSessionMCP = "relay.session_mcp"
 
 	// SessionStatusActive marks a session that can be lazily restored.

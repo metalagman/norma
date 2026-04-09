@@ -15,7 +15,7 @@ Context:
 Session:
 - ID: {{.SessionID}}
 - Session IDs are channel-scoped. Telegram sessions use `tg-<chat_id>-<topic_id>`.
-- When using `norma.relay.start_agent` from this session, prefer passing `session_id={{.SessionID}}` so the relay can infer the current chat context without a raw `chat_id`.
+- When using `relay.agents.start_agent` from this session, prefer passing `session_id={{.SessionID}}` so the relay can infer the current chat context without a raw `chat_id`.
 
 Workspace settings:
 - Mode: {{.WorkspaceMode}}
@@ -26,19 +26,22 @@ Workspace settings:
 - Main repo branch at start: {{.RepoBranchAtStart}}
 
 Git workspace guidance:
-- Use `norma.workspace.import` before major edits (or after long idle) to rebase your workspace onto the base branch.
-- Use `norma.workspace.export` with a Conventional Commit message to squash-merge your workspace branch into the base branch.
+- Use `relay.workspace.import` before major edits (or after long idle) to rebase your workspace onto the base branch.
+- Use `relay.workspace.export` with a Conventional Commit message to squash-merge your workspace branch into the base branch.
 - Do not perform branch/merge landing via raw git when these MCP tools are available.
 - If export reports a base-branch mismatch, ask the user to switch the main repository back to the configured base branch.
 {{else}}
-- Git workspace tooling: disabled (`norma.workspace` MCP is unavailable in this session).
+- Git workspace tooling: disabled (`relay.workspace` MCP namespace is unavailable in this session).
 {{end}}
 
-Built-in MCP Servers:
-- norma.config — read/write Norma configuration
-- norma.state — persistent session/app state storage
-- norma.relay — spawn and manage relay sessions; `list_agents` and `get_agent` return structured session objects, and `start_agent` can infer channel context from the current `session_id`
-{{if .WorkspaceEnabled}}- norma.workspace — import/export workspace changes with configured base branch
+Built-in MCP Server:
+- relay — built-in relay MCP server mounted for this session
+
+Available namespaces:
+- relay.config — read/write Norma configuration
+- relay.state — persistent session/app state storage
+- relay.agents — spawn and manage relay sessions; `list_agents` and `get_agent` return structured session objects, and `start_agent` can infer channel context from the current `session_id`
+{{if .WorkspaceEnabled}}- relay.workspace — import/export workspace changes with configured base branch
 {{end}}{{if .AgentInstructions}}
 
 Agent-specific instructions:

@@ -67,17 +67,14 @@ profiles: {}
 
 - `relay.working_dir`: optional relay working directory (defaults to process CWD)
 - `relay.state_dir`: relay state directory for persistent relay SQLite state (`relay.db`).
-  - Stores owner/app KV, `norma.state` MCP KV, session metadata, and Telegram polling offset.
+  - Stores owner/app KV, `relay.state` MCP KV, session metadata, and Telegram polling offset.
   - Schema is migration-versioned and auto-applied on startup.
   - Relative paths are resolved from `relay.working_dir`.
   - Default: `.config/relay`
 - owner auth token is generated at runtime per `relay serve` start and exposed via startup `auth_url` log field
 - bundled relay MCP listener always binds to local ephemeral address (`127.0.0.1:0`)
   - bundled routes on this listener:
-    - `/mcp` and `/mcp/norma.relay` for relay MCP
-    - `/mcp/norma.config`
-    - `/mcp/norma.state`
-    - `/mcp/norma.workspace` (when workspace mode is enabled)
+    - `/mcp` and `/mcp/relay` for the built-in relay MCP server
 - `relay.mcp_servers`: extra MCP server IDs for all relay-started sessions (resolved from `norma.mcp_servers`)
   - effective MCP IDs = bundled defaults + `norma.agents.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
 - `relay.agent_system_instructions`: optional per-agent relay instruction map
@@ -87,12 +84,12 @@ profiles: {}
   - `relay init` generates a channel-aware example prompt for the selected root agent
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
-  - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)
+  - `off`: run agents directly in relay `working_dir` (no `relay.workspace` namespace)
   - `auto`: enable worktrees only when `working_dir` is a Git repo, otherwise fallback to `off`
 - `relay.workspace.base_branch`: base branch used for workspace sync/export (for example `main`, `master`, `develop`)
   - `relay init` detects current HEAD branch and writes it when available
   - if empty, relay resolves base branch from current HEAD at startup
-  - `norma.workspace.export` requires main repo to be on this branch
+  - `relay.workspace.export` requires main repo to be on this branch
 - Relay is Beads-independent by default and does not auto-start bundled `norma.tasks` MCP.
 
 ## Session Model
@@ -127,7 +124,7 @@ Per model turn:
 Two v1 spawn paths are supported:
 
 1. Manual: `/new <agent_name>`
-2. Agent/tool path: relay MCP `norma.relay.start_agent`
+2. Agent/tool path: relay MCP `relay.agents.start_agent`
 
 Both paths create:
 
@@ -143,16 +140,17 @@ Both paths create:
 
 ## Relay MCP API (V1)
 
-- `norma.relay.start_agent`
+- built-in server ID: `relay`
+- `relay.agents.start_agent`
   - input: `agent_name`, plus either:
     - `chat_id`, or
     - `session_id` to infer the current channel/chat context
   - output: structured session object including `channel_type`, `address_key`, `session_id`, `chat_id`, `topic_id`, `agent_name`, `description`, `mcp_servers`
-- `norma.relay.stop_agent`
+- `relay.agents.stop_agent`
   - input: `session_id`
-- `norma.relay.list_agents`
+- `relay.agents.list_agents`
   - output: structured `agents[]` entries, including persisted sessions with `status=persisted`
-- `norma.relay.get_agent`
+- `relay.agents.get_agent`
   - input: `session_id`
   - output: structured `agent` object
 
@@ -160,10 +158,10 @@ Relay agents should prefer `session_id` over raw Telegram IDs when they spawn su
 
 ## Workspace MCP Usage
 
-- `norma.workspace.import`
+- `relay.workspace.import`
   - rebases the session workspace onto the configured base branch
   - works for active or persisted sessions as long as workspace metadata exists in `relay.db`
-- `norma.workspace.export`
+- `relay.workspace.export`
   - squash-merges the session workspace branch into the configured base branch with the provided Conventional Commit message
   - also works for persisted sessions before lazy restore
 

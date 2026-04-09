@@ -138,9 +138,17 @@ func NewServer(svc WorkspaceService) (*mcp.Server, error) {
 		nil,
 	)
 
+	RegisterTools(server, svc)
+	return server, nil
+}
+
+// RegisterTools adds workspace MCP tools to an existing server.
+func RegisterTools(server *mcp.Server, svc WorkspaceService) {
+	if server == nil || svc == nil {
+		return
+	}
 	srv := &service{svc: svc}
 	srv.registerTools(server)
-	return server, nil
 }
 
 type service struct {
@@ -149,11 +157,11 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.workspace.import",
+		Name:        "relay.workspace.import",
 		Description: "Sync workspace branch with configured base branch (discarding uncommitted workspace changes before rebase)",
 	}, s.importTool)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.workspace.export",
+		Name:        "relay.workspace.export",
 		Description: "Squash-merge workspace branch into configured base branch and commit",
 	}, s.exportTool)
 }
@@ -168,12 +176,12 @@ type importOutput struct {
 
 func (s *service) importTool(ctx context.Context, _ *mcp.CallToolRequest, in importInput) (*mcp.CallToolResult, importOutput, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("norma.workspace.import", "session_id is required")
+		result, out := validationFailure("relay.workspace.import", "session_id is required")
 		return result, importOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.svc.Import(ctx, in.SessionID); err != nil {
-		result, out := backendFailure("norma.workspace.import", err)
+		result, out := backendFailure("relay.workspace.import", err)
 		return result, importOutput{ToolOutcome: out}, nil
 	}
 
@@ -193,16 +201,16 @@ type exportOutput struct {
 
 func (s *service) exportTool(ctx context.Context, _ *mcp.CallToolRequest, in exportInput) (*mcp.CallToolResult, exportOutput, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("norma.workspace.export", "session_id is required")
+		result, out := validationFailure("relay.workspace.export", "session_id is required")
 		return result, exportOutput{ToolOutcome: out}, nil
 	}
 	if strings.TrimSpace(in.CommitMessage) == "" {
-		result, out := validationFailure("norma.workspace.export", "commit_message is required")
+		result, out := validationFailure("relay.workspace.export", "commit_message is required")
 		return result, exportOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.svc.Export(ctx, in.SessionID, in.CommitMessage); err != nil {
-		result, out := backendFailure("norma.workspace.export", err)
+		result, out := backendFailure("relay.workspace.export", err)
 		return result, exportOutput{ToolOutcome: out}, nil
 	}
 

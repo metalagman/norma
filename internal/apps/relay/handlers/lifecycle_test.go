@@ -21,10 +21,7 @@ func TestIsBundled(t *testing.T) {
 		id   string
 		want bool
 	}{
-		{id: "norma.config", want: true},
-		{id: "norma.state", want: true},
-		{id: "norma.relay", want: true},
-		{id: "norma.workspace", want: true},
+		{id: "relay", want: true},
 		{id: "norma.tasks", want: false},
 	}
 
@@ -65,11 +62,11 @@ func TestSelectConfigPath_NonRelayFallsBackToCoreConfig(t *testing.T) {
 
 func TestBundledRegistryURL(t *testing.T) {
 	addr := "127.0.0.1:9010"
-	if got := bundledRegistryURL(addr, "norma.relay"); got != "http://127.0.0.1:9010/mcp" {
+	if got := bundledRegistryURL(addr, "relay"); got != "http://127.0.0.1:9010/mcp" {
 		t.Fatalf("bundledRegistryURL(relay) = %q, want http://127.0.0.1:9010/mcp", got)
 	}
-	if got := bundledRegistryURL(addr, "norma.state"); got != "http://127.0.0.1:9010/mcp/norma.state" {
-		t.Fatalf("bundledRegistryURL(state) = %q, want http://127.0.0.1:9010/mcp/norma.state", got)
+	if got := bundledRoutePath("relay"); got != "/mcp/relay" {
+		t.Fatalf("bundledRoutePath(relay) = %q, want /mcp/relay", got)
 	}
 }
 
@@ -84,8 +81,7 @@ func TestStartBundledMCPHTTPServer_MountsRoutesAndAlias(t *testing.T) {
 	}
 
 	res, err := startBundledMCPHTTPServer(ctx, "127.0.0.1:0", map[string]http.Handler{
-		"norma.config": mkHandler("config"),
-		"norma.relay":  mkHandler("relay"),
+		"relay": mkHandler("relay"),
 	})
 	if err != nil {
 		t.Fatalf("startBundledMCPHTTPServer() error = %v", err)
@@ -111,8 +107,7 @@ func TestStartBundledMCPHTTPServer_MountsRoutesAndAlias(t *testing.T) {
 		}
 	}
 
-	assertBody("/mcp/norma.config", "config")
-	assertBody("/mcp/norma.relay", "relay")
+	assertBody("/mcp/relay", "relay")
 	assertBody("/mcp", "relay")
 }
 
@@ -139,37 +134,21 @@ func TestEnsureBundledServers_RegistersSharedListenerURLs(t *testing.T) {
 		}
 	})
 
-	wantPaths := map[string]string{
-		"norma.config":    "/mcp/norma.config",
-		"norma.state":     "/mcp/norma.state",
-		"norma.relay":     "/mcp",
-		"norma.workspace": "/mcp/norma.workspace",
+	cfg, ok := manager.registry.Get("relay")
+	if !ok {
+		t.Fatal("registry missing relay")
 	}
-
-	var sharedHost string
-	for id, wantPath := range wantPaths {
-		cfg, ok := manager.registry.Get(id)
-		if !ok {
-			t.Fatalf("registry missing %s", id)
-		}
-		u, err := url.Parse(cfg.URL)
-		if err != nil {
-			t.Fatalf("parse URL for %s: %v", id, err)
-		}
-		if u.Scheme != "http" {
-			t.Fatalf("%s scheme = %q, want http", id, u.Scheme)
-		}
-		if u.Path != wantPath {
-			t.Fatalf("%s path = %q, want %q", id, u.Path, wantPath)
-		}
-		if sharedHost == "" {
-			sharedHost = u.Host
-		} else if u.Host != sharedHost {
-			t.Fatalf("%s host = %q, want shared host %q", id, u.Host, sharedHost)
-		}
+	u, err := url.Parse(cfg.URL)
+	if err != nil {
+		t.Fatalf("parse URL for relay: %v", err)
 	}
-
-	if strings.TrimSpace(sharedHost) == "" {
+	if u.Scheme != "http" {
+		t.Fatalf("relay scheme = %q, want http", u.Scheme)
+	}
+	if u.Path != "/mcp" {
+		t.Fatalf("relay path = %q, want /mcp", u.Path)
+	}
+	if strings.TrimSpace(u.Host) == "" {
 		t.Fatal("shared host is empty")
 	}
 }

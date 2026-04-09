@@ -18,6 +18,7 @@ const (
 	serverName     = "norma-config"
 	serverVersion  = "1.0.0"
 	defaultAddress = "127.0.0.1:9091"
+	toolNamespace  = "relay.config"
 )
 
 type ToolError struct {
@@ -161,29 +162,41 @@ func NewServer(svc *ConfigService) (*mcp.Server, error) {
 		nil,
 	)
 
-	svc.registerTools(server)
+	RegisterTools(server, svc)
 	return server, nil
+}
+
+// RegisterTools adds config MCP tools to an existing server.
+func RegisterTools(server *mcp.Server, svc *ConfigService) {
+	if server == nil || svc == nil {
+		return
+	}
+	svc.registerTools(server)
+}
+
+func toolName(name string) string {
+	return toolNamespace + "." + name
 }
 
 func (s *ConfigService) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.config.get",
+		Name:        toolName("get"),
 		Description: "Get a configuration value by key",
 	}, s.getConfig)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.config.set",
+		Name:        toolName("set"),
 		Description: "Set a configuration value by key",
 	}, s.setConfig)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.config.list",
+		Name:        toolName("list"),
 		Description: "List all configuration keys",
 	}, s.listConfig)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.config.delete",
+		Name:        toolName("delete"),
 		Description: "Delete a configuration key",
 	}, s.deleteConfig)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "norma.config.save",
+		Name:        toolName("save"),
 		Description: "Save configuration changes to file",
 	}, s.saveConfig)
 }
@@ -195,7 +208,7 @@ type getConfigInput struct {
 func (s *ConfigService) getConfig(ctx context.Context, _ *mcp.CallToolRequest, in getConfigInput) (*mcp.CallToolResult, ToolOutcome, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.config.get", "key is required")
+		result, out := validationFailure(toolName("get"), "key is required")
 		return result, out, nil
 	}
 
@@ -219,7 +232,7 @@ type setConfigInput struct {
 func (s *ConfigService) setConfig(ctx context.Context, _ *mcp.CallToolRequest, in setConfigInput) (*mcp.CallToolResult, ToolOutcome, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.config.set", "key is required")
+		result, out := validationFailure(toolName("set"), "key is required")
 		return result, out, nil
 	}
 
@@ -237,7 +250,7 @@ type deleteConfigInput struct {
 func (s *ConfigService) deleteConfig(ctx context.Context, _ *mcp.CallToolRequest, in deleteConfigInput) (*mcp.CallToolResult, ToolOutcome, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.config.delete", "key is required")
+		result, out := validationFailure(toolName("delete"), "key is required")
 		return result, out, nil
 	}
 
@@ -280,7 +293,7 @@ func (s *ConfigService) saveConfig(ctx context.Context, _ *mcp.CallToolRequest, 
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		result, out := backendFailure("norma.config.save", err)
+		result, out := backendFailure(toolName("save"), err)
 		return result, out, nil
 	}
 
@@ -290,7 +303,7 @@ func (s *ConfigService) saveConfig(ctx context.Context, _ *mcp.CallToolRequest, 
 	}
 
 	if err := s.viper.WriteConfigAs(path); err != nil {
-		result, out := backendFailure("norma.config.save", err)
+		result, out := backendFailure(toolName("save"), err)
 		return result, out, nil
 	}
 

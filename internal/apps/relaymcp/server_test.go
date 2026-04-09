@@ -17,7 +17,7 @@ func TestStartAgentIncludesDescriptionAndMCPServers(t *testing.T) {
 				ChatID:      1,
 				TopicID:     2,
 				Description: "opencode: type=opencode_acp model=opencode/big-pickle",
-				MCPServers:  []string{"norma.config", "norma.state"},
+				MCPServers:  []string{"relay"},
 			},
 		},
 	}
@@ -41,7 +41,7 @@ func TestStartAgentIncludesDescriptionAndMCPServers(t *testing.T) {
 	if out.Description != "opencode: type=opencode_acp model=opencode/big-pickle" {
 		t.Fatalf("startAgent() description = %q", out.Description)
 	}
-	if !reflect.DeepEqual(out.MCPServers, []string{"norma.config", "norma.state"}) {
+	if !reflect.DeepEqual(out.MCPServers, []string{"relay"}) {
 		t.Fatalf("startAgent() mcp_servers = %#v", out.MCPServers)
 	}
 }

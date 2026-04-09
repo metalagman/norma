@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ipfans/fxlogger"
@@ -31,6 +32,8 @@ type workspaceBaseBranchParams struct {
 
 	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
 }
+
+const bundledRelayMCPServerID = "relay"
 
 // App creates a new fx.App for the relay bot with the provided configuration.
 func App(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) *fx.App {
@@ -59,6 +62,9 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 	}
 
 	logger := log.Logger.With().Str("component", "relay").Logger()
+	if err := validateRelayMCPConfiguration(cfg, normaCfg); err != nil {
+		return fx.Module("relay", fx.Error(err))
+	}
 
 	workingDir, err := resolveWorkingDir(cfg.Relay.WorkingDir)
 	if err != nil {
@@ -219,6 +225,52 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 			})
 		}),
 	)
+}
+
+var removedBuiltInRelayMCPServerIDs = map[string]string{
+	"norma.config":    bundledRelayMCPServerID,
+	"norma.state":     bundledRelayMCPServerID,
+	"norma.workspace": bundledRelayMCPServerID,
+	"norma.relay":     bundledRelayMCPServerID,
+	"relay.config":    bundledRelayMCPServerID,
+	"relay.state":     bundledRelayMCPServerID,
+	"relay.workspace": bundledRelayMCPServerID,
+	"relay.agents":    bundledRelayMCPServerID,
+}
+
+func validateRelayMCPConfiguration(cfg Config, normaCfg runtimeconfig.NormaConfig) error {
+	errs := make([]string, 0)
+
+	for id := range normaCfg.MCPServers {
+		switch id {
+		case bundledRelayMCPServerID:
+			errs = append(errs, `norma.mcp_servers.relay is reserved for the built-in relay MCP server`)
+		default:
+			if replacement, ok := removedBuiltInRelayMCPServerIDs[id]; ok {
+				errs = append(errs, fmt.Sprintf("norma.mcp_servers.%s conflicts with removed built-in MCP server ID %q; rename the custom server and use %q for the built-in relay MCP server", id, id, replacement))
+			}
+		}
+	}
+
+	for i, id := range cfg.Relay.MCPServers {
+		if replacement, ok := removedBuiltInRelayMCPServerIDs[strings.TrimSpace(id)]; ok {
+			errs = append(errs, fmt.Sprintf("relay.mcp_servers[%d] references removed built-in MCP server %q; use %q", i, id, replacement))
+		}
+	}
+
+	for agentName, agentCfg := range normaCfg.Agents {
+		for i, id := range agentCfg.MCPServers {
+			if replacement, ok := removedBuiltInRelayMCPServerIDs[strings.TrimSpace(id)]; ok {
+				errs = append(errs, fmt.Sprintf("norma.agents.%s.mcp_servers[%d] references removed built-in MCP server %q; use %q", agentName, i, id, replacement))
+			}
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	sort.Strings(errs)
+	return fmt.Errorf("invalid relay MCP configuration: %s", strings.Join(errs, "; "))
 }
 
 func resolveWorkingDir(raw string) (string, error) {

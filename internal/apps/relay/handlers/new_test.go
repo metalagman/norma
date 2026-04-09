@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildAgentWelcomeMessage_StartingWithoutSessionID(t *testing.T) {
-	msg := BuildAgentWelcomeMessage("opencode", "", "desc", []string{"norma.config"})
+	msg := BuildAgentWelcomeMessage("opencode", "", "desc", []string{"relay"})
 	if !strings.Contains(msg, "Starting **opencode** agent session.") {
 		t.Fatalf("message = %q, want starting text", msg)
 	}

@@ -41,10 +41,7 @@ type InternalMCPManager struct {
 }
 
 const (
-	bundledConfigServerID    = "norma.config"
-	bundledStateServerID     = "norma.state"
-	bundledRelayServerID     = "norma.relay"
-	bundledWorkspaceServerID = "norma.workspace"
+	bundledRelayServerID = "relay"
 )
 
 type internalMCPParams struct {
@@ -111,56 +108,38 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 		return fmt.Errorf("relay state store is required")
 	}
 
-	handlersByID := make(map[string]http.Handler, 4)
-	routes := make([]string, 0, 5)
+	server := mcp.NewServer(
+		&mcp.Implementation{
+			Name:    "relay",
+			Version: "1.0.0",
+		},
+		nil,
+	)
 
-	// norma.config
 	configPath := selectConfigPath(m.workingDir, "relay")
 	svc, err := configmcp.NewConfigService(configPath)
 	if err != nil {
 		m.logger.Warn().Err(err).Msg("failed to create config service")
 	} else {
-		server, err := configmcp.NewServer(svc)
-		if err != nil {
-			return fmt.Errorf("build bundled config MCP server: %w", err)
-		}
-		handlersByID[bundledConfigServerID] = streamableHandlerForServer(server)
-		routes = append(routes, bundledRoutePath(bundledConfigServerID))
+		configmcp.RegisterTools(server, svc)
 	}
 
-	// norma.state
-	stateServer, err := sessionmcp.NewServer(m.stateStore)
-	if err != nil {
-		return fmt.Errorf("build bundled state MCP server: %w", err)
-	}
-	handlersByID[bundledStateServerID] = streamableHandlerForServer(stateServer)
-	routes = append(routes, bundledRoutePath(bundledStateServerID))
+	sessionmcp.RegisterTools(server, m.stateStore)
 
-	// norma.relay
 	relaySvc := session.NewRelayMCPServer(m.sessionManager, m.channel, m.messenger)
-	relayServer, err := relaymcp.NewServer(relaySvc)
-	if err != nil {
-		return fmt.Errorf("build bundled relay MCP server: %w", err)
-	}
-	handlersByID[bundledRelayServerID] = streamableHandlerForServer(relayServer)
-	routes = append(routes, bundledRoutePath(bundledRelayServerID), "/mcp")
+	relaymcp.RegisterTools(server, relaySvc)
 
-	// norma.workspace
 	if m.workspaceEnabled {
 		workspaceSvc := session.NewWorkspaceMCPServer(m.sessionManager)
-		workspaceServer, err := workspacemcp.NewServer(workspaceSvc)
-		if err != nil {
-			return fmt.Errorf("build bundled workspace MCP server: %w", err)
-		}
-		handlersByID[bundledWorkspaceServerID] = streamableHandlerForServer(workspaceServer)
-		routes = append(routes, bundledRoutePath(bundledWorkspaceServerID))
+		workspacemcp.RegisterTools(server, workspaceSvc)
 	} else {
 		m.logger.Info().Msg("workspace mode disabled; skipping bundled workspace server")
 	}
 
-	if len(handlersByID) == 0 {
-		return nil
+	handlersByID := map[string]http.Handler{
+		bundledRelayServerID: streamableHandlerForServer(server),
 	}
+	routes := []string{"/mcp", bundledRoutePath(bundledRelayServerID)}
 
 	res, err := startBundledMCPHTTPServer(ctx, "127.0.0.1:0", handlersByID)
 	if err != nil {
@@ -168,17 +147,10 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 	}
 	m.addCleanup(res.Close)
 
-	ids := make([]string, 0, len(handlersByID))
-	for id := range handlersByID {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		m.registry.Set(id, agentconfig.MCPServerConfig{
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  bundledRegistryURL(res.Addr, id),
-		})
-	}
+	m.registry.Set(bundledRelayServerID, agentconfig.MCPServerConfig{
+		Type: agentconfig.MCPServerTypeHTTP,
+		URL:  bundledRegistryURL(res.Addr, bundledRelayServerID),
+	})
 
 	sort.Strings(routes)
 	m.logger.Info().
@@ -270,7 +242,7 @@ func (m *InternalMCPManager) addCleanup(f func() error) {
 
 func isBundled(id string) bool {
 	switch id {
-	case bundledConfigServerID, bundledStateServerID, bundledRelayServerID, bundledWorkspaceServerID:
+	case bundledRelayServerID:
 		return true
 	default:
 		return false

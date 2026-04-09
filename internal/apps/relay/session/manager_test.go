@@ -92,11 +92,11 @@ func TestExtraMCPServerIDs_ForAllSessions(t *testing.T) {
 }
 
 func TestMergeUniqueStringIDs(t *testing.T) {
-	base := []string{"norma.config", "norma.state", "shared"}
+	base := []string{"relay", "shared"}
 	extra := []string{" custom.one ", "shared", "", "custom.two"}
 
 	got := mergeUniqueStringIDs(base, extra)
-	want := []string{"norma.config", "norma.state", "shared", "custom.one", "custom.two"}
+	want := []string{"relay", "shared", "custom.one", "custom.two"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("mergeUniqueStringIDs(%#v, %#v) = %#v, want %#v", base, extra, got, want)
 	}

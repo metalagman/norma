@@ -244,11 +244,7 @@ func (b *Builder) buildAgentMCPServerIDs(agentName string, extra []string) []str
 }
 
 func bundledMCPServerIDs(workspaceEnabled bool) []string {
-	servers := []string{"norma.config", "norma.state", "norma.relay"}
-	if workspaceEnabled {
-		servers = append(servers, "norma.workspace")
-	}
-	return servers
+	return []string{"relay"}
 }
 
 func mergeMCPServerIDs(explicit, extra []string, workspaceEnabled bool) []string {

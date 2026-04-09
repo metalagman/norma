@@ -51,7 +51,8 @@ relay:
     base_branch: ""
 
   # Extra MCP server IDs (from norma.mcp_servers) injected into every relay-started session.
-  # Effective MCP IDs are: bundled defaults + agent mcp_servers + relay.mcp_servers.
+  # Effective MCP IDs are: bundled default `relay` + agent mcp_servers + relay.mcp_servers.
+  # Removed built-in IDs such as norma.state, norma.relay, relay.state, and relay.agents are rejected.
   mcp_servers: []
 
   # Optional relay-specific per-agent system instructions.

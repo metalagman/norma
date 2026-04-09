@@ -9,6 +9,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 const (
@@ -144,6 +147,53 @@ func TestNormalizeAgentSystemInstructions(t *testing.T) {
 				t.Fatalf("normalizeAgentSystemInstructions(%#v) = %#v, want %#v", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestValidateRelayMCPConfiguration_RejectsRemovedBuiltInServerReferences(t *testing.T) {
+	cfg := Config{
+		Relay: RelayConfig{
+			MCPServers: []string{"norma.state"},
+		},
+	}
+	normaCfg := runtimeconfig.NormaConfig{
+		Agents: map[string]agentconfig.Config{
+			"root": {MCPServers: []string{"relay.workspace"}},
+		},
+	}
+
+	err := validateRelayMCPConfiguration(cfg, normaCfg)
+	if err == nil {
+		t.Fatal("validateRelayMCPConfiguration() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), `relay.mcp_servers[0] references removed built-in MCP server "norma.state"; use "relay"`) {
+		t.Fatalf("unexpected relay.mcp_servers validation error: %v", err)
+	}
+	if !strings.Contains(err.Error(), `norma.agents.root.mcp_servers[0] references removed built-in MCP server "relay.workspace"; use "relay"`) {
+		t.Fatalf("unexpected norma.agents validation error: %v", err)
+	}
+}
+
+func TestValidateRelayMCPConfiguration_RejectsReservedCustomServerIDs(t *testing.T) {
+	normaCfg := runtimeconfig.NormaConfig{
+		Agents: map[string]agentconfig.Config{
+			"root": {},
+		},
+		MCPServers: map[string]agentconfig.MCPServerConfig{
+			"relay":       {Type: agentconfig.MCPServerTypeHTTP, URL: "http://example.com/mcp"},
+			"norma.state": {Type: agentconfig.MCPServerTypeHTTP, URL: "http://example.com/state"},
+		},
+	}
+
+	err := validateRelayMCPConfiguration(Config{}, normaCfg)
+	if err == nil {
+		t.Fatal("validateRelayMCPConfiguration() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "norma.mcp_servers.relay is reserved for the built-in relay MCP server") {
+		t.Fatalf("missing reserved relay error: %v", err)
+	}
+	if !strings.Contains(err.Error(), `norma.mcp_servers.norma.state conflicts with removed built-in MCP server ID "norma.state"`) {
+		t.Fatalf("missing removed built-in server conflict error: %v", err)
 	}
 }
 

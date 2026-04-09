@@ -104,9 +104,17 @@ func NewServer(store Store) (*mcp.Server, error) {
 		nil,
 	)
 
+	RegisterTools(server, store)
+	return server, nil
+}
+
+// RegisterTools adds session-state MCP tools to an existing server.
+func RegisterTools(server *mcp.Server, store Store) {
+	if server == nil || store == nil {
+		return
+	}
 	svc := &service{store: store}
 	svc.registerTools(server)
-	return server, nil
 }
 
 type service struct {
@@ -115,22 +123,22 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	// Basic key-value operations
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.get", Description: "Get a value by key."}, s.getKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.set", Description: "Set a value by key."}, s.setKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.delete", Description: "Delete a key."}, s.deleteKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.list", Description: "List all keys, optionally by prefix."}, s.listKeys)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.clear", Description: "Clear all state."}, s.clearState)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get", Description: "Get a value by key."}, s.getKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set", Description: "Set a value by key."}, s.setKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.delete", Description: "Delete a key."}, s.deleteKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.list", Description: "List all keys, optionally by prefix."}, s.listKeys)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.clear", Description: "Clear all state."}, s.clearState)
 
 	// JSON operations
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.get_json", Description: "Get a value by key as parsed JSON."}, s.getJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.set_json", Description: "Set a value by key as JSON."}, s.setJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.merge_json", Description: "Merge fields into an existing JSON object at key."}, s.mergeJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get_json", Description: "Get a value by key as parsed JSON."}, s.getJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set_json", Description: "Set a value by key as JSON."}, s.setJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.merge_json", Description: "Merge fields into an existing JSON object at key."}, s.mergeJSON)
 
 	// Namespaced operations for agent/session isolation
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.ns_get", Description: "Get a value from a namespace."}, s.nsGet)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.ns_set", Description: "Set a value in a namespace."}, s.nsSet)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.ns_set_json", Description: "Set a JSON value in a namespace."}, s.nsSetJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.state.ns_list", Description: "List keys in a namespace."}, s.nsList)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_get", Description: "Get a value from a namespace."}, s.nsGet)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set", Description: "Set a value in a namespace."}, s.nsSet)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set_json", Description: "Set a JSON value in a namespace."}, s.nsSetJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_list", Description: "List keys in a namespace."}, s.nsList)
 }
 
 // nsKey builds a namespaced key for isolation.
@@ -143,13 +151,13 @@ func nsKey(namespace, key string) string {
 func (s *service) getKey(ctx context.Context, _ *mcp.CallToolRequest, in getKeyInput) (*mcp.CallToolResult, getKeyOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.get", "key is required")
+		result, out := validationFailure("relay.state.get", "key is required")
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 
 	value, ok, err := s.store.Get(ctx, key)
 	if err != nil {
-		result, out := backendFailure("norma.state.get", err)
+		result, out := backendFailure("relay.state.get", err)
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 	return nil, getKeyOutput{ToolOutcome: okOutcome(), Value: value, Found: ok}, nil
@@ -158,12 +166,12 @@ func (s *service) getKey(ctx context.Context, _ *mcp.CallToolRequest, in getKeyI
 func (s *service) setKey(ctx context.Context, _ *mcp.CallToolRequest, in setKeyInput) (*mcp.CallToolResult, basicOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.set", "key is required")
+		result, out := validationFailure("relay.state.set", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.Set(ctx, key, in.Value); err != nil {
-		result, out := backendFailure("norma.state.set", err)
+		result, out := backendFailure("relay.state.set", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -172,12 +180,12 @@ func (s *service) setKey(ctx context.Context, _ *mcp.CallToolRequest, in setKeyI
 func (s *service) deleteKey(ctx context.Context, _ *mcp.CallToolRequest, in deleteKeyInput) (*mcp.CallToolResult, basicOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.delete", "key is required")
+		result, out := validationFailure("relay.state.delete", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.Delete(ctx, key); err != nil {
-		result, out := backendFailure("norma.state.delete", err)
+		result, out := backendFailure("relay.state.delete", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -188,7 +196,7 @@ func (s *service) listKeys(ctx context.Context, _ *mcp.CallToolRequest, in listK
 
 	keys, err := s.store.List(ctx, prefix)
 	if err != nil {
-		result, out := backendFailure("norma.state.list", err)
+		result, out := backendFailure("relay.state.list", err)
 		return result, listKeysOutput{ToolOutcome: out}, nil
 	}
 	return nil, listKeysOutput{ToolOutcome: okOutcome(), Keys: keys}, nil
@@ -196,7 +204,7 @@ func (s *service) listKeys(ctx context.Context, _ *mcp.CallToolRequest, in listK
 
 func (s *service) clearState(ctx context.Context, _ *mcp.CallToolRequest, _ noInput) (*mcp.CallToolResult, basicOutput, error) {
 	if err := s.store.Clear(ctx); err != nil {
-		result, out := backendFailure("norma.state.clear", err)
+		result, out := backendFailure("relay.state.clear", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -207,13 +215,13 @@ func (s *service) clearState(ctx context.Context, _ *mcp.CallToolRequest, _ noIn
 func (s *service) getJSON(ctx context.Context, _ *mcp.CallToolRequest, in getJSONInput) (*mcp.CallToolResult, getJSONOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.get_json", "key is required")
+		result, out := validationFailure("relay.state.get_json", "key is required")
 		return result, getJSONOutput{ToolOutcome: out}, nil
 	}
 
 	value, ok, err := s.store.GetJSON(ctx, key)
 	if err != nil {
-		result, out := backendFailure("norma.state.get_json", err)
+		result, out := backendFailure("relay.state.get_json", err)
 		return result, getJSONOutput{ToolOutcome: out}, nil
 	}
 	return nil, getJSONOutput{ToolOutcome: okOutcome(), Value: value, Found: ok}, nil
@@ -222,12 +230,12 @@ func (s *service) getJSON(ctx context.Context, _ *mcp.CallToolRequest, in getJSO
 func (s *service) setJSON(ctx context.Context, _ *mcp.CallToolRequest, in setJSONInput) (*mcp.CallToolResult, basicOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.set_json", "key is required")
+		result, out := validationFailure("relay.state.set_json", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.SetJSON(ctx, key, in.Value); err != nil {
-		result, out := backendFailure("norma.state.set_json", err)
+		result, out := backendFailure("relay.state.set_json", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -236,17 +244,17 @@ func (s *service) setJSON(ctx context.Context, _ *mcp.CallToolRequest, in setJSO
 func (s *service) mergeJSON(ctx context.Context, _ *mcp.CallToolRequest, in mergeJSONInput) (*mcp.CallToolResult, mergeJSONOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.merge_json", "key is required")
+		result, out := validationFailure("relay.state.merge_json", "key is required")
 		return result, mergeJSONOutput{ToolOutcome: out}, nil
 	}
 	if len(in.Value) == 0 {
-		result, out := validationFailure("norma.state.merge_json", "value must have at least one field")
+		result, out := validationFailure("relay.state.merge_json", "value must have at least one field")
 		return result, mergeJSONOutput{ToolOutcome: out}, nil
 	}
 
 	merged, err := s.store.MergeJSON(ctx, key, in.Value)
 	if err != nil {
-		result, out := backendFailure("norma.state.merge_json", err)
+		result, out := backendFailure("relay.state.merge_json", err)
 		return result, mergeJSONOutput{ToolOutcome: out}, nil
 	}
 	return nil, mergeJSONOutput{ToolOutcome: okOutcome(), Merged: merged}, nil
@@ -257,18 +265,18 @@ func (s *service) mergeJSON(ctx context.Context, _ *mcp.CallToolRequest, in merg
 func (s *service) nsGet(ctx context.Context, _ *mcp.CallToolRequest, in keyspaceInput) (*mcp.CallToolResult, getKeyOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("norma.state.ns_get", "namespace is required")
+		result, out := validationFailure("relay.state.ns_get", "namespace is required")
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.ns_get", "key is required")
+		result, out := validationFailure("relay.state.ns_get", "key is required")
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 
 	value, ok, err := s.store.Get(ctx, nsKey(namespace, key))
 	if err != nil {
-		result, out := backendFailure("norma.state.ns_get", err)
+		result, out := backendFailure("relay.state.ns_get", err)
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 	return nil, getKeyOutput{ToolOutcome: okOutcome(), Value: value, Found: ok}, nil
@@ -277,17 +285,17 @@ func (s *service) nsGet(ctx context.Context, _ *mcp.CallToolRequest, in keyspace
 func (s *service) nsSet(ctx context.Context, _ *mcp.CallToolRequest, in keyspaceValueInput) (*mcp.CallToolResult, basicOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("norma.state.ns_set", "namespace is required")
+		result, out := validationFailure("relay.state.ns_set", "namespace is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.ns_set", "key is required")
+		result, out := validationFailure("relay.state.ns_set", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.Set(ctx, nsKey(namespace, key), in.Value); err != nil {
-		result, out := backendFailure("norma.state.ns_set", err)
+		result, out := backendFailure("relay.state.ns_set", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -296,17 +304,17 @@ func (s *service) nsSet(ctx context.Context, _ *mcp.CallToolRequest, in keyspace
 func (s *service) nsSetJSON(ctx context.Context, _ *mcp.CallToolRequest, in keyspaceJSONInput) (*mcp.CallToolResult, basicOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("norma.state.ns_set_json", "namespace is required")
+		result, out := validationFailure("relay.state.ns_set_json", "namespace is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("norma.state.ns_set_json", "key is required")
+		result, out := validationFailure("relay.state.ns_set_json", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.SetJSON(ctx, nsKey(namespace, key), in.Value); err != nil {
-		result, out := backendFailure("norma.state.ns_set_json", err)
+		result, out := backendFailure("relay.state.ns_set_json", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -315,14 +323,14 @@ func (s *service) nsSetJSON(ctx context.Context, _ *mcp.CallToolRequest, in keys
 func (s *service) nsList(ctx context.Context, _ *mcp.CallToolRequest, in namespaceOnlyInput) (*mcp.CallToolResult, listKeysOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("norma.state.ns_list", "namespace is required")
+		result, out := validationFailure("relay.state.ns_list", "namespace is required")
 		return result, listKeysOutput{ToolOutcome: out}, nil
 	}
 
 	prefix := nsKey(namespace, "")
 	keys, err := s.store.List(ctx, prefix)
 	if err != nil {
-		result, out := backendFailure("norma.state.ns_list", err)
+		result, out := backendFailure("relay.state.ns_list", err)
 		return result, listKeysOutput{ToolOutcome: out}, nil
 	}
 

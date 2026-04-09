@@ -23,6 +23,7 @@ This creates `.config/relay/config.yaml` and prompts for:
 
 `relay init` also generates an example prompt at `relay.agent_system_instructions.<root_agent>` so you can customize root-agent behavior quickly.
 That example now includes guidance for session-scoped relay MCP usage and workspace MCP import/export.
+Built-in relay MCP is exposed as one bundled server ID, `relay`, with tool namespaces under `relay.*`.
 
 3. Set or override Telegram token with env:
 
