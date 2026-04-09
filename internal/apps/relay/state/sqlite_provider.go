@@ -38,7 +38,7 @@ func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if err := ensureSchema(ctx, db); err != nil {
+	if err := migrate(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -85,42 +85,6 @@ func applySQLitePragmas(ctx context.Context, db *sql.DB) error {
 				continue
 			}
 			return fmt.Errorf("apply relay state pragma %q: %w", stmt, err)
-		}
-	}
-	return nil
-}
-
-func ensureSchema(ctx context.Context, db *sql.DB) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS relay_app_kv (
-			namespace TEXT NOT NULL,
-			key TEXT NOT NULL,
-			value_json TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			PRIMARY KEY (namespace, key)
-		);`,
-		`CREATE TABLE IF NOT EXISTS relay_session_metadata (
-			session_id TEXT PRIMARY KEY,
-			chat_id INTEGER NOT NULL,
-			topic_id INTEGER NOT NULL,
-			agent_name TEXT NOT NULL,
-			workspace_dir TEXT NOT NULL,
-			branch_name TEXT NOT NULL,
-			status TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			UNIQUE (chat_id, topic_id)
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_relay_session_metadata_status ON relay_session_metadata(status);`,
-		`CREATE TABLE IF NOT EXISTS relay_telegram_offsets (
-			bot_key TEXT PRIMARY KEY,
-			offset INTEGER NOT NULL,
-			updated_at TEXT NOT NULL
-		);`,
-	}
-
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("ensure relay state schema: %w", err)
 		}
 	}
 	return nil

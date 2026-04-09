@@ -35,7 +35,7 @@ relay:
   working_dir: ""
 
   # Relay app state directory.
-  # Stores relay.db (owner/app KV, session metadata, telegram polling offset).
+  # Stores migration-managed relay.db (owner/app KV, session metadata, telegram polling offset).
   # Relative paths are resolved from relay.working_dir.
   state_dir: ".config/relay"
 

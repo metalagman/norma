@@ -49,6 +49,21 @@ func (c *fakeTelegramClient) SendMessageWithResponse(_ context.Context, body cli
 	return &client.SendMessageResponse{}, nil
 }
 
+type fakeRelayOwnerActivator struct {
+	calls []activationCall
+	err   error
+}
+
+type activationCall struct {
+	ownerID int64
+	chatID  int64
+}
+
+func (f *fakeRelayOwnerActivator) ActivateOwner(_ context.Context, ownerID, chatID int64) error {
+	f.calls = append(f.calls, activationCall{ownerID: ownerID, chatID: chatID})
+	return f.err
+}
+
 func TestParseStartAuthArg(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -99,6 +114,8 @@ func TestParseStartAuthArg(t *testing.T) {
 func TestStartHandlerOnCommand_StrictAuthFlow(t *testing.T) {
 	t.Run("accepts slash-start token", func(t *testing.T) {
 		handler, store, tgClient := newStartHandlerTestHarness(t, "secret-token")
+		relay := &fakeRelayOwnerActivator{}
+		handler.SetRelayHandler(relay)
 
 		err := handler.onCommand(context.Background(), newStartEvent("secret-token", 101, 9001))
 		if err != nil {
@@ -114,6 +131,12 @@ func TestStartHandlerOnCommand_StrictAuthFlow(t *testing.T) {
 		}
 		if owner.UserID != 101 {
 			t.Fatalf("owner.UserID = %d, want 101", owner.UserID)
+		}
+		if len(relay.calls) != 1 {
+			t.Fatalf("ActivateOwner calls = %d, want 1", len(relay.calls))
+		}
+		if got := relay.calls[0]; got.ownerID != 101 || got.chatID != 9001 {
+			t.Fatalf("ActivateOwner call = %+v, want owner=101 chat=9001", got)
 		}
 		assertLastSentContains(t, tgClient, "Congratulations")
 	})
@@ -160,6 +183,47 @@ func TestStartHandlerOnCommand_StrictAuthFlow(t *testing.T) {
 		}
 		assertLastSentContains(t, tgClient, "To authenticate, send /start <your_owner_token>")
 	})
+}
+
+func TestStartHandlerOnCommand_ExistingOwner_StartsRootWhenMissing(t *testing.T) {
+	handler, store, tgClient := newStartHandlerTestHarness(t, "secret-token")
+	relay := &fakeRelayOwnerActivator{}
+	handler.SetRelayHandler(relay)
+
+	registered, err := store.RegisterOwner(101, 0, "owner", "Owner", "", true)
+	if err != nil {
+		t.Fatalf("RegisterOwner(): %v", err)
+	}
+	if !registered {
+		t.Fatal("owner should be newly registered")
+	}
+
+	err = handler.onCommand(context.Background(), newStartEvent("", 101, 9001))
+	if err != nil {
+		t.Fatalf("onCommand(): %v", err)
+	}
+
+	if len(relay.calls) != 1 {
+		t.Fatalf("ActivateOwner calls = %d, want 1", len(relay.calls))
+	}
+	assertLastSentContains(t, tgClient, "You are already registered as the bot owner. Relay mode is active.")
+}
+
+func TestStartHandlerOnCommand_RelayActivationFailure_DoesNotBlockOwnerRegistration(t *testing.T) {
+	handler, store, tgClient := newStartHandlerTestHarness(t, "secret-token")
+	relay := &fakeRelayOwnerActivator{err: errors.New("precreate failed")}
+	handler.SetRelayHandler(relay)
+
+	err := handler.onCommand(context.Background(), newStartEvent("secret-token", 101, 9001))
+	if err != nil {
+		t.Fatalf("onCommand(): %v", err)
+	}
+
+	if !store.HasOwner() {
+		t.Fatal("owner not registered")
+	}
+	assertLastSentContains(t, tgClient, "Congratulations")
+	assertLastSentContains(t, tgClient, "Failed to start root agent session: precreate failed.")
 }
 
 func TestStartHandlerOnCommand_SendErrorBubblesUp(t *testing.T) {

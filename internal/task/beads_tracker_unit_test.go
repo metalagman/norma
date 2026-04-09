@@ -8,18 +8,13 @@ import (
 	"testing"
 )
 
-func TestBeadsTrackerExec_ForcesNoDaemon(t *testing.T) {
+func TestBeadsTrackerExec_UsesDirectCLIArgs(t *testing.T) {
 	callsPath := filepath.Join(t.TempDir(), "calls.log")
 	t.Setenv("BD_TEST_CALLS", callsPath)
 
 	bdPath := writeFakeBeadsCLI(t, `
 calls="${BD_TEST_CALLS:?}"
 printf '%s\n' "$*" >> "$calls"
-if [[ "$1" != "--no-daemon" ]]; then
-  echo "missing --no-daemon" >&2
-  exit 1
-fi
-shift
 if [[ "$1" == "list" ]]; then
   echo '[]'
   exit 0
@@ -43,42 +38,23 @@ exit 1
 	if len(lines) != 1 {
 		t.Fatalf("call count = %d, want 1 (%v)", len(lines), lines)
 	}
-	if !strings.HasPrefix(lines[0], "--no-daemon list ") {
-		t.Fatalf("first call = %q, want --no-daemon list ...", lines[0])
+	if !strings.HasPrefix(lines[0], "list ") {
+		t.Fatalf("first call = %q, want list ...", lines[0])
 	}
 }
 
-func TestBeadsTrackerExec_StaleDatabaseAutoImportAndRetry(t *testing.T) {
+func TestBeadsTrackerExec_StaleDatabaseReturnsError(t *testing.T) {
 	tempDir := t.TempDir()
 	callsPath := filepath.Join(tempDir, "calls.log")
-	statePath := filepath.Join(tempDir, "state.flag")
 	t.Setenv("BD_TEST_CALLS", callsPath)
-	t.Setenv("BD_TEST_STALE_STATE", statePath)
 
 	bdPath := writeFakeBeadsCLI(t, `
 calls="${BD_TEST_CALLS:?}"
-state="${BD_TEST_STALE_STATE:?}"
 printf '%s\n' "$*" >> "$calls"
-if [[ "$1" != "--no-daemon" ]]; then
-  echo "missing --no-daemon" >&2
-  exit 1
-fi
-shift
 case "$1" in
   ready)
-    if [[ ! -f "$state" ]]; then
-      touch "$state"
-      echo "Database out of sync with JSONL. Run 'bd sync --import-only' to fix." >&2
-      exit 1
-    fi
-    echo '[]'
-    ;;
-  sync)
-    if [[ "${2:-}" != "--import-only" ]]; then
-      echo "unexpected sync args: $*" >&2
-      exit 1
-    fi
-    echo '{"ok":true}'
+    echo "simulated tracker failure" >&2
+    exit 1
     ;;
   *)
     echo "unexpected command: $*" >&2
@@ -88,26 +64,17 @@ esac
 `)
 
 	tracker := &BeadsTracker{BinPath: bdPath, WorkingDir: tempDir}
-	got, err := tracker.LeafTasks(context.Background())
-	if err != nil {
-		t.Fatalf("LeafTasks() error = %v, want nil", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("LeafTasks() len = %d, want 0", len(got))
+	_, err := tracker.LeafTasks(context.Background())
+	if err == nil {
+		t.Fatalf("LeafTasks() error = nil, want error")
 	}
 
 	lines := readCallLogLines(t, callsPath)
-	if len(lines) != 3 {
-		t.Fatalf("call count = %d, want 3 (%v)", len(lines), lines)
+	if len(lines) != 1 {
+		t.Fatalf("call count = %d, want 1 (%v)", len(lines), lines)
 	}
-	if lines[0] != "--no-daemon ready --limit 0 --json --quiet" {
+	if lines[0] != "ready --limit 0 --json --quiet" {
 		t.Fatalf("first call = %q", lines[0])
-	}
-	if lines[1] != "--no-daemon sync --import-only --json --quiet" {
-		t.Fatalf("second call = %q", lines[1])
-	}
-	if lines[2] != "--no-daemon ready --limit 0 --json --quiet" {
-		t.Fatalf("third call = %q", lines[2])
 	}
 }
 
@@ -119,11 +86,6 @@ func TestLeafTasks_ReturnsOnlyExecutableLeaves(t *testing.T) {
 	bdPath := writeFakeBeadsCLI(t, `
 calls="${BD_TEST_CALLS:?}"
 printf '%s\n' "$*" >> "$calls"
-if [[ "$1" != "--no-daemon" ]]; then
-  echo "missing --no-daemon" >&2
-  exit 1
-fi
-shift
 
 if [[ "$1" == "ready" ]]; then
   echo '[{"id":"task-ready","issue_type":"task","title":"Ready Task","description":"Objective: x\nArtifact: y\nVerify: z","status":"open"},{"id":"feature-a","issue_type":"feature","title":"Feature A","description":"","status":"open"},{"id":"task-parent","issue_type":"task","title":"Parent Task","description":"Objective: p\nArtifact: p\nVerify: p","status":"open"}]'
@@ -169,7 +131,7 @@ exit 1
 
 	lines := readCallLogLines(t, callsPath)
 	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "--no-daemon ready --limit 0 --json --quiet") {
+	if !strings.Contains(joined, "ready --limit 0 --json --quiet") {
 		t.Fatalf("expected ready call with --limit 0, calls=%v", lines)
 	}
 	if strings.Contains(joined, "--parent feature-a") {

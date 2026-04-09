@@ -19,7 +19,11 @@ type StartHandler struct {
 	ownerStore   *auth.OwnerStore
 	messenger    *messenger.Messenger
 	authToken    string
-	relayHandler *RelayHandler
+	relayHandler relayOwnerActivator
+}
+
+type relayOwnerActivator interface {
+	ActivateOwner(ctx context.Context, ownerID, chatID int64) error
 }
 
 // StartHandlerParams provides dependencies for StartHandler.
@@ -41,7 +45,7 @@ func NewStartHandler(params StartHandlerParams) *StartHandler {
 }
 
 // SetRelayHandler sets the relay handler (needed for circular dependency).
-func (h *StartHandler) SetRelayHandler(rh *RelayHandler) {
+func (h *StartHandler) SetRelayHandler(rh relayOwnerActivator) {
 	h.relayHandler = rh
 }
 
@@ -74,11 +78,11 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 			if err := h.ownerStore.UpdateChatID(chatID); err != nil {
 				log.Warn().Err(err).Msg("failed to update owner chatID")
 			}
-			if h.relayHandler != nil {
-				h.relayHandler.SetOwner(userID, chatID)
-				log.Info().Int64("user_id", userID).Msg("Relay re-activated for existing owner")
+			startErr := h.activateRelay(ctx, userID, chatID)
+			if startErr == nil {
+				log.Info().Int64("user_id", userID).Msg("relay re-activated for existing owner")
 			}
-			if err := h.messenger.SendPlain(ctx, chatID, "You are already registered as the bot owner. Relay mode is active.", 0); err != nil {
+			if err := h.messenger.SendPlain(ctx, chatID, h.ownerAlreadyRegisteredMessage(startErr), 0); err != nil {
 				return err
 			}
 			return nil
@@ -146,7 +150,8 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 		Str("username", info.username).
 		Msg("Owner registered successfully")
 
-	if err := h.sendOwnerRegisteredMessage(ctx, userID, chatID, info.firstName); err != nil {
+	startErr := h.activateRelay(ctx, userID, chatID)
+	if err := h.sendOwnerRegisteredMessage(ctx, chatID, info.firstName, startErr); err != nil {
 		return err
 	}
 	return nil
@@ -190,18 +195,46 @@ func (h *StartHandler) sendWelcomeMessage(ctx context.Context, chatID int64) err
 	return h.messenger.SendPlain(ctx, chatID, "Welcome to Norma Relay Bot!\n\nTo authenticate, send /start <your_owner_token>", 0)
 }
 
-func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, ownerID, chatID int64, firstName string) error {
+func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, chatID int64, firstName string, startErr error) error {
 	name := firstName
 	if name == "" {
 		name = "Owner"
 	}
 
-	if h.relayHandler != nil {
-		h.relayHandler.SetOwner(ownerID, chatID)
-	} else {
-		log.Error().Msg("relayHandler is nil, cannot set owner")
-	}
-
 	text := fmt.Sprintf("Congratulations, %s! You are now registered as the bot owner.\n\nRelay mode is active.", name)
+	if startErr != nil {
+		text += "\n\n" + relayStartFailureMessage(startErr)
+	}
 	return h.messenger.SendPlain(ctx, chatID, text, 0)
+}
+
+func (h *StartHandler) ownerAlreadyRegisteredMessage(startErr error) string {
+	msg := "You are already registered as the bot owner. Relay mode is active."
+	if startErr != nil {
+		msg += "\n\n" + relayStartFailureMessage(startErr)
+	}
+	return msg
+}
+
+func (h *StartHandler) activateRelay(ctx context.Context, ownerID, chatID int64) error {
+	if h.relayHandler == nil {
+		log.Warn().Msg("relay handler is nil; skipping root session activation")
+		return nil
+	}
+	if err := h.relayHandler.ActivateOwner(ctx, ownerID, chatID); err != nil {
+		log.Warn().
+			Err(err).
+			Int64("owner_id", ownerID).
+			Int64("chat_id", chatID).
+			Msg("failed to start root session during /start")
+		return err
+	}
+	return nil
+}
+
+func relayStartFailureMessage(err error) string {
+	return fmt.Sprintf(
+		"Failed to start root agent session: %v.\nPlease verify relay root-agent configuration, then send /start again or restart relay.",
+		err,
+	)
 }

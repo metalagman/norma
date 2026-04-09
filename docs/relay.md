@@ -66,6 +66,7 @@ profiles: {}
 - `relay.working_dir`: optional relay working directory (defaults to process CWD)
 - `relay.state_dir`: relay state directory for persistent relay SQLite state (`relay.db`).
   - Stores owner/app KV, `norma.state` MCP KV, session metadata, and Telegram polling offset.
+  - Schema is migration-versioned and auto-applied on startup.
   - Relative paths are resolved from `relay.working_dir`.
   - Default: `.config/relay`
 - owner auth token is generated at runtime per `relay serve` start and exposed via startup `auth_url` log field

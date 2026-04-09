@@ -111,6 +111,21 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 	return nil
 }
 
+// ActivateOwner binds owner/chat and ensures root session is running.
+// If root session already exists, this is a no-op.
+func (h *RelayHandler) ActivateOwner(ctx context.Context, ownerID, chatID int64) error {
+	h.SetOwner(ownerID, chatID)
+
+	if _, err := h.sessionManager.GetSession(chatID, 0); err == nil {
+		return nil
+	}
+
+	if err := h.ensureRootSession(ctx, chatID); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent) error {
 	if event == nil || event.Message == nil || event.Message.From == nil {
 		return nil
