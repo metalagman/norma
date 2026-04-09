@@ -49,3 +49,6 @@ Thumbs.db
 
 # Beads runtime logs
 .beads/*.log
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
