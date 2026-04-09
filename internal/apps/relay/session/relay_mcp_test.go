@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
+	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/rs/zerolog"
 )
 
@@ -71,5 +72,55 @@ func TestRelayMCPStopAgent_StopsPersistedSession(t *testing.T) {
 	}
 	if store.deletedSessionID != "tg-5-6" {
 		t.Fatalf("DeleteBySessionID called with %q, want %q", store.deletedSessionID, "tg-5-6")
+	}
+}
+
+func TestResolveStartLocator_UsesCallerSessionContext(t *testing.T) {
+	store := &fakeSessionStore{
+		recordsByID: map[string]relaystate.SessionRecord{
+			"tg-5-0": {
+				SessionID:    "tg-5-0",
+				ChannelType:  relaystate.ChannelTypeTelegram,
+				AddressKey:   "5:0",
+				AddressJSON:  `{"chat_id":5,"topic_id":0}`,
+				AgentName:    "root",
+				WorkspaceDir: "",
+				BranchName:   "",
+				Status:       relaystate.SessionStatusActive,
+			},
+		},
+	}
+	manager := &Manager{
+		logger:       zerolog.Nop(),
+		sessionStore: store,
+		sessions:     map[string]*TopicSession{},
+	}
+	svc := &relayMCPServer{manager: manager, logger: zerolog.Nop()}
+
+	locator, err := svc.resolveStartLocator(context.Background(), relaymcp.StartRequest{
+		AgentName:       "opencode",
+		CallerSessionID: "tg-5-0",
+	})
+	if err != nil {
+		t.Fatalf("resolveStartLocator() error = %v", err)
+	}
+	address, ok, err := locator.TelegramAddress()
+	if err != nil {
+		t.Fatalf("TelegramAddress() error = %v", err)
+	}
+	if !ok || address.ChatID != 5 || address.TopicID != 0 {
+		t.Fatalf("resolveStartLocator() = %+v, want telegram root chat 5", locator)
+	}
+}
+
+func TestSessionLocatorFromStartLocator_TelegramRequiresChatIDAndNoTopic(t *testing.T) {
+	_, err := sessionLocatorFromStartLocator(&relaymcp.StartLocator{
+		ChannelType: relaystate.ChannelTypeTelegram,
+		Address: map[string]any{
+			"topic_id": float64(7),
+		},
+	})
+	if err == nil {
+		t.Fatal("sessionLocatorFromStartLocator() error = nil, want validation error")
 	}
 }

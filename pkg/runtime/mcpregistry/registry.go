@@ -14,6 +14,7 @@ type Reader interface {
 // Writer stores MCP server configuration by ID.
 type Writer interface {
 	Set(id string, cfg agentconfig.MCPServerConfig)
+	Delete(id string)
 }
 
 // Registry combines lookup and mutation of MCP server configs.
@@ -53,4 +54,14 @@ func (r *MapRegistry) Set(id string, cfg agentconfig.MCPServerConfig) {
 		r.servers = make(map[string]agentconfig.MCPServerConfig)
 	}
 	r.servers[id] = cfg
+}
+
+// Delete removes the MCP server config for id.
+func (r *MapRegistry) Delete(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.servers == nil {
+		return
+	}
+	delete(r.servers, id)
 }

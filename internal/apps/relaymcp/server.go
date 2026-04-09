@@ -14,13 +14,15 @@ const (
 	serverName     = "norma-relay"
 	serverVersion  = "1.0.0"
 	defaultAddress = "127.0.0.1:9090"
+	// CallerSessionIDHeader binds a relay MCP request to the caller relay session.
+	CallerSessionIDHeader = "X-Norma-Relay-Caller-Session-ID"
 )
 
 const serverInstructions = `Use this server to manage relay agent sessions.
 
-- relay.agents.start_agent creates a new relay session for a configured agent.
-- Prefer passing session_id so the server can infer the current channel context.
-- chat_id is a Telegram-specific override for starting a session in a specific chat.
+- relay.agents.start creates a new relay session for a configured agent.
+- When this server is mounted for an existing relay session, start uses the current caller session context automatically.
+- External callers can provide locator.channel_type plus locator.address to target a specific channel context.
 - list_agents returns both active sessions and persisted restorable sessions.
 - get_agent and stop_agent operate on a relay session_id.`
 
@@ -62,10 +64,21 @@ func failure(operation string, code string, message string) (*mcp.CallToolResult
 }
 
 type RelayService interface {
-	StartAgent(ctx context.Context, chatID int64, agentName string) (AgentInfo, error)
+	StartAgent(ctx context.Context, req StartRequest) (AgentInfo, error)
 	StopAgent(ctx context.Context, sessionID string) error
 	ListAgents(ctx context.Context) ([]AgentInfo, error)
 	GetSession(ctx context.Context, sessionID string) (AgentInfo, error)
+}
+
+type StartLocator struct {
+	ChannelType string         `json:"channel_type,omitempty" jsonschema:"channel type that should own the new session, for example telegram"`
+	Address     map[string]any `json:"address,omitempty" jsonschema:"channel-specific address object used to target the channel context, for example {\"chat_id\":123} for Telegram"`
+}
+
+type StartRequest struct {
+	AgentName       string        `json:"agent_name"`
+	CallerSessionID string        `json:"caller_session_id,omitempty"`
+	Locator         *StartLocator `json:"locator,omitempty"`
 }
 
 type AgentInfo struct {
@@ -179,8 +192,8 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.agents.start_agent",
-		Description: "Start a new relay agent session for a configured agent. Prefer session_id to reuse the current channel context; chat_id is a Telegram-only override.",
+		Name:        "relay.agents.start",
+		Description: "Start a new relay agent session for a configured agent. The server uses the current caller session context automatically when available; external callers can provide locator.channel_type and locator.address instead.",
 	}, s.startAgent)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.agents.stop_agent",
@@ -197,9 +210,8 @@ func (s *service) registerTools(server *mcp.Server) {
 }
 
 type startAgentInput struct {
-	ChatID    int64  `json:"chat_id,omitempty" jsonschema:"Telegram chat ID where a new topic should be created; optional when session_id is provided"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"existing relay session ID used to infer the current channel context"`
-	AgentName string `json:"agent_name" jsonschema:"configured agent name to start"`
+	AgentName string        `json:"agent_name" jsonschema:"configured agent name to start"`
+	Locator   *StartLocator `json:"locator,omitempty" jsonschema:"optional explicit channel locator for external callers; omit it when this relay MCP server is already bound to a caller session"`
 }
 
 type startAgentOutput struct {
@@ -214,33 +226,30 @@ type startAgentOutput struct {
 	MCPServers  []string `json:"mcp_servers,omitempty" jsonschema:"MCP server IDs mounted into the new session"`
 }
 
-func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in startAgentInput) (*mcp.CallToolResult, startAgentOutput, error) {
+func callerSessionID(req *mcp.CallToolRequest) string {
+	if req == nil || req.GetExtra() == nil || req.GetExtra().Header == nil {
+		return ""
+	}
+	return strings.TrimSpace(req.GetExtra().Header.Get(CallerSessionIDHeader))
+}
+
+func (s *service) startAgent(ctx context.Context, req *mcp.CallToolRequest, in startAgentInput) (*mcp.CallToolResult, startAgentOutput, error) {
 	if strings.TrimSpace(in.AgentName) == "" {
-		result, out := validationFailure("relay.agents.start_agent", "agent_name is required")
+		result, out := validationFailure("relay.agents.start", "agent_name is required")
+		return result, startAgentOutput{ToolOutcome: out}, nil
+	}
+	if in.Locator == nil && callerSessionID(req) == "" {
+		result, out := validationFailure("relay.agents.start", "locator is required unless this relay MCP server is already bound to a caller session")
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
 
-	chatID := in.ChatID
-	if chatID == 0 {
-		if strings.TrimSpace(in.SessionID) == "" {
-			result, out := validationFailure("relay.agents.start_agent", "chat_id or session_id is required")
-			return result, startAgentOutput{ToolOutcome: out}, nil
-		}
-		parent, err := s.svc.GetSession(ctx, in.SessionID)
-		if err != nil {
-			result, out := backendFailure("relay.agents.start_agent", fmt.Errorf("resolve session context: %w", err))
-			return result, startAgentOutput{ToolOutcome: out}, nil
-		}
-		chatID = parent.ChatID
-		if chatID == 0 {
-			result, out := validationFailure("relay.agents.start_agent", fmt.Sprintf("session %q has no chat context", in.SessionID))
-			return result, startAgentOutput{ToolOutcome: out}, nil
-		}
-	}
-
-	info, err := s.svc.StartAgent(ctx, chatID, in.AgentName)
+	info, err := s.svc.StartAgent(ctx, StartRequest{
+		AgentName:       in.AgentName,
+		CallerSessionID: callerSessionID(req),
+		Locator:         in.Locator,
+	})
 	if err != nil {
-		result, out := backendFailure("relay.agents.start_agent", err)
+		result, out := backendFailure("relay.agents.start", err)
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
 

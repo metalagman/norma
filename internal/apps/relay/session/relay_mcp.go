@@ -2,9 +2,12 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/normahq/norma/internal/apps/relay/messenger"
+	relaystate "github.com/normahq/norma/internal/apps/relay/state"
 	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
 	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/rs/zerolog"
@@ -34,7 +37,21 @@ func NewRelayMCPServer(manager *Manager, channel relayChannelRuntime, msg *messe
 	}
 }
 
-func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName string) (relaymcp.AgentInfo, error) {
+func (s *relayMCPServer) StartAgent(ctx context.Context, req relaymcp.StartRequest) (relaymcp.AgentInfo, error) {
+	agentName := strings.TrimSpace(req.AgentName)
+	targetLocator, err := s.resolveStartLocator(ctx, req)
+	if err != nil {
+		return relaymcp.AgentInfo{}, err
+	}
+	address, ok, err := targetLocator.TelegramAddress()
+	if err != nil {
+		return relaymcp.AgentInfo{}, err
+	}
+	if !ok {
+		return relaymcp.AgentInfo{}, fmt.Errorf("unsupported channel type %q", targetLocator.ChannelType)
+	}
+	chatID := address.ChatID
+
 	s.logger.Info().
 		Int64("chat_id", chatID).
 		Str("agent", agentName).
@@ -58,7 +75,7 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 		return relaymcp.AgentInfo{}, err
 	}
 
-	address, ok, err := locator.TelegramAddress()
+	address, ok, err = locator.TelegramAddress()
 	if err != nil {
 		return relaymcp.AgentInfo{}, err
 	}
@@ -99,6 +116,51 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 	}, nil
 }
 
+func (s *relayMCPServer) resolveStartLocator(ctx context.Context, req relaymcp.StartRequest) (SessionLocator, error) {
+	if req.Locator != nil {
+		return sessionLocatorFromStartLocator(req.Locator)
+	}
+
+	callerSessionID := strings.TrimSpace(req.CallerSessionID)
+	if callerSessionID == "" {
+		return SessionLocator{}, fmt.Errorf("locator or caller session context is required")
+	}
+
+	info, err := s.manager.GetSessionInfo(ctx, callerSessionID)
+	if err != nil {
+		return SessionLocator{}, fmt.Errorf("resolve caller session context: %w", err)
+	}
+	return info.Locator, nil
+}
+
+func sessionLocatorFromStartLocator(locator *relaymcp.StartLocator) (SessionLocator, error) {
+	if locator == nil {
+		return SessionLocator{}, fmt.Errorf("locator is required")
+	}
+	switch strings.TrimSpace(locator.ChannelType) {
+	case relaystate.ChannelTypeTelegram:
+		raw, err := json.Marshal(locator.Address)
+		if err != nil {
+			return SessionLocator{}, fmt.Errorf("marshal locator.address: %w", err)
+		}
+		var address TelegramAddress
+		if err := json.Unmarshal(raw, &address); err != nil {
+			return SessionLocator{}, fmt.Errorf("decode Telegram locator.address: %w", err)
+		}
+		if address.ChatID == 0 {
+			return SessionLocator{}, fmt.Errorf("telegram locator.address.chat_id is required")
+		}
+		if address.TopicID != 0 {
+			return SessionLocator{}, fmt.Errorf("telegram locator.address.topic_id must be omitted or 0 for relay.agents.start")
+		}
+		return NewTelegramSessionLocator(address.ChatID, 0), nil
+	case "":
+		return SessionLocator{}, fmt.Errorf("locator.channel_type is required")
+	default:
+		return SessionLocator{}, fmt.Errorf("unsupported locator.channel_type %q", locator.ChannelType)
+	}
+}
+
 func (s *relayMCPServer) StopAgent(ctx context.Context, sessionID string) error {
 	s.logger.Info().Str("session_id", sessionID).Msg("MCP: StopAgent called")
 
@@ -124,12 +186,12 @@ func (s *relayMCPServer) ListAgents(ctx context.Context) ([]relaymcp.AgentInfo, 
 		out = append(out, relaymcp.AgentInfo{
 			ChannelType: info.ChannelType,
 			AddressKey:  info.Locator.AddressKey,
-			SessionID:  info.SessionID,
-			AgentName:  info.AgentName,
-			ChatID:     info.ChatID,
-			TopicID:    info.TopicID,
-			WorkingDir: info.WorkspaceDir,
-			Status:     info.Status,
+			SessionID:   info.SessionID,
+			AgentName:   info.AgentName,
+			ChatID:      info.ChatID,
+			TopicID:     info.TopicID,
+			WorkingDir:  info.WorkspaceDir,
+			Status:      info.Status,
 		})
 	}
 	return out, nil
@@ -147,11 +209,11 @@ func (s *relayMCPServer) GetSession(ctx context.Context, sessionID string) (rela
 	return relaymcp.AgentInfo{
 		ChannelType: info.ChannelType,
 		AddressKey:  info.Locator.AddressKey,
-		SessionID:  info.SessionID,
-		AgentName:  info.AgentName,
-		ChatID:     info.ChatID,
-		TopicID:    info.TopicID,
-		WorkingDir: info.WorkspaceDir,
-		Status:     info.Status,
+		SessionID:   info.SessionID,
+		AgentName:   info.AgentName,
+		ChatID:      info.ChatID,
+		TopicID:     info.TopicID,
+		WorkingDir:  info.WorkspaceDir,
+		Status:      info.Status,
 	}, nil
 }

@@ -123,6 +123,7 @@ func TestBuildRelaySystemInstruction_ComposesAgentInstructions(t *testing.T) {
 
 	got := builder.buildRelaySystemInstruction(
 		"tg-1-2",
+		"telegram",
 		"alpha",
 		"norma/relay/tg-1-2",
 		"/tmp/work",
@@ -141,6 +142,7 @@ func TestBuildRelaySystemInstruction_OmitsAgentSpecificSectionWhenEmpty(t *testi
 	builder := &Builder{}
 	got := builder.buildRelaySystemInstruction(
 		"tg-1-2",
+		"telegram",
 		"alpha",
 		"norma/relay/tg-1-2",
 		"/tmp/work",
@@ -163,6 +165,7 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 
 	got := builder.buildRelaySystemInstruction(
 		"tg-1-2",
+		"telegram",
 		"alpha",
 		"norma/relay/tg-1-2",
 		"/tmp/work",
@@ -171,6 +174,7 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 
 	wantSnippets := []string{
 		"Workspace settings:",
+		"This session belongs to channel type: telegram.",
 		"Mode: git-worktree",
 		"Path: /tmp/work",
 		"Config path: /repo/.config/relay/config.yaml",
@@ -192,6 +196,7 @@ func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisa
 	builder := &Builder{workspaceEnabled: false, workingDir: "/repo"}
 	got := builder.buildRelaySystemInstruction(
 		"tg-1-2",
+		"telegram",
 		"alpha",
 		"norma/relay/tg-1-2",
 		"/tmp/work",
@@ -200,6 +205,7 @@ func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisa
 
 	wantSnippets := []string{
 		"Workspace settings:",
+		"This session belongs to channel type: telegram.",
 		"Mode: direct",
 		"Path: /tmp/work",
 		"Config path: /repo/.config/relay/config.yaml",
@@ -215,8 +221,8 @@ func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisa
 	if strings.Contains(got, "Git workspace guidance:") {
 		t.Fatalf("buildRelaySystemInstruction() unexpectedly included git guidance in direct mode:\n%s", got)
 	}
-	if strings.Contains(got, "relay.config") {
-		t.Fatalf("buildRelaySystemInstruction() unexpectedly advertised relay.config:\n%s", got)
+	if strings.Contains(got, "Available namespaces:") {
+		t.Fatalf("buildRelaySystemInstruction() unexpectedly included generic MCP namespace docs:\n%s", got)
 	}
 }
 

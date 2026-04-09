@@ -38,6 +38,7 @@ type Builder struct {
 
 type relayPromptData struct {
 	SessionID         string
+	ChannelType       string
 	ConfigPath        string
 	WorkspaceDir      string
 	WorkspaceEnabled  bool
@@ -50,6 +51,7 @@ type relayPromptData struct {
 
 func (b *Builder) buildRelaySystemInstruction(
 	sessionID,
+	channelType,
 	agentName,
 	sessionBranch,
 	workspaceDir,
@@ -82,6 +84,7 @@ func (b *Builder) buildRelaySystemInstruction(
 
 	data := relayPromptData{
 		SessionID:         sessionID,
+		ChannelType:       strings.TrimSpace(channelType),
 		ConfigPath:        relayConfigPath(b.workingDir),
 		WorkspaceDir:      workspaceDir,
 		WorkspaceEnabled:  b.workspaceEnabled,
@@ -151,7 +154,7 @@ type BuiltAgent struct {
 }
 
 func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, topicID int, agentName, workspaceDir string) (*BuiltAgent, error) {
-	return b.BuildWithMCPServerIDs(ctx, sessionID, chatID, topicID, agentName, workspaceDir, nil)
+	return b.BuildWithMCPServerIDs(ctx, sessionID, chatID, topicID, agentName, workspaceDir, nil, nil)
 }
 
 func (b *Builder) BuildWithMCPServerIDs(
@@ -160,6 +163,7 @@ func (b *Builder) BuildWithMCPServerIDs(
 	chatID int64,
 	topicID int,
 	agentName, workspaceDir string,
+	bundledMCPServerIDs []string,
 	extraMCPServerIDs []string,
 ) (*BuiltAgent, error) {
 	sessionBranch := fmt.Sprintf("norma/relay/%s", sessionID)
@@ -169,8 +173,8 @@ func (b *Builder) BuildWithMCPServerIDs(
 		Name:              agentName,
 		Description:       b.buildAgentDescription(agentName),
 		WorkingDirectory:  workspaceDir,
-		SystemInstruction: b.buildRelaySystemInstruction(sessionID, agentName, sessionBranch, workspaceDir, repoBranchAtStart),
-		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName, extraMCPServerIDs),
+		SystemInstruction: b.buildRelaySystemInstruction(sessionID, "telegram", agentName, sessionBranch, workspaceDir, repoBranchAtStart),
+		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName, bundledMCPServerIDs, extraMCPServerIDs),
 	}
 
 	ag, err := b.factory.Build(ctx, req)
@@ -246,20 +250,30 @@ func (b *Builder) GetAgentInfo(agentName string) (description string, mcpServers
 	return agentCfg.Description(agentName), mergeMCPServerIDs(agentCfg.MCPServers, nil, b.workspaceEnabled)
 }
 
-func (b *Builder) buildAgentMCPServerIDs(agentName string, extra []string) []string {
+func (b *Builder) buildAgentMCPServerIDs(agentName string, bundled, extra []string) []string {
 	agentCfg, ok := b.normaCfg.Agents[agentName]
 	if !ok {
-		return mergeMCPServerIDs(nil, extra, b.workspaceEnabled)
+		return mergeMCPServerIDsWithBase(defaultBundledMCPServerIDs(b.workspaceEnabled, bundled), nil, extra)
 	}
-	return mergeMCPServerIDs(agentCfg.MCPServers, extra, b.workspaceEnabled)
+	return mergeMCPServerIDsWithBase(defaultBundledMCPServerIDs(b.workspaceEnabled, bundled), agentCfg.MCPServers, extra)
 }
 
 func bundledMCPServerIDs(workspaceEnabled bool) []string {
 	return []string{"relay"}
 }
 
+func defaultBundledMCPServerIDs(workspaceEnabled bool, override []string) []string {
+	if override != nil {
+		return append([]string(nil), override...)
+	}
+	return bundledMCPServerIDs(workspaceEnabled)
+}
+
 func mergeMCPServerIDs(explicit, extra []string, workspaceEnabled bool) []string {
-	base := bundledMCPServerIDs(workspaceEnabled)
+	return mergeMCPServerIDsWithBase(bundledMCPServerIDs(workspaceEnabled), explicit, extra)
+}
+
+func mergeMCPServerIDsWithBase(base, explicit, extra []string) []string {
 	out := make([]string, 0, len(base)+len(explicit)+len(extra))
 	seen := make(map[string]struct{}, len(base)+len(explicit)+len(extra))
 

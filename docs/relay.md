@@ -126,7 +126,7 @@ Per model turn:
 Two v1 spawn paths are supported:
 
 1. Manual: `/new <agent_name>`
-2. Agent/tool path: relay MCP `relay.agents.start_agent`
+2. Agent/tool path: relay MCP `relay.agents.start`
 
 Both paths create:
 
@@ -143,10 +143,12 @@ Both paths create:
 ## Relay MCP API (V1)
 
 - built-in server ID: `relay`
-- `relay.agents.start_agent`
-  - input: `agent_name`, plus either:
-    - `chat_id`, or
-    - `session_id` to infer the current channel/chat context
+- `relay.agents.start`
+  - input: `agent_name`
+  - optional input: `locator`
+    - relay-mounted agents should omit `locator` so the current caller session context is used automatically
+    - external callers can provide `locator.channel_type` plus `locator.address`
+    - Telegram locator example: `{"channel_type":"telegram","address":{"chat_id":123456}}`
   - output: structured session object including `channel_type`, `address_key`, `session_id`, `chat_id`, `topic_id`, `agent_name`, `description`, `mcp_servers`
 - `relay.agents.stop_agent`
   - input: `session_id`
@@ -156,7 +158,7 @@ Both paths create:
   - input: `session_id`
   - output: structured `agent` object
 
-Relay agents should prefer `session_id` over raw Telegram IDs when they spawn subagents from the current chat context.
+Relay agents should prefer `relay.agents.start` without a locator when they spawn subagents from the current chat context.
 
 ## Workspace MCP Usage
 
@@ -174,7 +176,7 @@ Relay agents should prefer `session_id` over raw Telegram IDs when they spawn su
 3. Webhook mode (`relay.telegram.webhook.enabled=true`) fails fast without `relay.telegram.webhook.url`.
 4. `/start <token>` registers owner once; non-owner traffic is rejected.
 5. `/new <agent>` creates topic + relay session and persists session metadata.
-6. Relay MCP `start_agent` creates topic + session and returns IDs.
+6. Relay MCP `start` creates topic + session and returns IDs.
 7. Restart clears in-memory sessions but topic sessions are lazy-restored from persisted metadata.
 8. Polling mode resumes from persisted Telegram offset in relay state DB.
 9. Partial thought updates are sent with Telegram Bot API `sendMessageDraft`.

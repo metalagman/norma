@@ -10,7 +10,10 @@ import (
 
 	"github.com/normahq/norma/internal/apps/relay/agent"
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
+	"github.com/normahq/norma/internal/apps/relaymcp"
 	"github.com/normahq/norma/internal/git"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )
@@ -27,6 +30,7 @@ type Manager struct {
 	workspaces        *agent.WorkspaceManager
 	workspaceEnabled  bool
 	sessionStore      relaystate.SessionStore
+	mcpRegistry       mcpregistry.Registry
 	logger            zerolog.Logger
 
 	rootCtx    context.Context
@@ -47,6 +51,7 @@ type ManagerParams struct {
 	WorkspaceEnabled  bool   `name:"relay_workspace_enabled"`
 	WorkspaceBaseRef  string `name:"relay_workspace_base_branch"`
 	StateProvider     relaystate.Provider
+	MCPRegistry       *mcpregistry.MapRegistry
 	Logger            zerolog.Logger
 }
 
@@ -65,6 +70,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		workspaces:        agent.NewWorkspaceManager(p.WorkingDir, p.WorkspaceBaseRef),
 		workspaceEnabled:  p.WorkspaceEnabled,
 		sessionStore:      p.StateProvider.Sessions(),
+		mcpRegistry:       p.MCPRegistry,
 		logger:            p.Logger.With().Str("component", "relay.session_manager").Logger(),
 		rootCtx:           rootCtx,
 		rootCancel:        rootCancel,
@@ -139,6 +145,62 @@ func (m *Manager) extraMCPServerIDs() []string {
 	return append([]string(nil), m.relayMCPServerIDs...)
 }
 
+func relaySessionMCPServerID(sessionID string) string {
+	return "relay.session." + strings.TrimSpace(sessionID)
+}
+
+func (m *Manager) sessionMCPServerIDs(sessionID string) ([]string, func(), error) {
+	relayID, cleanup, err := m.ensureSessionRelayMCPServer(sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mergeUniqueStringIDs([]string{relayID}, m.extraMCPServerIDs()), cleanup, nil
+}
+
+func (m *Manager) ensureSessionRelayMCPServer(sessionID string) (string, func(), error) {
+	if m.mcpRegistry == nil {
+		return "relay", func() {}, nil
+	}
+
+	baseCfg, ok := m.mcpRegistry.Get("relay")
+	if !ok {
+		return "", nil, fmt.Errorf("built-in relay MCP server is not registered")
+	}
+
+	headers := cloneStringMap(baseCfg.Headers)
+	if headers == nil {
+		headers = make(map[string]string, 1)
+	}
+	headers[relaymcp.CallerSessionIDHeader] = strings.TrimSpace(sessionID)
+
+	cfg := agentconfig.MCPServerConfig{
+		Type:       baseCfg.Type,
+		Cmd:        append([]string(nil), baseCfg.Cmd...),
+		Args:       append([]string(nil), baseCfg.Args...),
+		Env:        cloneStringMap(baseCfg.Env),
+		WorkingDir: baseCfg.WorkingDir,
+		URL:        baseCfg.URL,
+		Headers:    headers,
+	}
+
+	id := relaySessionMCPServerID(sessionID)
+	m.mcpRegistry.Set(id, cfg)
+	return id, func() {
+		m.mcpRegistry.Delete(id)
+	}, nil
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 // CreateSession builds an agent for the given locator and stores it in memory.
 func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, agentName string) error {
 	addr, ok, err := locator.TelegramAddress()
@@ -181,6 +243,14 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 		m.logger.Debug().Str("session_id", sessionID).Str("workspace", workspaceDir).Msg("workspace created")
 	}
 
+	mcpServerIDs, cleanupRelayMCP, err := m.sessionMCPServerIDs(sessionID)
+	if err != nil {
+		if m.workspaceEnabled {
+			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
+		return fmt.Errorf("prepare session MCP servers: %w", err)
+	}
+
 	built, err := m.agentBuilder.BuildWithMCPServerIDs(
 		m.rootCtx,
 		sessionID,
@@ -188,10 +258,12 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 		topicID,
 		agentName,
 		workspaceDir,
-		m.extraMCPServerIDs(),
+		mcpServerIDs,
+		nil,
 	)
 	if err != nil {
 		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")
+		cleanupRelayMCP()
 		if m.workspaceEnabled {
 			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
 		}
@@ -210,12 +282,14 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 		chatID:       chatID,
 		workspaceDir: workspaceDir,
 		branchName:   branchName,
+		relayMCPID:   relaySessionMCPServerID(sessionID),
 	}
 
 	if err := m.persistSessionRecord(ctx, ts, relaystate.SessionStatusActive); err != nil {
 		if closer, ok := ts.agent.(io.Closer); ok {
 			_ = closer.Close()
 		}
+		cleanupRelayMCP()
 		if m.workspaceEnabled && workspaceDir != "" {
 			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
 		}
@@ -555,6 +629,9 @@ func (m *Manager) closeTopicSession(ctx context.Context, ts *TopicSession) error
 		if err := m.workspaces.CleanupWorkspace(ctx, ts.workspaceDir); err != nil && firstErr == nil {
 			firstErr = err
 		}
+	}
+	if m.mcpRegistry != nil && strings.TrimSpace(ts.relayMCPID) != "" {
+		m.mcpRegistry.Delete(ts.relayMCPID)
 	}
 	return firstErr
 }

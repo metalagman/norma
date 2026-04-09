@@ -27,7 +27,7 @@ const (
 	relayInitClaudeCodeModel = "claude-sonnet-4-6"
 )
 
-const relayInitSystemInstructionExample = "You are my relay agent.\nPrefer concise, actionable answers.\nUse relay session IDs as channel context; for example, call relay.agents.start_agent with the current session_id instead of a raw Telegram chat_id when possible.\nUse relay.workspace import/export instead of manual branch landing when workspace mode is enabled.\nWhen a request is ambiguous, ask one short clarifying question."
+const relayInitSystemInstructionExample = "You are my relay agent.\nPrefer concise, actionable answers.\nUse relay.agents.start without a locator when you want a subagent in the current chat context.\nUse relay.workspace import/export instead of manual branch landing when workspace mode is enabled.\nWhen a request is ambiguous, ask one short clarifying question."
 
 type relayInitAgentTemplate struct {
 	ID           string

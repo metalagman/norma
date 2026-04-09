@@ -10,6 +10,8 @@ import (
 
 	relayagent "github.com/normahq/norma/internal/apps/relay/agent"
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 )
 
@@ -99,6 +101,47 @@ func TestMergeUniqueStringIDs(t *testing.T) {
 	want := []string{"relay", "shared", "custom.one", "custom.two"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("mergeUniqueStringIDs(%#v, %#v) = %#v, want %#v", base, extra, got, want)
+	}
+}
+
+func TestEnsureSessionRelayMCPServer_BindsCallerSessionHeader(t *testing.T) {
+	reg := mcpregistry.New(map[string]agentconfig.MCPServerConfig{
+		"relay": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://127.0.0.1:9999/mcp",
+		},
+	})
+	m := &Manager{mcpRegistry: reg}
+
+	id, cleanup, err := m.ensureSessionRelayMCPServer("tg-1-2")
+	if err != nil {
+		t.Fatalf("ensureSessionRelayMCPServer() error = %v", err)
+	}
+	defer cleanup()
+
+	cfg, ok := reg.Get(id)
+	if !ok {
+		t.Fatalf("registry missing dynamic relay MCP server %q", id)
+	}
+	if got := cfg.Headers["X-Norma-Relay-Caller-Session-ID"]; got != "tg-1-2" {
+		t.Fatalf("caller session header = %q, want tg-1-2", got)
+	}
+}
+
+func TestCloseTopicSession_RemovesDynamicRelayMCPServer(t *testing.T) {
+	reg := mcpregistry.New(map[string]agentconfig.MCPServerConfig{
+		relaySessionMCPServerID("tg-1-2"): {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://127.0.0.1:9999/mcp",
+		},
+	})
+	m := &Manager{mcpRegistry: reg}
+
+	if err := m.closeTopicSession(context.Background(), &TopicSession{relayMCPID: relaySessionMCPServerID("tg-1-2")}); err != nil {
+		t.Fatalf("closeTopicSession() error = %v", err)
+	}
+	if _, ok := reg.Get(relaySessionMCPServerID("tg-1-2")); ok {
+		t.Fatal("dynamic relay MCP server still present after closeTopicSession")
 	}
 }
 

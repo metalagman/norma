@@ -3,6 +3,7 @@ package relaymcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestRelayServerPublishesInstructionsAndSchemas(t *testing.T) {
-	ctx, cleanup, session := newTestSession(t, fakeRelayService{})
+	ctx, cleanup, session := newTestSession(t, &fakeRelayService{})
 	defer cleanup()
 
 	initResult := session.InitializeResult()
@@ -31,6 +32,12 @@ func TestRelayServerPublishesInstructionsAndSchemas(t *testing.T) {
 
 	if got := toolByName["relay.agents.list_agents"].Description; !strings.Contains(got, "persisted") {
 		t.Fatalf("relay.agents.list_agents description = %q, want persisted-session guidance", got)
+	}
+	if _, ok := toolByName["relay.agents.start"]; !ok {
+		t.Fatalf("tools missing relay.agents.start: %#v", toolByName)
+	}
+	if _, ok := toolByName["relay.agents.start_agent"]; ok {
+		t.Fatalf("tools unexpectedly still expose relay.agents.start_agent: %#v", toolByName)
 	}
 
 	outSchema, ok := toolByName["relay.agents.get_agent"].OutputSchema.(map[string]any)
@@ -52,23 +59,26 @@ func TestRelayServerPublishesInstructionsAndSchemas(t *testing.T) {
 }
 
 func TestStartAgentIncludesDescriptionAndMCPServers(t *testing.T) {
-	s := &service{
-		svc: fakeRelayService{
-			startInfo: AgentInfo{
-				ChannelType: "telegram",
-				AddressKey:  "1:2",
-				SessionID:   "tg-1-2",
-				AgentName:   "opencode",
-				ChatID:      1,
-				TopicID:     2,
-				Description: "opencode: type=opencode_acp model=opencode/big-pickle",
-				MCPServers:  []string{"relay"},
-			},
+	svc := &fakeRelayService{
+		startInfo: AgentInfo{
+			ChannelType: "telegram",
+			AddressKey:  "1:2",
+			SessionID:   "tg-1-2",
+			AgentName:   "opencode",
+			ChatID:      1,
+			TopicID:     2,
+			Description: "opencode: type=opencode_acp model=opencode/big-pickle",
+			MCPServers:  []string{"relay"},
 		},
 	}
+	s := &service{
+		svc: svc,
+	}
 
-	result, out, err := s.startAgent(context.Background(), nil, startAgentInput{
-		ChatID:    1,
+	headers := http.Header{}
+	headers.Set(CallerSessionIDHeader, "tg-1-0")
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{Header: headers}}
+	result, out, err := s.startAgent(context.Background(), req, startAgentInput{
 		AgentName: "opencode",
 	})
 	if err != nil {
@@ -89,32 +99,51 @@ func TestStartAgentIncludesDescriptionAndMCPServers(t *testing.T) {
 	if !reflect.DeepEqual(out.MCPServers, []string{"relay"}) {
 		t.Fatalf("startAgent() mcp_servers = %#v", out.MCPServers)
 	}
+	if got := svc.startReq.CallerSessionID; got != "tg-1-0" {
+		t.Fatalf("StartAgent caller_session_id = %q, want tg-1-0", got)
+	}
 }
 
-func TestStartAgentCanInferChatFromSessionID(t *testing.T) {
+func TestStartAgentRequiresLocatorOrCallerContext(t *testing.T) {
 	s := &service{
-		svc: fakeRelayService{
-			startInfo: AgentInfo{
-				ChannelType: "telegram",
-				AddressKey:  "1:7",
-				SessionID:   "tg-1-7",
-				AgentName:   "alpha",
-				ChatID:      1,
-				TopicID:     7,
-			},
-			sessionInfo: AgentInfo{
-				SessionID:   "tg-1-0",
-				ChannelType: "telegram",
-				AddressKey:  "1:0",
-				ChatID:      1,
-				TopicID:     0,
-			},
-		},
+		svc: &fakeRelayService{},
 	}
 
 	result, out, err := s.startAgent(context.Background(), nil, startAgentInput{
-		SessionID: "tg-1-0",
 		AgentName: "alpha",
+	})
+	if err != nil {
+		t.Fatalf("startAgent() error = %v", err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("startAgent() result = %#v, want validation error", result)
+	}
+	if out.OK {
+		t.Fatalf("startAgent() output = %#v, want validation failure", out)
+	}
+}
+
+func TestStartAgentAcceptsExplicitLocator(t *testing.T) {
+	svc := &fakeRelayService{
+		startInfo: AgentInfo{
+			ChannelType: "telegram",
+			AddressKey:  "1:7",
+			SessionID:   "tg-1-7",
+			AgentName:   "alpha",
+			ChatID:      1,
+			TopicID:     7,
+		},
+	}
+	s := &service{svc: svc}
+
+	result, out, err := s.startAgent(context.Background(), nil, startAgentInput{
+		AgentName: "alpha",
+		Locator: &StartLocator{
+			ChannelType: "telegram",
+			Address: map[string]any{
+				"chat_id": float64(1),
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("startAgent() error = %v", err)
@@ -123,7 +152,7 @@ func TestStartAgentCanInferChatFromSessionID(t *testing.T) {
 		t.Fatalf("startAgent() result = %#v, want nil", result)
 	}
 	if !out.OK || out.ChatID != 1 || out.TopicID != 7 {
-		t.Fatalf("startAgent() output = %#v, want inferred chat context", out)
+		t.Fatalf("startAgent() output = %#v, want started agent info", out)
 	}
 }
 
@@ -137,7 +166,7 @@ func TestListAgentsReturnsStructuredAgents(t *testing.T) {
 		TopicID:     3,
 		Status:      "persisted",
 	}}
-	s := &service{svc: fakeRelayService{listInfo: want}}
+	s := &service{svc: &fakeRelayService{listInfo: want}}
 
 	result, out, err := s.listAgents(context.Background(), nil, struct{}{})
 	if err != nil {
@@ -161,7 +190,7 @@ func TestGetAgentReturnsStructuredAgent(t *testing.T) {
 		TopicID:     0,
 		Status:      "active",
 	}
-	s := &service{svc: fakeRelayService{sessionInfo: want}}
+	s := &service{svc: &fakeRelayService{sessionInfo: want}}
 
 	result, out, err := s.getAgent(context.Background(), nil, getAgentInput{SessionID: "tg-9-0"})
 	if err != nil {
@@ -176,7 +205,7 @@ func TestGetAgentReturnsStructuredAgent(t *testing.T) {
 }
 
 func TestRelayAgentStructuredOutputUsesSnakeCase(t *testing.T) {
-	ctx, cleanup, session := newTestSession(t, fakeRelayService{sessionInfo: AgentInfo{
+	ctx, cleanup, session := newTestSession(t, &fakeRelayService{sessionInfo: AgentInfo{
 		ChannelType: "telegram",
 		AddressKey:  "9:0",
 		SessionID:   "tg-9-0",
@@ -211,26 +240,28 @@ func TestRelayAgentStructuredOutputUsesSnakeCase(t *testing.T) {
 type fakeRelayService struct {
 	startInfo   AgentInfo
 	startErr    error
+	startReq    StartRequest
 	sessionInfo AgentInfo
 	listInfo    []AgentInfo
 }
 
-func (f fakeRelayService) StartAgent(_ context.Context, _ int64, _ string) (AgentInfo, error) {
+func (f *fakeRelayService) StartAgent(_ context.Context, req StartRequest) (AgentInfo, error) {
 	if f.startErr != nil {
 		return AgentInfo{}, f.startErr
 	}
+	f.startReq = req
 	return f.startInfo, nil
 }
 
-func (f fakeRelayService) StopAgent(_ context.Context, _ string) error {
+func (f *fakeRelayService) StopAgent(_ context.Context, _ string) error {
 	return nil
 }
 
-func (f fakeRelayService) ListAgents(_ context.Context) ([]AgentInfo, error) {
+func (f *fakeRelayService) ListAgents(_ context.Context) ([]AgentInfo, error) {
 	return f.listInfo, nil
 }
 
-func (f fakeRelayService) GetSession(_ context.Context, _ string) (AgentInfo, error) {
+func (f *fakeRelayService) GetSession(_ context.Context, _ string) (AgentInfo, error) {
 	return f.sessionInfo, nil
 }
 

@@ -19,6 +19,7 @@ type TopicSession struct {
 	chatID       int64
 	workspaceDir string
 	branchName   string
+	relayMCPID   string
 }
 
 func (s *TopicSession) GetRunner() *runner.Runner {
