@@ -42,7 +42,7 @@ norma:
         - ping-pong
 
 relay:
-  root_agent: opencode
+  root_agent: codex
   telegram:
     token: ""
     webhook:
@@ -69,4 +69,4 @@ relay:
 profiles:
   default:
     relay:
-      root_agent: opencode
+      root_agent: codex
