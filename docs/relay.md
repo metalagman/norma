@@ -32,6 +32,16 @@ Relay config is loaded from one selected file (priority order):
 3. Profile app overrides in the same file (`profiles.<name>.relay.*`)
 4. Environment variables (`RELAY_*`) via Viper env mapping
 
+Relay also auto-loads a `.env` file at startup (via `godotenv`) from the relay process working directory. Values loaded from `.env` are treated as environment variables, so `RELAY_*` entries override file config the same way as exported shell variables.
+
+Example `.env`:
+
+```dotenv
+RELAY_TELEGRAM_TOKEN=123456:ABCDEF
+RELAY_TELEGRAM_WEBHOOK_ENABLED=true
+RELAY_TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook
+```
+
 Config shape:
 
 ```yaml
@@ -67,6 +77,10 @@ profiles: {}
     - `/mcp/norma.workspace` (when workspace mode is enabled)
 - `relay.mcp_servers`: extra MCP server IDs for all relay-started sessions (resolved from `norma.mcp_servers`)
   - effective MCP IDs = bundled defaults + `norma.agents.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
+- `relay.agent_system_instructions`: optional per-agent relay instruction map
+  - key: agent ID from `norma.agents`
+  - value: instruction text appended in relay prompt for that agent
+  - effective relay instruction order: built-in relay instructions + `norma.agents.<agent>.system_instruction` + `relay.agent_system_instructions.<agent>` (last wins by position)
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)

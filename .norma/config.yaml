@@ -67,8 +67,3 @@ cli:
     check: opencode
     act: opencode
   planner: codex
-
-profiles:
-  default:
-    relay:
-      root_agent: opencode

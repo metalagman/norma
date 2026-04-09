@@ -1,0 +1,71 @@
+norma:
+  agents:
+    codex:
+      type: codex_acp
+      codex_acp:
+        model: gpt-5.3-codex
+    opencode:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+    copilot:
+      type: copilot_acp
+      copilot_acp:
+        model: gpt-5-codex
+    gemini:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+    claude_code:
+      type: claude_code_acp
+      claude_code_acp:
+        model: claude-sonnet-4-6
+    pool:
+      type: pool
+      pool:
+        members:
+          - codex
+          - opencode
+          - copilot
+          - gemini
+          - claude_code
+  mcp_servers:
+    playground_ping_pong:
+      type: stdio
+      cmd:
+        - go
+        - run
+        - ./cmd/norma
+      args:
+        - playground
+        - mcp
+        - ping-pong
+
+relay:
+  root_agent: opencode
+  telegram:
+    token: ""
+    webhook:
+      url: ""
+      auth_token: ""
+      enabled: false
+      listen_addr: "0.0.0.0:8080"
+      path: "/telegram/webhook"
+  logger:
+    level: "info"
+    pretty: true
+  working_dir: ""
+  state_dir: ".config/relay"
+  workspace:
+    mode: "auto"
+  mcp_servers: []
+  agent_system_instructions:
+    opencode: |
+      You are my relay agent.
+      Prefer concise, actionable answers.
+      When a request is ambiguous, ask one short clarifying question.
+
+profiles:
+  default:
+    relay:
+      root_agent: opencode

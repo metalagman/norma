@@ -133,6 +133,14 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 		),
 		fx.Provide(
 			fx.Annotate(
+				func() map[string]string {
+					return normalizeAgentSystemInstructions(cfg.Relay.AgentSystemInstructions)
+				},
+				fx.ResultTags(`name:"relay_agent_system_instructions"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
 				func() string { return strings.TrimSpace(ownerToken) },
 				fx.ResultTags(`name:"relay_auth_token"`),
 			),
@@ -227,4 +235,25 @@ func resolveStateDir(workingDir, raw string) (string, error) {
 		return "", fmt.Errorf("resolve absolute state_dir %q: %w", raw, err)
 	}
 	return filepath.Clean(resolved), nil
+}
+
+func normalizeAgentSystemInstructions(raw map[string]string) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(raw))
+	for key, value := range raw {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" {
+			continue
+		}
+		normalized[trimmedKey] = trimmedValue
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }

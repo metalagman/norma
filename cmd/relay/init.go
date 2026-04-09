@@ -25,6 +25,8 @@ const (
 	relayInitClaudeCodeModel = "claude-sonnet-4-6"
 )
 
+const relayInitSystemInstructionExample = "You are my relay agent.\nPrefer concise, actionable answers.\nWhen a request is ambiguous, ask one short clarifying question."
+
 type relayInitAgentTemplate struct {
 	ID           string
 	Type         string
@@ -90,6 +92,9 @@ func initCommand() *cobra.Command {
 			}
 
 			if err := setRelayRootAgent(doc, selectedRootAgent); err != nil {
+				return err
+			}
+			if err := setRelayAgentSystemInstructionExample(doc, selectedRootAgent); err != nil {
 				return err
 			}
 			if interactive {
@@ -347,6 +352,33 @@ func setRelayTelegramToken(doc map[string]any, token string) error {
 	}
 	telegramSection["token"] = token
 	relaySection["telegram"] = telegramSection
+	doc["relay"] = relaySection
+	return nil
+}
+
+func setRelayAgentSystemInstructionExample(doc map[string]any, rootAgent string) error {
+	agentID := strings.TrimSpace(rootAgent)
+	if agentID == "" {
+		return nil
+	}
+
+	relaySection, ok := toStringAnyMap(doc["relay"])
+	if !ok {
+		return fmt.Errorf("relay section is missing from generated config")
+	}
+
+	agentInstructions := map[string]any{}
+	if raw, exists := relaySection["agent_system_instructions"]; exists && raw != nil {
+		if existing, ok := toStringAnyMap(raw); ok {
+			agentInstructions = existing
+		}
+	}
+
+	if existing, exists := agentInstructions[agentID]; !exists || strings.TrimSpace(fmt.Sprintf("%v", existing)) == "" {
+		agentInstructions[agentID] = relayInitSystemInstructionExample
+	}
+
+	relaySection["agent_system_instructions"] = agentInstructions
 	doc["relay"] = relaySection
 	return nil
 }

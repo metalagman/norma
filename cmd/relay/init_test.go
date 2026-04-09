@@ -68,6 +68,7 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	if len(rawRelayMCPServers) != 0 {
 		t.Fatalf("relay.mcp_servers = %#v, want empty", rawRelayMCPServers)
 	}
+	assertRelayAgentSystemInstructionExample(t, relaySection, testRelayRootAgentCodex)
 
 	normaSection, ok := toStringAnyMap(doc["norma"])
 	if !ok {
@@ -140,6 +141,7 @@ func TestInitCommand_InteractiveSelectionAndToken(t *testing.T) {
 	if got := relaySection["root_agent"]; got != testRelayRootAgentOpencode {
 		t.Fatalf("relay.root_agent = %#v, want %s", got, testRelayRootAgentOpencode)
 	}
+	assertRelayAgentSystemInstructionExample(t, relaySection, testRelayRootAgentOpencode)
 	telegramSection := mustMap(t, relaySection, "telegram")
 	if got := telegramSection["token"]; got != "my-token" {
 		t.Fatalf("relay.telegram.token = %#v, want my-token", got)
@@ -177,6 +179,7 @@ func TestInitCommand_InteractiveDefaultPrioritizesCopilotBeforeGemini(t *testing
 	if got := relaySection["root_agent"]; got != testRelayRootAgentCopilot {
 		t.Fatalf("relay.root_agent = %#v, want %s", got, testRelayRootAgentCopilot)
 	}
+	assertRelayAgentSystemInstructionExample(t, relaySection, testRelayRootAgentCopilot)
 }
 
 func TestInitCommand_FailsWhenNoSupportedAgentCLIFound(t *testing.T) {
@@ -467,6 +470,32 @@ func assertProfileRoot(t *testing.T, profiles map[string]any, profileName, wantR
 	relayProfile := mustMap(t, profile, "relay")
 	if got := relayProfile["root_agent"]; got != wantRoot {
 		t.Fatalf("profiles.%s.relay.root_agent = %#v, want %s", profileName, got, wantRoot)
+	}
+}
+
+func assertRelayAgentSystemInstructionExample(t *testing.T, relaySection map[string]any, agentID string) {
+	t.Helper()
+	rawMap, ok := relaySection["agent_system_instructions"]
+	if !ok {
+		t.Fatalf("relay.agent_system_instructions key is missing")
+	}
+	instructionsMap, ok := toStringAnyMap(rawMap)
+	if !ok {
+		t.Fatalf("relay.agent_system_instructions type = %T, want map", rawMap)
+	}
+	rawPrompt, ok := instructionsMap[agentID]
+	if !ok {
+		t.Fatalf("relay.agent_system_instructions[%s] is missing", agentID)
+	}
+	prompt, ok := rawPrompt.(string)
+	if !ok {
+		t.Fatalf("relay.agent_system_instructions[%s] type = %T, want string", agentID, rawPrompt)
+	}
+	if strings.TrimSpace(prompt) == "" {
+		t.Fatalf("relay.agent_system_instructions[%s] is empty", agentID)
+	}
+	if prompt != relayInitSystemInstructionExample {
+		t.Fatalf("relay.agent_system_instructions[%s] = %q, want %q", agentID, prompt, relayInitSystemInstructionExample)
 	}
 }
 

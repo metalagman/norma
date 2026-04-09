@@ -11,8 +11,9 @@ import (
 type relayConfigDocumentForTest struct {
 	Norma appconfig.NormaConfig `mapstructure:"norma"`
 	Relay struct {
-		RootAgent string `mapstructure:"root_agent"`
-		Telegram  struct {
+		RootAgent               string            `mapstructure:"root_agent"`
+		AgentSystemInstructions map[string]string `mapstructure:"agent_system_instructions"`
+		Telegram                struct {
 			Webhook struct {
 				URL       string `mapstructure:"url"`
 				Enabled   bool   `mapstructure:"enabled"`
@@ -97,6 +98,8 @@ profiles:
     relay:
       logger:
         level: debug
+      agent_system_instructions:
+        agent: relay-override
 `); err != nil {
 		t.Fatalf("write relay config: %v", err)
 	}
@@ -134,6 +137,9 @@ profiles:
 	}
 	if got := doc.Relay.Logger.Level; got != "debug" {
 		t.Fatalf("logger.level = %q, want debug", got)
+	}
+	if got := doc.Relay.AgentSystemInstructions["agent"]; got != "relay-override" {
+		t.Fatalf("relay.agent_system_instructions[agent] = %q, want relay-override", got)
 	}
 }
 

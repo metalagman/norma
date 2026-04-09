@@ -50,3 +50,8 @@ relay:
   # Extra MCP server IDs (from norma.mcp_servers) injected into every relay-started session.
   # Effective MCP IDs are: bundled defaults + agent mcp_servers + relay.mcp_servers.
   mcp_servers: []
+
+  # Optional relay-specific per-agent system instructions.
+  # Applied after norma.agents.<agent_id>.system_instruction when both are set.
+  # Keys must match agent IDs defined in norma.agents.
+  agent_system_instructions: {}

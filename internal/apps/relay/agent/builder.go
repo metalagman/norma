@@ -21,9 +21,10 @@ import (
 var relaySystemInstructionTmpl string
 
 type Builder struct {
-	factory          *agentfactory.Factory
-	normaCfg         runtimeconfig.NormaConfig
-	workspaceEnabled bool
+	factory                *agentfactory.Factory
+	normaCfg               runtimeconfig.NormaConfig
+	workspaceEnabled       bool
+	relayAgentInstructions map[string]string
 }
 
 type relayPromptData struct {
@@ -35,6 +36,8 @@ type relayPromptData struct {
 }
 
 func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir string) string {
+	normalizedAgentName := strings.TrimSpace(agentName)
+
 	data := relayPromptData{
 		SessionID:        sessionID,
 		BranchName:       branchName,
@@ -42,10 +45,12 @@ func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, 
 		WorkspaceEnabled: b.workspaceEnabled,
 	}
 
-	agentCfg, ok := b.normaCfg.Agents[agentName]
-	if ok {
-		data.AgentInstructions = strings.TrimSpace(agentCfg.SystemInstruction)
+	normaInstruction := ""
+	if agentCfg, ok := b.normaCfg.Agents[normalizedAgentName]; ok {
+		normaInstruction = agentCfg.SystemInstruction
 	}
+	relayInstruction := b.relayAgentInstructions[normalizedAgentName]
+	data.AgentInstructions = composeAgentInstructions(normaInstruction, relayInstruction)
 
 	var buf bytes.Buffer
 	tmpl := template.Must(template.New("relay").Parse(relaySystemInstructionTmpl))
@@ -58,17 +63,19 @@ func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, 
 type BuilderParams struct {
 	fx.In
 
-	Factory          *agentfactory.Factory
-	NormaCfg         runtimeconfig.NormaConfig
-	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
+	Factory                *agentfactory.Factory
+	NormaCfg               runtimeconfig.NormaConfig
+	WorkspaceEnabled       bool              `name:"relay_workspace_enabled"`
+	RelayAgentInstructions map[string]string `name:"relay_agent_system_instructions"`
 }
 
 // NewBuilder creates a Builder with the given factory and config.
 func NewBuilder(params BuilderParams) *Builder {
 	return &Builder{
-		factory:          params.Factory,
-		normaCfg:         params.NormaCfg,
-		workspaceEnabled: params.WorkspaceEnabled,
+		factory:                params.Factory,
+		normaCfg:               params.NormaCfg,
+		workspaceEnabled:       params.WorkspaceEnabled,
+		relayAgentInstructions: normalizeRelayAgentInstructions(params.RelayAgentInstructions),
 	}
 }
 
@@ -206,4 +213,36 @@ func mergeMCPServerIDs(explicit, extra []string, workspaceEnabled bool) []string
 	}
 
 	return out
+}
+
+func composeAgentInstructions(normaInstruction, relayInstruction string) string {
+	parts := make([]string, 0, 2)
+	if trimmedNorma := strings.TrimSpace(normaInstruction); trimmedNorma != "" {
+		parts = append(parts, trimmedNorma)
+	}
+	if trimmedRelay := strings.TrimSpace(relayInstruction); trimmedRelay != "" {
+		parts = append(parts, trimmedRelay)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func normalizeRelayAgentInstructions(raw map[string]string) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(raw))
+	for key, value := range raw {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" {
+			continue
+		}
+		normalized[trimmedKey] = trimmedValue
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }

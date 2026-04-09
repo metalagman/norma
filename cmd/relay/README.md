@@ -21,10 +21,18 @@ This creates `.config/relay/config.yaml` and prompts for:
 - `relay.root_agent` (required, auto-detected agents only; default by priority: codex, opencode, copilot, gemini, claude_code)
 - `relay.telegram.token` (optional, press Enter to skip)
 
+`relay init` also generates an example prompt at `relay.agent_system_instructions.<root_agent>` so you can customize root-agent behavior quickly.
+
 3. Set or override Telegram token with env:
 
 ```bash
 export RELAY_TELEGRAM_TOKEN=<your_bot_token>
+```
+
+You can also put env overrides in `.env` (auto-loaded by `relay` from the current working directory):
+
+```dotenv
+RELAY_TELEGRAM_TOKEN=<your_bot_token>
 ```
 
 4. Start relay:
@@ -57,10 +65,11 @@ Common keys:
 - `relay.root_agent`
 - `relay.telegram.token`
 - `relay.mcp_servers` (extra MCP server IDs for all relay-started sessions, from `norma.mcp_servers`)
+- `relay.agent_system_instructions` (relay-only per-agent instruction overrides; appended after `norma.agents.<id>.system_instruction`)
 - `relay.workspace.mode` (`on|off|auto`)
 - `relay.state_dir` (default `.config/relay`)
 
-Environment overrides use `RELAY_*` (for example, `RELAY_TELEGRAM_TOKEN`).
+Environment overrides use `RELAY_*` (for example, `RELAY_TELEGRAM_TOKEN`). `.env` is auto-loaded on startup from the current working directory.
 
 ## Troubleshooting
 

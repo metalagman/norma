@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -93,6 +94,47 @@ func TestIsExpectedBotRunShutdown(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isExpectedBotRunShutdown(tt.err); got != tt.want {
 				t.Fatalf("isExpectedBotRunShutdown(%v) = %t, want %t", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeAgentSystemInstructions(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  map[string]string
+		want map[string]string
+	}{
+		{
+			name: "nil",
+			raw:  nil,
+			want: nil,
+		},
+		{
+			name: "empty",
+			raw:  map[string]string{},
+			want: nil,
+		},
+		{
+			name: "trim_and_filter",
+			raw: map[string]string{
+				" alpha ": "  do this  ",
+				"beta":    " \n\t ",
+				"  ":      "value",
+				"gamma":   "ok",
+			},
+			want: map[string]string{
+				"alpha": "do this",
+				"gamma": "ok",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeAgentSystemInstructions(tt.raw)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("normalizeAgentSystemInstructions(%#v) = %#v, want %#v", tt.raw, got, tt.want)
 			}
 		})
 	}
