@@ -22,6 +22,7 @@ const (
 func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *testing.T) {
 	workingDir := setWorkingDir(t)
 	setDetectedBinaries(t, "codex", "opencode", "copilot", "gemini", "claude")
+	setDetectedBaseBranch(t, "main", nil)
 
 	prevInput := relayInitInput
 	prevOutput := relayInitOutput
@@ -67,6 +68,13 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	}
 	if len(rawRelayMCPServers) != 0 {
 		t.Fatalf("relay.mcp_servers = %#v, want empty", rawRelayMCPServers)
+	}
+	workspaceSection, ok := toStringAnyMap(relaySection["workspace"])
+	if !ok {
+		t.Fatal("relay.workspace section missing in generated config")
+	}
+	if got := workspaceSection["base_branch"]; got != "main" {
+		t.Fatalf("relay.workspace.base_branch = %#v, want main", got)
 	}
 	assertRelayAgentSystemInstructionExample(t, relaySection, testRelayRootAgentCodex)
 
@@ -116,6 +124,7 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 func TestInitCommand_InteractiveSelectionAndToken(t *testing.T) {
 	workingDir := setWorkingDir(t)
 	setDetectedBinaries(t, "codex", "opencode", "gemini")
+	setDetectedBaseBranch(t, "", fmt.Errorf("not a git repo"))
 
 	prevInput := relayInitInput
 	prevOutput := relayInitOutput
@@ -154,6 +163,7 @@ func TestInitCommand_InteractiveSelectionAndToken(t *testing.T) {
 func TestInitCommand_InteractiveDefaultPrioritizesCopilotBeforeGemini(t *testing.T) {
 	workingDir := setWorkingDir(t)
 	setDetectedBinaries(t, "copilot", "gemini")
+	setDetectedBaseBranch(t, "", fmt.Errorf("not a git repo"))
 
 	prevInput := relayInitInput
 	prevOutput := relayInitOutput
@@ -185,6 +195,7 @@ func TestInitCommand_InteractiveDefaultPrioritizesCopilotBeforeGemini(t *testing
 func TestInitCommand_FailsWhenNoSupportedAgentCLIFound(t *testing.T) {
 	_ = setWorkingDir(t)
 	setDetectedBinaries(t)
+	setDetectedBaseBranch(t, "", fmt.Errorf("not a git repo"))
 
 	prevInput := relayInitInput
 	prevOutput := relayInitOutput
@@ -213,6 +224,7 @@ func TestInitCommand_FailsWhenNoSupportedAgentCLIFound(t *testing.T) {
 func TestInitCommand_FailsWhenConfigAlreadyExists(t *testing.T) {
 	workingDir := setWorkingDir(t)
 	setDetectedBinaries(t, "codex")
+	setDetectedBaseBranch(t, "", fmt.Errorf("not a git repo"))
 
 	configPath := filepath.Join(workingDir, relayConfigRelDir, relayConfigFileName)
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
@@ -236,6 +248,7 @@ func TestInitCommand_FailsWhenConfigAlreadyExists(t *testing.T) {
 func TestInitCommand_RemovedRelayRootAgentFlagRejected(t *testing.T) {
 	_ = setWorkingDir(t)
 	setDetectedBinaries(t, "codex")
+	setDetectedBaseBranch(t, "", fmt.Errorf("not a git repo"))
 
 	cmd := initCommand()
 	cmd.SetArgs([]string{"--relay-root-agent", "codex"})
@@ -272,6 +285,7 @@ func TestChooseRelayRootAgent_InteractiveSelectionByNumber(t *testing.T) {
 func TestInitCommand_GeneratedConfigLoadableByRelayLoader(t *testing.T) {
 	workingDir := setWorkingDir(t)
 	setDetectedBinaries(t, "codex")
+	setDetectedBaseBranch(t, "main", nil)
 
 	prevInput := relayInitInput
 	prevOutput := relayInitOutput
@@ -343,6 +357,17 @@ func setDetectedBinaries(t *testing.T, binaries ...string) {
 			return "/usr/bin/" + file, nil
 		}
 		return "", fmt.Errorf("%s not found", file)
+	}
+}
+
+func setDetectedBaseBranch(t *testing.T, branch string, branchErr error) {
+	t.Helper()
+	prev := relayInitCurrentBranch
+	t.Cleanup(func() {
+		relayInitCurrentBranch = prev
+	})
+	relayInitCurrentBranch = func(string) (string, error) {
+		return branch, branchErr
 	}
 }
 

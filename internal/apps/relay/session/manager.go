@@ -46,7 +46,8 @@ type ManagerParams struct {
 	AgentBuilder      *agent.Builder
 	RelayMCPServerIDs []string `name:"relay_mcp_servers"`
 	WorkingDir        string
-	WorkspaceEnabled  bool `name:"relay_workspace_enabled"`
+	WorkspaceEnabled  bool   `name:"relay_workspace_enabled"`
+	WorkspaceBaseRef  string `name:"relay_workspace_base_branch"`
 	TGClient          client.ClientWithResponsesInterface
 	StateProvider     relaystate.Provider
 	Logger            zerolog.Logger
@@ -65,7 +66,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		relayMCPServerIDs: append([]string(nil), p.RelayMCPServerIDs...),
 		workingDir:        p.WorkingDir,
 		tgClient:          p.TGClient,
-		workspaces:        agent.NewWorkspaceManager(p.WorkingDir),
+		workspaces:        agent.NewWorkspaceManager(p.WorkingDir, p.WorkspaceBaseRef),
 		workspaceEnabled:  p.WorkspaceEnabled,
 		sessionStore:      p.StateProvider.Sessions(),
 		logger:            p.Logger.With().Str("component", "relay.session_manager").Logger(),

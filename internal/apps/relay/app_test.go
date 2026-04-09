@@ -4,9 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+)
+
+const (
+	testWorkspaceBaseBranchSourceConfig = "config"
+	testWorkspaceBaseBranchSourceHead   = "head"
 )
 
 func TestResolveWorkingDir_EmptyUsesProcessCWD(t *testing.T) {
@@ -138,4 +145,73 @@ func TestNormalizeAgentSystemInstructions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveWorkspaceBaseBranch_ConfigPreferredWhenValid(t *testing.T) {
+	ctx := context.Background()
+	repoDir := t.TempDir()
+	initGitRepoForRelay(t, ctx, repoDir)
+
+	runGitForRelay(t, ctx, repoDir, "branch", "main")
+
+	branch, source, err := resolveWorkspaceBaseBranch(ctx, repoDir, "main", true)
+	if err != nil {
+		t.Fatalf("resolveWorkspaceBaseBranch returned error: %v", err)
+	}
+	if branch != "main" {
+		t.Fatalf("branch = %q, want main", branch)
+	}
+	if source != testWorkspaceBaseBranchSourceConfig {
+		t.Fatalf("source = %q, want %s", source, testWorkspaceBaseBranchSourceConfig)
+	}
+}
+
+func TestResolveWorkspaceBaseBranch_FallbackToHeadWhenConfiguredMissing(t *testing.T) {
+	ctx := context.Background()
+	repoDir := t.TempDir()
+	initGitRepoForRelay(t, ctx, repoDir)
+	runGitForRelay(t, ctx, repoDir, "checkout", "-b", "trunk")
+
+	branch, source, err := resolveWorkspaceBaseBranch(ctx, repoDir, "missing-branch", true)
+	if err != nil {
+		t.Fatalf("resolveWorkspaceBaseBranch returned error: %v", err)
+	}
+	if branch != "trunk" {
+		t.Fatalf("branch = %q, want trunk", branch)
+	}
+	if source != testWorkspaceBaseBranchSourceHead {
+		t.Fatalf("source = %q, want %s", source, testWorkspaceBaseBranchSourceHead)
+	}
+}
+
+func TestResolveWorkspaceBaseBranch_EnabledRequiresResolvableBranch(t *testing.T) {
+	ctx := context.Background()
+	workingDir := t.TempDir()
+
+	if _, _, err := resolveWorkspaceBaseBranch(ctx, workingDir, "", true); err == nil {
+		t.Fatal("resolveWorkspaceBaseBranch returned nil error for non-git workspace-enabled config")
+	}
+}
+
+func initGitRepoForRelay(t *testing.T, ctx context.Context, dir string) {
+	t.Helper()
+	runGitForRelay(t, ctx, dir, "init")
+	runGitForRelay(t, ctx, dir, "config", "user.name", "Norma Test")
+	runGitForRelay(t, ctx, dir, "config", "user.email", "norma-test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed\n"), 0o600); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+	runGitForRelay(t, ctx, dir, "add", "seed.txt")
+	runGitForRelay(t, ctx, dir, "commit", "-m", "chore: seed")
+}
+
+func runGitForRelay(t *testing.T, ctx context.Context, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
 }

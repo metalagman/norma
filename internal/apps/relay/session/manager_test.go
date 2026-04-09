@@ -29,7 +29,7 @@ func TestStopAll_CleansWorkspaceWhenRootContextCanceled(t *testing.T) {
 	rootCancel()
 
 	m := &Manager{
-		workspaces:       relayagent.NewWorkspaceManager(workingDir),
+		workspaces:       relayagent.NewWorkspaceManager(workingDir, "master"),
 		workspaceEnabled: true,
 		logger:           zerolog.Nop(),
 		rootCtx:          rootCtx,

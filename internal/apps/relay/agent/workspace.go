@@ -14,14 +14,16 @@ import (
 // WorkspaceManager manages git worktrees for relay sessions.
 type WorkspaceManager struct {
 	workingDir string
+	baseBranch string
 }
 
 // NewWorkspaceManager creates a WorkspaceManager for the given working directory.
-func NewWorkspaceManager(workingDir string) *WorkspaceManager {
-	return &WorkspaceManager{workingDir: workingDir}
+func NewWorkspaceManager(workingDir, baseBranch string) *WorkspaceManager {
+	return &WorkspaceManager{
+		workingDir: workingDir,
+		baseBranch: strings.TrimSpace(baseBranch),
+	}
 }
-
-const baseBranch = "HEAD"
 
 // EnsureWorkspace creates or returns an existing workspace directory.
 // If existingPath is non-empty and the directory exists, it is reused and synced with base.
@@ -48,6 +50,11 @@ func (m *WorkspaceManager) EnsureWorkspace(ctx context.Context, key, branchName,
 		return "", fmt.Errorf("stat workspace dir %q: %w", workspaceDir, err)
 	}
 
+	baseBranch, err := m.resolvedBaseBranch(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	if _, err := git.MountWorktree(ctx, m.workingDir, workspaceDir, branchName, baseBranch); err != nil {
 		return "", fmt.Errorf("mount worktree: %w", err)
 	}
@@ -55,7 +62,7 @@ func (m *WorkspaceManager) EnsureWorkspace(ctx context.Context, key, branchName,
 	return workspaceDir, nil
 }
 
-// Import syncs a workspace branch onto local master.
+// Import syncs a workspace branch onto the configured base branch.
 func (m *WorkspaceManager) Import(ctx context.Context, workspaceDir string) error {
 	statusOut, err := git.GitRunCmdOutput(ctx, workspaceDir, "git", "status", "--porcelain")
 	if err != nil {
@@ -78,18 +85,46 @@ func (m *WorkspaceManager) Import(ctx context.Context, workspaceDir string) erro
 		}
 	}
 
-	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "rebase", "master"); err != nil {
+	baseRef, err := m.resolvedBaseBranch(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := git.GitRunCmdErr(ctx, workspaceDir, "git", "rebase", baseRef); err != nil {
 		// Abort rebase on failure so workspace stays clean
 		_ = git.GitRunCmdErr(ctx, workspaceDir, "git", "rebase", "--abort")
-		return fmt.Errorf("rebase workspace onto master: %w", err)
+		return fmt.Errorf("rebase workspace onto %s: %w", baseRef, err)
 	}
-	log.Info().Str("workspace", workspaceDir).Msg("workspace synced to master")
+	log.Info().Str("workspace", workspaceDir).Str("base_ref", baseRef).Msg("workspace synced to base ref")
 	return nil
 }
 
-// Export squash-merges workspace branch into local master and commits.
+func (m *WorkspaceManager) resolvedBaseBranch(ctx context.Context) (string, error) {
+	if branch := strings.TrimSpace(m.baseBranch); branch != "" {
+		return branch, nil
+	}
+
+	branch, err := git.CurrentBranch(ctx, m.workingDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace base branch: %w", err)
+	}
+	return branch, nil
+}
+
+// Export squash-merges workspace branch into the configured base branch and commits.
 func (m *WorkspaceManager) Export(ctx context.Context, workspaceDir, branchName, commitMessage string) error {
 	mainRepo := m.workingDir
+	baseBranch, err := m.resolvedBaseBranch(ctx)
+	if err != nil {
+		return err
+	}
+	currentBranch, err := git.CurrentBranch(ctx, mainRepo)
+	if err != nil {
+		return fmt.Errorf("resolve current repository branch: %w", err)
+	}
+	if currentBranch != baseBranch {
+		return fmt.Errorf("export requires repository branch %q, current branch is %q", baseBranch, currentBranch)
+	}
 
 	// Stash local changes in main repo if dirty
 	dirty := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "status", "--porcelain"))
@@ -109,7 +144,7 @@ func (m *WorkspaceManager) Export(ctx context.Context, workspaceDir, branchName,
 
 	beforeHash := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "rev-parse", "HEAD"))
 
-	// Squash merge workspace branch into master
+	// Squash merge workspace branch into configured base branch.
 	if err := git.GitRunCmdErr(ctx, mainRepo, "git", "merge", "--squash", branchName); err != nil {
 		_ = git.GitRunCmdErr(ctx, mainRepo, "git", "reset", "--hard", beforeHash)
 		_ = restoreStash()
@@ -126,11 +161,11 @@ func (m *WorkspaceManager) Export(ctx context.Context, workspaceDir, branchName,
 	status := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "status", "--porcelain"))
 	if status == "" {
 		_ = restoreStash()
-		log.Info().Msg("nothing to export — workspace already matches master")
+		log.Info().Str("base_branch", baseBranch).Msg("nothing to export — workspace already matches base branch")
 		return nil
 	}
 
-	// Commit on master
+	// Commit on configured base branch.
 	if err := git.GitRunCmdErr(ctx, mainRepo, "git", "commit", "-m", commitMessage); err != nil {
 		_ = git.GitRunCmdErr(ctx, mainRepo, "git", "reset", "--hard", beforeHash)
 		_ = restoreStash()
@@ -144,9 +179,10 @@ func (m *WorkspaceManager) Export(ctx context.Context, workspaceDir, branchName,
 	afterHash := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "rev-parse", "HEAD"))
 	log.Info().
 		Str("branch", branchName).
+		Str("base_branch", baseBranch).
 		Str("before_hash", beforeHash).
 		Str("after_hash", afterHash).
-		Msg("workspace exported to master")
+		Msg("workspace exported to base branch")
 
 	return nil
 }

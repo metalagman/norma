@@ -34,7 +34,7 @@ func TestWorkspaceImportDiscardsDirtyChangesAndSyncsToMaster(t *testing.T) {
 	runGit(t, ctx, workingDir, "add", "master-only.txt")
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: update master")
 
-	m := NewWorkspaceManager(workingDir)
+	m := NewWorkspaceManager(workingDir, currentBranch(t, ctx, workingDir))
 	if err := m.Import(ctx, workspaceDir); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestWorkspaceImportRebasesCleanBranch(t *testing.T) {
 	runGit(t, ctx, workingDir, "add", "master.txt")
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: master change")
 
-	m := NewWorkspaceManager(workingDir)
+	m := NewWorkspaceManager(workingDir, currentBranch(t, ctx, workingDir))
 	if err := m.Import(ctx, workspaceDir); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -97,6 +97,39 @@ func TestWorkspaceImportRebasesCleanBranch(t *testing.T) {
 	}
 	if got := readFile(t, filepath.Join(workspaceDir, "master.txt")); got != "master\n" {
 		t.Fatalf("master.txt mismatch: got %q", got)
+	}
+}
+
+func TestWorkspaceImportUsesCurrentHeadBranchNotHardcodedMaster(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
+	runGit(t, ctx, workingDir, "branch", "-m", "main")
+
+	writeFile(t, filepath.Join(workingDir, "base.txt"), "base\n")
+	runGit(t, ctx, workingDir, "add", "base.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
+
+	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
+	branchName := "norma/relay/relay-2-1"
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
+	t.Cleanup(func() {
+		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
+	})
+
+	writeFile(t, filepath.Join(workingDir, "main-only.txt"), "main-only\n")
+	runGit(t, ctx, workingDir, "add", "main-only.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: update main")
+
+	m := NewWorkspaceManager(workingDir, currentBranch(t, ctx, workingDir))
+	if err := m.Import(ctx, workspaceDir); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(workspaceDir, "main-only.txt")); got != "main-only\n" {
+		t.Fatalf("main-only.txt mismatch: got %q", got)
 	}
 }
 
@@ -126,13 +159,13 @@ func TestWorkspaceImportAbortsRebaseOnConflict(t *testing.T) {
 	runGit(t, ctx, workingDir, "add", "conflict.txt")
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: master conflict")
 
-	m := NewWorkspaceManager(workingDir)
+	m := NewWorkspaceManager(workingDir, currentBranch(t, ctx, workingDir))
 	err := m.Import(ctx, workspaceDir)
 	if err == nil {
 		t.Fatal("Import() error = nil, want conflict error")
 	}
-	if !strings.Contains(err.Error(), "rebase workspace onto master") {
-		t.Fatalf("error = %q, want rebase context", err)
+	if !strings.Contains(err.Error(), "rebase workspace onto ") {
+		t.Fatalf("error = %q, want rebase-on-base-ref context", err)
 	}
 
 	rebaseMergePath := strings.TrimSpace(runGit(t, ctx, workspaceDir, "rev-parse", "--git-path", "rebase-merge"))
@@ -151,6 +184,80 @@ func TestWorkspaceImportAbortsRebaseOnConflict(t *testing.T) {
 	}
 	if got := readFile(t, filepath.Join(workspaceDir, "conflict.txt")); got != "branch\n" {
 		t.Fatalf("conflict.txt mismatch after abort: got %q", got)
+	}
+}
+
+func TestWorkspaceExportSquashMergesIntoConfiguredBaseBranch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
+
+	writeFile(t, filepath.Join(workingDir, "seed.txt"), "seed\n")
+	runGit(t, ctx, workingDir, "add", "seed.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
+	runGit(t, ctx, workingDir, "branch", "-M", "main")
+
+	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
+	branchName := "norma/relay/relay-1-3"
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "main")
+	t.Cleanup(func() {
+		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
+	})
+
+	writeFile(t, filepath.Join(workspaceDir, "feature.txt"), "feature\n")
+	runGit(t, ctx, workspaceDir, "add", "feature.txt")
+	runGit(t, ctx, workspaceDir, "commit", "-m", "feat: branch feature")
+
+	m := NewWorkspaceManager(workingDir, "main")
+	if err := m.Export(ctx, workspaceDir, branchName, "feat: export relay changes"); err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(workingDir, "feature.txt")); got != "feature\n" {
+		t.Fatalf("feature.txt mismatch in base branch: got %q", got)
+	}
+	if got := strings.TrimSpace(runGit(t, ctx, workingDir, "rev-parse", "--abbrev-ref", "HEAD")); got != "main" {
+		t.Fatalf("base repo branch = %q, want main", got)
+	}
+	if got := strings.TrimSpace(runGit(t, ctx, workingDir, "log", "-1", "--pretty=%s")); got != "feat: export relay changes" {
+		t.Fatalf("last commit subject = %q, want feat: export relay changes", got)
+	}
+}
+
+func TestWorkspaceExportFailsWhenBaseBranchMismatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	initGitRepo(t, ctx, workingDir)
+
+	writeFile(t, filepath.Join(workingDir, "seed.txt"), "seed\n")
+	runGit(t, ctx, workingDir, "add", "seed.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
+	runGit(t, ctx, workingDir, "branch", "-M", "main")
+
+	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
+	branchName := "norma/relay/relay-1-4"
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "main")
+	t.Cleanup(func() {
+		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
+	})
+
+	writeFile(t, filepath.Join(workspaceDir, "feature.txt"), "feature\n")
+	runGit(t, ctx, workspaceDir, "add", "feature.txt")
+	runGit(t, ctx, workspaceDir, "commit", "-m", "feat: branch feature")
+
+	runGit(t, ctx, workingDir, "checkout", "-b", "develop")
+
+	m := NewWorkspaceManager(workingDir, "main")
+	err := m.Export(ctx, workspaceDir, branchName, "feat: export relay changes")
+	if err == nil {
+		t.Fatal("Export() error = nil, want branch mismatch error")
+	}
+	if !strings.Contains(err.Error(), `export requires repository branch "main", current branch is "develop"`) {
+		t.Fatalf("Export() error = %q, want branch mismatch context", err)
 	}
 }
 
@@ -193,4 +300,9 @@ func runGitAllowError(ctx context.Context, dir string, args ...string) error {
 	cmd.Dir = dir
 	_, err := cmd.CombinedOutput()
 	return err
+}
+
+func currentBranch(t *testing.T, ctx context.Context, dir string) string {
+	t.Helper()
+	return strings.TrimSpace(runGit(t, ctx, dir, "rev-parse", "--abbrev-ref", "HEAD"))
 }

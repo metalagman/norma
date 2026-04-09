@@ -3,7 +3,6 @@ package git
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/rs/zerolog/log"
 )
@@ -18,16 +17,13 @@ func MountWorktree(ctx context.Context, workingDir, workspaceDir, branchName, ba
 	}
 
 	// Check if branch already exists
-	branchExists := strings.TrimSpace(GitRunCmd(ctx, workingDir, "git", "branch", "--list", branchName)) != ""
-
-	if branchExists {
-		// Ensure it's not checked out in another worktree
-		ForceCleanupStaleWorktree(ctx, workingDir, branchName)
-	}
+	branchExists := branchExists(ctx, workingDir, branchName)
 
 	args := []string{"worktree", "add", "-b", branchName, workspaceDir}
 	if branchExists {
-		args = []string{"worktree", "add", workspaceDir, branchName}
+		// Allow restoring/starting sessions even when the same branch is
+		// currently checked out in another worktree (including the main repo).
+		args = []string{"worktree", "add", "--force", workspaceDir, branchName}
 	} else if baseBranch != "" {
 		args = append(args, baseBranch)
 	}
@@ -49,26 +45,8 @@ func MountWorktree(ctx context.Context, workingDir, workspaceDir, branchName, ba
 	return workspaceDir, nil
 }
 
-func ForceCleanupStaleWorktree(ctx context.Context, workingDir, branchName string) {
-	out := GitRunCmd(ctx, workingDir, "git", "worktree", "list", "--porcelain")
-	lines := strings.Split(out, "\n")
-	var currentWorktree string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "worktree ") {
-			currentWorktree = strings.TrimPrefix(line, "worktree ")
-		} else if strings.HasPrefix(line, "branch ") {
-			branch := strings.TrimPrefix(line, "branch refs/heads/")
-			if branch == branchName {
-				log.Warn().Str("branch", branchName).Str("stale_worktree", currentWorktree).Msg("found stale worktree, forcing removal")
-				// Try to remove the worktree
-				_ = GitRunCmdErr(ctx, workingDir, "git", "worktree", "remove", "--force", currentWorktree)
-			}
-		}
-	}
+func branchExists(ctx context.Context, workingDir, branchName string) bool {
+	return GitRunCmdErr(ctx, workingDir, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName) == nil
 }
 
 func RemoveWorktree(ctx context.Context, workingDir, workspaceDir string) error {

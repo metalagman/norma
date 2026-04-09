@@ -26,6 +26,12 @@ import (
 	"go.uber.org/fx"
 )
 
+type workspaceBaseBranchParams struct {
+	fx.In
+
+	WorkspaceEnabled bool `name:"relay_workspace_enabled"`
+}
+
 // App creates a new fx.App for the relay bot with the provided configuration.
 func App(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) *fx.App {
 	return fx.New(
@@ -123,6 +129,28 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 					return enabled, nil
 				},
 				fx.ResultTags(`name:"relay_workspace_enabled"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
+				func(p workspaceBaseBranchParams) (string, error) {
+					baseBranch, source, err := resolveWorkspaceBaseBranch(
+						context.Background(),
+						workingDir,
+						cfg.Relay.Workspace.BaseBranch,
+						p.WorkspaceEnabled,
+					)
+					if err != nil {
+						return "", err
+					}
+					logger.Info().
+						Str("workspace_base_branch", baseBranch).
+						Str("workspace_base_branch_source", source).
+						Bool("workspace_enabled", p.WorkspaceEnabled).
+						Msg("relay workspace base branch resolved")
+					return baseBranch, nil
+				},
+				fx.ResultTags(`name:"relay_workspace_base_branch"`),
 			),
 		),
 		fx.Provide(
@@ -235,6 +263,34 @@ func resolveStateDir(workingDir, raw string) (string, error) {
 		return "", fmt.Errorf("resolve absolute state_dir %q: %w", raw, err)
 	}
 	return filepath.Clean(resolved), nil
+}
+
+func resolveWorkspaceBaseBranch(
+	ctx context.Context,
+	workingDir string,
+	configuredBranch string,
+	workspaceEnabled bool,
+) (branch string, source string, err error) {
+	configured := strings.TrimSpace(configuredBranch)
+	if !workspaceEnabled {
+		if configured == "" {
+			return "", "disabled", nil
+		}
+		return configured, "config", nil
+	}
+
+	if configured != "" {
+		ref := "refs/heads/" + configured
+		if err := git.GitRunCmdErr(ctx, workingDir, "git", "show-ref", "--verify", "--quiet", ref); err == nil {
+			return configured, "config", nil
+		}
+	}
+
+	headBranch, err := git.CurrentBranch(ctx, workingDir)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve relay.workspace.base_branch: %w", err)
+	}
+	return headBranch, "head", nil
 }
 
 func normalizeAgentSystemInstructions(raw map[string]string) map[string]string {

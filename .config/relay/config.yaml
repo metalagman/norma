@@ -58,6 +58,7 @@ relay:
   state_dir: ".config/relay"
   workspace:
     mode: "auto"
+    base_branch: "master"
   mcp_servers: []
   agent_system_instructions:
     opencode: |

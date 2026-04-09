@@ -40,5 +40,6 @@ type LoggerConfig struct {
 
 // WorkspaceConfig controls relay Git workspace behavior.
 type WorkspaceConfig struct {
-	Mode string `mapstructure:"mode"`
+	Mode       string `mapstructure:"mode"`
+	BaseBranch string `mapstructure:"base_branch"`
 }

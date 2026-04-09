@@ -1,69 +1,72 @@
+agents:
+    root_agent: codex
 norma:
-  agents:
-    fl:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
-    gemini:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
-    gemini_plan:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
-        mode: plan
-    opencode:
-      type: opencode_acp
-      opencode_acp:
-        model: opencode/big-pickle
-    opencode_plan:
-      type: opencode_acp
-      opencode_acp:
-        model: opencode/big-pickle
-        mode: plan
-    copilot:
-      type: copilot_acp
-      copilot_acp:
-        model: gpt-5-mini
-    copilot_plan:
-      type: copilot_acp
-      copilot_acp:
-        mode: plan
-    opencode_minimax:
-      type: opencode_acp
-      opencode_acp:
-        model: opencode/minimax-m2.5-free
-    opencode_minimax_plan:
-      type: opencode_acp
-      opencode_acp:
-        model: opencode/minimax-m2.5-free
-        mode: plan
-    codex:
-      type: codex_acp
-      codex_acp:
-        model: gpt-5.4
-    gpt:
-      type: codex_acp
-      codex_acp:
-        model: gpt-5.4-mini
-
-  mcp_servers:
-    playground_ping_pong:
-      type: stdio
-      cmd:
-        - go
-        - run
-        - ./cmd/norma
-      args:
-        - playground
-        - mcp
-        - ping-pong
-
-cli:
-  pdca:
-    plan: codex
-    do: opencode
-    check: opencode
-    act: opencode
-  planner: codex
+    agents:
+        claude_code:
+            claude_code_acp:
+                model: claude-sonnet-4-6
+            type: claude_code_acp
+        codex:
+            codex_acp:
+                model: gpt-5.3-codex
+            type: codex_acp
+        copilot:
+            copilot_acp:
+                model: gpt-5-codex
+            type: copilot_acp
+        gemini:
+            gemini_acp:
+                model: gemini-3-flash-preview
+            type: gemini_acp
+        opencode:
+            opencode_acp:
+                model: opencode/big-pickle
+            type: opencode_acp
+        pool:
+            pool:
+                members:
+                    - codex
+                    - opencode
+                    - copilot
+                    - gemini
+                    - claude_code
+            type: pool
+    mcp_servers:
+        playground_ping_pong:
+            args:
+                - playground
+                - mcp
+                - ping-pong
+            cmd:
+                - go
+                - run
+                - ./cmd/norma
+            type: stdio
+profiles:
+    default:
+        relay:
+            root_agent: opencode
+relay:
+    agent_system_instructions:
+        opencode: |
+            You are my relay agent.
+            Prefer concise, actionable answers.
+            When a request is ambiguous, ask one short clarifying question.
+    logger:
+        level: info
+        pretty: true
+    mcp_servers: []
+    root_agent: codex
+    state_dir: .config/relay
+    telegram:
+        token: ""
+        webhook:
+            auth_token: ""
+            enabled: false
+            listen_addr: 0.0.0.0:8080
+            path: /telegram/webhook
+            url: ""
+    working_dir: ""
+    workspace:
+        mode: auto
+        base_branch: master
