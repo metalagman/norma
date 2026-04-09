@@ -13,16 +13,22 @@ Context:
 
 Session:
 - ID: {{.SessionID}}
-{{if .WorkspaceEnabled}}
-Workspace:
-- Branch: {{.BranchName}}
-- Path: {{.WorkspaceDir}}
 
-Workspace MCP usage:
+Workspace settings:
+- Mode: {{.WorkspaceMode}}
+- Path: {{.WorkspaceDir}}
+- Base branch: {{.BaseBranch}}
+{{if .WorkspaceEnabled}}
+- Session branch: {{.SessionBranch}}
+- Main repo branch at start: {{.RepoBranchAtStart}}
+
+Git workspace guidance:
 - Use `norma.workspace.import` before major edits (or after long idle) to rebase your workspace onto the base branch.
 - Use `norma.workspace.export` with a Conventional Commit message to squash-merge your workspace branch into the base branch.
 - Do not perform branch/merge landing via raw git when these MCP tools are available.
 - If export reports a base-branch mismatch, ask the user to switch the main repository back to the configured base branch.
+{{else}}
+- Git workspace tooling: disabled (`norma.workspace` MCP is unavailable in this session).
 {{end}}
 
 Built-in MCP Servers:

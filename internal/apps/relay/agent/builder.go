@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/normahq/norma/internal/git"
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 	"go.uber.org/fx"
@@ -20,29 +21,71 @@ import (
 //go:embed system_instruction.gotmpl
 var relaySystemInstructionTmpl string
 
+const (
+	workspaceBranchUnknown = "unknown"
+	workspaceBranchNA      = "n/a"
+)
+
 type Builder struct {
 	factory                *agentfactory.Factory
 	normaCfg               runtimeconfig.NormaConfig
+	workingDir             string
 	workspaceEnabled       bool
+	workspaceBaseBranch    string
 	relayAgentInstructions map[string]string
 }
 
 type relayPromptData struct {
 	SessionID         string
-	BranchName        string
 	WorkspaceDir      string
 	WorkspaceEnabled  bool
+	SessionBranch     string
+	WorkspaceMode     string
+	BaseBranch        string
+	RepoBranchAtStart string
 	AgentInstructions string
 }
 
-func (b *Builder) buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir string) string {
+func (b *Builder) buildRelaySystemInstruction(
+	sessionID,
+	agentName,
+	sessionBranch,
+	workspaceDir,
+	repoBranchAtStart string,
+) string {
 	normalizedAgentName := strings.TrimSpace(agentName)
+	repoBranch := strings.TrimSpace(repoBranchAtStart)
+	if !b.workspaceEnabled {
+		repoBranch = workspaceBranchNA
+	} else if repoBranch == "" {
+		repoBranch = workspaceBranchUnknown
+	}
+
+	baseBranch := strings.TrimSpace(b.workspaceBaseBranch)
+	if b.workspaceEnabled && baseBranch == "" {
+		if repoBranch != "" && repoBranch != workspaceBranchUnknown {
+			baseBranch = repoBranch
+		} else {
+			baseBranch = workspaceBranchUnknown
+		}
+	}
+	if !b.workspaceEnabled && baseBranch == "" {
+		baseBranch = workspaceBranchNA
+	}
+
+	workspaceMode := "direct"
+	if b.workspaceEnabled {
+		workspaceMode = "git-worktree"
+	}
 
 	data := relayPromptData{
-		SessionID:        sessionID,
-		BranchName:       branchName,
-		WorkspaceDir:     workspaceDir,
-		WorkspaceEnabled: b.workspaceEnabled,
+		SessionID:         sessionID,
+		WorkspaceDir:      workspaceDir,
+		WorkspaceEnabled:  b.workspaceEnabled,
+		SessionBranch:     sessionBranch,
+		WorkspaceMode:     workspaceMode,
+		BaseBranch:        baseBranch,
+		RepoBranchAtStart: repoBranch,
 	}
 
 	normaInstruction := ""
@@ -65,7 +108,9 @@ type BuilderParams struct {
 
 	Factory                *agentfactory.Factory
 	NormaCfg               runtimeconfig.NormaConfig
+	WorkingDir             string
 	WorkspaceEnabled       bool              `name:"relay_workspace_enabled"`
+	WorkspaceBaseBranch    string            `name:"relay_workspace_base_branch"`
 	RelayAgentInstructions map[string]string `name:"relay_agent_system_instructions"`
 }
 
@@ -74,7 +119,9 @@ func NewBuilder(params BuilderParams) *Builder {
 	return &Builder{
 		factory:                params.Factory,
 		normaCfg:               params.NormaCfg,
+		workingDir:             strings.TrimSpace(params.WorkingDir),
 		workspaceEnabled:       params.WorkspaceEnabled,
+		workspaceBaseBranch:    strings.TrimSpace(params.WorkspaceBaseBranch),
 		relayAgentInstructions: normalizeRelayAgentInstructions(params.RelayAgentInstructions),
 	}
 }
@@ -104,13 +151,14 @@ func (b *Builder) BuildWithMCPServerIDs(
 	agentName, workspaceDir string,
 	extraMCPServerIDs []string,
 ) (*BuiltAgent, error) {
-	branchName := fmt.Sprintf("norma/relay/%s", sessionID)
+	sessionBranch := fmt.Sprintf("norma/relay/%s", sessionID)
+	repoBranchAtStart := b.currentRepoBranch(ctx)
 	req := agentfactory.BuildRequest{
 		AgentID:           agentName,
 		Name:              agentName,
 		Description:       b.buildAgentDescription(agentName),
 		WorkingDirectory:  workspaceDir,
-		SystemInstruction: b.buildRelaySystemInstruction(sessionID, agentName, branchName, workspaceDir),
+		SystemInstruction: b.buildRelaySystemInstruction(sessionID, agentName, sessionBranch, workspaceDir, repoBranchAtStart),
 		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName, extraMCPServerIDs),
 	}
 
@@ -149,6 +197,24 @@ func (b *Builder) BuildWithMCPServerIDs(
 		SessionSvc: sessionSvc,
 		Session:    sess.Session,
 	}, nil
+}
+
+func (b *Builder) currentRepoBranch(ctx context.Context) string {
+	if !b.workspaceEnabled {
+		return workspaceBranchNA
+	}
+	if strings.TrimSpace(b.workingDir) == "" {
+		return workspaceBranchUnknown
+	}
+	branch, err := git.CurrentBranch(ctx, b.workingDir)
+	if err != nil {
+		return workspaceBranchUnknown
+	}
+	trimmed := strings.TrimSpace(branch)
+	if trimmed == "" {
+		return workspaceBranchUnknown
+	}
+	return trimmed
 }
 
 // buildAgentDescription returns a human-readable description of the agent.

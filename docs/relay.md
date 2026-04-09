@@ -7,6 +7,7 @@
 - Runtime stack: `tgbotkit/runtime` + Google ADK runners.
 - Main agent: relay app key `relay.root_agent` (profile overrides via `profiles.<profile>.relay.root_agent`).
 - Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
+- Relay startup prompt includes workspace settings for each session; in git workspace mode it also includes session/base/current-branch context and workspace MCP guidance.
 - Output streaming:
   - Thought updates: Telegram Bot API `sendMessageDraft` (plain text).
   - Final assistant response: Telegram Bot API `sendMessage` (MarkdownV2; retry without `parse_mode` on failure).
