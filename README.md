@@ -16,7 +16,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 
 - **Fixed PDCA Workflow:** A single, battle-tested loop: `Plan` the work, `Do` the implementation, `Check` the results, and `Act` on the verdict.
 - **Isolated Git Workspaces:** Every run operates in a dedicated Git worktree on a task-scoped branch (`norma/task/<id>`). No more messy working trees or accidental commits.
-- **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/metalagman/beads). Task state, structured work plans, and full run journals are persisted in Beads `notes`, synchronized via Git.
+- **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/gastownhall/beads). Task state, structured work plans, and full run journals are persisted in Beads `notes`, synchronized via Git.
 - **Intelligent Resumption:** Using granular labels like `norma-has-plan` and `norma-has-do`, norma can resume interrupted runs or skip already completed steps across different machines.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
 - **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`, `copilot_acp`, `claude_code_acp`).
@@ -52,7 +52,7 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 
 ### 1. Requirements
 - **Go 1.25+**
-- **bd** ([Beads CLI](https://github.com/metalagman/beads)) installed in your PATH.
+- **bd** ([Beads CLI](https://github.com/gastownhall/beads)) installed in your PATH.
 - **Git**
 
 ### 2. Install

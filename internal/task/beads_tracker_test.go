@@ -120,7 +120,7 @@ func newIntegrationBeadsTracker(t *testing.T) *BeadsTracker {
 
 	workingDir := t.TempDir()
 	runTestCmd(t, workingDir, "git", "init")
-	runTestCmd(t, workingDir, "bd", "--no-daemon", "init", "--prefix", "norma")
+	runTestCmd(t, workingDir, "bd", "init", "--prefix", "norma")
 
 	return &BeadsTracker{
 		BinPath:    "bd",

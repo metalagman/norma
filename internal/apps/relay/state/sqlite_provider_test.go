@@ -2,8 +2,11 @@ package state
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestSQLiteProvider_KVRoundTrip(t *testing.T) {
@@ -106,6 +109,66 @@ func TestSQLiteProvider_OffsetPersistsAcrossReopen(t *testing.T) {
 	}
 }
 
+func TestSQLiteProvider_WritesSchemaMigrationVersion(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "relay.db")
+	ctx := context.Background()
+
+	provider, err := NewSQLiteProvider(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+	closeProvider(t, provider)
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatalf("query schema_migrations version: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("schema_migrations version = %d, want 1", version)
+	}
+}
+
+func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "relay.db")
+	ctx := context.Background()
+
+	seedLegacyRelayDB(t, dbPath)
+
+	provider, err := NewSQLiteProvider(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+	defer closeProvider(t, provider)
+
+	offset, err := provider.PollingOffsetStore().Load(ctx)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if offset != 321 {
+		t.Fatalf("offset = %d, want 321", offset)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatalf("query schema_migrations version: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("schema_migrations version = %d, want 1", version)
+	}
+}
+
 func newTestProvider(t *testing.T) Provider {
 	t.Helper()
 
@@ -121,5 +184,50 @@ func closeProvider(t *testing.T, provider Provider) {
 	t.Helper()
 	if err := provider.Close(); err != nil {
 		t.Fatalf("provider.Close() error = %v", err)
+	}
+}
+
+func seedLegacyRelayDB(t *testing.T, dbPath string) {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	legacySchema := []string{
+		`CREATE TABLE relay_app_kv (
+			namespace TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (namespace, key)
+		);`,
+		`CREATE TABLE relay_session_metadata (
+			session_id TEXT PRIMARY KEY,
+			chat_id INTEGER NOT NULL,
+			topic_id INTEGER NOT NULL,
+			agent_name TEXT NOT NULL,
+			workspace_dir TEXT NOT NULL,
+			branch_name TEXT NOT NULL,
+			status TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE (chat_id, topic_id)
+		);`,
+		`CREATE INDEX idx_relay_session_metadata_status ON relay_session_metadata(status);`,
+		`CREATE TABLE relay_telegram_offsets (
+			bot_key TEXT PRIMARY KEY,
+			offset INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`INSERT INTO relay_telegram_offsets (bot_key, offset, updated_at)
+		 VALUES ('relay-default', 321, '2026-01-01T00:00:00Z');`,
+	}
+
+	for _, stmt := range legacySchema {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("seed legacy relay db stmt failed: %v\nstmt: %s", err, stmt)
+		}
 	}
 }
