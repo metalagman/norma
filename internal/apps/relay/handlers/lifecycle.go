@@ -41,6 +41,20 @@ const (
 	bundledRelayServerID = "relay"
 )
 
+func bundledRelayServerInstructions(workspaceEnabled bool) string {
+	instructions := `Use this bundled relay server for session-local relay tools.
+
+- relay.state stores persistent relay session and app state in relay.db.
+- relay.agents manages relay agent sessions and session metadata.
+- relay config editing is not exposed through MCP; edit the relay config file directly.`
+	if workspaceEnabled {
+		instructions += "\n- relay.workspace is available and should be used for workspace import/export instead of manual branch landing."
+	} else {
+		instructions += "\n- relay.workspace is unavailable because relay workspace mode is disabled for this session."
+	}
+	return instructions
+}
+
 type internalMCPParams struct {
 	fx.In
 
@@ -110,7 +124,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 			Name:    "relay",
 			Version: "1.0.0",
 		},
-		nil,
+		&mcp.ServerOptions{Instructions: bundledRelayServerInstructions(m.workspaceEnabled)},
 	)
 
 	sessionmcp.RegisterTools(server, m.stateStore)

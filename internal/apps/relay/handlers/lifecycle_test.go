@@ -42,6 +42,18 @@ func TestBundledRegistryURL(t *testing.T) {
 	}
 }
 
+func TestBundledRelayServerInstructionsReflectWorkspaceMode(t *testing.T) {
+	enabled := bundledRelayServerInstructions(true)
+	if !strings.Contains(enabled, "relay.workspace is available") {
+		t.Fatalf("bundledRelayServerInstructions(true) = %q, want workspace-enabled guidance", enabled)
+	}
+
+	disabled := bundledRelayServerInstructions(false)
+	if !strings.Contains(disabled, "relay.workspace is unavailable") {
+		t.Fatalf("bundledRelayServerInstructions(false) = %q, want workspace-disabled guidance", disabled)
+	}
+}
+
 func TestStartBundledMCPHTTPServer_MountsRoutesAndAlias(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

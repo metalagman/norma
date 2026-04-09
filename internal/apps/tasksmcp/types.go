@@ -9,37 +9,37 @@ type taskCriterionInput struct {
 }
 
 type taskCriterion struct {
-	ID          string   `json:"id"`
-	Text        string   `json:"text"`
-	VerifyHints []string `json:"verify_hints,omitempty"`
+	ID          string   `json:"id" jsonschema:"acceptance criterion id"`
+	Text        string   `json:"text" jsonschema:"acceptance criterion text"`
+	VerifyHints []string `json:"verify_hints,omitempty" jsonschema:"verification hints"`
 }
 
 type taskRecord struct {
-	ID        string          `json:"id"`
-	Type      string          `json:"type,omitempty"`
-	ParentID  string          `json:"parent_id,omitempty"`
-	Title     string          `json:"title"`
-	Goal      string          `json:"goal,omitempty"`
-	Criteria  []taskCriterion `json:"criteria,omitempty"`
-	Status    string          `json:"status,omitempty"`
-	RunID     *string         `json:"run_id,omitempty"`
-	Priority  int             `json:"priority,omitempty"`
-	Assignee  string          `json:"assignee,omitempty"`
-	Labels    []string        `json:"labels,omitempty"`
-	Notes     string          `json:"notes,omitempty"`
-	CreatedAt string          `json:"created_at,omitempty"`
-	UpdatedAt string          `json:"updated_at,omitempty"`
+	ID        string          `json:"id" jsonschema:"Beads issue ID"`
+	Type      string          `json:"type,omitempty" jsonschema:"issue type such as epic, feature, task, bug, or chore"`
+	ParentID  string          `json:"parent_id,omitempty" jsonschema:"parent issue ID when this issue is nested under another issue"`
+	Title     string          `json:"title" jsonschema:"issue title"`
+	Goal      string          `json:"goal,omitempty" jsonschema:"issue goal or objective"`
+	Criteria  []taskCriterion `json:"criteria,omitempty" jsonschema:"acceptance criteria attached to the issue"`
+	Status    string          `json:"status,omitempty" jsonschema:"issue workflow status"`
+	RunID     *string         `json:"run_id,omitempty" jsonschema:"external run ID associated with the issue"`
+	Priority  int             `json:"priority,omitempty" jsonschema:"issue priority where lower numbers are more important"`
+	Assignee  string          `json:"assignee,omitempty" jsonschema:"assigned owner"`
+	Labels    []string        `json:"labels,omitempty" jsonschema:"issue labels"`
+	Notes     string          `json:"notes,omitempty" jsonschema:"issue notes"`
+	CreatedAt string          `json:"created_at,omitempty" jsonschema:"creation timestamp"`
+	UpdatedAt string          `json:"updated_at,omitempty" jsonschema:"last update timestamp"`
 }
 
 type ToolError struct {
-	Operation string `json:"operation"`
-	Code      string `json:"code"`
-	Message   string `json:"message"`
+	Operation string `json:"operation" jsonschema:"tool name that produced the error"`
+	Code      string `json:"code" jsonschema:"stable machine-readable error code"`
+	Message   string `json:"message" jsonschema:"human-readable error message"`
 }
 
 type ToolOutcome struct {
-	OK    bool       `json:"ok"`
-	Error *ToolError `json:"error,omitempty"`
+	OK    bool       `json:"ok" jsonschema:"true when the tool completed successfully"`
+	Error *ToolError `json:"error,omitempty" jsonschema:"error details when ok is false"`
 }
 
 type basicOutput struct {
@@ -55,7 +55,7 @@ type addTaskInput struct {
 
 type addTaskOutput struct {
 	ToolOutcome
-	TaskID string `json:"task_id,omitempty"`
+	TaskID string `json:"task_id,omitempty" jsonschema:"created Beads issue ID"`
 }
 
 type addEpicInput struct {
@@ -65,7 +65,7 @@ type addEpicInput struct {
 
 type addEpicOutput struct {
 	ToolOutcome
-	TaskID string `json:"task_id,omitempty"`
+	TaskID string `json:"task_id,omitempty" jsonschema:"created epic issue ID"`
 }
 
 type addFeatureInput struct {
@@ -75,7 +75,7 @@ type addFeatureInput struct {
 
 type addFeatureOutput struct {
 	ToolOutcome
-	TaskID string `json:"task_id,omitempty"`
+	TaskID string `json:"task_id,omitempty" jsonschema:"created feature issue ID"`
 }
 
 type addFollowUpInput struct {
@@ -87,7 +87,7 @@ type addFollowUpInput struct {
 
 type addFollowUpOutput struct {
 	ToolOutcome
-	TaskID string `json:"task_id,omitempty"`
+	TaskID string `json:"task_id,omitempty" jsonschema:"created follow-up issue ID"`
 }
 
 type listTasksInput struct {
@@ -96,7 +96,7 @@ type listTasksInput struct {
 
 type listTasksOutput struct {
 	ToolOutcome
-	Tasks []taskRecord `json:"tasks,omitempty"`
+	Tasks []taskRecord `json:"tasks,omitempty" jsonschema:"matching Beads issues"`
 }
 
 type listFeaturesInput struct {
@@ -105,7 +105,7 @@ type listFeaturesInput struct {
 
 type listFeaturesOutput struct {
 	ToolOutcome
-	Tasks []taskRecord `json:"tasks,omitempty"`
+	Tasks []taskRecord `json:"tasks,omitempty" jsonschema:"features under the requested epic"`
 }
 
 type childrenInput struct {
@@ -114,7 +114,7 @@ type childrenInput struct {
 
 type childrenOutput struct {
 	ToolOutcome
-	Tasks []taskRecord `json:"tasks,omitempty"`
+	Tasks []taskRecord `json:"tasks,omitempty" jsonschema:"child issues under the requested parent"`
 }
 
 type getTaskInput struct {
@@ -123,7 +123,7 @@ type getTaskInput struct {
 
 type getTaskOutput struct {
 	ToolOutcome
-	Task taskRecord `json:"task,omitempty"`
+	Task taskRecord `json:"task,omitempty" jsonschema:"requested Beads issue"`
 }
 
 type idInput struct {

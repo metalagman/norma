@@ -16,15 +16,22 @@ const (
 	defaultAddress = "127.0.0.1:9091"
 )
 
+const serverInstructions = `Use this server to sync and land relay workspaces when relay workspace mode is enabled.
+
+- relay.workspace.import rebases the session workspace branch onto the configured base branch.
+- relay.workspace.import discards uncommitted workspace changes before rebasing.
+- relay.workspace.export squash-merges the session workspace branch into the configured base branch.
+- relay.workspace.export requires a Conventional Commit message.`
+
 type ToolError struct {
-	Operation string `json:"operation"`
-	Code      string `json:"code"`
-	Message   string `json:"message"`
+	Operation string `json:"operation" jsonschema:"tool name that produced the error"`
+	Code      string `json:"code" jsonschema:"stable machine-readable error code"`
+	Message   string `json:"message" jsonschema:"human-readable error message"`
 }
 
 type ToolOutcome struct {
-	OK    bool       `json:"ok"`
-	Error *ToolError `json:"error,omitempty"`
+	OK    bool       `json:"ok" jsonschema:"true when the tool completed successfully"`
+	Error *ToolError `json:"error,omitempty" jsonschema:"error details when ok is false"`
 }
 
 func okOutcome() ToolOutcome {
@@ -135,7 +142,7 @@ func NewServer(svc WorkspaceService) (*mcp.Server, error) {
 			Name:    serverName,
 			Version: serverVersion,
 		},
-		nil,
+		&mcp.ServerOptions{Instructions: serverInstructions},
 	)
 
 	RegisterTools(server, svc)
@@ -158,16 +165,16 @@ type service struct {
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.workspace.import",
-		Description: "Sync workspace branch with configured base branch (discarding uncommitted workspace changes before rebase)",
+		Description: "Rebase the session workspace branch onto the configured base branch. Requires workspace mode and discards uncommitted workspace changes before rebasing.",
 	}, s.importTool)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.workspace.export",
-		Description: "Squash-merge workspace branch into configured base branch and commit",
+		Description: "Squash-merge the session workspace branch into the configured base branch and create a commit using the provided Conventional Commit message. Requires workspace mode.",
 	}, s.exportTool)
 }
 
 type importInput struct {
-	SessionID string `json:"session_id" jsonschema:"relay session ID"`
+	SessionID string `json:"session_id" jsonschema:"relay session ID whose workspace should be rebased onto the configured base branch"`
 }
 
 type importOutput struct {
@@ -191,8 +198,8 @@ func (s *service) importTool(ctx context.Context, _ *mcp.CallToolRequest, in imp
 }
 
 type exportInput struct {
-	SessionID     string `json:"session_id" jsonschema:"relay session ID"`
-	CommitMessage string `json:"commit_message" jsonschema:"conventional commit message"`
+	SessionID     string `json:"session_id" jsonschema:"relay session ID whose workspace should be exported to the configured base branch"`
+	CommitMessage string `json:"commit_message" jsonschema:"Conventional Commit message for the squash-merge commit"`
 }
 
 type exportOutput struct {

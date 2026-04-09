@@ -3,6 +3,7 @@ package sessionmcp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,7 +19,10 @@ func TestNewServerRequiresStore(t *testing.T) {
 func TestSessionStateServerListsTools(t *testing.T) {
 	ctx, cleanup, session := newTestSession(t, NewMemoryStore())
 	defer cleanup()
-	_ = session.InitializeResult()
+	initResult := session.InitializeResult()
+	if !strings.Contains(initResult.Instructions, "persist relay state") {
+		t.Fatalf("InitializeResult().Instructions = %q, want session-state guidance", initResult.Instructions)
+	}
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -47,6 +51,39 @@ func TestSessionStateServerListsTools(t *testing.T) {
 
 	if len(got) != len(want) {
 		t.Fatalf("tool count = %d, want %d\ngot: %v\nwant: %v", len(got), len(want), got, want)
+	}
+}
+
+func TestSessionStateToolDescriptionsAndSchemas(t *testing.T) {
+	ctx, cleanup, session := newTestSession(t, NewMemoryStore())
+	defer cleanup()
+	_ = session.InitializeResult()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+
+	toolByName := map[string]*mcp.Tool{}
+	for _, tool := range tools.Tools {
+		toolByName[tool.Name] = tool
+	}
+
+	if got := toolByName["relay.state.clear"].Description; !strings.Contains(got, "destructive") {
+		t.Fatalf("relay.state.clear description = %q, want destructive warning", got)
+	}
+	if got := toolByName["relay.state.ns_set"].Description; !strings.Contains(got, "session or agent isolation") {
+		t.Fatalf("relay.state.ns_set description = %q, want namespace guidance", got)
+	}
+
+	outSchema, ok := toolByName["relay.state.get"].OutputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("relay.state.get output schema type = %T, want map[string]any", toolByName["relay.state.get"].OutputSchema)
+	}
+	properties := outSchema["properties"].(map[string]any)
+	found := properties["found"].(map[string]any)
+	if got := found["description"]; got != "whether the key exists" {
+		t.Fatalf("relay.state.get found description = %v, want whether the key exists", got)
 	}
 }
 

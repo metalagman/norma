@@ -16,15 +16,23 @@ const (
 	defaultAddress = "127.0.0.1:9090"
 )
 
+const serverInstructions = `Use this server to manage relay agent sessions.
+
+- relay.agents.start_agent creates a new relay session for a configured agent.
+- Prefer passing session_id so the server can infer the current channel context.
+- chat_id is a Telegram-specific override for starting a session in a specific chat.
+- list_agents returns both active sessions and persisted restorable sessions.
+- get_agent and stop_agent operate on a relay session_id.`
+
 type ToolError struct {
-	Operation string `json:"operation"`
-	Code      string `json:"code"`
-	Message   string `json:"message"`
+	Operation string `json:"operation" jsonschema:"tool name that produced the error"`
+	Code      string `json:"code" jsonschema:"stable machine-readable error code"`
+	Message   string `json:"message" jsonschema:"human-readable error message"`
 }
 
 type ToolOutcome struct {
-	OK    bool       `json:"ok"`
-	Error *ToolError `json:"error,omitempty"`
+	OK    bool       `json:"ok" jsonschema:"true when the tool completed successfully"`
+	Error *ToolError `json:"error,omitempty" jsonschema:"error details when ok is false"`
 }
 
 func okOutcome() ToolOutcome {
@@ -61,16 +69,16 @@ type RelayService interface {
 }
 
 type AgentInfo struct {
-	ChannelType string
-	AddressKey  string
-	SessionID   string
-	AgentName   string
-	ChatID      int64
-	TopicID     int
-	WorkingDir  string
-	Status      string
-	Description string
-	MCPServers  []string
+	ChannelType string   `json:"channel_type,omitempty" jsonschema:"channel type that owns the session, for example telegram"`
+	AddressKey  string   `json:"address_key,omitempty" jsonschema:"channel-specific address key used internally to identify the session context"`
+	SessionID   string   `json:"session_id,omitempty" jsonschema:"relay session ID"`
+	AgentName   string   `json:"agent_name,omitempty" jsonschema:"configured agent name running in the session"`
+	ChatID      int64    `json:"chat_id,omitempty" jsonschema:"Telegram chat ID when the session belongs to Telegram; omitted for other channels"`
+	TopicID     int      `json:"topic_id,omitempty" jsonschema:"Telegram topic ID when the session belongs to a forum topic; root sessions use 0"`
+	WorkingDir  string   `json:"working_dir,omitempty" jsonschema:"working directory assigned to the session"`
+	Status      string   `json:"status,omitempty" jsonschema:"session lifecycle status such as active or persisted"`
+	Description string   `json:"description,omitempty" jsonschema:"human-readable configured agent description"`
+	MCPServers  []string `json:"mcp_servers,omitempty" jsonschema:"MCP server IDs mounted into the session"`
 }
 
 func Run(ctx context.Context, svc RelayService) error {
@@ -149,7 +157,7 @@ func NewServer(svc RelayService) (*mcp.Server, error) {
 			Name:    serverName,
 			Version: serverVersion,
 		},
-		nil,
+		&mcp.ServerOptions{Instructions: serverInstructions},
 	)
 
 	RegisterTools(server, svc)
@@ -172,38 +180,38 @@ type service struct {
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.agents.start_agent",
-		Description: "Start a new relay agent session",
+		Description: "Start a new relay agent session for a configured agent. Prefer session_id to reuse the current channel context; chat_id is a Telegram-only override.",
 	}, s.startAgent)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.agents.stop_agent",
-		Description: "Stop a running relay agent session",
+		Description: "Stop one relay agent session by session_id.",
 	}, s.stopAgent)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.agents.list_agents",
-		Description: "List all active relay agent sessions",
+		Description: "List relay agent sessions, including active sessions and persisted restorable sessions.",
 	}, s.listAgents)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.agents.get_agent",
-		Description: "Get information about a specific relay agent session",
+		Description: "Get one relay agent session object by session_id, including channel context, status, and mounted MCP servers.",
 	}, s.getAgent)
 }
 
 type startAgentInput struct {
-	ChatID    int64  `json:"chat_id,omitempty" jsonschema:"Telegram chat ID where topic should be created; optional when session_id is provided"`
-	SessionID string `json:"session_id,omitempty" jsonschema:"existing relay session ID used to infer the current chat/channel context"`
-	AgentName string `json:"agent_name" jsonschema:"name of the agent to start"`
+	ChatID    int64  `json:"chat_id,omitempty" jsonschema:"Telegram chat ID where a new topic should be created; optional when session_id is provided"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"existing relay session ID used to infer the current channel context"`
+	AgentName string `json:"agent_name" jsonschema:"configured agent name to start"`
 }
 
 type startAgentOutput struct {
 	ToolOutcome
-	ChannelType string   `json:"channel_type,omitempty"`
-	AddressKey  string   `json:"address_key,omitempty"`
-	SessionID   string   `json:"session_id,omitempty"`
-	TopicID     int      `json:"topic_id,omitempty"`
-	ChatID      int64    `json:"chat_id,omitempty"`
-	AgentName   string   `json:"agent_name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	MCPServers  []string `json:"mcp_servers,omitempty"`
+	ChannelType string   `json:"channel_type,omitempty" jsonschema:"channel type that owns the new session"`
+	AddressKey  string   `json:"address_key,omitempty" jsonschema:"channel-specific address key for the new session"`
+	SessionID   string   `json:"session_id,omitempty" jsonschema:"new relay session ID"`
+	TopicID     int      `json:"topic_id,omitempty" jsonschema:"Telegram topic ID when a new forum topic was created"`
+	ChatID      int64    `json:"chat_id,omitempty" jsonschema:"Telegram chat ID when applicable"`
+	AgentName   string   `json:"agent_name,omitempty" jsonschema:"configured agent name that was started"`
+	Description string   `json:"description,omitempty" jsonschema:"human-readable configured agent description"`
+	MCPServers  []string `json:"mcp_servers,omitempty" jsonschema:"MCP server IDs mounted into the new session"`
 }
 
 func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in startAgentInput) (*mcp.CallToolResult, startAgentOutput, error) {
@@ -250,7 +258,7 @@ func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in sta
 }
 
 type stopAgentInput struct {
-	SessionID string `json:"session_id" jsonschema:"session ID to stop"`
+	SessionID string `json:"session_id" jsonschema:"relay session ID to stop"`
 }
 
 func (s *service) stopAgent(ctx context.Context, _ *mcp.CallToolRequest, in stopAgentInput) (*mcp.CallToolResult, ToolOutcome, error) {
@@ -269,7 +277,7 @@ func (s *service) stopAgent(ctx context.Context, _ *mcp.CallToolRequest, in stop
 
 type listAgentsOutput struct {
 	ToolOutcome
-	Agents []AgentInfo `json:"agents,omitempty"`
+	Agents []AgentInfo `json:"agents,omitempty" jsonschema:"relay session objects for active and persisted sessions"`
 }
 
 func (s *service) listAgents(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listAgentsOutput, error) {
@@ -286,12 +294,12 @@ func (s *service) listAgents(ctx context.Context, _ *mcp.CallToolRequest, _ stru
 }
 
 type getAgentInput struct {
-	SessionID string `json:"session_id" jsonschema:"session ID to retrieve"`
+	SessionID string `json:"session_id" jsonschema:"relay session ID to retrieve"`
 }
 
 type getAgentOutput struct {
 	ToolOutcome
-	Agent *AgentInfo `json:"agent,omitempty"`
+	Agent *AgentInfo `json:"agent,omitempty" jsonschema:"relay session object for the requested session"`
 }
 
 func (s *service) getAgent(ctx context.Context, _ *mcp.CallToolRequest, in getAgentInput) (*mcp.CallToolResult, getAgentOutput, error) {

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/normahq/norma/internal/task"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/normahq/norma/internal/task"
 )
 
 const (
@@ -18,6 +18,14 @@ const (
 	codeValidationError = "validation_error"
 	codeBackendError    = "backend_error"
 )
+
+const serverInstructions = `Use this server to manage Norma issues through the Beads tracker.
+
+- norma.tasks.add*, update, delete, close_with_reason, and mark_* mutate Beads issue state.
+- norma.tasks.list, get, children, list_features, leaf, and list_blocked_dependents read issue state.
+- leaf returns ready executable leaf issues.
+- update_workflow_state manages granular Norma workflow labels such as planning, doing, checking, and acting.
+- add_dependency and add_related_link change issue relationships.`
 
 // Run serves the tasks MCP server over stdio.
 func Run(ctx context.Context, tracker task.Tracker) error {
@@ -134,7 +142,7 @@ func NewServer(tracker task.Tracker) (*mcp.Server, error) {
 			Name:    serverName,
 			Version: serverVersion,
 		},
-		nil,
+		&mcp.ServerOptions{Instructions: serverInstructions},
 	)
 
 	svc := &service{tracker: tracker}
@@ -147,31 +155,31 @@ type service struct {
 }
 
 func (s *service) registerTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add", Description: "Create a task."}, s.addTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_epic", Description: "Create an epic."}, s.addEpic)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_feature", Description: "Create a feature under an epic."}, s.addFeature)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_follow_up", Description: "Create a follow-up task under a parent."}, s.addFollowUp)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add", Description: "Create a new task issue in Beads and return its issue ID."}, s.addTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_epic", Description: "Create a new epic issue in Beads and return its issue ID."}, s.addEpic)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_feature", Description: "Create a new feature issue under an existing epic and return its issue ID."}, s.addFeature)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_follow_up", Description: "Create a follow-up child issue under an existing parent issue and return its issue ID."}, s.addFollowUp)
 
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list", Description: "List tasks, optionally by status."}, s.listTasks)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list_features", Description: "List features under an epic."}, s.listFeatures)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.children", Description: "List child tasks for a parent task."}, s.listChildren)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.get", Description: "Get a task by id."}, s.getTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.leaf", Description: "List ready executable leaf tasks."}, s.leafTasks)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list_blocked_dependents", Description: "List tasks blocked by the given task id."}, s.listBlockedDependents)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list", Description: "List Beads issues, optionally filtered by workflow status."}, s.listTasks)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list_features", Description: "List feature issues directly under one epic."}, s.listFeatures)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.children", Description: "List direct child issues for one parent issue."}, s.listChildren)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.get", Description: "Get one Beads issue by ID."}, s.getTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.leaf", Description: "List ready executable leaf issues from Beads."}, s.leafTasks)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.list_blocked_dependents", Description: "List issues that are blocked by the provided issue ID."}, s.listBlockedDependents)
 
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.mark_done", Description: "Mark task as done."}, s.markDone)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.mark_status", Description: "Mark task with status."}, s.markStatus)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.update_workflow_state", Description: "Update granular workflow state label."}, s.updateWorkflowState)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.update", Description: "Update task title and goal."}, s.updateTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.delete", Description: "Delete a task."}, s.deleteTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.set_run", Description: "Set external run id for a task."}, s.setRun)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.set_notes", Description: "Set task notes."}, s.setNotes)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.close_with_reason", Description: "Close a task with explicit reason."}, s.closeWithReason)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.mark_done", Description: "Mark one issue as done in Beads."}, s.markDone)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.mark_status", Description: "Set the workflow status for one issue."}, s.markStatus)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.update_workflow_state", Description: "Set Norma's granular workflow-state label for one issue, such as planning, doing, checking, or acting."}, s.updateWorkflowState)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.update", Description: "Update an issue title and goal."}, s.updateTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.delete", Description: "Delete one issue from Beads."}, s.deleteTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.set_run", Description: "Attach an external run ID to one issue."}, s.setRun)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.set_notes", Description: "Replace the notes field for one issue."}, s.setNotes)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.close_with_reason", Description: "Close one issue and store an explicit close reason."}, s.closeWithReason)
 
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_dependency", Description: "Add dependency: task_id depends on depends_on_id."}, s.addDependency)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_related_link", Description: "Add bidirectional related link between two tasks."}, s.addRelatedLink)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_label", Description: "Add a label to a task."}, s.addLabel)
-	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.remove_label", Description: "Remove a label from a task."}, s.removeLabel)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_dependency", Description: "Add a hard dependency where task_id depends on depends_on_id."}, s.addDependency)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_related_link", Description: "Add a bidirectional soft related link between two issues."}, s.addRelatedLink)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.add_label", Description: "Add one label to an issue."}, s.addLabel)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.remove_label", Description: "Remove one label from an issue."}, s.removeLabel)
 }
 
 func (s *service) addTask(ctx context.Context, _ *mcp.CallToolRequest, in addTaskInput) (*mcp.CallToolResult, addTaskOutput, error) {

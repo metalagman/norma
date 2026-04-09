@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/normahq/norma/internal/task"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/normahq/norma/internal/task"
 )
 
 func TestNewServerRequiresTracker(t *testing.T) {
@@ -24,7 +24,10 @@ func TestNewServerRequiresTracker(t *testing.T) {
 func TestTasksServerListsAllTrackerParityTools(t *testing.T) {
 	ctx, cleanup, session := newTestSession(t, &mockTracker{})
 	defer cleanup()
-	_ = session.InitializeResult()
+	initResult := session.InitializeResult()
+	if !strings.Contains(initResult.Instructions, "manage Norma issues through the Beads tracker") {
+		t.Fatalf("InitializeResult().Instructions = %q, want Beads guidance", initResult.Instructions)
+	}
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -65,6 +68,40 @@ func TestTasksServerListsAllTrackerParityTools(t *testing.T) {
 
 	if !slices.Equal(got, want) {
 		t.Fatalf("tool names = %v, want %v", got, want)
+	}
+}
+
+func TestTasksToolDescriptionsAndSchemas(t *testing.T) {
+	ctx, cleanup, session := newTestSession(t, &mockTracker{})
+	defer cleanup()
+	_ = session.InitializeResult()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+
+	toolByName := map[string]*mcp.Tool{}
+	for _, tool := range tools.Tools {
+		toolByName[tool.Name] = tool
+	}
+
+	if got := toolByName["norma.tasks.leaf"].Description; !strings.Contains(got, "ready executable leaf issues") {
+		t.Fatalf("norma.tasks.leaf description = %q, want ready-leaf wording", got)
+	}
+	if got := toolByName["norma.tasks.update_workflow_state"].Description; !strings.Contains(got, "planning, doing, checking, or acting") {
+		t.Fatalf("norma.tasks.update_workflow_state description = %q, want workflow-state guidance", got)
+	}
+
+	outSchema, ok := toolByName["norma.tasks.get"].OutputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("norma.tasks.get output schema type = %T, want map[string]any", toolByName["norma.tasks.get"].OutputSchema)
+	}
+	properties := outSchema["properties"].(map[string]any)
+	task := properties["task"].(map[string]any)
+	taskProperties := task["properties"].(map[string]any)
+	if got := taskProperties["priority"].(map[string]any)["description"]; got != "issue priority where lower numbers are more important" {
+		t.Fatalf("norma.tasks.get priority description = %v, want issue priority where lower numbers are more important", got)
 	}
 }
 

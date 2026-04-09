@@ -18,6 +18,13 @@ const (
 	codeBackendError    = "backend_error"
 )
 
+const serverInstructions = `Use this server to persist relay state in relay.db.
+
+- relay.state.* reads and writes session or app key-value data.
+- relay.state.ns_* scopes keys under an explicit namespace such as a session ID or agent name.
+- relay.state.clear deletes all data owned by this server and is destructive.
+- relay.state.get_json, set_json, and merge_json are for JSON values rather than raw strings.`
+
 // Run serves the session state MCP server over stdio.
 func Run(ctx context.Context, store Store) error {
 	server, err := NewServer(store)
@@ -101,7 +108,7 @@ func NewServer(store Store) (*mcp.Server, error) {
 			Name:    serverName,
 			Version: serverVersion,
 		},
-		nil,
+		&mcp.ServerOptions{Instructions: serverInstructions},
 	)
 
 	RegisterTools(server, store)
@@ -123,22 +130,22 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	// Basic key-value operations
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get", Description: "Get a value by key."}, s.getKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set", Description: "Set a value by key."}, s.setKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.delete", Description: "Delete a key."}, s.deleteKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.list", Description: "List all keys, optionally by prefix."}, s.listKeys)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.clear", Description: "Clear all state."}, s.clearState)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get", Description: "Read a raw string value from persistent relay state by exact key."}, s.getKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set", Description: "Write a raw string value to persistent relay state under an exact key."}, s.setKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.delete", Description: "Delete one exact key from persistent relay state."}, s.deleteKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.list", Description: "List persistent relay-state keys, optionally restricted to a prefix."}, s.listKeys)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.clear", Description: "Delete all keys stored by relay.state. This is destructive and affects every session using this state store."}, s.clearState)
 
 	// JSON operations
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get_json", Description: "Get a value by key as parsed JSON."}, s.getJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set_json", Description: "Set a value by key as JSON."}, s.setJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.merge_json", Description: "Merge fields into an existing JSON object at key."}, s.mergeJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get_json", Description: "Read a key from persistent relay state and return its parsed JSON value."}, s.getJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set_json", Description: "Write a JSON value to persistent relay state under an exact key."}, s.setJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.merge_json", Description: "Merge object fields into an existing JSON object stored at a key and return the merged object."}, s.mergeJSON)
 
 	// Namespaced operations for agent/session isolation
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_get", Description: "Get a value from a namespace."}, s.nsGet)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set", Description: "Set a value in a namespace."}, s.nsSet)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set_json", Description: "Set a JSON value in a namespace."}, s.nsSetJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_list", Description: "List keys in a namespace."}, s.nsList)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_get", Description: "Read a raw string value from a namespace-scoped key. Use namespaces such as session IDs or agent names to avoid collisions."}, s.nsGet)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set", Description: "Write a raw string value to a namespace-scoped key for session or agent isolation."}, s.nsSet)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set_json", Description: "Write a JSON value to a namespace-scoped key for session or agent isolation."}, s.nsSetJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_list", Description: "List keys stored inside one namespace without returning keys from other namespaces."}, s.nsList)
 }
 
 // nsKey builds a namespaced key for isolation.

@@ -2,9 +2,54 @@ package relaymcp
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestRelayServerPublishesInstructionsAndSchemas(t *testing.T) {
+	ctx, cleanup, session := newTestSession(t, fakeRelayService{})
+	defer cleanup()
+
+	initResult := session.InitializeResult()
+	if !strings.Contains(initResult.Instructions, "manage relay agent sessions") {
+		t.Fatalf("InitializeResult().Instructions = %q, want relay-agent guidance", initResult.Instructions)
+	}
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+
+	toolByName := map[string]*mcp.Tool{}
+	for _, tool := range tools.Tools {
+		toolByName[tool.Name] = tool
+	}
+
+	if got := toolByName["relay.agents.list_agents"].Description; !strings.Contains(got, "persisted") {
+		t.Fatalf("relay.agents.list_agents description = %q, want persisted-session guidance", got)
+	}
+
+	outSchema, ok := toolByName["relay.agents.get_agent"].OutputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("relay.agents.get_agent output schema type = %T, want map[string]any", toolByName["relay.agents.get_agent"].OutputSchema)
+	}
+	properties := outSchema["properties"].(map[string]any)
+	agent := properties["agent"].(map[string]any)
+	agentProperties := agent["properties"].(map[string]any)
+	if _, ok := agentProperties["session_id"]; !ok {
+		t.Fatalf("relay.agents.get_agent schema missing session_id: %#v", agentProperties)
+	}
+	if _, ok := agentProperties["agent_name"]; !ok {
+		t.Fatalf("relay.agents.get_agent schema missing agent_name: %#v", agentProperties)
+	}
+	if _, ok := agentProperties["SessionID"]; ok {
+		t.Fatalf("relay.agents.get_agent schema unexpectedly contains legacy SessionID key: %#v", agentProperties)
+	}
+}
 
 func TestStartAgentIncludesDescriptionAndMCPServers(t *testing.T) {
 	s := &service{
@@ -130,6 +175,39 @@ func TestGetAgentReturnsStructuredAgent(t *testing.T) {
 	}
 }
 
+func TestRelayAgentStructuredOutputUsesSnakeCase(t *testing.T) {
+	ctx, cleanup, session := newTestSession(t, fakeRelayService{sessionInfo: AgentInfo{
+		ChannelType: "telegram",
+		AddressKey:  "9:0",
+		SessionID:   "tg-9-0",
+		AgentName:   "root",
+		ChatID:      9,
+		TopicID:     0,
+		Status:      "active",
+	}})
+	defer cleanup()
+	_ = session.InitializeResult()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "relay.agents.get_agent",
+		Arguments: map[string]any{"session_id": "tg-9-0"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(get_agent) error = %v", err)
+	}
+	payload := structuredResultMap(t, result)
+	agent := payload["agent"].(map[string]any)
+	if agent["session_id"] != "tg-9-0" {
+		t.Fatalf("agent.session_id = %v, want tg-9-0", agent["session_id"])
+	}
+	if agent["agent_name"] != "root" {
+		t.Fatalf("agent.agent_name = %v, want root", agent["agent_name"])
+	}
+	if _, ok := agent["SessionID"]; ok {
+		t.Fatalf("agent unexpectedly contains legacy SessionID field: %#v", agent)
+	}
+}
+
 type fakeRelayService struct {
 	startInfo   AgentInfo
 	startErr    error
@@ -154,4 +232,55 @@ func (f fakeRelayService) ListAgents(_ context.Context) ([]AgentInfo, error) {
 
 func (f fakeRelayService) GetSession(_ context.Context, _ string) (AgentInfo, error) {
 	return f.sessionInfo, nil
+}
+
+func newTestSession(t *testing.T, svc RelayService) (context.Context, func(), *mcp.ClientSession) {
+	t.Helper()
+
+	server, err := NewServer(svc)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		_ = server.Run(ctx, serverTransport)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		cancel()
+		t.Fatalf("client.Connect() error = %v", err)
+	}
+
+	cleanup := func() {
+		cancel()
+		_ = session.Close()
+	}
+	return ctx, cleanup, session
+}
+
+func structuredResultMap(t *testing.T, result *mcp.CallToolResult) map[string]any {
+	t.Helper()
+	if result == nil {
+		t.Fatal("result is nil")
+	}
+	switch typed := result.StructuredContent.(type) {
+	case map[string]any:
+		return typed
+	case json.RawMessage:
+		var decoded map[string]any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal(structured content) error = %v", err)
+		}
+		return decoded
+	case nil:
+		t.Fatalf("result.StructuredContent is nil")
+	default:
+		t.Fatalf("unexpected structured content type %T", result.StructuredContent)
+	}
+	return nil
 }

@@ -4,15 +4,15 @@ type noInput struct{}
 
 // ToolError represents an error from a tool operation.
 type ToolError struct {
-	Operation string `json:"operation"`
-	Code      string `json:"code"`
-	Message   string `json:"message"`
+	Operation string `json:"operation" jsonschema:"tool name that produced the error"`
+	Code      string `json:"code" jsonschema:"stable machine-readable error code"`
+	Message   string `json:"message" jsonschema:"human-readable error message"`
 }
 
 // ToolOutcome represents the result of a tool operation.
 type ToolOutcome struct {
-	OK    bool       `json:"ok"`
-	Error *ToolError `json:"error,omitempty"`
+	OK    bool       `json:"ok" jsonschema:"true when the tool completed successfully"`
+	Error *ToolError `json:"error,omitempty" jsonschema:"error details when ok is false"`
 }
 
 type basicOutput struct {
@@ -27,8 +27,8 @@ type getKeyInput struct {
 
 type getKeyOutput struct {
 	ToolOutcome
-	Value string `json:"value,omitempty"`
-	Found bool   `json:"found"`
+	Value string `json:"value,omitempty" jsonschema:"stored value for the key"`
+	Found bool   `json:"found" jsonschema:"whether the key exists"`
 }
 
 // Set input/output
@@ -52,7 +52,7 @@ type listKeysInput struct {
 
 type listKeysOutput struct {
 	ToolOutcome
-	Keys []string `json:"keys,omitempty"`
+	Keys []string `json:"keys,omitempty" jsonschema:"matching keys"`
 }
 
 // GetJSON input/output - returns parsed JSON value
@@ -63,8 +63,8 @@ type getJSONInput struct {
 
 type getJSONOutput struct {
 	ToolOutcome
-	Value interface{} `json:"value,omitempty"`
-	Found bool        `json:"found"`
+	Value interface{} `json:"value,omitempty" jsonschema:"parsed JSON value stored at the key"`
+	Found bool        `json:"found" jsonschema:"whether the key exists"`
 }
 
 // SetJSON input/output - stores a value as JSON
@@ -83,7 +83,7 @@ type mergeJSONInput struct {
 
 type mergeJSONOutput struct {
 	ToolOutcome
-	Merged map[string]interface{} `json:"merged,omitempty"`
+	Merged map[string]interface{} `json:"merged,omitempty" jsonschema:"merged JSON object after applying the update"`
 }
 
 // Keyspace input/output - for scoping keys to a session/agent
