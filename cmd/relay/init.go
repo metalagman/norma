@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/normahq/norma/internal/git"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -47,6 +49,7 @@ var (
 	relayInitOutput        io.Writer = os.Stdout
 	relayInitIsInteractive           = defaultRelayInitIsInteractive
 	relayInitLookPath                = exec.LookPath
+	relayInitCurrentBranch           = detectRelayInitCurrentBranch
 )
 
 func initCommand() *cobra.Command {
@@ -79,7 +82,7 @@ func initCommand() *cobra.Command {
 				return fmt.Errorf("create relay runtime state directory: %w", err)
 			}
 
-			doc, agentIDs, err := buildRelayInitDocument()
+			doc, agentIDs, err := buildRelayInitDocument(workingDir)
 			if err != nil {
 				return err
 			}
@@ -136,7 +139,7 @@ func writeRelayConfigGitignore(configDir string) error {
 	return nil
 }
 
-func buildRelayInitDocument() (map[string]any, []string, error) {
+func buildRelayInitDocument(workingDir string) (map[string]any, []string, error) {
 	detectedAgents := detectRelayInitAgents()
 	if len(detectedAgents) == 0 {
 		return nil, nil, fmt.Errorf(
@@ -154,6 +157,13 @@ func buildRelayInitDocument() (map[string]any, []string, error) {
 		return nil, nil, fmt.Errorf("default relay template is missing relay section")
 	}
 	ensureRelayMCPServersDefault(relaySection)
+	relayBaseBranch, err := relayInitCurrentBranch(workingDir)
+	if err != nil {
+		relayBaseBranch = ""
+	}
+	if err := setRelayWorkspaceBaseBranch(relaySection, relayBaseBranch); err != nil {
+		return nil, nil, err
+	}
 
 	agentIDs := make([]string, 0, len(detectedAgents))
 	for _, detected := range detectedAgents {
@@ -170,6 +180,10 @@ func buildRelayInitDocument() (map[string]any, []string, error) {
 	}
 
 	return doc, agentIDs, nil
+}
+
+func detectRelayInitCurrentBranch(workingDir string) (string, error) {
+	return git.CurrentBranch(context.Background(), workingDir)
 }
 
 func detectRelayInitAgents() []relayInitAgentTemplate {
@@ -380,6 +394,16 @@ func setRelayAgentSystemInstructionExample(doc map[string]any, rootAgent string)
 
 	relaySection["agent_system_instructions"] = agentInstructions
 	doc["relay"] = relaySection
+	return nil
+}
+
+func setRelayWorkspaceBaseBranch(relaySection map[string]any, baseBranch string) error {
+	workspaceSection, ok := toStringAnyMap(relaySection["workspace"])
+	if !ok {
+		return fmt.Errorf("relay.workspace section is missing from generated config")
+	}
+	workspaceSection["base_branch"] = strings.TrimSpace(baseBranch)
+	relaySection["workspace"] = workspaceSection
 	return nil
 }
 

@@ -46,6 +46,9 @@ relay:
     # - auto: use worktrees only when working_dir is a git repo
     # In on mode, relay fails fast if working_dir is not a git repository.
     mode: "auto"
+    # Base branch used for workspace branching/import/export.
+    # If empty, relay resolves from current HEAD branch at startup.
+    base_branch: ""
 
   # Extra MCP server IDs (from norma.mcp_servers) injected into every relay-started session.
   # Effective MCP IDs are: bundled defaults + agent mcp_servers + relay.mcp_servers.

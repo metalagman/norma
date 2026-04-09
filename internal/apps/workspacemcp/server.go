@@ -150,11 +150,11 @@ type service struct {
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "norma.workspace.import",
-		Description: "Sync workspace branch with local master (discarding uncommitted workspace changes before rebase)",
+		Description: "Sync workspace branch with configured base branch (discarding uncommitted workspace changes before rebase)",
 	}, s.importTool)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "norma.workspace.export",
-		Description: "Squash-merge workspace branch into local master and commit",
+		Description: "Squash-merge workspace branch into configured base branch and commit",
 	}, s.exportTool)
 }
 
@@ -178,7 +178,7 @@ func (s *service) importTool(ctx context.Context, _ *mcp.CallToolRequest, in imp
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Workspace synced to master successfully"}},
+		Content: []mcp.Content{&mcp.TextContent{Text: "Workspace synced to base branch successfully"}},
 	}, importOutput{ToolOutcome: okOutcome()}, nil
 }
 
@@ -207,6 +207,6 @@ func (s *service) exportTool(ctx context.Context, _ *mcp.CallToolRequest, in exp
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Workspace exported to master successfully"}},
+		Content: []mcp.Content{&mcp.TextContent{Text: "Workspace exported to base branch successfully"}},
 	}, exportOutput{ToolOutcome: okOutcome()}, nil
 }

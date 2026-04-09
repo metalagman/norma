@@ -7,6 +7,7 @@
 - Runtime stack: `tgbotkit/runtime` + Google ADK runners.
 - Main agent: relay app key `relay.root_agent` (profile overrides via `profiles.<profile>.relay.root_agent`).
 - Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
+- Relay startup prompt includes workspace settings for each session; in git workspace mode it also includes session/base/current-branch context and workspace MCP guidance.
 - Output streaming:
   - Thought updates: Telegram Bot API `sendMessageDraft` (plain text).
   - Final assistant response: Telegram Bot API `sendMessage` (MarkdownV2; retry without `parse_mode` on failure).
@@ -86,6 +87,10 @@ profiles: {}
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)
   - `auto`: enable worktrees only when `working_dir` is a Git repo, otherwise fallback to `off`
+- `relay.workspace.base_branch`: base branch used for workspace sync/export (for example `main`, `master`, `develop`)
+  - `relay init` detects current HEAD branch and writes it when available
+  - if empty, relay resolves base branch from current HEAD at startup
+  - `norma.workspace.export` requires main repo to be on this branch
 - Relay is Beads-independent by default and does not auto-start bundled `norma.tasks` MCP.
 
 ## Session Model

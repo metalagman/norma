@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -120,7 +121,13 @@ func TestBuildRelaySystemInstruction_ComposesAgentInstructions(t *testing.T) {
 		},
 	}
 
-	got := builder.buildRelaySystemInstruction("relay-1-2", "alpha", "norma/relay/relay-1-2", "/tmp/work")
+	got := builder.buildRelaySystemInstruction(
+		"relay-1-2",
+		"alpha",
+		"norma/relay/relay-1-2",
+		"/tmp/work",
+		"main",
+	)
 
 	wantSnippet := "Agent-specific instructions:\nnorma instruction\n\nrelay instruction"
 	if !strings.Contains(got, wantSnippet) {
@@ -132,9 +139,112 @@ func TestBuildRelaySystemInstruction_OmitsAgentSpecificSectionWhenEmpty(t *testi
 	t.Parallel()
 
 	builder := &Builder{}
-	got := builder.buildRelaySystemInstruction("relay-1-2", "alpha", "norma/relay/relay-1-2", "/tmp/work")
+	got := builder.buildRelaySystemInstruction(
+		"relay-1-2",
+		"alpha",
+		"norma/relay/relay-1-2",
+		"/tmp/work",
+		"main",
+	)
 
 	if strings.Contains(got, "Agent-specific instructions:") {
 		t.Fatalf("buildRelaySystemInstruction() unexpectedly contained agent instructions block:\n%s", got)
+	}
+}
+
+func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
+	t.Parallel()
+
+	builder := &Builder{
+		workspaceEnabled:    true,
+		workspaceBaseBranch: "main",
+	}
+
+	got := builder.buildRelaySystemInstruction(
+		"relay-1-2",
+		"alpha",
+		"norma/relay/relay-1-2",
+		"/tmp/work",
+		"develop",
+	)
+
+	wantSnippets := []string{
+		"Workspace settings:",
+		"Mode: git-worktree",
+		"Path: /tmp/work",
+		"Base branch: main",
+		"Session branch: norma/relay/relay-1-2",
+		"Main repo branch at start: develop",
+		"Git workspace guidance:",
+	}
+	for _, snippet := range wantSnippets {
+		if !strings.Contains(got, snippet) {
+			t.Fatalf("buildRelaySystemInstruction() missing snippet %q in output:\n%s", snippet, got)
+		}
+	}
+}
+
+func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisabled(t *testing.T) {
+	t.Parallel()
+
+	builder := &Builder{workspaceEnabled: false}
+	got := builder.buildRelaySystemInstruction(
+		"relay-1-2",
+		"alpha",
+		"norma/relay/relay-1-2",
+		"/tmp/work",
+		"main",
+	)
+
+	wantSnippets := []string{
+		"Workspace settings:",
+		"Mode: direct",
+		"Path: /tmp/work",
+		"Base branch: n/a",
+		"Git workspace tooling: disabled",
+	}
+	for _, snippet := range wantSnippets {
+		if !strings.Contains(got, snippet) {
+			t.Fatalf("buildRelaySystemInstruction() missing snippet %q in output:\n%s", snippet, got)
+		}
+	}
+
+	if strings.Contains(got, "Git workspace guidance:") {
+		t.Fatalf("buildRelaySystemInstruction() unexpectedly included git guidance in direct mode:\n%s", got)
+	}
+}
+
+func TestCurrentRepoBranch_Fallbacks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		builder Builder
+		want    string
+	}{
+		{
+			name:    "workspace_disabled",
+			builder: Builder{workspaceEnabled: false},
+			want:    "n/a",
+		},
+		{
+			name:    "missing_working_dir",
+			builder: Builder{workspaceEnabled: true},
+			want:    "unknown",
+		},
+		{
+			name:    "non_git_working_dir",
+			builder: Builder{workspaceEnabled: true, workingDir: t.TempDir()},
+			want:    "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.builder.currentRepoBranch(context.Background()); got != tt.want {
+				t.Fatalf("currentRepoBranch() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
