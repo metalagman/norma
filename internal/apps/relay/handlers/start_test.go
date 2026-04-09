@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -37,8 +38,13 @@ func (s *fakeOwnerKVStore) SetJSON(_ context.Context, _ string, value any) error
 
 type fakeTelegramClient struct {
 	client.ClientWithResponsesInterface
-	sendErr  error
-	messages []client.SendMessageJSONRequestBody
+	sendErr        error
+	createTopicErr error
+	closeTopicErr  error
+	nextTopicID    int
+	closedTopicIDs []int
+	messages       []client.SendMessageJSONRequestBody
+	createdTopics  []client.CreateForumTopicJSONRequestBody
 }
 
 func (c *fakeTelegramClient) SendMessageWithResponse(_ context.Context, body client.SendMessageJSONRequestBody, _ ...client.RequestEditorFn) (*client.SendMessageResponse, error) {
@@ -46,7 +52,53 @@ func (c *fakeTelegramClient) SendMessageWithResponse(_ context.Context, body cli
 	if c.sendErr != nil {
 		return nil, c.sendErr
 	}
-	return &client.SendMessageResponse{}, nil
+	return &client.SendMessageResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.SendMessage200Ok `json:"ok"`
+			Result client.Message          `json:"result"`
+		}{
+			Ok:     true,
+			Result: client.Message{MessageId: len(c.messages)},
+		},
+	}, nil
+}
+
+func (c *fakeTelegramClient) CreateForumTopicWithResponse(_ context.Context, body client.CreateForumTopicJSONRequestBody, _ ...client.RequestEditorFn) (*client.CreateForumTopicResponse, error) {
+	c.createdTopics = append(c.createdTopics, body)
+	if c.createTopicErr != nil {
+		return nil, c.createTopicErr
+	}
+	if c.nextTopicID == 0 {
+		c.nextTopicID = 123
+	}
+	return &client.CreateForumTopicResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.CreateForumTopic200Ok `json:"ok"`
+			Result client.ForumTopic            `json:"result"`
+		}{
+			Ok:     true,
+			Result: client.ForumTopic{MessageThreadId: c.nextTopicID},
+		},
+	}, nil
+}
+
+func (c *fakeTelegramClient) CloseForumTopicWithResponse(_ context.Context, body client.CloseForumTopicJSONRequestBody, _ ...client.RequestEditorFn) (*client.CloseForumTopicResponse, error) {
+	c.closedTopicIDs = append(c.closedTopicIDs, body.MessageThreadId)
+	if c.closeTopicErr != nil {
+		return nil, c.closeTopicErr
+	}
+	return &client.CloseForumTopicResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.CloseForumTopic200Ok `json:"ok"`
+			Result bool                        `json:"result"`
+		}{
+			Ok:     true,
+			Result: true,
+		},
+	}, nil
 }
 
 type fakeRelayOwnerActivator struct {

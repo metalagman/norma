@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
@@ -10,16 +11,24 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type relayChannelRuntime interface {
+	CreateTopicLocator(ctx context.Context, chatID int64, topicName string) (SessionLocator, error)
+	Close(ctx context.Context, locator SessionLocator) error
+	SendMarkdown(ctx context.Context, locator SessionLocator, text string) error
+}
+
 type relayMCPServer struct {
 	manager   *Manager
+	channel   relayChannelRuntime
 	messenger *messenger.Messenger
 	logger    zerolog.Logger
 }
 
 // NewRelayMCPServer wraps a session Manager as a RelayService.
-func NewRelayMCPServer(manager *Manager, msg *messenger.Messenger) relaymcp.RelayService {
+func NewRelayMCPServer(manager *Manager, channel relayChannelRuntime, msg *messenger.Messenger) relaymcp.RelayService {
 	return &relayMCPServer{
 		manager:   manager,
+		channel:   channel,
 		messenger: msg,
 		logger:    log.With().Str("component", "relay.mcp").Logger(),
 	}
@@ -31,7 +40,11 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 		Str("agent", agentName).
 		Msg("MCP: StartAgent called")
 
-	sessionID, topicID, err := s.manager.CreateTopicSession(ctx, chatID, agentName)
+	if err := s.manager.ValidateAgent(agentName); err != nil {
+		return relaymcp.AgentInfo{}, fmt.Errorf("agent %q not available: %w", agentName, err)
+	}
+
+	locator, err := s.channel.CreateTopicLocator(ctx, chatID, fmt.Sprintf("Relay: %s", agentName))
 	if err != nil {
 		s.logger.Error().
 			Err(err).
@@ -40,33 +53,45 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 			Msg("MCP: StartAgent failed")
 		return relaymcp.AgentInfo{}, err
 	}
+	if err := s.manager.CreateSession(ctx, locator, agentName); err != nil {
+		_ = s.channel.Close(ctx, locator)
+		return relaymcp.AgentInfo{}, err
+	}
+
+	address, ok, err := locator.TelegramAddress()
+	if err != nil {
+		return relaymcp.AgentInfo{}, err
+	}
+	if !ok {
+		return relaymcp.AgentInfo{}, fmt.Errorf("unsupported channel type %q", locator.ChannelType)
+	}
 	agentDesc, mcpServers := s.manager.GetAgentInfo(agentName)
 
 	if s.messenger != nil {
-		welcomeMsg := relaywelcome.BuildAgentWelcomeMessage(agentName, sessionID, agentDesc, mcpServers)
-		if sendErr := s.messenger.SendMarkdown(ctx, chatID, welcomeMsg, topicID); sendErr != nil {
+		welcomeMsg := relaywelcome.BuildAgentWelcomeMessage(agentName, locator.SessionID, agentDesc, mcpServers)
+		if sendErr := s.channel.SendMarkdown(ctx, locator, welcomeMsg); sendErr != nil {
 			s.logger.Warn().
 				Err(sendErr).
 				Int64("chat_id", chatID).
-				Int("topic_id", topicID).
+				Int("topic_id", address.TopicID).
 				Str("agent", agentName).
-				Str("session_id", sessionID).
+				Str("session_id", locator.SessionID).
 				Msg("MCP: failed to send welcome message to topic")
 		}
 	}
 
 	s.logger.Info().
 		Int64("chat_id", chatID).
-		Int("topic_id", topicID).
+		Int("topic_id", address.TopicID).
 		Str("agent", agentName).
-		Str("session_id", sessionID).
+		Str("session_id", locator.SessionID).
 		Msg("MCP: StartAgent succeeded")
 
 	return relaymcp.AgentInfo{
-		SessionID:   sessionID,
+		SessionID:   locator.SessionID,
 		AgentName:   agentName,
 		ChatID:      chatID,
-		TopicID:     topicID,
+		TopicID:     address.TopicID,
 		Description: agentDesc,
 		MCPServers:  mcpServers,
 	}, nil

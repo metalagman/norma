@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/norma/internal/apps/configmcp"
+	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/normahq/norma/internal/apps/relaymcp"
@@ -33,6 +34,7 @@ type InternalMCPManager struct {
 	registry         mcpregistry.Registry
 	workingDir       string
 	sessionManager   *session.Manager
+	channel          *relaytelegram.Adapter
 	messenger        *messenger.Messenger
 	stateStore       sessionmcp.Store
 	cleanups         []func() error
@@ -54,6 +56,7 @@ type internalMCPParams struct {
 	Registry         *mcpregistry.MapRegistry
 	WorkingDir       string
 	SessionManager   *session.Manager
+	Channel          *relaytelegram.Adapter
 	Messenger        *messenger.Messenger
 	StateStore       sessionmcp.Store
 }
@@ -66,6 +69,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 		registry:         params.Registry,
 		workingDir:       params.WorkingDir,
 		sessionManager:   params.SessionManager,
+		channel:          params.Channel,
 		messenger:        params.Messenger,
 		stateStore:       params.StateStore,
 	}
@@ -133,7 +137,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 	routes = append(routes, bundledRoutePath(bundledStateServerID))
 
 	// norma.relay
-	relaySvc := session.NewRelayMCPServer(m.sessionManager, m.messenger)
+	relaySvc := session.NewRelayMCPServer(m.sessionManager, m.channel, m.messenger)
 	relayServer, err := relaymcp.NewServer(relaySvc)
 	if err != nil {
 		return fmt.Errorf("build bundled relay MCP server: %w", err)

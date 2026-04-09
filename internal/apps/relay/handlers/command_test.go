@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
+	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
+	"github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
@@ -21,17 +23,17 @@ func TestCommandHandlerOnCommand_CloseTopicAndStopSession(t *testing.T) {
 		t.Fatalf("onCommand() error = %v", err)
 	}
 
-	if len(sm.closeCalls) != 1 {
-		t.Fatalf("CloseTopic calls = %d, want 1", len(sm.closeCalls))
+	if len(tgClient.closedTopicIDs) != 1 {
+		t.Fatalf("CloseTopic calls = %d, want 1", len(tgClient.closedTopicIDs))
 	}
 	if len(sm.stopCalls) != 1 {
 		t.Fatalf("StopSession calls = %d, want 1", len(sm.stopCalls))
 	}
-	if sm.closeCalls[0].chatID != 9001 || sm.closeCalls[0].topicID != topicID {
-		t.Fatalf("CloseTopic call = %+v, want chat=9001 topic=%d", sm.closeCalls[0], topicID)
+	if tgClient.closedTopicIDs[0] != topicID {
+		t.Fatalf("CloseTopic call = %d, want topic=%d", tgClient.closedTopicIDs[0], topicID)
 	}
-	if sm.stopCalls[0].chatID != 9001 || sm.stopCalls[0].topicID != topicID {
-		t.Fatalf("StopSession call = %+v, want chat=9001 topic=%d", sm.stopCalls[0], topicID)
+	if sm.stopCalls[0].SessionID != "tg-9001-123" {
+		t.Fatalf("StopSession call = %+v, want session=tg-9001-123", sm.stopCalls[0])
 	}
 	assertLastSentContains(t, tgClient, "Closing this topic and stopping agent session.")
 }
@@ -44,14 +46,14 @@ func TestCommandHandlerOnCommand_CloseRootStopsOnlySession(t *testing.T) {
 		t.Fatalf("onCommand() error = %v", err)
 	}
 
-	if len(sm.closeCalls) != 0 {
-		t.Fatalf("CloseTopic calls = %d, want 0", len(sm.closeCalls))
+	if len(tgClient.closedTopicIDs) != 0 {
+		t.Fatalf("CloseTopic calls = %d, want 0", len(tgClient.closedTopicIDs))
 	}
 	if len(sm.stopCalls) != 1 {
 		t.Fatalf("StopSession calls = %d, want 1", len(sm.stopCalls))
 	}
-	if sm.stopCalls[0].chatID != 9001 || sm.stopCalls[0].topicID != 0 {
-		t.Fatalf("StopSession call = %+v, want chat=9001 topic=0", sm.stopCalls[0])
+	if sm.stopCalls[0].SessionID != "tg-9001-0" {
+		t.Fatalf("StopSession call = %+v, want session=tg-9001-0", sm.stopCalls[0])
 	}
 	assertLastSentContains(t, tgClient, "Stopping root agent session.")
 }
@@ -65,8 +67,8 @@ func TestCommandHandlerOnCommand_CloseWithArgsShowsUsage(t *testing.T) {
 		t.Fatalf("onCommand() error = %v", err)
 	}
 
-	if len(sm.closeCalls) != 0 {
-		t.Fatalf("CloseTopic calls = %d, want 0", len(sm.closeCalls))
+	if len(tgClient.closedTopicIDs) != 0 {
+		t.Fatalf("CloseTopic calls = %d, want 0", len(tgClient.closedTopicIDs))
 	}
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
@@ -83,8 +85,8 @@ func TestCommandHandlerOnCommand_CloseUnauthorized(t *testing.T) {
 		t.Fatalf("onCommand() error = %v", err)
 	}
 
-	if len(sm.closeCalls) != 0 {
-		t.Fatalf("CloseTopic calls = %d, want 0", len(sm.closeCalls))
+	if len(tgClient.closedTopicIDs) != 0 {
+		t.Fatalf("CloseTopic calls = %d, want 0", len(tgClient.closedTopicIDs))
 	}
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
@@ -100,14 +102,39 @@ func TestCommandHandlerOnCommand_NewWithoutArgs_ShowsConfiguredAgentIDs(t *testi
 		t.Fatalf("onCommand() error = %v", err)
 	}
 
-	if len(sm.closeCalls) != 0 {
-		t.Fatalf("CloseTopic calls = %d, want 0", len(sm.closeCalls))
+	if len(tgClient.closedTopicIDs) != 0 {
+		t.Fatalf("CloseTopic calls = %d, want 0", len(tgClient.closedTopicIDs))
 	}
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
 	}
 	assertLastSentContains(t, tgClient, "Usage: /new <agent_id>")
 	assertLastSentContains(t, tgClient, "Available agents: alpha, beta")
+}
+
+func TestCommandHandlerOnCommand_NewCreatesTopicSession(t *testing.T) {
+	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+	tgClient.nextTopicID = 456
+
+	err := handler.onCommand(context.Background(), newCommandEvent("new", "alpha", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(tgClient.createdTopics) != 1 {
+		t.Fatalf("CreateTopic calls = %d, want 1", len(tgClient.createdTopics))
+	}
+	if tgClient.createdTopics[0].Name != "Relay: alpha" {
+		t.Fatalf("CreateTopic name = %q, want %q", tgClient.createdTopics[0].Name, "Relay: alpha")
+	}
+	if len(sm.createCalls) != 1 {
+		t.Fatalf("CreateSession calls = %d, want 1", len(sm.createCalls))
+	}
+	if sm.createCalls[0].SessionID != "tg-9001-456" || sm.createCalls[0].AgentName != "alpha" {
+		t.Fatalf("CreateSession call = %+v, want session=tg-9001-456 agent=alpha", sm.createCalls[0])
+	}
+	assertLastSentContains(t, tgClient, "tg\\-9001\\-456")
+	assertLastSentContains(t, tgClient, "***alpha***")
 }
 
 func TestCommandHandlerNewUsageMessage_NoAgentsConfigured(t *testing.T) {
@@ -121,34 +148,34 @@ func TestCommandHandlerNewUsageMessage_NoAgentsConfigured(t *testing.T) {
 }
 
 type fakeCommandSessionManager struct {
-	closeCalls []closeTopicCall
-	stopCalls  []stopSessionCall
+	stopCalls   []stopSessionCall
+	createCalls []createSessionCall
 }
 
-type closeTopicCall struct {
-	chatID  int64
-	topicID int
+type createSessionCall struct {
+	SessionID string
+	AgentName string
 }
 
 type stopSessionCall struct {
-	chatID  int64
-	topicID int
+	SessionID string
 }
 
-func (f *fakeCommandSessionManager) CreateTopicSession(context.Context, int64, string) (string, int, error) {
-	return "", 0, nil
+func (f *fakeCommandSessionManager) CreateSession(_ context.Context, locator session.SessionLocator, agentName string) error {
+	f.createCalls = append(f.createCalls, createSessionCall{SessionID: locator.SessionID, AgentName: agentName})
+	return nil
 }
 
 func (f *fakeCommandSessionManager) GetAgentInfo(string) (string, []string) {
 	return "", nil
 }
 
-func (f *fakeCommandSessionManager) StopTelegramSession(chatID int64, topicID int) {
-	f.stopCalls = append(f.stopCalls, stopSessionCall{chatID: chatID, topicID: topicID})
+func (f *fakeCommandSessionManager) StopSession(locator session.SessionLocator) {
+	f.stopCalls = append(f.stopCalls, stopSessionCall{SessionID: locator.SessionID})
 }
 
-func (f *fakeCommandSessionManager) CloseTopic(_ context.Context, chatID int64, topicID int) {
-	f.closeCalls = append(f.closeCalls, closeTopicCall{chatID: chatID, topicID: topicID})
+func (f *fakeCommandSessionManager) ValidateAgent(string) error {
+	return nil
 }
 
 func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSessionManager, *fakeTelegramClient) {
@@ -168,7 +195,12 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
 	sessionManager := &fakeCommandSessionManager{}
 	handler := &CommandHandler{
-		ownerStore:     ownerStore,
+		ownerStore: ownerStore,
+		channel: relaytelegram.NewAdapter(relaytelegram.AdapterParams{
+			Messenger: msg,
+			TGClient:  tgClient,
+			Logger:    zerolog.Nop(),
+		}),
 		sessionManager: sessionManager,
 		messenger:      msg,
 		agentIDs:       []string{"alpha", "beta"},

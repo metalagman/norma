@@ -12,7 +12,6 @@ import (
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
 	"github.com/normahq/norma/internal/git"
 	"github.com/rs/zerolog"
-	"github.com/tgbotkit/client"
 	"go.uber.org/fx"
 )
 
@@ -23,7 +22,6 @@ type Manager struct {
 	agentBuilder      *agent.Builder
 	relayMCPServerIDs []string
 	workingDir        string
-	tgClient          client.ClientWithResponsesInterface
 	workspaces        *agent.WorkspaceManager
 	workspaceEnabled  bool
 	sessionStore      relaystate.SessionStore
@@ -46,7 +44,6 @@ type ManagerParams struct {
 	WorkingDir        string
 	WorkspaceEnabled  bool   `name:"relay_workspace_enabled"`
 	WorkspaceBaseRef  string `name:"relay_workspace_base_branch"`
-	TGClient          client.ClientWithResponsesInterface
 	StateProvider     relaystate.Provider
 	Logger            zerolog.Logger
 }
@@ -63,7 +60,6 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		agentBuilder:      p.AgentBuilder,
 		relayMCPServerIDs: append([]string(nil), p.RelayMCPServerIDs...),
 		workingDir:        p.WorkingDir,
-		tgClient:          p.TGClient,
 		workspaces:        agent.NewWorkspaceManager(p.WorkingDir, p.WorkspaceBaseRef),
 		workspaceEnabled:  p.WorkspaceEnabled,
 		sessionStore:      p.StateProvider.Sessions(),
@@ -239,62 +235,6 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 	return nil
 }
 
-// CreateTopicSession creates a Telegram forum topic and an agent session for it.
-// It first validates the agent can be built before creating the topic to avoid orphaned topics.
-func (m *Manager) CreateTopicSession(ctx context.Context, chatID int64, agentName string) (string, int, error) {
-	m.logger.Info().
-		Int64("chat_id", chatID).
-		Str("agent", agentName).
-		Msg("creating topic session")
-
-	if err := m.ValidateAgent(agentName); err != nil {
-		m.logger.Error().Err(err).Str("agent", agentName).Msg("agent validation failed, not creating topic")
-		return "", 0, fmt.Errorf("agent %q not available: %w", agentName, err)
-	}
-
-	topicName := fmt.Sprintf("Relay: %s", agentName)
-	createTopicResp, err := m.tgClient.CreateForumTopicWithResponse(ctx, client.CreateForumTopicJSONRequestBody{
-		ChatId: chatID,
-		Name:   topicName,
-	})
-	if err != nil {
-		m.logger.Error().Err(err).Int64("chat_id", chatID).Msg("failed to create forum topic")
-		return "", 0, fmt.Errorf("creating forum topic: %w", err)
-	}
-	if createTopicResp.JSON200 == nil {
-		m.logger.Error().
-			Int64("chat_id", chatID).
-			Str("status", createTopicResp.Status()).
-			Msg("forum topic creation returned non-200")
-		return "", 0, fmt.Errorf("failed to create forum topic: %s", createTopicResp.Status())
-	}
-
-	topic := createTopicResp.JSON200.Result
-	topicID := topic.MessageThreadId
-	locator := NewTelegramSessionLocator(chatID, topicID)
-
-	m.logger.Info().
-		Int64("chat_id", chatID).
-		Int("topic_id", topicID).
-		Str("agent", agentName).
-		Msg("forum topic created, creating agent session")
-
-	if err := m.CreateSession(ctx, locator, agentName); err != nil {
-		m.logger.Error().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to create session, cleaning up topic")
-		m.closeTopic(ctx, chatID, topicID)
-		return "", 0, fmt.Errorf("creating agent session: %w", err)
-	}
-
-	m.logger.Info().
-		Int64("chat_id", chatID).
-		Int("topic_id", topicID).
-		Str("agent", agentName).
-		Str("session_id", locator.SessionID).
-		Msg("topic session created successfully")
-
-	return locator.SessionID, topicID, nil
-}
-
 // GetSession returns the in-memory session for the given locator.
 func (m *Manager) GetSession(locator SessionLocator) (*TopicSession, error) {
 	sessionID := strings.TrimSpace(locator.SessionID)
@@ -465,11 +405,6 @@ func (m *Manager) stopAllWithContext(ctx context.Context) {
 	m.logger.Info().Msg("all sessions stopped")
 }
 
-// CloseTopic closes the Telegram forum topic via API.
-func (m *Manager) CloseTopic(ctx context.Context, chatID int64, topicID int) {
-	m.closeTopic(ctx, chatID, topicID)
-}
-
 // ListSessions returns info about all active sessions.
 func (m *Manager) ListSessions() []TopicSessionInfo {
 	m.mu.RLock()
@@ -513,22 +448,6 @@ func (m *Manager) closeTopicSession(ctx context.Context, ts *TopicSession) error
 		}
 	}
 	return firstErr
-}
-
-func (m *Manager) closeTopic(ctx context.Context, chatID int64, topicID int) {
-	m.logger.Debug().Int64("chat_id", chatID).Int("topic_id", topicID).Msg("closing forum topic")
-
-	closeResp, err := m.tgClient.CloseForumTopicWithResponse(ctx, client.CloseForumTopicJSONRequestBody{
-		ChatId:          chatID,
-		MessageThreadId: topicID,
-	})
-	if err != nil {
-		m.logger.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to close forum topic")
-		return
-	}
-	if closeResp.JSON200 == nil {
-		m.logger.Warn().Int64("chat_id", chatID).Int("topic_id", topicID).Str("status", closeResp.Status()).Msg("failed to close forum topic")
-	}
 }
 
 func (m *Manager) CommitWorkspace(ctx context.Context, chatID int64, topicID int) error {

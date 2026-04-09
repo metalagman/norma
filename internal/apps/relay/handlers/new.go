@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
+	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
@@ -18,15 +19,16 @@ import (
 )
 
 type commandSessionManager interface {
-	CreateTopicSession(ctx context.Context, chatID int64, agentName string) (string, int, error)
+	CreateSession(ctx context.Context, locator session.SessionLocator, agentName string) error
 	GetAgentInfo(agentName string) (string, []string)
-	StopTelegramSession(chatID int64, topicID int)
-	CloseTopic(ctx context.Context, chatID int64, topicID int)
+	StopSession(locator session.SessionLocator)
+	ValidateAgent(agentName string) error
 }
 
 // CommandHandler handles relay commands like /new and /close.
 type CommandHandler struct {
 	ownerStore     *auth.OwnerStore
+	channel        *relaytelegram.Adapter
 	sessionManager commandSessionManager
 	messenger      *messenger.Messenger
 	agentIDs       []string
@@ -40,6 +42,7 @@ type commandHandlerParams struct {
 	fx.In
 
 	OwnerStore     *auth.OwnerStore
+	Channel        *relaytelegram.Adapter
 	SessionManager *session.Manager
 	Messenger      *messenger.Messenger
 	NormaCfg       runtimeconfig.NormaConfig
@@ -49,6 +52,7 @@ type commandHandlerParams struct {
 func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 	return &CommandHandler{
 		ownerStore:     params.OwnerStore,
+		channel:        params.Channel,
 		sessionManager: params.SessionManager,
 		messenger:      params.Messenger,
 		agentIDs:       sortedAgentIDs(params.NormaCfg),
@@ -61,45 +65,63 @@ func (h *CommandHandler) Register(registry handlers.RegistryInterface) {
 }
 
 func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEvent) error {
-	switch event.Command {
+	commandCtx, ok := h.channel.CommandContextFromEvent(event)
+	if !ok {
+		return nil
+	}
+
+	switch commandCtx.Command {
 	case "new":
-		return h.onNewCommand(ctx, event)
+		return h.onNewCommand(ctx, commandCtx)
 	case "close":
-		return h.onCloseCommand(ctx, event)
+		return h.onCloseCommand(ctx, commandCtx)
 	default:
 		return nil
 	}
 }
 
-func (h *CommandHandler) onNewCommand(ctx context.Context, event *events.CommandEvent) error {
-	chatID := event.Message.Chat.Id
-	userID := event.Message.From.Id
-
-	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(userID) {
-		if err := h.messenger.SendPlain(ctx, chatID, "Only the bot owner can use this command.", 0); err != nil {
+func (h *CommandHandler) onNewCommand(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
+	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(commandCtx.UserID) {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner can use this command."); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	agentName := strings.TrimSpace(event.Args)
+	agentName := strings.TrimSpace(commandCtx.Args)
 	if agentName == "" {
-		if err := h.messenger.SendPlain(ctx, chatID, h.newCommandUsageMessage(), 0); err != nil {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, h.newCommandUsageMessage()); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	log.Info().
-		Int64("user_id", userID).
-		Int64("chat_id", chatID).
+		Int64("user_id", commandCtx.UserID).
+		Int64("chat_id", commandCtx.ChatID).
 		Str("agent", agentName).
 		Msg("Creating new topic with agent")
 
-	sessionID, topicID, err := h.sessionManager.CreateTopicSession(ctx, chatID, agentName)
+	if err := h.sessionManager.ValidateAgent(agentName); err != nil {
+		log.Error().Err(err).Str("agent", agentName).Msg("agent validation failed, not creating topic")
+		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to create agent session: agent %q not available: %v", agentName, err)); sendErr != nil {
+			return sendErr
+		}
+		return nil
+	}
+
+	topicLocator, err := h.channel.CreateTopicLocator(ctx, commandCtx.ChatID, fmt.Sprintf("Relay: %s", agentName))
 	if err != nil {
 		log.Error().Err(err).Str("agent", agentName).Msg("Failed to create topic with agent")
-		if sendErr := h.messenger.SendPlain(ctx, chatID, fmt.Sprintf("Failed to create agent session: %v", err), 0); sendErr != nil {
+		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to create agent session: %v", err)); sendErr != nil {
+			return sendErr
+		}
+		return nil
+	}
+	if err := h.sessionManager.CreateSession(ctx, topicLocator, agentName); err != nil {
+		log.Error().Err(err).Str("agent", agentName).Msg("Failed to create agent session after topic creation")
+		_ = h.channel.Close(ctx, topicLocator)
+		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to create agent session: %v", err)); sendErr != nil {
 			return sendErr
 		}
 		return nil
@@ -107,8 +129,8 @@ func (h *CommandHandler) onNewCommand(ctx context.Context, event *events.Command
 
 	agentDesc, mcpServers := h.sessionManager.GetAgentInfo(agentName)
 
-	welcomeMsg := BuildAgentWelcomeMessage(agentName, sessionID, agentDesc, mcpServers)
-	if err := h.messenger.SendMarkdown(ctx, chatID, welcomeMsg, topicID); err != nil {
+	welcomeMsg := BuildAgentWelcomeMessage(agentName, topicLocator.SessionID, agentDesc, mcpServers)
+	if err := h.channel.SendMarkdown(ctx, topicLocator, welcomeMsg); err != nil {
 		log.Error().Err(err).Msg("Failed to send welcome message")
 		return err
 	}
@@ -116,42 +138,36 @@ func (h *CommandHandler) onNewCommand(ctx context.Context, event *events.Command
 	return nil
 }
 
-func (h *CommandHandler) onCloseCommand(ctx context.Context, event *events.CommandEvent) error {
-	chatID := event.Message.Chat.Id
-	userID := event.Message.From.Id
-
-	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(userID) {
-		if err := h.messenger.SendPlain(ctx, chatID, "Only the bot owner can use this command.", 0); err != nil {
+func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
+	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(commandCtx.UserID) {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner can use this command."); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	topicID := 0
-	if event.Message.MessageThreadId != nil {
-		topicID = *event.Message.MessageThreadId
-	}
-
-	if strings.TrimSpace(event.Args) != "" {
-		if err := h.messenger.SendPlain(ctx, chatID, "Usage: /close", topicID); err != nil {
+	if strings.TrimSpace(commandCtx.Args) != "" {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /close"); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	if topicID > 0 {
-		if err := h.messenger.SendPlain(ctx, chatID, "Closing this topic and stopping agent session.", topicID); err != nil {
-			log.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to send /close confirmation")
+	if commandCtx.TopicID > 0 {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Closing this topic and stopping agent session."); err != nil {
+			log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Int("topic_id", commandCtx.TopicID).Msg("failed to send /close confirmation")
 		}
-		h.sessionManager.CloseTopic(ctx, chatID, topicID)
-		h.sessionManager.StopTelegramSession(chatID, topicID)
+		if err := h.channel.Close(ctx, commandCtx.Locator); err != nil {
+			log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Int("topic_id", commandCtx.TopicID).Msg("failed to close topic")
+		}
+		h.sessionManager.StopSession(commandCtx.Locator)
 		return nil
 	}
 
-	if err := h.messenger.SendPlain(ctx, chatID, "Stopping root agent session. It will be recreated on your next message.", topicID); err != nil {
-		log.Warn().Err(err).Int64("chat_id", chatID).Msg("failed to send /close root confirmation")
+	if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Stopping root agent session. It will be recreated on your next message."); err != nil {
+		log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Msg("failed to send /close root confirmation")
 	}
-	h.sessionManager.StopTelegramSession(chatID, topicID)
+	h.sessionManager.StopSession(commandCtx.Locator)
 	return nil
 }
 

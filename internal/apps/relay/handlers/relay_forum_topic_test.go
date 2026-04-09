@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
+	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/eventemitter"
@@ -39,7 +41,7 @@ func (f *fakeRelayRegistry) OnCommand(rtHandlers.CommandHandler) eventemitter.Un
 
 func TestRelayHandlerRegister_RegistersForumTopicMessageTypes(t *testing.T) {
 	registry := &fakeRelayRegistry{}
-	handler := &RelayHandler{logger: zerolog.Nop()}
+	handler := &RelayHandler{logger: zerolog.Nop(), channel: newRelayTestTelegramAdapter()}
 
 	handler.Register(registry)
 
@@ -64,7 +66,7 @@ func TestRelayHandlerRegister_RegistersForumTopicMessageTypes(t *testing.T) {
 }
 
 func TestRelayHandlerOnForumTopicLifecycle_LogOnly(t *testing.T) {
-	handler := &RelayHandler{logger: zerolog.Nop()}
+	handler := &RelayHandler{logger: zerolog.Nop(), channel: newRelayTestTelegramAdapter()}
 
 	tests := []messagetype.MessageType{
 		messagetype.ForumTopicCreated,
@@ -98,7 +100,7 @@ func TestRelayHandlerOnForumTopicLifecycle_LogOnly(t *testing.T) {
 }
 
 func TestRelayHandlerOnForumTopicLifecycle_IgnoresOtherChatWhenBound(t *testing.T) {
-	handler := &RelayHandler{logger: zerolog.Nop()}
+	handler := &RelayHandler{logger: zerolog.Nop(), channel: newRelayTestTelegramAdapter()}
 	handler.setChatID(9001)
 
 	topicID := 13
@@ -124,7 +126,7 @@ func TestRelayHandlerOnForumTopicLifecycle_IgnoresOtherChatWhenBound(t *testing.
 }
 
 func TestRelayHandlerOnForumTopicLifecycle_IgnoresEventWithoutTopicID(t *testing.T) {
-	handler := &RelayHandler{logger: zerolog.Nop()}
+	handler := &RelayHandler{logger: zerolog.Nop(), channel: newRelayTestTelegramAdapter()}
 
 	event := &events.MessageEvent{
 		Type: messagetype.ForumTopicClosed,
@@ -143,7 +145,7 @@ func TestRelayHandlerOnForumTopicLifecycle_IgnoresEventWithoutTopicID(t *testing
 }
 
 func TestRelayHandlerOnMessage_IgnoresNilFrom(t *testing.T) {
-	handler := &RelayHandler{logger: zerolog.Nop()}
+	handler := &RelayHandler{logger: zerolog.Nop(), channel: newRelayTestTelegramAdapter()}
 	handler.SetOwner(101, 9001)
 
 	text := "hello"
@@ -162,4 +164,14 @@ func TestRelayHandlerOnMessage_IgnoresNilFrom(t *testing.T) {
 	if err := handler.onMessage(context.Background(), event); err != nil {
 		t.Fatalf("onMessage() error = %v", err)
 	}
+}
+
+func newRelayTestTelegramAdapter() *relaytelegram.Adapter {
+	tgClient := &fakeTelegramClient{}
+	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	return relaytelegram.NewAdapter(relaytelegram.AdapterParams{
+		Messenger: msg,
+		TGClient:  tgClient,
+		Logger:    zerolog.Nop(),
+	})
 }

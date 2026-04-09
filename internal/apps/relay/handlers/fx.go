@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"github.com/normahq/norma/internal/apps/relay/agent"
+	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/normahq/norma/internal/apps/relay/tgbotkit"
@@ -14,6 +15,7 @@ var Module = fx.Module("relay_handlers",
 		agent.NewBuilder,
 		session.NewManager,
 		messenger.NewMessenger,
+		relaytelegram.NewAdapter,
 		NewStartHandler,
 		NewRelayHandler,
 		NewCommandHandler,

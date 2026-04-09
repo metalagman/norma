@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
+	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaysession "github.com/normahq/norma/internal/apps/relay/session"
 	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
@@ -25,6 +26,7 @@ import (
 // RelayHandler handles bidirectional message relay between owner and agent.
 type RelayHandler struct {
 	ownerStore     *auth.OwnerStore
+	channel        *relaytelegram.Adapter
 	sessionManager *relaysession.Manager
 	messenger      *messenger.Messenger
 	tgClient       client.ClientWithResponsesInterface
@@ -44,6 +46,7 @@ type relayHandlerDeps struct {
 
 	LC                 fx.Lifecycle
 	OwnerStore         *auth.OwnerStore
+	Channel            *relaytelegram.Adapter
 	SessionManager     *relaysession.Manager
 	Messenger          *messenger.Messenger
 	TGClient           client.ClientWithResponsesInterface
@@ -57,6 +60,7 @@ type relayHandlerDeps struct {
 func NewRelayHandler(deps relayHandlerDeps) (*RelayHandler, error) {
 	h := &RelayHandler{
 		ownerStore:     deps.OwnerStore,
+		channel:        deps.Channel,
 		sessionManager: deps.SessionManager,
 		messenger:      deps.Messenger,
 		tgClient:       deps.TGClient,
@@ -116,7 +120,7 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 func (h *RelayHandler) ActivateOwner(ctx context.Context, ownerID, chatID int64) error {
 	h.SetOwner(ownerID, chatID)
 
-	if _, err := h.sessionManager.GetTelegramSession(chatID, 0); err == nil {
+	if _, err := h.sessionManager.GetSession(h.channel.RootLocator(chatID)); err == nil {
 		return nil
 	}
 
@@ -127,7 +131,8 @@ func (h *RelayHandler) ActivateOwner(ctx context.Context, ownerID, chatID int64)
 }
 
 func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent) error {
-	if event == nil || event.Message == nil || event.Message.From == nil {
+	messageCtx, ok := h.channel.MessageContextFromEvent(event)
+	if !ok {
 		return nil
 	}
 
@@ -138,32 +143,26 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
-	if event.Message.From.Id != ownerID {
+	if messageCtx.UserID != ownerID {
 		return nil
 	}
 
 	if chatID == 0 {
-		h.setChatID(event.Message.Chat.Id)
-		log.Info().Int64("chat_id", event.Message.Chat.Id).Msg("Chat ID set from message")
-		chatID = event.Message.Chat.Id
+		h.setChatID(messageCtx.ChatID)
+		log.Info().Int64("chat_id", messageCtx.ChatID).Msg("Chat ID set from message")
 	}
 
-	if event.Message.Text == nil {
-		return nil
-	}
-	if hasCommandEntity(event.Message) {
+	if messageCtx.HasCommand {
 		return nil
 	}
 
-	text := *event.Message.Text
+	text := messageCtx.Text
 	if text == "" {
 		return nil
 	}
 
-	var topicID int
-	if event.Message.MessageThreadId != nil {
-		topicID = *event.Message.MessageThreadId
-	}
+	locator := messageCtx.Locator
+	topicID := messageCtx.TopicID
 
 	log.Info().Int64("user_id", ownerID).Int("topic_id", topicID).Msg("Relaying message to agent")
 
@@ -171,63 +170,46 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	var err error
 
 	if topicID == 0 {
-		// Main root session: always create/ensure from current relay config.
 		if h.rootAgentName == "" {
-			_ = h.messenger.SendPlain(ctx, chatID, "Relay root agent is not configured (`relay.root_agent`). Please close this chat and restart relay.", topicID)
+			_ = h.channel.SendPlain(ctx, locator, "Relay root agent is not configured (`relay.root_agent`). Please close this chat and restart relay.")
 			return nil
 		}
 
-		// Check if session already exists to avoid sending spinning message again
-		existingSession, _ := h.sessionManager.GetTelegramSession(chatID, topicID)
+		existingSession, _ := h.sessionManager.GetSession(locator)
 		if existingSession == nil {
-			// Send spinning message for on-demand creation
 			agentDesc, mcpServers := h.sessionManager.GetAgentInfo(h.rootAgentName)
 			spinningMsg := BuildAgentWelcomeMessage(h.rootAgentName, "", agentDesc, mcpServers)
-			_ = h.messenger.SendMarkdown(ctx, chatID, spinningMsg, topicID)
+			_ = h.channel.SendMarkdown(ctx, locator, spinningMsg)
 		}
-		ts, err = h.sessionManager.EnsureTelegramSession(ctx, chatID, topicID, h.rootAgentName)
+		ts, err = h.sessionManager.EnsureSession(ctx, locator, h.rootAgentName)
 		if err != nil {
 			log.Error().Err(err).Str("agent", h.rootAgentName).Msg("failed to ensure root session")
-			_ = h.messenger.SendPlain(
-				ctx,
-				chatID,
-				fmt.Sprintf("Failed to start root session: %v.\n\nPlease close this chat and start again.", err),
-				topicID,
-			)
+			_ = h.channel.SendPlain(ctx, locator, fmt.Sprintf("Failed to start root session: %v.\n\nPlease close this chat and start again.", err))
 			return nil
 		}
 	} else {
-		// Subagent topic: try in-memory first, then lazy restore from persisted metadata.
-		ts, err = h.sessionManager.GetTelegramSession(chatID, topicID)
+		ts, err = h.sessionManager.GetSession(locator)
 		if err != nil {
-			_ = h.messenger.SendPlain(ctx, chatID, "Restoring agent session...", topicID)
-			ts, err = h.sessionManager.RestoreTelegramSession(ctx, chatID, topicID)
+			_ = h.channel.SendPlain(ctx, locator, "Restoring agent session...")
+			ts, err = h.sessionManager.RestoreSession(ctx, locator)
 			if err != nil {
 				log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to restore topic session")
-				_ = h.messenger.SendPlain(
-					ctx,
-					chatID,
-					fmt.Sprintf("Failed to restore this session: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err),
-					topicID,
-				)
+				_ = h.channel.SendPlain(ctx, locator, fmt.Sprintf("Failed to restore this session: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err))
 				return nil
 			}
-			// Send welcome message with agent info after restore
 			agentDesc, mcpServers := h.sessionManager.GetAgentInfo(ts.GetAgentName())
-			sessionID := ts.GetSessionID()
-			welcomeMsg := BuildAgentWelcomeMessage(ts.GetAgentName(), sessionID, agentDesc, mcpServers)
-			_ = h.messenger.SendMarkdown(ctx, chatID, welcomeMsg, topicID)
+			welcomeMsg := BuildAgentWelcomeMessage(ts.GetAgentName(), ts.GetSessionID(), agentDesc, mcpServers)
+			_ = h.channel.SendMarkdown(ctx, locator, welcomeMsg)
 		}
 	}
 
-	// Run turn
-	if err := h.runTurn(ctx, text, ts.GetRunner(), ts.GetSessionID(), chatID, topicID, event.Message.MessageId); err != nil {
+	if err := h.runTurn(ctx, text, ts.GetRunner(), ts.GetSessionID(), locator, messageCtx.MessageID); err != nil {
 		log.Error().Err(err).Int("topic_id", topicID).Msg("Agent execution failed")
 		errText := fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat and start a new session.", err)
 		if topicID > 0 {
 			errText = fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err)
 		}
-		if sendErr := h.messenger.SendPlain(ctx, chatID, errText, topicID); sendErr != nil {
+		if sendErr := h.channel.SendPlain(ctx, locator, errText); sendErr != nil {
 			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay error message")
 		}
 	}
@@ -236,24 +218,22 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 }
 
 func (h *RelayHandler) onForumTopicLifecycle(_ context.Context, event *events.MessageEvent) error {
-	if event == nil || event.Message == nil {
+	lifecycle, ok := h.channel.TopicLifecycleFromEvent(event)
+	if !ok {
 		return nil
 	}
 
-	chatID := event.Message.Chat.Id
+	chatID := lifecycle.ChatID
 	boundChatID := h.getChatID()
 	if boundChatID != 0 && chatID != boundChatID {
 		return nil
 	}
 
-	topicID := 0
-	if event.Message.MessageThreadId != nil {
-		topicID = *event.Message.MessageThreadId
-	}
+	topicID := lifecycle.TopicID
 	if topicID <= 0 {
 		h.logger.Debug().
 			Int64("chat_id", chatID).
-			Str("event_type", string(event.Type)).
+			Str("event_type", string(lifecycle.Type)).
 			Msg("ignoring forum topic lifecycle event without topic id")
 		return nil
 	}
@@ -261,13 +241,13 @@ func (h *RelayHandler) onForumTopicLifecycle(_ context.Context, event *events.Me
 	evt := h.logger.Info().
 		Int64("chat_id", chatID).
 		Int("topic_id", topicID).
-		Int("message_id", event.Message.MessageId).
-		Str("event_type", string(event.Type))
-	if event.Message.From != nil {
-		evt = evt.Int64("user_id", event.Message.From.Id)
+		Int("message_id", lifecycle.MessageID).
+		Str("event_type", string(lifecycle.Type))
+	if lifecycle.UserID != 0 {
+		evt = evt.Int64("user_id", lifecycle.UserID)
 	}
 
-	switch event.Type {
+	switch lifecycle.Type {
 	case messagetype.ForumTopicCreated:
 		evt.Msg("forum topic created")
 	case messagetype.ForumTopicEdited:
@@ -283,7 +263,17 @@ func (h *RelayHandler) onForumTopicLifecycle(_ context.Context, event *events.Me
 	return nil
 }
 
-func (h *RelayHandler) runTurn(ctx context.Context, text string, r *runner.Runner, sessionID string, chatID int64, topicID, messageID int) error {
+func (h *RelayHandler) runTurn(ctx context.Context, text string, r *runner.Runner, sessionID string, locator relaysession.SessionLocator, messageID int) error {
+	address, ok, err := locator.TelegramAddress()
+	if err != nil {
+		return fmt.Errorf("decode telegram locator: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("unsupported channel type %q", locator.ChannelType)
+	}
+
+	chatID := address.ChatID
+	topicID := address.TopicID
 	userContent := genai.NewContentFromText(text, genai.RoleUser)
 	userID := fmt.Sprintf("relay-%d-%d", chatID, topicID)
 	draftID := messageID + 1
@@ -313,7 +303,7 @@ func (h *RelayHandler) runTurn(ctx context.Context, text string, r *runner.Runne
 					continue
 				}
 				if part.Thought {
-					if sendErr := h.messenger.SendDraftPlain(ctx, chatID, draftID, thinkingStages[thinkingIdx%len(thinkingStages)], topicID); sendErr != nil {
+					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, thinkingStages[thinkingIdx%len(thinkingStages)]); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send thinking draft")
 					}
 					thinkingIdx++
@@ -330,7 +320,7 @@ func (h *RelayHandler) runTurn(ctx context.Context, text string, r *runner.Runne
 	}
 
 	if s := result.String(); strings.TrimSpace(s) != "" {
-		if sendErr := h.messenger.SendMarkdown(ctx, chatID, s, topicID); sendErr != nil {
+		if sendErr := h.channel.SendMarkdown(ctx, locator, s); sendErr != nil {
 			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay response")
 		}
 	}
@@ -356,18 +346,6 @@ func (h *RelayHandler) setChatID(chatID int64) {
 	h.chatID = chatID
 }
 
-func hasCommandEntity(msg *client.Message) bool {
-	if msg == nil || msg.Entities == nil {
-		return false
-	}
-	for _, entity := range *msg.Entities {
-		if entity.Type == "bot_command" {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *RelayHandler) onStart(ctx context.Context) error {
 	h.initializeBotUsername(ctx)
 
@@ -384,7 +362,6 @@ func (h *RelayHandler) onStart(ctx context.Context) error {
 
 	h.SetOwner(owner.UserID, owner.ChatID)
 
-	// Precreate root session synchronously.
 	if err := h.ensureRootSession(ctx, owner.ChatID); err != nil {
 		return err
 	}
@@ -436,13 +413,14 @@ func (h *RelayHandler) ensureRootSession(ctx context.Context, chatID int64) erro
 		return fmt.Errorf("relay.root_agent is required")
 	}
 
+	locator := h.channel.RootLocator(chatID)
 	agentDesc, mcpServers := h.sessionManager.GetAgentInfo(agentName)
 	spinningMsg := BuildAgentWelcomeMessage(agentName, "", agentDesc, mcpServers)
-	if err := h.messenger.SendMarkdown(ctx, chatID, spinningMsg, 0); err != nil {
+	if err := h.channel.SendMarkdown(ctx, locator, spinningMsg); err != nil {
 		h.logger.Warn().Err(err).Msg("failed to send spinning up message")
 	}
 
-	ts, err := h.sessionManager.EnsureTelegramSession(ctx, chatID, 0, agentName)
+	ts, err := h.sessionManager.EnsureSession(ctx, locator, agentName)
 	if err != nil {
 		return fmt.Errorf("precreate root session: %w", err)
 	}
