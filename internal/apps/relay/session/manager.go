@@ -202,7 +202,13 @@ func cloneStringMap(in map[string]string) map[string]string {
 }
 
 // CreateSession builds an agent for the given locator and stores it in memory.
-func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, agentName string) error {
+func (m *Manager) CreateSession(ctx context.Context, sessionCtx SessionContext, agentName string) error {
+	locator := sessionCtx.Locator
+	userID := strings.TrimSpace(sessionCtx.UserID)
+	if userID == "" {
+		return fmt.Errorf("user id is required")
+	}
+
 	addr, ok, err := locator.TelegramAddress()
 	if err != nil {
 		return fmt.Errorf("decode session locator: %w", err)
@@ -218,6 +224,7 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 	m.logger.Info().
 		Int64("chat_id", chatID).
 		Int("topic_id", topicID).
+		Str("user_id", userID).
 		Str("agent", agentName).
 		Str("session_id", sessionID).
 		Str("channel_type", locator.ChannelType).
@@ -254,6 +261,7 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 	built, err := m.agentBuilder.BuildWithMCPServerIDs(
 		m.rootCtx,
 		sessionID,
+		userID,
 		chatID,
 		topicID,
 		agentName,
@@ -272,6 +280,7 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 
 	ts := &TopicSession{
 		sessionID:    sessionID,
+		userID:       userID,
 		locator:      locator,
 		topicID:      topicID,
 		agentName:    agentName,
@@ -303,6 +312,7 @@ func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, age
 	m.logger.Info().
 		Int64("chat_id", chatID).
 		Int("topic_id", topicID).
+		Str("user_id", userID).
 		Str("agent", agentName).
 		Str("session_id", sessionID).
 		Str("channel_type", locator.ChannelType).
@@ -338,8 +348,8 @@ func (m *Manager) GetTelegramSession(chatID int64, topicID int) (*TopicSession, 
 }
 
 // EnsureSession returns the existing session or creates a new one if it doesn't exist.
-func (m *Manager) EnsureSession(ctx context.Context, locator SessionLocator, agentName string) (*TopicSession, error) {
-	sessionID := strings.TrimSpace(locator.SessionID)
+func (m *Manager) EnsureSession(ctx context.Context, sessionCtx SessionContext, agentName string) (*TopicSession, error) {
+	sessionID := strings.TrimSpace(sessionCtx.Locator.SessionID)
 
 	m.mu.RLock()
 	ts := m.sessions[sessionID]
@@ -350,19 +360,23 @@ func (m *Manager) EnsureSession(ctx context.Context, locator SessionLocator, age
 		return ts, nil
 	}
 
-	if err := m.CreateSession(ctx, locator, agentName); err != nil {
+	if err := m.CreateSession(ctx, sessionCtx, agentName); err != nil {
 		return nil, err
 	}
-	return m.GetSession(locator)
+	return m.GetSession(sessionCtx.Locator)
 }
 
 // EnsureTelegramSession returns the existing Telegram session or creates a new one.
-func (m *Manager) EnsureTelegramSession(ctx context.Context, chatID int64, topicID int, agentName string) (*TopicSession, error) {
-	return m.EnsureSession(ctx, NewTelegramSessionLocator(chatID, topicID), agentName)
+func (m *Manager) EnsureTelegramSession(ctx context.Context, chatID int64, topicID int, userID int64, agentName string) (*TopicSession, error) {
+	return m.EnsureSession(ctx, SessionContext{
+		Locator: NewTelegramSessionLocator(chatID, topicID),
+		UserID:  TelegramUserID(userID),
+	}, agentName)
 }
 
 // RestoreSession restores a session from persisted metadata when it is not active in memory.
-func (m *Manager) RestoreSession(ctx context.Context, locator SessionLocator) (*TopicSession, error) {
+func (m *Manager) RestoreSession(ctx context.Context, sessionCtx SessionContext) (*TopicSession, error) {
+	locator := sessionCtx.Locator
 	sessionID := strings.TrimSpace(locator.SessionID)
 
 	m.mu.RLock()
@@ -398,12 +412,18 @@ func (m *Manager) RestoreSession(ctx context.Context, locator SessionLocator) (*
 		Str("agent", record.AgentName).
 		Msg("restoring session from persisted metadata")
 
-	return m.EnsureSession(ctx, recordLocator, record.AgentName)
+	return m.EnsureSession(ctx, SessionContext{
+		Locator: recordLocator,
+		UserID:  sessionCtx.UserID,
+	}, record.AgentName)
 }
 
 // RestoreTelegramSession restores a Telegram session from persisted metadata.
-func (m *Manager) RestoreTelegramSession(ctx context.Context, chatID int64, topicID int) (*TopicSession, error) {
-	return m.RestoreSession(ctx, NewTelegramSessionLocator(chatID, topicID))
+func (m *Manager) RestoreTelegramSession(ctx context.Context, chatID int64, topicID int, userID int64) (*TopicSession, error) {
+	return m.RestoreSession(ctx, SessionContext{
+		Locator: NewTelegramSessionLocator(chatID, topicID),
+		UserID:  TelegramUserID(userID),
+	})
 }
 
 // StopSession removes a session from memory and cleans up.
@@ -483,6 +503,7 @@ func (m *Manager) ListSessions() []TopicSessionInfo {
 
 type TopicSessionInfo struct {
 	SessionID    string
+	UserID       string
 	Locator      SessionLocator
 	ChannelType  string
 	AgentName    string
@@ -577,6 +598,7 @@ func topicSessionInfo(ts *TopicSession, status string) TopicSessionInfo {
 	}
 	return TopicSessionInfo{
 		SessionID:    ts.sessionID,
+		UserID:       ts.userID,
 		Locator:      ts.locator,
 		ChannelType:  ts.locator.ChannelType,
 		AgentName:    ts.agentName,

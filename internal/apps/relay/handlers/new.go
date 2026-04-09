@@ -19,7 +19,7 @@ import (
 )
 
 type commandSessionManager interface {
-	CreateSession(ctx context.Context, locator session.SessionLocator, agentName string) error
+	CreateSession(ctx context.Context, sessionCtx session.SessionContext, agentName string) error
 	GetAgentInfo(agentName string) (string, []string)
 	StopSession(locator session.SessionLocator)
 	ValidateAgent(agentName string) error
@@ -118,7 +118,10 @@ func (h *CommandHandler) onNewCommand(ctx context.Context, commandCtx relayteleg
 		}
 		return nil
 	}
-	if err := h.sessionManager.CreateSession(ctx, topicLocator, agentName); err != nil {
+	if err := h.sessionManager.CreateSession(ctx, session.SessionContext{
+		Locator: topicLocator,
+		UserID:  session.TelegramUserID(commandCtx.UserID),
+	}, agentName); err != nil {
 		log.Error().Err(err).Str("agent", agentName).Msg("Failed to create agent session after topic creation")
 		_ = h.channel.Close(ctx, topicLocator)
 		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to create agent session: %v", err)); sendErr != nil {

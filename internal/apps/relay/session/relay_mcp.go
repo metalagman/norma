@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
 	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
@@ -24,25 +25,32 @@ type relayMCPServer struct {
 	manager   *Manager
 	channel   relayChannelRuntime
 	messenger *messenger.Messenger
+	owners    relayOwnerStore
 	logger    zerolog.Logger
 }
 
+type relayOwnerStore interface {
+	GetOwner() *auth.Owner
+}
+
 // NewRelayMCPServer wraps a session Manager as a RelayService.
-func NewRelayMCPServer(manager *Manager, channel relayChannelRuntime, msg *messenger.Messenger) relaymcp.RelayService {
+func NewRelayMCPServer(manager *Manager, channel relayChannelRuntime, msg *messenger.Messenger, owners relayOwnerStore) relaymcp.RelayService {
 	return &relayMCPServer{
 		manager:   manager,
 		channel:   channel,
 		messenger: msg,
+		owners:    owners,
 		logger:    log.With().Str("component", "relay.mcp").Logger(),
 	}
 }
 
 func (s *relayMCPServer) StartAgent(ctx context.Context, req relaymcp.StartRequest) (relaymcp.AgentInfo, error) {
 	agentName := strings.TrimSpace(req.AgentName)
-	targetLocator, err := s.resolveStartLocator(ctx, req)
+	targetCtx, err := s.resolveStartContext(ctx, req)
 	if err != nil {
 		return relaymcp.AgentInfo{}, err
 	}
+	targetLocator := targetCtx.Locator
 	address, ok, err := targetLocator.TelegramAddress()
 	if err != nil {
 		return relaymcp.AgentInfo{}, err
@@ -70,7 +78,10 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, req relaymcp.StartReque
 			Msg("MCP: StartAgent failed")
 		return relaymcp.AgentInfo{}, err
 	}
-	if err := s.manager.CreateSession(ctx, locator, agentName); err != nil {
+	if err := s.manager.CreateSession(ctx, SessionContext{
+		Locator: locator,
+		UserID:  targetCtx.UserID,
+	}, agentName); err != nil {
 		_ = s.channel.Close(ctx, locator)
 		return relaymcp.AgentInfo{}, err
 	}
@@ -116,21 +127,43 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, req relaymcp.StartReque
 	}, nil
 }
 
-func (s *relayMCPServer) resolveStartLocator(ctx context.Context, req relaymcp.StartRequest) (SessionLocator, error) {
+func (s *relayMCPServer) resolveStartContext(ctx context.Context, req relaymcp.StartRequest) (SessionContext, error) {
 	if req.Locator != nil {
-		return sessionLocatorFromStartLocator(req.Locator)
+		locator, err := sessionLocatorFromStartLocator(req.Locator)
+		if err != nil {
+			return SessionContext{}, err
+		}
+		owner := s.owner()
+		if owner == nil {
+			return SessionContext{}, fmt.Errorf("owner context is required for explicit relay.agents.start locator")
+		}
+		return SessionContext{
+			Locator: locator,
+			UserID:  TelegramUserID(owner.UserID),
+		}, nil
 	}
 
 	callerSessionID := strings.TrimSpace(req.CallerSessionID)
 	if callerSessionID == "" {
-		return SessionLocator{}, fmt.Errorf("locator or caller session context is required")
+		return SessionContext{}, fmt.Errorf("locator or caller session context is required")
 	}
 
 	info, err := s.manager.GetSessionInfo(ctx, callerSessionID)
 	if err != nil {
-		return SessionLocator{}, fmt.Errorf("resolve caller session context: %w", err)
+		return SessionContext{}, fmt.Errorf("resolve caller session context: %w", err)
 	}
-	return info.Locator, nil
+	userID := strings.TrimSpace(info.UserID)
+	if userID == "" {
+		owner := s.owner()
+		if owner == nil {
+			return SessionContext{}, fmt.Errorf("caller session %q has no active user context and no owner is available", callerSessionID)
+		}
+		userID = TelegramUserID(owner.UserID)
+	}
+	return SessionContext{
+		Locator: info.Locator,
+		UserID:  userID,
+	}, nil
 }
 
 func sessionLocatorFromStartLocator(locator *relaymcp.StartLocator) (SessionLocator, error) {
@@ -159,6 +192,13 @@ func sessionLocatorFromStartLocator(locator *relaymcp.StartLocator) (SessionLoca
 	default:
 		return SessionLocator{}, fmt.Errorf("unsupported locator.channel_type %q", locator.ChannelType)
 	}
+}
+
+func (s *relayMCPServer) owner() *auth.Owner {
+	if s.owners == nil {
+		return nil
+	}
+	return s.owners.GetOwner()
 }
 
 func (s *relayMCPServer) StopAgent(ctx context.Context, sessionID string) error {

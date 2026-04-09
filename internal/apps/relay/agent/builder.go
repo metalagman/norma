@@ -153,19 +153,23 @@ type BuiltAgent struct {
 	Session    session.Session
 }
 
-func (b *Builder) Build(ctx context.Context, sessionID string, chatID int64, topicID int, agentName, workspaceDir string) (*BuiltAgent, error) {
-	return b.BuildWithMCPServerIDs(ctx, sessionID, chatID, topicID, agentName, workspaceDir, nil, nil)
+func (b *Builder) Build(ctx context.Context, sessionID, userID string, chatID int64, topicID int, agentName, workspaceDir string) (*BuiltAgent, error) {
+	return b.BuildWithMCPServerIDs(ctx, sessionID, userID, chatID, topicID, agentName, workspaceDir, nil, nil)
 }
 
 func (b *Builder) BuildWithMCPServerIDs(
 	ctx context.Context,
 	sessionID string,
+	userID string,
 	chatID int64,
 	topicID int,
 	agentName, workspaceDir string,
 	bundledMCPServerIDs []string,
 	extraMCPServerIDs []string,
 ) (*BuiltAgent, error) {
+	if strings.TrimSpace(userID) == "" {
+		return nil, fmt.Errorf("user id is required")
+	}
 	sessionBranch := fmt.Sprintf("norma/relay/%s", sessionID)
 	repoBranchAtStart := b.currentRepoBranch(ctx)
 	req := agentfactory.BuildRequest{
@@ -184,8 +188,9 @@ func (b *Builder) BuildWithMCPServerIDs(
 
 	sessionSvc := session.InMemoryService()
 	sess, err := sessionSvc.Create(ctx, &session.CreateRequest{
-		AppName: fmt.Sprintf("norma-relay-topic-%d", topicID),
-		UserID:  sessionID,
+		AppName:   fmt.Sprintf("norma-relay-topic-%d", topicID),
+		UserID:    strings.TrimSpace(userID),
+		SessionID: sessionID,
 	})
 	if err != nil {
 		if closer, ok := ag.(io.Closer); ok {

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/normahq/norma/internal/apps/relay/auth"
 	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
@@ -33,6 +34,7 @@ type InternalMCPManager struct {
 	sessionManager   *session.Manager
 	channel          *relaytelegram.Adapter
 	messenger        *messenger.Messenger
+	ownerStore       *auth.OwnerStore
 	stateStore       sessionmcp.Store
 	cleanups         []func() error
 }
@@ -67,6 +69,7 @@ type internalMCPParams struct {
 	SessionManager   *session.Manager
 	Channel          *relaytelegram.Adapter
 	Messenger        *messenger.Messenger
+	OwnerStore       *auth.OwnerStore
 	StateStore       sessionmcp.Store
 }
 
@@ -80,6 +83,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 		sessionManager:   params.SessionManager,
 		channel:          params.Channel,
 		messenger:        params.Messenger,
+		ownerStore:       params.OwnerStore,
 		stateStore:       params.StateStore,
 	}
 
@@ -130,7 +134,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 
 	sessionmcp.RegisterTools(server, m.stateStore)
 
-	relaySvc := session.NewRelayMCPServer(m.sessionManager, m.channel, m.messenger)
+	relaySvc := session.NewRelayMCPServer(m.sessionManager, m.channel, m.messenger, m.ownerStore)
 	relaymcp.RegisterTools(server, relaySvc)
 
 	if m.workspaceEnabled {

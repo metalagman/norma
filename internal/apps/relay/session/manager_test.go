@@ -179,6 +179,30 @@ func TestGetSessionInfo_ReturnsPersistedSession(t *testing.T) {
 	}
 }
 
+func TestGetSessionInfo_ReturnsActiveTransportUserID(t *testing.T) {
+	m := &Manager{
+		logger: zerolog.Nop(),
+		sessions: map[string]*TopicSession{
+			"tg-10-42": {
+				sessionID: "tg-10-42",
+				userID:    "tg-101",
+				locator:   NewTelegramSessionLocator(10, 42),
+				agentName: "opencode",
+				chatID:    10,
+				topicID:   42,
+			},
+		},
+	}
+
+	info, err := m.GetSessionInfo(context.Background(), "tg-10-42")
+	if err != nil {
+		t.Fatalf("GetSessionInfo() error = %v", err)
+	}
+	if info.UserID != "tg-101" {
+		t.Fatalf("GetSessionInfo() user_id = %q, want tg-101", info.UserID)
+	}
+}
+
 func TestListSessionInfos_MergesActiveAndPersisted(t *testing.T) {
 	store := &fakeSessionStore{
 		listRecords: []relaystate.SessionRecord{

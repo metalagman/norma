@@ -130,8 +130,8 @@ func TestCommandHandlerOnCommand_NewCreatesTopicSession(t *testing.T) {
 	if len(sm.createCalls) != 1 {
 		t.Fatalf("CreateSession calls = %d, want 1", len(sm.createCalls))
 	}
-	if sm.createCalls[0].SessionID != "tg-9001-456" || sm.createCalls[0].AgentName != "alpha" {
-		t.Fatalf("CreateSession call = %+v, want session=tg-9001-456 agent=alpha", sm.createCalls[0])
+	if sm.createCalls[0].SessionID != "tg-9001-456" || sm.createCalls[0].UserID != "tg-101" || sm.createCalls[0].AgentName != "alpha" {
+		t.Fatalf("CreateSession call = %+v, want session=tg-9001-456 user=tg-101 agent=alpha", sm.createCalls[0])
 	}
 	assertLastSentContains(t, tgClient, "tg\\-9001\\-456")
 	assertLastSentContains(t, tgClient, "***alpha***")
@@ -154,6 +154,7 @@ type fakeCommandSessionManager struct {
 
 type createSessionCall struct {
 	SessionID string
+	UserID    string
 	AgentName string
 }
 
@@ -161,8 +162,12 @@ type stopSessionCall struct {
 	SessionID string
 }
 
-func (f *fakeCommandSessionManager) CreateSession(_ context.Context, locator session.SessionLocator, agentName string) error {
-	f.createCalls = append(f.createCalls, createSessionCall{SessionID: locator.SessionID, AgentName: agentName})
+func (f *fakeCommandSessionManager) CreateSession(_ context.Context, sessionCtx session.SessionContext, agentName string) error {
+	f.createCalls = append(f.createCalls, createSessionCall{
+		SessionID: sessionCtx.Locator.SessionID,
+		UserID:    sessionCtx.UserID,
+		AgentName: agentName,
+	})
 	return nil
 }
 
