@@ -14,6 +14,9 @@ const (
 
 	// SessionStatusActive marks a session that can be lazily restored.
 	SessionStatusActive = "active"
+
+	// ChannelTypeTelegram is the current relay channel type backed by Telegram.
+	ChannelTypeTelegram = "telegram"
 )
 
 // Provider exposes relay state capabilities behind a backend-agnostic interface.
@@ -41,8 +44,9 @@ type KVStore interface {
 // SessionRecord persists relay session metadata for lazy restore.
 type SessionRecord struct {
 	SessionID    string
-	ChatID       int64
-	TopicID      int
+	ChannelType  string
+	AddressKey   string
+	AddressJSON  string
 	AgentName    string
 	WorkspaceDir string
 	BranchName   string
@@ -52,7 +56,8 @@ type SessionRecord struct {
 // SessionStore persists relay session metadata.
 type SessionStore interface {
 	Upsert(ctx context.Context, record SessionRecord) error
-	GetByChatTopic(ctx context.Context, chatID int64, topicID int) (SessionRecord, bool, error)
+	GetByAddress(ctx context.Context, channelType, addressKey string) (SessionRecord, bool, error)
+	GetBySessionID(ctx context.Context, sessionID string) (SessionRecord, bool, error)
 	DeleteBySessionID(ctx context.Context, sessionID string) error
 	List(ctx context.Context) ([]SessionRecord, error)
 }

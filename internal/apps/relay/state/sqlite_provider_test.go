@@ -54,24 +54,25 @@ func TestSQLiteProvider_SessionStoreRoundTrip(t *testing.T) {
 	store := provider.Sessions()
 
 	record := SessionRecord{
-		SessionID:    "relay-1-2",
-		ChatID:       1,
-		TopicID:      2,
+		SessionID:    "tg-1-2",
+		ChannelType:  ChannelTypeTelegram,
+		AddressKey:   "1:2",
+		AddressJSON:  `{"chat_id":1,"topic_id":2}`,
 		AgentName:    "agent",
 		WorkspaceDir: "/tmp/ws",
-		BranchName:   "norma/relay/relay-1-2",
+		BranchName:   "norma/relay/tg-1-2",
 		Status:       SessionStatusActive,
 	}
 	if err := store.Upsert(ctx, record); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 
-	got, ok, err := store.GetByChatTopic(ctx, 1, 2)
+	got, ok, err := store.GetByAddress(ctx, ChannelTypeTelegram, "1:2")
 	if err != nil {
-		t.Fatalf("GetByChatTopic() error = %v", err)
+		t.Fatalf("GetByAddress() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("GetByChatTopic() found = false, want true")
+		t.Fatal("GetByAddress() found = false, want true")
 	}
 	if got.SessionID != record.SessionID {
 		t.Fatalf("session_id = %q, want %q", got.SessionID, record.SessionID)
@@ -129,8 +130,8 @@ func TestSQLiteProvider_WritesSchemaMigrationVersion(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("query schema_migrations version: %v", err)
 	}
-	if version != 1 {
-		t.Fatalf("schema_migrations version = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("schema_migrations version = %d, want 2", version)
 	}
 }
 
@@ -154,6 +155,24 @@ func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
 		t.Fatalf("offset = %d, want 321", offset)
 	}
 
+	store := provider.Sessions()
+	record, ok, err := store.GetByAddress(ctx, ChannelTypeTelegram, "1:2")
+	if err != nil {
+		t.Fatalf("GetByAddress() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("GetByAddress() found = false, want true after migration")
+	}
+	if record.SessionID != "tg-1-2" {
+		t.Fatalf("session_id after migration = %q, want tg-1-2", record.SessionID)
+	}
+	if record.BranchName != "norma/relay/tg-1-2" {
+		t.Fatalf("branch_name after migration = %q, want norma/relay/tg-1-2", record.BranchName)
+	}
+	if record.AddressJSON != `{"chat_id":1,"topic_id":2}` {
+		t.Fatalf("address_json after migration = %q, want telegram address json", record.AddressJSON)
+	}
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
@@ -164,8 +183,8 @@ func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("query schema_migrations version: %v", err)
 	}
-	if version != 1 {
-		t.Fatalf("schema_migrations version = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("schema_migrations version = %d, want 2", version)
 	}
 }
 
@@ -216,6 +235,10 @@ func seedLegacyRelayDB(t *testing.T, dbPath string) {
 			UNIQUE (chat_id, topic_id)
 		);`,
 		`CREATE INDEX idx_relay_session_metadata_status ON relay_session_metadata(status);`,
+		`INSERT INTO relay_session_metadata (
+			session_id, chat_id, topic_id, agent_name, workspace_dir, branch_name, status, updated_at
+		)
+		 VALUES ('relay-1-2', 1, 2, 'agent', '/tmp/ws', 'norma/relay/relay-1-2', 'active', '2026-01-01T00:00:00Z');`,
 		`CREATE TABLE relay_telegram_offsets (
 			bot_key TEXT PRIMARY KEY,
 			offset INTEGER NOT NULL,

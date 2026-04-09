@@ -23,7 +23,7 @@ func TestStopAll_CleansWorkspaceWhenRootContextCanceled(t *testing.T) {
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	runGit(t, ctx, workingDir, "worktree", "add", "-b", "norma/relay/relay-1-1", workspaceDir, "HEAD")
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", "norma/relay/tg-1-1", workspaceDir, "HEAD")
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	rootCancel()
@@ -34,8 +34,9 @@ func TestStopAll_CleansWorkspaceWhenRootContextCanceled(t *testing.T) {
 		logger:           zerolog.Nop(),
 		rootCtx:          rootCtx,
 		sessions: map[string]*TopicSession{
-			"relay-1-1": {
-				sessionID:    "relay-1-1",
+			"tg-1-1": {
+				sessionID:    "tg-1-1",
+				locator:      NewTelegramSessionLocator(1, 1),
 				workspaceDir: workspaceDir,
 			},
 		},
@@ -58,16 +59,17 @@ func TestStopSession_UsesNonCanceledCleanupContext(t *testing.T) {
 		rootCtx:      rootCtx,
 		sessionStore: store,
 		sessions: map[string]*TopicSession{
-			"relay-10-42": {
-				sessionID: "relay-10-42",
+			"tg-10-42": {
+				sessionID: "tg-10-42",
+				locator:   NewTelegramSessionLocator(10, 42),
 			},
 		},
 	}
 
-	m.StopSession(10, 42)
+	m.StopTelegramSession(10, 42)
 
-	if store.deletedSessionID != "relay-10-42" {
-		t.Fatalf("DeleteBySessionID called with %q, want %q", store.deletedSessionID, "relay-10-42")
+	if store.deletedSessionID != "tg-10-42" {
+		t.Fatalf("DeleteBySessionID called with %q, want %q", store.deletedSessionID, "tg-10-42")
 	}
 	if store.deleteCtxErr != nil {
 		t.Fatalf("DeleteBySessionID ctx was canceled: %v", store.deleteCtxErr)
@@ -109,7 +111,11 @@ func (f *fakeSessionStore) Upsert(context.Context, relaystate.SessionRecord) err
 	return nil
 }
 
-func (f *fakeSessionStore) GetByChatTopic(context.Context, int64, int) (relaystate.SessionRecord, bool, error) {
+func (f *fakeSessionStore) GetByAddress(context.Context, string, string) (relaystate.SessionRecord, bool, error) {
+	return relaystate.SessionRecord{}, false, nil
+}
+
+func (f *fakeSessionStore) GetBySessionID(context.Context, string) (relaystate.SessionRecord, bool, error) {
 	return relaystate.SessionRecord{}, false, nil
 }
 

@@ -20,7 +20,7 @@ func TestMountWorktree_AllowsBranchAlreadyCheckedOutInMainWorktree(t *testing.T)
 	runGit(t, ctx, repoDir, "add", "seed.txt")
 	runGit(t, ctx, repoDir, "commit", "-m", "chore: seed")
 
-	branchName := "norma/relay/relay-1-0"
+	branchName := "norma/relay/tg-1-0"
 	runGit(t, ctx, repoDir, "checkout", "-b", branchName)
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")

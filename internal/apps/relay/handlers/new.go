@@ -20,7 +20,7 @@ import (
 type commandSessionManager interface {
 	CreateTopicSession(ctx context.Context, chatID int64, agentName string) (string, int, error)
 	GetAgentInfo(agentName string) (string, []string)
-	StopSession(chatID int64, topicID int)
+	StopTelegramSession(chatID int64, topicID int)
 	CloseTopic(ctx context.Context, chatID int64, topicID int)
 }
 
@@ -144,14 +144,14 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, event *events.Comma
 			log.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to send /close confirmation")
 		}
 		h.sessionManager.CloseTopic(ctx, chatID, topicID)
-		h.sessionManager.StopSession(chatID, topicID)
+		h.sessionManager.StopTelegramSession(chatID, topicID)
 		return nil
 	}
 
 	if err := h.messenger.SendPlain(ctx, chatID, "Stopping root agent session. It will be recreated on your next message.", topicID); err != nil {
 		log.Warn().Err(err).Int64("chat_id", chatID).Msg("failed to send /close root confirmation")
 	}
-	h.sessionManager.StopSession(chatID, topicID)
+	h.sessionManager.StopTelegramSession(chatID, topicID)
 	return nil
 }
 

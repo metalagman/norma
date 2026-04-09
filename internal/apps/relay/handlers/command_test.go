@@ -143,7 +143,7 @@ func (f *fakeCommandSessionManager) GetAgentInfo(string) (string, []string) {
 	return "", nil
 }
 
-func (f *fakeCommandSessionManager) StopSession(chatID int64, topicID int) {
+func (f *fakeCommandSessionManager) StopTelegramSession(chatID int64, topicID int) {
 	f.stopCalls = append(f.stopCalls, stopSessionCall{chatID: chatID, topicID: topicID})
 }
 

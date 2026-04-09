@@ -10,7 +10,7 @@ func TestStartAgentIncludesDescriptionAndMCPServers(t *testing.T) {
 	s := &service{
 		svc: fakeRelayService{
 			startInfo: AgentInfo{
-				SessionID:   "relay-1-2",
+				SessionID:   "tg-1-2",
 				AgentName:   "opencode",
 				ChatID:      1,
 				TopicID:     2,

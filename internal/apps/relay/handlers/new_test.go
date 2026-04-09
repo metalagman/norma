@@ -16,8 +16,8 @@ func TestBuildAgentWelcomeMessage_StartingWithoutSessionID(t *testing.T) {
 }
 
 func TestBuildAgentWelcomeMessage_StartedWithSessionID(t *testing.T) {
-	msg := BuildAgentWelcomeMessage("opencode", "relay-1-2", "desc", nil)
-	if !strings.Contains(msg, "Started new **opencode** agent session (relay-1-2).") {
+	msg := BuildAgentWelcomeMessage("opencode", "tg-1-2", "desc", nil)
+	if !strings.Contains(msg, "Started new **opencode** agent session (tg-1-2).") {
 		t.Fatalf("message = %q, want started text with session id", msg)
 	}
 }

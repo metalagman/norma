@@ -65,12 +65,5 @@ func (s *workspaceMCPServer) Export(ctx context.Context, sessionID string, commi
 }
 
 func (s *workspaceMCPServer) findBySessionID(sessionID string) (*TopicSession, error) {
-	s.manager.mu.RLock()
-	defer s.manager.mu.RUnlock()
-	for _, ts := range s.manager.sessions {
-		if ts.sessionID == sessionID {
-			return ts, nil
-		}
-	}
-	return nil, fmt.Errorf("session %q not found", sessionID)
+	return s.manager.FindSessionByID(sessionID)
 }

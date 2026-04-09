@@ -9,6 +9,7 @@ import (
 // TopicSession represents a single Telegram topic's ADK agent session.
 type TopicSession struct {
 	sessionID    string
+	locator      SessionLocator
 	topicID      int
 	agentName    string
 	agent        agent.Agent
@@ -34,4 +35,8 @@ func (s *TopicSession) GetWorkspaceDir() string {
 
 func (s *TopicSession) GetAgentName() string {
 	return s.agentName
+}
+
+func (s *TopicSession) GetLocator() SessionLocator {
+	return s.locator
 }

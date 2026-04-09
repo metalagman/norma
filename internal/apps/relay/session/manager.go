@@ -16,11 +16,9 @@ import (
 	"go.uber.org/fx"
 )
 
-const sessionIDPrefix = "relay"
-
 const cleanupTimeout = 10 * time.Second
 
-// Manager manages per-topic ADK agent sessions and persists session metadata.
+// Manager manages relay ADK sessions and persists session metadata.
 type Manager struct {
 	agentBuilder      *agent.Builder
 	relayMCPServerIDs []string
@@ -102,10 +100,6 @@ func (m *Manager) GetAgentInfo(agentName string) (string, []string) {
 	return description, mergeUniqueStringIDs(mcpServers, m.relayMCPServerIDs)
 }
 
-func (m *Manager) sessionID(chatID int64, topicID int) string {
-	return fmt.Sprintf("%s-%d-%d", sessionIDPrefix, chatID, topicID)
-}
-
 // SessionBranchName returns the git branch name for a relay session.
 func (m *Manager) SessionBranchName(sessionID string) string {
 	return fmt.Sprintf("norma/relay/%s", sessionID)
@@ -147,22 +141,33 @@ func (m *Manager) extraMCPServerIDs() []string {
 	return append([]string(nil), m.relayMCPServerIDs...)
 }
 
-// CreateSession builds an agent for the given topic and stores it in memory.
-func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, agentName string) error {
-	sessionID := m.sessionID(chatID, topicID)
+// CreateSession builds an agent for the given locator and stores it in memory.
+func (m *Manager) CreateSession(ctx context.Context, locator SessionLocator, agentName string) error {
+	addr, ok, err := locator.TelegramAddress()
+	if err != nil {
+		return fmt.Errorf("decode session locator: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("unsupported channel type %q", locator.ChannelType)
+	}
+
+	sessionID := strings.TrimSpace(locator.SessionID)
+	chatID := addr.ChatID
+	topicID := addr.TopicID
 
 	m.logger.Info().
 		Int64("chat_id", chatID).
 		Int("topic_id", topicID).
 		Str("agent", agentName).
 		Str("session_id", sessionID).
+		Str("channel_type", locator.ChannelType).
 		Msg("creating session")
 
 	m.mu.Lock()
 	if _, exists := m.sessions[sessionID]; exists {
 		m.mu.Unlock()
 		m.logger.Warn().Str("session_id", sessionID).Msg("session already exists")
-		return fmt.Errorf("session already exists for topic %d", topicID)
+		return fmt.Errorf("session already exists for %s", locator.AddressKey)
 	}
 	m.mu.Unlock()
 
@@ -170,7 +175,6 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 	workspaceDir := m.workingDir
 	if m.workspaceEnabled {
 		branchName = m.SessionBranchName(sessionID)
-		var err error
 		workspaceDir, err = m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
 		if err != nil {
 			m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")
@@ -198,6 +202,7 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 
 	ts := &TopicSession{
 		sessionID:    sessionID,
+		locator:      locator,
 		topicID:      topicID,
 		agentName:    agentName,
 		agent:        built.Agent,
@@ -228,6 +233,7 @@ func (m *Manager) CreateSession(ctx context.Context, chatID int64, topicID int, 
 		Int("topic_id", topicID).
 		Str("agent", agentName).
 		Str("session_id", sessionID).
+		Str("channel_type", locator.ChannelType).
 		Msg("session created successfully")
 
 	return nil
@@ -241,13 +247,11 @@ func (m *Manager) CreateTopicSession(ctx context.Context, chatID int64, agentNam
 		Str("agent", agentName).
 		Msg("creating topic session")
 
-	// First validate agent can be built - this checks config without creating anything
 	if err := m.ValidateAgent(agentName); err != nil {
 		m.logger.Error().Err(err).Str("agent", agentName).Msg("agent validation failed, not creating topic")
 		return "", 0, fmt.Errorf("agent %q not available: %w", agentName, err)
 	}
 
-	// Agent validated, now create the topic
 	topicName := fmt.Sprintf("Relay: %s", agentName)
 	createTopicResp, err := m.tgClient.CreateForumTopicWithResponse(ctx, client.CreateForumTopicJSONRequestBody{
 		ChatId: chatID,
@@ -267,6 +271,7 @@ func (m *Manager) CreateTopicSession(ctx context.Context, chatID int64, agentNam
 
 	topic := createTopicResp.JSON200.Result
 	topicID := topic.MessageThreadId
+	locator := NewTelegramSessionLocator(chatID, topicID)
 
 	m.logger.Info().
 		Int64("chat_id", chatID).
@@ -274,26 +279,25 @@ func (m *Manager) CreateTopicSession(ctx context.Context, chatID int64, agentNam
 		Str("agent", agentName).
 		Msg("forum topic created, creating agent session")
 
-	if err := m.CreateSession(ctx, chatID, topicID, agentName); err != nil {
+	if err := m.CreateSession(ctx, locator, agentName); err != nil {
 		m.logger.Error().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to create session, cleaning up topic")
 		m.closeTopic(ctx, chatID, topicID)
 		return "", 0, fmt.Errorf("creating agent session: %w", err)
 	}
 
-	sessionID := m.sessionID(chatID, topicID)
 	m.logger.Info().
 		Int64("chat_id", chatID).
 		Int("topic_id", topicID).
 		Str("agent", agentName).
-		Str("session_id", sessionID).
+		Str("session_id", locator.SessionID).
 		Msg("topic session created successfully")
 
-	return sessionID, topicID, nil
+	return locator.SessionID, topicID, nil
 }
 
-// GetSession returns the in-memory session for the given chat/topic.
-func (m *Manager) GetSession(chatID int64, topicID int) (*TopicSession, error) {
-	sessionID := m.sessionID(chatID, topicID)
+// GetSession returns the in-memory session for the given locator.
+func (m *Manager) GetSession(locator SessionLocator) (*TopicSession, error) {
+	sessionID := strings.TrimSpace(locator.SessionID)
 
 	m.mu.RLock()
 	ts := m.sessions[sessionID]
@@ -301,118 +305,61 @@ func (m *Manager) GetSession(chatID int64, topicID int) (*TopicSession, error) {
 
 	if ts == nil {
 		m.logger.Debug().
-			Int64("chat_id", chatID).
-			Int("topic_id", topicID).
 			Str("session_id", sessionID).
+			Str("channel_type", locator.ChannelType).
+			Str("address_key", locator.AddressKey).
 			Int("active_sessions", len(m.sessions)).
 			Msg("session not found")
-		return nil, fmt.Errorf("no session for topic %d", topicID)
+		return nil, fmt.Errorf("no session for %s", locator.AddressKey)
 	}
 
 	return ts, nil
 }
 
+// GetTelegramSession returns the in-memory session for the given Telegram tuple.
+func (m *Manager) GetTelegramSession(chatID int64, topicID int) (*TopicSession, error) {
+	return m.GetSession(NewTelegramSessionLocator(chatID, topicID))
+}
+
+// FindSessionByID returns the in-memory session with the given session ID.
+func (m *Manager) FindSessionByID(sessionID string) (*TopicSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ts := m.sessions[strings.TrimSpace(sessionID)]
+	if ts == nil {
+		return nil, fmt.Errorf("session %q not found", sessionID)
+	}
+	return ts, nil
+}
+
 // EnsureSession returns the existing session or creates a new one if it doesn't exist.
-// For topic 0 (main orchestrator), it creates the session without a forum topic.
-func (m *Manager) EnsureSession(ctx context.Context, chatID int64, topicID int, agentName string) (*TopicSession, error) {
-	sessionID := m.sessionID(chatID, topicID)
+func (m *Manager) EnsureSession(ctx context.Context, locator SessionLocator, agentName string) (*TopicSession, error) {
+	sessionID := strings.TrimSpace(locator.SessionID)
 
 	m.mu.RLock()
 	ts := m.sessions[sessionID]
 	m.mu.RUnlock()
 
 	if ts != nil {
-		m.logger.Debug().
-			Int64("chat_id", chatID).
-			Int("topic_id", topicID).
-			Str("session_id", sessionID).
-			Msg("returning existing session")
+		m.logger.Debug().Str("session_id", sessionID).Msg("returning existing session")
 		return ts, nil
 	}
 
-	m.logger.Info().
-		Int64("chat_id", chatID).
-		Int("topic_id", topicID).
-		Str("agent", agentName).
-		Str("session_id", sessionID).
-		Msg("creating new session via EnsureSession")
-
-	// Create new session
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if ts = m.sessions[sessionID]; ts != nil {
-		return ts, nil
-	}
-
-	branchName := ""
-	workspaceDir := m.workingDir
-	if m.workspaceEnabled {
-		branchName = m.SessionBranchName(sessionID)
-		var err error
-		workspaceDir, err = m.workspaces.EnsureWorkspace(ctx, sessionID, branchName, "")
-		if err != nil {
-			m.logger.Error().Err(err).Str("session_id", sessionID).Msg("failed to create workspace")
-			return nil, fmt.Errorf("create workspace: %w", err)
-		}
-	}
-
-	built, err := m.agentBuilder.BuildWithMCPServerIDs(
-		m.rootCtx,
-		sessionID,
-		chatID,
-		topicID,
-		agentName,
-		workspaceDir,
-		m.extraMCPServerIDs(),
-	)
-	if err != nil {
-		m.logger.Error().Err(err).Str("session_id", sessionID).Str("agent", agentName).Msg("failed to build agent")
-		if m.workspaceEnabled {
-			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
-		}
+	if err := m.CreateSession(ctx, locator, agentName); err != nil {
 		return nil, err
 	}
-
-	ts = &TopicSession{
-		sessionID:    sessionID,
-		topicID:      topicID,
-		agentName:    agentName,
-		agent:        built.Agent,
-		runner:       built.Runner,
-		sessionSvc:   built.SessionSvc,
-		sess:         built.Session,
-		chatID:       chatID,
-		workspaceDir: workspaceDir,
-		branchName:   branchName,
-	}
-
-	if err := m.persistSessionRecord(ctx, ts, relaystate.SessionStatusActive); err != nil {
-		if closer, ok := ts.agent.(io.Closer); ok {
-			_ = closer.Close()
-		}
-		if m.workspaceEnabled && workspaceDir != "" {
-			_ = m.workspaces.CleanupWorkspace(ctx, workspaceDir)
-		}
-		return nil, fmt.Errorf("persist session metadata: %w", err)
-	}
-
-	m.sessions[sessionID] = ts
-
-	m.logger.Info().
-		Int64("chat_id", chatID).
-		Int("topic_id", topicID).
-		Str("agent", agentName).
-		Str("session_id", sessionID).
-		Msg("session created via EnsureSession")
-
-	return ts, nil
+	return m.GetSession(locator)
 }
 
-// RestoreSession restores a topic session from persisted metadata when it is not active in memory.
-func (m *Manager) RestoreSession(ctx context.Context, chatID int64, topicID int) (*TopicSession, error) {
-	sessionID := m.sessionID(chatID, topicID)
+// EnsureTelegramSession returns the existing Telegram session or creates a new one.
+func (m *Manager) EnsureTelegramSession(ctx context.Context, chatID int64, topicID int, agentName string) (*TopicSession, error) {
+	return m.EnsureSession(ctx, NewTelegramSessionLocator(chatID, topicID), agentName)
+}
+
+// RestoreSession restores a session from persisted metadata when it is not active in memory.
+func (m *Manager) RestoreSession(ctx context.Context, locator SessionLocator) (*TopicSession, error) {
+	sessionID := strings.TrimSpace(locator.SessionID)
 
 	m.mu.RLock()
 	if ts := m.sessions[sessionID]; ts != nil {
@@ -421,38 +368,48 @@ func (m *Manager) RestoreSession(ctx context.Context, chatID int64, topicID int)
 	}
 	m.mu.RUnlock()
 
-	record, ok, err := m.sessionStore.GetByChatTopic(ctx, chatID, topicID)
+	record, ok, err := m.sessionStore.GetByAddress(ctx, locator.ChannelType, locator.AddressKey)
 	if err != nil {
 		return nil, fmt.Errorf("read session metadata: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("no persisted session for topic %d", topicID)
+		return nil, fmt.Errorf("no persisted session for %s", locator.AddressKey)
 	}
 	if strings.TrimSpace(record.Status) != "" && record.Status != relaystate.SessionStatusActive {
-		return nil, fmt.Errorf("persisted session for topic %d is not active", topicID)
+		return nil, fmt.Errorf("persisted session for %s is not active", locator.AddressKey)
 	}
 	if strings.TrimSpace(record.AgentName) == "" {
-		return nil, fmt.Errorf("persisted session for topic %d has empty agent name", topicID)
+		return nil, fmt.Errorf("persisted session for %s has empty agent name", locator.AddressKey)
+	}
+
+	recordLocator, err := LocatorFromRecord(record)
+	if err != nil {
+		return nil, fmt.Errorf("decode persisted session locator: %w", err)
 	}
 
 	m.logger.Info().
-		Int64("chat_id", chatID).
-		Int("topic_id", topicID).
 		Str("session_id", sessionID).
+		Str("channel_type", recordLocator.ChannelType).
+		Str("address_key", recordLocator.AddressKey).
 		Str("agent", record.AgentName).
 		Msg("restoring session from persisted metadata")
 
-	return m.EnsureSession(ctx, chatID, topicID, record.AgentName)
+	return m.EnsureSession(ctx, recordLocator, record.AgentName)
+}
+
+// RestoreTelegramSession restores a Telegram session from persisted metadata.
+func (m *Manager) RestoreTelegramSession(ctx context.Context, chatID int64, topicID int) (*TopicSession, error) {
+	return m.RestoreSession(ctx, NewTelegramSessionLocator(chatID, topicID))
 }
 
 // StopSession removes a session from memory and cleans up.
-func (m *Manager) StopSession(chatID int64, topicID int) {
-	sessionID := m.sessionID(chatID, topicID)
+func (m *Manager) StopSession(locator SessionLocator) {
+	sessionID := strings.TrimSpace(locator.SessionID)
 
 	m.logger.Info().
-		Int64("chat_id", chatID).
-		Int("topic_id", topicID).
 		Str("session_id", sessionID).
+		Str("channel_type", locator.ChannelType).
+		Str("address_key", locator.AddressKey).
 		Msg("stopping session")
 
 	m.mu.Lock()
@@ -476,6 +433,11 @@ func (m *Manager) StopSession(chatID int64, topicID int) {
 	}
 
 	m.logger.Info().Str("session_id", sessionID).Msg("session stopped")
+}
+
+// StopTelegramSession removes a Telegram session from memory and cleans up.
+func (m *Manager) StopTelegramSession(chatID int64, topicID int) {
+	m.StopSession(NewTelegramSessionLocator(chatID, topicID))
 }
 
 // StopAll closes all sessions.
@@ -517,6 +479,7 @@ func (m *Manager) ListSessions() []TopicSessionInfo {
 	for _, ts := range m.sessions {
 		out = append(out, TopicSessionInfo{
 			SessionID:    ts.sessionID,
+			ChannelType:  ts.locator.ChannelType,
 			AgentName:    ts.agentName,
 			ChatID:       ts.chatID,
 			TopicID:      ts.topicID,
@@ -529,6 +492,7 @@ func (m *Manager) ListSessions() []TopicSessionInfo {
 
 type TopicSessionInfo struct {
 	SessionID    string
+	ChannelType  string
 	AgentName    string
 	ChatID       int64
 	TopicID      int
@@ -572,7 +536,7 @@ func (m *Manager) CommitWorkspace(ctx context.Context, chatID int64, topicID int
 		return fmt.Errorf("workspace mode is disabled")
 	}
 
-	sessionID := m.sessionID(chatID, topicID)
+	sessionID := NewTelegramSessionLocator(chatID, topicID).SessionID
 
 	m.mu.RLock()
 	ts, exists := m.sessions[sessionID]
@@ -617,8 +581,9 @@ func (m *Manager) persistSessionRecord(ctx context.Context, ts *TopicSession, st
 
 	return m.sessionStore.Upsert(ctx, relaystate.SessionRecord{
 		SessionID:    ts.sessionID,
-		ChatID:       ts.chatID,
-		TopicID:      ts.topicID,
+		ChannelType:  ts.locator.ChannelType,
+		AddressKey:   ts.locator.AddressKey,
+		AddressJSON:  ts.locator.AddressJSON,
 		AgentName:    ts.agentName,
 		WorkspaceDir: ts.workspaceDir,
 		BranchName:   ts.branchName,

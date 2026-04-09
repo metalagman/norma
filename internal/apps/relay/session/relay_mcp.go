@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaywelcome "github.com/normahq/norma/internal/apps/relay/welcome"
@@ -82,7 +81,7 @@ func (s *relayMCPServer) StopAgent(_ context.Context, sessionID string) error {
 		return err
 	}
 
-	s.manager.StopSession(ts.chatID, ts.topicID)
+	s.manager.StopSession(ts.GetLocator())
 	s.logger.Info().Str("session_id", sessionID).Msg("MCP: StopAgent succeeded")
 	return nil
 }
@@ -126,12 +125,5 @@ func (s *relayMCPServer) GetSession(_ context.Context, sessionID string) (relaym
 }
 
 func (s *relayMCPServer) findBySessionID(sessionID string) (*TopicSession, error) {
-	s.manager.mu.RLock()
-	defer s.manager.mu.RUnlock()
-	for _, ts := range s.manager.sessions {
-		if ts.sessionID == sessionID {
-			return ts, nil
-		}
-	}
-	return nil, fmt.Errorf("session %q not found", sessionID)
+	return s.manager.FindSessionByID(sessionID)
 }

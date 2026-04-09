@@ -122,9 +122,9 @@ func TestBuildRelaySystemInstruction_ComposesAgentInstructions(t *testing.T) {
 	}
 
 	got := builder.buildRelaySystemInstruction(
-		"relay-1-2",
+		"tg-1-2",
 		"alpha",
-		"norma/relay/relay-1-2",
+		"norma/relay/tg-1-2",
 		"/tmp/work",
 		"main",
 	)
@@ -140,9 +140,9 @@ func TestBuildRelaySystemInstruction_OmitsAgentSpecificSectionWhenEmpty(t *testi
 
 	builder := &Builder{}
 	got := builder.buildRelaySystemInstruction(
-		"relay-1-2",
+		"tg-1-2",
 		"alpha",
-		"norma/relay/relay-1-2",
+		"norma/relay/tg-1-2",
 		"/tmp/work",
 		"main",
 	)
@@ -161,9 +161,9 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 	}
 
 	got := builder.buildRelaySystemInstruction(
-		"relay-1-2",
+		"tg-1-2",
 		"alpha",
-		"norma/relay/relay-1-2",
+		"norma/relay/tg-1-2",
 		"/tmp/work",
 		"develop",
 	)
@@ -173,7 +173,7 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 		"Mode: git-worktree",
 		"Path: /tmp/work",
 		"Base branch: main",
-		"Session branch: norma/relay/relay-1-2",
+		"Session branch: norma/relay/tg-1-2",
 		"Main repo branch at start: develop",
 		"Git workspace guidance:",
 	}
@@ -189,9 +189,9 @@ func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisa
 
 	builder := &Builder{workspaceEnabled: false}
 	got := builder.buildRelaySystemInstruction(
-		"relay-1-2",
+		"tg-1-2",
 		"alpha",
-		"norma/relay/relay-1-2",
+		"norma/relay/tg-1-2",
 		"/tmp/work",
 		"main",
 	)

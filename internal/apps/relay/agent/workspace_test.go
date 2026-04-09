@@ -21,7 +21,7 @@ func TestWorkspaceImportDiscardsDirtyChangesAndSyncsToMaster(t *testing.T) {
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	branchName := "norma/relay/relay-1-0"
+	branchName := "norma/relay/tg-1-0"
 	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
 	t.Cleanup(func() {
 		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
@@ -68,7 +68,7 @@ func TestWorkspaceImportRebasesCleanBranch(t *testing.T) {
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	branchName := "norma/relay/relay-1-1"
+	branchName := "norma/relay/tg-1-1"
 	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
 	t.Cleanup(func() {
 		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
@@ -113,7 +113,7 @@ func TestWorkspaceImportUsesCurrentHeadBranchNotHardcodedMaster(t *testing.T) {
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	branchName := "norma/relay/relay-2-1"
+	branchName := "norma/relay/tg-2-1"
 	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
 	t.Cleanup(func() {
 		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
@@ -145,7 +145,7 @@ func TestWorkspaceImportAbortsRebaseOnConflict(t *testing.T) {
 	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	branchName := "norma/relay/relay-1-2"
+	branchName := "norma/relay/tg-1-2"
 	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "HEAD")
 	t.Cleanup(func() {
 		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
@@ -200,7 +200,7 @@ func TestWorkspaceExportSquashMergesIntoConfiguredBaseBranch(t *testing.T) {
 	runGit(t, ctx, workingDir, "branch", "-M", "main")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	branchName := "norma/relay/relay-1-3"
+	branchName := "norma/relay/tg-1-3"
 	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "main")
 	t.Cleanup(func() {
 		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)
@@ -239,7 +239,7 @@ func TestWorkspaceExportFailsWhenBaseBranchMismatch(t *testing.T) {
 	runGit(t, ctx, workingDir, "branch", "-M", "main")
 
 	workspaceDir := filepath.Join(t.TempDir(), "relay-workspace")
-	branchName := "norma/relay/relay-1-4"
+	branchName := "norma/relay/tg-1-4"
 	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, workspaceDir, "main")
 	t.Cleanup(func() {
 		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", workspaceDir)

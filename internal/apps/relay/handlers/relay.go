@@ -116,7 +116,7 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 func (h *RelayHandler) ActivateOwner(ctx context.Context, ownerID, chatID int64) error {
 	h.SetOwner(ownerID, chatID)
 
-	if _, err := h.sessionManager.GetSession(chatID, 0); err == nil {
+	if _, err := h.sessionManager.GetTelegramSession(chatID, 0); err == nil {
 		return nil
 	}
 
@@ -178,14 +178,14 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		}
 
 		// Check if session already exists to avoid sending spinning message again
-		existingSession, _ := h.sessionManager.GetSession(chatID, topicID)
+		existingSession, _ := h.sessionManager.GetTelegramSession(chatID, topicID)
 		if existingSession == nil {
 			// Send spinning message for on-demand creation
 			agentDesc, mcpServers := h.sessionManager.GetAgentInfo(h.rootAgentName)
 			spinningMsg := BuildAgentWelcomeMessage(h.rootAgentName, "", agentDesc, mcpServers)
 			_ = h.messenger.SendMarkdown(ctx, chatID, spinningMsg, topicID)
 		}
-		ts, err = h.sessionManager.EnsureSession(ctx, chatID, topicID, h.rootAgentName)
+		ts, err = h.sessionManager.EnsureTelegramSession(ctx, chatID, topicID, h.rootAgentName)
 		if err != nil {
 			log.Error().Err(err).Str("agent", h.rootAgentName).Msg("failed to ensure root session")
 			_ = h.messenger.SendPlain(
@@ -198,10 +198,10 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		}
 	} else {
 		// Subagent topic: try in-memory first, then lazy restore from persisted metadata.
-		ts, err = h.sessionManager.GetSession(chatID, topicID)
+		ts, err = h.sessionManager.GetTelegramSession(chatID, topicID)
 		if err != nil {
 			_ = h.messenger.SendPlain(ctx, chatID, "Restoring agent session...", topicID)
-			ts, err = h.sessionManager.RestoreSession(ctx, chatID, topicID)
+			ts, err = h.sessionManager.RestoreTelegramSession(ctx, chatID, topicID)
 			if err != nil {
 				log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to restore topic session")
 				_ = h.messenger.SendPlain(
@@ -442,7 +442,7 @@ func (h *RelayHandler) ensureRootSession(ctx context.Context, chatID int64) erro
 		h.logger.Warn().Err(err).Msg("failed to send spinning up message")
 	}
 
-	ts, err := h.sessionManager.EnsureSession(ctx, chatID, 0, agentName)
+	ts, err := h.sessionManager.EnsureTelegramSession(ctx, chatID, 0, agentName)
 	if err != nil {
 		return fmt.Errorf("precreate root session: %w", err)
 	}
