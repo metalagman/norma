@@ -1,10 +1,11 @@
 # Norma Relay (V1)
 
-`relay serve` is a standalone Telegram relay server that binds Telegram chats/topics to ADK agents created by Norma's agent factory.
+`relay serve` is a channel-aware background ACP service that currently binds Telegram chats/topics to ADK agents created by Norma's agent factory.
 
 ## Summary
 
 - Runtime stack: `tgbotkit/runtime` + Google ADK runners.
+- Telegram is the first supported relay channel; future channels should be added as top-level config siblings such as `relay.whatsapp`.
 - Main agent: relay app key `relay.root_agent` (profile overrides via `profiles.<profile>.relay.root_agent`).
 - Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
 - Relay startup prompt includes workspace settings for each session; in git workspace mode it also includes session/base/current-branch context and workspace MCP guidance.
@@ -83,6 +84,7 @@ profiles: {}
   - key: agent ID from `norma.agents`
   - value: instruction text appended in relay prompt for that agent
   - effective relay instruction order: built-in relay instructions + `norma.agents.<agent>.system_instruction` + `relay.agent_system_instructions.<agent>` (last wins by position)
+  - `relay init` generates a channel-aware example prompt for the selected root agent
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `norma.workspace` MCP)
@@ -99,6 +101,7 @@ Session key:
 
 - Root relay session: `(chat_id, topic_id=0)`
 - Topic subagent session: `(chat_id, topic_id)`
+- Canonical relay session IDs are channel-scoped. Telegram uses `tg-<chat_id>-<topic_id>`.
 
 Session runtimes are still in-memory, but metadata is persisted in `relay.db`.
 Relay lazy-restores a topic session on first message after restart when metadata exists.
@@ -141,13 +144,28 @@ Both paths create:
 ## Relay MCP API (V1)
 
 - `norma.relay.start_agent`
-  - input: `chat_id`, `agent_name`
-  - output: `session_id`, `topic_id`, `chat_id`, `agent_name`
+  - input: `agent_name`, plus either:
+    - `chat_id`, or
+    - `session_id` to infer the current channel/chat context
+  - output: structured session object including `channel_type`, `address_key`, `session_id`, `chat_id`, `topic_id`, `agent_name`, `description`, `mcp_servers`
 - `norma.relay.stop_agent`
   - input: `session_id`
 - `norma.relay.list_agents`
+  - output: structured `agents[]` entries, including persisted sessions with `status=persisted`
 - `norma.relay.get_agent`
   - input: `session_id`
+  - output: structured `agent` object
+
+Relay agents should prefer `session_id` over raw Telegram IDs when they spawn subagents from the current chat context.
+
+## Workspace MCP Usage
+
+- `norma.workspace.import`
+  - rebases the session workspace onto the configured base branch
+  - works for active or persisted sessions as long as workspace metadata exists in `relay.db`
+- `norma.workspace.export`
+  - squash-merges the session workspace branch into the configured base branch with the provided Conventional Commit message
+  - also works for persisted sessions before lazy restore
 
 ## Acceptance/Verification Scenarios
 

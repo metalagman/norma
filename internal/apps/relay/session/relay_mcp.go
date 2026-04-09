@@ -88,6 +88,8 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 		Msg("MCP: StartAgent succeeded")
 
 	return relaymcp.AgentInfo{
+		ChannelType: locator.ChannelType,
+		AddressKey:  locator.AddressKey,
 		SessionID:   locator.SessionID,
 		AgentName:   agentName,
 		ChatID:      chatID,
@@ -120,6 +122,8 @@ func (s *relayMCPServer) ListAgents(ctx context.Context) ([]relaymcp.AgentInfo, 
 
 	for _, info := range infos {
 		out = append(out, relaymcp.AgentInfo{
+			ChannelType: info.ChannelType,
+			AddressKey:  info.Locator.AddressKey,
 			SessionID:  info.SessionID,
 			AgentName:  info.AgentName,
 			ChatID:     info.ChatID,
@@ -141,6 +145,8 @@ func (s *relayMCPServer) GetSession(ctx context.Context, sessionID string) (rela
 	}
 
 	return relaymcp.AgentInfo{
+		ChannelType: info.ChannelType,
+		AddressKey:  info.Locator.AddressKey,
 		SessionID:  info.SessionID,
 		AgentName:  info.AgentName,
 		ChatID:     info.ChatID,

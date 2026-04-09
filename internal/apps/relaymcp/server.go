@@ -61,6 +61,8 @@ type RelayService interface {
 }
 
 type AgentInfo struct {
+	ChannelType string
+	AddressKey  string
 	SessionID   string
 	AgentName   string
 	ChatID      int64
@@ -179,12 +181,15 @@ func (s *service) registerTools(server *mcp.Server) {
 }
 
 type startAgentInput struct {
-	ChatID    int64  `json:"chat_id" jsonschema:"Telegram chat ID where topic should be created"`
+	ChatID    int64  `json:"chat_id,omitempty" jsonschema:"Telegram chat ID where topic should be created; optional when session_id is provided"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"existing relay session ID used to infer the current chat/channel context"`
 	AgentName string `json:"agent_name" jsonschema:"name of the agent to start"`
 }
 
 type startAgentOutput struct {
 	ToolOutcome
+	ChannelType string   `json:"channel_type,omitempty"`
+	AddressKey  string   `json:"address_key,omitempty"`
 	SessionID   string   `json:"session_id,omitempty"`
 	TopicID     int      `json:"topic_id,omitempty"`
 	ChatID      int64    `json:"chat_id,omitempty"`
@@ -198,12 +203,26 @@ func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in sta
 		result, out := validationFailure("norma.relay.start_agent", "agent_name is required")
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
-	if in.ChatID == 0 {
-		result, out := validationFailure("norma.relay.start_agent", "chat_id is required")
-		return result, startAgentOutput{ToolOutcome: out}, nil
+
+	chatID := in.ChatID
+	if chatID == 0 {
+		if strings.TrimSpace(in.SessionID) == "" {
+			result, out := validationFailure("norma.relay.start_agent", "chat_id or session_id is required")
+			return result, startAgentOutput{ToolOutcome: out}, nil
+		}
+		parent, err := s.svc.GetSession(ctx, in.SessionID)
+		if err != nil {
+			result, out := backendFailure("norma.relay.start_agent", fmt.Errorf("resolve session context: %w", err))
+			return result, startAgentOutput{ToolOutcome: out}, nil
+		}
+		chatID = parent.ChatID
+		if chatID == 0 {
+			result, out := validationFailure("norma.relay.start_agent", fmt.Sprintf("session %q has no chat context", in.SessionID))
+			return result, startAgentOutput{ToolOutcome: out}, nil
+		}
 	}
 
-	info, err := s.svc.StartAgent(ctx, in.ChatID, in.AgentName)
+	info, err := s.svc.StartAgent(ctx, chatID, in.AgentName)
 	if err != nil {
 		result, out := backendFailure("norma.relay.start_agent", err)
 		return result, startAgentOutput{ToolOutcome: out}, nil
@@ -211,6 +230,8 @@ func (s *service) startAgent(ctx context.Context, _ *mcp.CallToolRequest, in sta
 
 	return nil, startAgentOutput{
 		ToolOutcome: okOutcome(),
+		ChannelType: info.ChannelType,
+		AddressKey:  info.AddressKey,
 		SessionID:   info.SessionID,
 		TopicID:     info.TopicID,
 		ChatID:      info.ChatID,
@@ -238,51 +259,47 @@ func (s *service) stopAgent(ctx context.Context, _ *mcp.CallToolRequest, in stop
 	return nil, okOutcome(), nil
 }
 
-func (s *service) listAgents(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ToolOutcome, error) {
+type listAgentsOutput struct {
+	ToolOutcome
+	Agents []AgentInfo `json:"agents,omitempty"`
+}
+
+func (s *service) listAgents(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listAgentsOutput, error) {
 	agents, err := s.svc.ListAgents(ctx)
 	if err != nil {
 		result, out := backendFailure("norma.relay.list_agents", err)
-		return result, out, nil
+		return result, listAgentsOutput{ToolOutcome: out}, nil
 	}
 
-	if len(agents) == 0 {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: "No active agent sessions"}},
-		}, okOutcome(), nil
-	}
-
-	var sb strings.Builder
-	sb.WriteString("Active agent sessions:\n")
-	for _, a := range agents {
-		fmt.Fprintf(&sb, "- %s: %s (chat=%d, topic=%d, status=%s)\n",
-			a.SessionID, a.AgentName, a.ChatID, a.TopicID, a.Status)
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
-	}, okOutcome(), nil
+	return nil, listAgentsOutput{
+		ToolOutcome: okOutcome(),
+		Agents:      agents,
+	}, nil
 }
 
 type getAgentInput struct {
 	SessionID string `json:"session_id" jsonschema:"session ID to retrieve"`
 }
 
-func (s *service) getAgent(ctx context.Context, _ *mcp.CallToolRequest, in getAgentInput) (*mcp.CallToolResult, ToolOutcome, error) {
+type getAgentOutput struct {
+	ToolOutcome
+	Agent *AgentInfo `json:"agent,omitempty"`
+}
+
+func (s *service) getAgent(ctx context.Context, _ *mcp.CallToolRequest, in getAgentInput) (*mcp.CallToolResult, getAgentOutput, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
 		result, out := validationFailure("norma.relay.get_agent", "session_id is required")
-		return result, out, nil
+		return result, getAgentOutput{ToolOutcome: out}, nil
 	}
 
 	agent, err := s.svc.GetSession(ctx, in.SessionID)
 	if err != nil {
 		result, out := validationFailure("norma.relay.get_agent", fmt.Sprintf("session not found: %v", err))
-		return result, out, nil
+		return result, getAgentOutput{ToolOutcome: out}, nil
 	}
 
-	text := fmt.Sprintf("Session: %s\nAgent: %s\nChat: %d\nTopic: %d\nStatus: %s\nWorking Dir: %s",
-		agent.SessionID, agent.AgentName, agent.ChatID, agent.TopicID, agent.Status, agent.WorkingDir)
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: text}},
-	}, okOutcome(), nil
+	return nil, getAgentOutput{
+		ToolOutcome: okOutcome(),
+		Agent:       &agent,
+	}, nil
 }
