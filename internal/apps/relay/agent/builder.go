@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -37,6 +38,7 @@ type Builder struct {
 
 type relayPromptData struct {
 	SessionID         string
+	ConfigPath        string
 	WorkspaceDir      string
 	WorkspaceEnabled  bool
 	SessionBranch     string
@@ -80,6 +82,7 @@ func (b *Builder) buildRelaySystemInstruction(
 
 	data := relayPromptData{
 		SessionID:         sessionID,
+		ConfigPath:        relayConfigPath(b.workingDir),
 		WorkspaceDir:      workspaceDir,
 		WorkspaceEnabled:  b.workspaceEnabled,
 		SessionBranch:     sessionBranch,
@@ -101,6 +104,14 @@ func (b *Builder) buildRelaySystemInstruction(
 		return relaySystemInstructionTmpl
 	}
 	return buf.String()
+}
+
+func relayConfigPath(workingDir string) string {
+	trimmed := strings.TrimSpace(workingDir)
+	if trimmed == "" {
+		return ""
+	}
+	return filepath.Join(trimmed, ".config", "relay", "config.yaml")
 }
 
 type BuilderParams struct {

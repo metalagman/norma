@@ -5,8 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -31,32 +29,6 @@ func TestIsBundled(t *testing.T) {
 				t.Fatalf("isBundled(%q) = %t, want %t", tc.id, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestSelectConfigPath_RelayUsesDedicatedConfigPath(t *testing.T) {
-	workDir := t.TempDir()
-	got := selectConfigPath(workDir, "relay")
-	want := filepath.Join(workDir, ".config", "relay", "config.yaml")
-	if got != want {
-		t.Fatalf("selectConfigPath() = %q, want %q", got, want)
-	}
-}
-
-func TestSelectConfigPath_NonRelayFallsBackToCoreConfig(t *testing.T) {
-	workDir := t.TempDir()
-	normaDir := filepath.Join(workDir, ".norma")
-	if err := os.MkdirAll(normaDir, 0o755); err != nil {
-		t.Fatalf("mkdir .norma: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(normaDir, "config.yaml"), []byte("a: b\n"), 0o600); err != nil {
-		t.Fatalf("write config.yaml: %v", err)
-	}
-
-	got := selectConfigPath(workDir, "cli")
-	want := filepath.Join(normaDir, "config.yaml")
-	if got != want {
-		t.Fatalf("selectConfigPath() = %q, want %q", got, want)
 	}
 }
 

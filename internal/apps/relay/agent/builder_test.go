@@ -158,6 +158,7 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 	builder := &Builder{
 		workspaceEnabled:    true,
 		workspaceBaseBranch: "main",
+		workingDir:          "/repo",
 	}
 
 	got := builder.buildRelaySystemInstruction(
@@ -172,6 +173,7 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 		"Workspace settings:",
 		"Mode: git-worktree",
 		"Path: /tmp/work",
+		"Config path: /repo/.config/relay/config.yaml",
 		"Base branch: main",
 		"Session branch: norma/relay/tg-1-2",
 		"Main repo branch at start: develop",
@@ -187,7 +189,7 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisabled(t *testing.T) {
 	t.Parallel()
 
-	builder := &Builder{workspaceEnabled: false}
+	builder := &Builder{workspaceEnabled: false, workingDir: "/repo"}
 	got := builder.buildRelaySystemInstruction(
 		"tg-1-2",
 		"alpha",
@@ -200,6 +202,7 @@ func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisa
 		"Workspace settings:",
 		"Mode: direct",
 		"Path: /tmp/work",
+		"Config path: /repo/.config/relay/config.yaml",
 		"Base branch: n/a",
 		"Git workspace tooling: disabled",
 	}
@@ -211,6 +214,9 @@ func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisa
 
 	if strings.Contains(got, "Git workspace guidance:") {
 		t.Fatalf("buildRelaySystemInstruction() unexpectedly included git guidance in direct mode:\n%s", got)
+	}
+	if strings.Contains(got, "relay.config") {
+		t.Fatalf("buildRelaySystemInstruction() unexpectedly advertised relay.config:\n%s", got)
 	}
 }
 

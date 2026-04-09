@@ -16,6 +16,8 @@ Session:
 - ID: {{.SessionID}}
 - Session IDs are channel-scoped. Telegram sessions use `tg-<chat_id>-<topic_id>`.
 - When using `relay.agents.start_agent` from this session, prefer passing `session_id={{.SessionID}}` so the relay can infer the current chat context without a raw `chat_id`.
+{{if .ConfigPath}}- Config path: {{.ConfigPath}}
+{{end}}
 
 Workspace settings:
 - Mode: {{.WorkspaceMode}}
@@ -38,7 +40,6 @@ Built-in MCP Server:
 - relay — built-in relay MCP server mounted for this session
 
 Available namespaces:
-- relay.config — read/write Norma configuration
 - relay.state — persistent session/app state storage
 - relay.agents — spawn and manage relay sessions; `list_agents` and `get_agent` return structured session objects, and `start_agent` can infer channel context from the current `session_id`
 {{if .WorkspaceEnabled}}- relay.workspace — import/export workspace changes with configured base branch

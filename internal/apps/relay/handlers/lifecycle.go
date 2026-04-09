@@ -5,14 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/norma/internal/apps/configmcp"
 	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	"github.com/normahq/norma/internal/apps/relay/session"
@@ -116,14 +113,6 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 		nil,
 	)
 
-	configPath := selectConfigPath(m.workingDir, "relay")
-	svc, err := configmcp.NewConfigService(configPath)
-	if err != nil {
-		m.logger.Warn().Err(err).Msg("failed to create config service")
-	} else {
-		configmcp.RegisterTools(server, svc)
-	}
-
 	sessionmcp.RegisterTools(server, m.stateStore)
 
 	relaySvc := session.NewRelayMCPServer(m.sessionManager, m.channel, m.messenger)
@@ -220,18 +209,6 @@ func startBundledMCPHTTPServer(ctx context.Context, addr string, handlersByID ma
 			return httpServer.Close()
 		},
 	}, nil
-}
-
-func selectConfigPath(workDir, appName string) string {
-	if appName == "relay" {
-		return filepath.Join(workDir, ".config", "relay", "config.yaml")
-	}
-
-	appPath := filepath.Join(workDir, ".norma", appName+".yaml")
-	if info, err := os.Stat(appPath); err == nil && !info.IsDir() {
-		return appPath
-	}
-	return filepath.Join(workDir, ".norma", "config.yaml")
 }
 
 func (m *InternalMCPManager) addCleanup(f func() error) {

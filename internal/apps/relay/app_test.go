@@ -153,7 +153,7 @@ func TestNormalizeAgentSystemInstructions(t *testing.T) {
 func TestValidateRelayMCPConfiguration_RejectsRemovedBuiltInServerReferences(t *testing.T) {
 	cfg := Config{
 		Relay: RelayConfig{
-			MCPServers: []string{"norma.state"},
+			MCPServers: []string{"relay.config"},
 		},
 	}
 	normaCfg := runtimeconfig.NormaConfig{
@@ -162,11 +162,11 @@ func TestValidateRelayMCPConfiguration_RejectsRemovedBuiltInServerReferences(t *
 		},
 	}
 
-	err := validateRelayMCPConfiguration(cfg, normaCfg)
+	err := validateRelayMCPConfiguration(cfg, normaCfg, "/tmp/work/.config/relay/config.yaml")
 	if err == nil {
 		t.Fatal("validateRelayMCPConfiguration() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), `relay.mcp_servers[0] references removed built-in MCP server "norma.state"; use "relay"`) {
+	if !strings.Contains(err.Error(), `relay.mcp_servers[0] references removed built-in config MCP server "relay.config"; edit the relay config file directly at "/tmp/work/.config/relay/config.yaml"`) {
 		t.Fatalf("unexpected relay.mcp_servers validation error: %v", err)
 	}
 	if !strings.Contains(err.Error(), `norma.agents.root.mcp_servers[0] references removed built-in MCP server "relay.workspace"; use "relay"`) {
@@ -180,19 +180,19 @@ func TestValidateRelayMCPConfiguration_RejectsReservedCustomServerIDs(t *testing
 			"root": {},
 		},
 		MCPServers: map[string]agentconfig.MCPServerConfig{
-			"relay":       {Type: agentconfig.MCPServerTypeHTTP, URL: "http://example.com/mcp"},
-			"norma.state": {Type: agentconfig.MCPServerTypeHTTP, URL: "http://example.com/state"},
+			"relay":        {Type: agentconfig.MCPServerTypeHTTP, URL: "http://example.com/mcp"},
+			"norma.config": {Type: agentconfig.MCPServerTypeHTTP, URL: "http://example.com/state"},
 		},
 	}
 
-	err := validateRelayMCPConfiguration(Config{}, normaCfg)
+	err := validateRelayMCPConfiguration(Config{}, normaCfg, "/tmp/work/.config/relay/config.yaml")
 	if err == nil {
 		t.Fatal("validateRelayMCPConfiguration() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), "norma.mcp_servers.relay is reserved for the built-in relay MCP server") {
 		t.Fatalf("missing reserved relay error: %v", err)
 	}
-	if !strings.Contains(err.Error(), `norma.mcp_servers.norma.state conflicts with removed built-in MCP server ID "norma.state"`) {
+	if !strings.Contains(err.Error(), `norma.mcp_servers.norma.config conflicts with removed built-in config MCP server ID "norma.config"; edit the relay config file directly at "/tmp/work/.config/relay/config.yaml"`) {
 		t.Fatalf("missing removed built-in server conflict error: %v", err)
 	}
 }

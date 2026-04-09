@@ -75,6 +75,8 @@ profiles: {}
 - bundled relay MCP listener always binds to local ephemeral address (`127.0.0.1:0`)
   - bundled routes on this listener:
     - `/mcp` and `/mcp/relay` for the built-in relay MCP server
+- Relay config is edited via the config file itself, not through MCP.
+  - relay agents should use the config path shown in the system instruction and edit `.config/relay/config.yaml` directly
 - `relay.mcp_servers`: extra MCP server IDs for all relay-started sessions (resolved from `norma.mcp_servers`)
   - effective MCP IDs = bundled defaults + `norma.agents.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
 - `relay.agent_system_instructions`: optional per-agent relay instruction map
