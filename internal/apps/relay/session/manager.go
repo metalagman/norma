@@ -17,6 +17,8 @@ import (
 
 const cleanupTimeout = 10 * time.Second
 
+const sessionStatusPersisted = "persisted"
+
 // Manager manages relay ADK sessions and persists session metadata.
 type Manager struct {
 	agentBuilder      *agent.Builder
@@ -261,18 +263,6 @@ func (m *Manager) GetTelegramSession(chatID int64, topicID int) (*TopicSession, 
 	return m.GetSession(NewTelegramSessionLocator(chatID, topicID))
 }
 
-// FindSessionByID returns the in-memory session with the given session ID.
-func (m *Manager) FindSessionByID(sessionID string) (*TopicSession, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	ts := m.sessions[strings.TrimSpace(sessionID)]
-	if ts == nil {
-		return nil, fmt.Errorf("session %q not found", sessionID)
-	}
-	return ts, nil
-}
-
 // EnsureSession returns the existing session or creates a new one if it doesn't exist.
 func (m *Manager) EnsureSession(ctx context.Context, locator SessionLocator, agentName string) (*TopicSession, error) {
 	sessionID := strings.TrimSpace(locator.SessionID)
@@ -412,27 +402,146 @@ func (m *Manager) ListSessions() []TopicSessionInfo {
 
 	out := make([]TopicSessionInfo, 0, len(m.sessions))
 	for _, ts := range m.sessions {
-		out = append(out, TopicSessionInfo{
-			SessionID:    ts.sessionID,
-			ChannelType:  ts.locator.ChannelType,
-			AgentName:    ts.agentName,
-			ChatID:       ts.chatID,
-			TopicID:      ts.topicID,
-			WorkspaceDir: ts.workspaceDir,
-			BranchName:   ts.branchName,
-		})
+		out = append(out, topicSessionInfo(ts, relaystate.SessionStatusActive))
 	}
 	return out
 }
 
 type TopicSessionInfo struct {
 	SessionID    string
+	Locator      SessionLocator
 	ChannelType  string
 	AgentName    string
 	ChatID       int64
 	TopicID      int
 	WorkspaceDir string
 	BranchName   string
+	Status       string
+}
+
+func (m *Manager) GetSessionInfo(ctx context.Context, sessionID string) (TopicSessionInfo, error) {
+	trimmedID := strings.TrimSpace(sessionID)
+	if trimmedID == "" {
+		return TopicSessionInfo{}, fmt.Errorf("session_id is required")
+	}
+
+	m.mu.RLock()
+	ts := m.sessions[trimmedID]
+	m.mu.RUnlock()
+	if ts != nil {
+		return topicSessionInfo(ts, relaystate.SessionStatusActive), nil
+	}
+
+	record, ok, err := m.sessionStore.GetBySessionID(ctx, trimmedID)
+	if err != nil {
+		return TopicSessionInfo{}, fmt.Errorf("read session metadata: %w", err)
+	}
+	if !ok {
+		return TopicSessionInfo{}, fmt.Errorf("session %q not found", trimmedID)
+	}
+
+	info, err := topicSessionInfoFromRecord(record)
+	if err != nil {
+		return TopicSessionInfo{}, err
+	}
+	info.Status = sessionStatusForInactiveRecord(record.Status)
+	return info, nil
+}
+
+func (m *Manager) ListSessionInfos(ctx context.Context) ([]TopicSessionInfo, error) {
+	persisted, err := m.sessionStore.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list session metadata: %w", err)
+	}
+
+	infos := make(map[string]TopicSessionInfo, len(persisted))
+	for _, record := range persisted {
+		info, err := topicSessionInfoFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		info.Status = sessionStatusForInactiveRecord(record.Status)
+		infos[info.SessionID] = info
+	}
+
+	for _, info := range m.ListSessions() {
+		info.Status = relaystate.SessionStatusActive
+		infos[info.SessionID] = info
+	}
+
+	out := make([]TopicSessionInfo, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+func (m *Manager) StopSessionByID(ctx context.Context, sessionID string) error {
+	info, err := m.GetSessionInfo(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if info.Status == relaystate.SessionStatusActive {
+		m.StopSession(info.Locator)
+		return nil
+	}
+
+	if m.workspaceEnabled && strings.TrimSpace(info.WorkspaceDir) != "" {
+		if err := m.workspaces.CleanupWorkspace(ctx, info.WorkspaceDir); err != nil {
+			return fmt.Errorf("cleanup workspace: %w", err)
+		}
+	}
+	if err := m.sessionStore.DeleteBySessionID(ctx, info.SessionID); err != nil {
+		return fmt.Errorf("delete session metadata: %w", err)
+	}
+	return nil
+}
+
+func topicSessionInfo(ts *TopicSession, status string) TopicSessionInfo {
+	if ts == nil {
+		return TopicSessionInfo{}
+	}
+	return TopicSessionInfo{
+		SessionID:    ts.sessionID,
+		Locator:      ts.locator,
+		ChannelType:  ts.locator.ChannelType,
+		AgentName:    ts.agentName,
+		ChatID:       ts.chatID,
+		TopicID:      ts.topicID,
+		WorkspaceDir: ts.workspaceDir,
+		BranchName:   ts.branchName,
+		Status:       status,
+	}
+}
+
+func topicSessionInfoFromRecord(record relaystate.SessionRecord) (TopicSessionInfo, error) {
+	locator, err := LocatorFromRecord(record)
+	if err != nil {
+		return TopicSessionInfo{}, fmt.Errorf("decode persisted session locator for %q: %w", record.SessionID, err)
+	}
+
+	info := TopicSessionInfo{
+		SessionID:    record.SessionID,
+		Locator:      locator,
+		ChannelType:  locator.ChannelType,
+		AgentName:    record.AgentName,
+		WorkspaceDir: record.WorkspaceDir,
+		BranchName:   record.BranchName,
+	}
+	if address, ok, err := locator.TelegramAddress(); err != nil {
+		return TopicSessionInfo{}, fmt.Errorf("decode telegram address for %q: %w", record.SessionID, err)
+	} else if ok {
+		info.ChatID = address.ChatID
+		info.TopicID = address.TopicID
+	}
+	return info, nil
+}
+
+func sessionStatusForInactiveRecord(recordStatus string) string {
+	if strings.TrimSpace(recordStatus) == "" || recordStatus == relaystate.SessionStatusActive {
+		return sessionStatusPersisted
+	}
+	return recordStatus
 }
 
 func (m *Manager) closeTopicSession(ctx context.Context, ts *TopicSession) error {

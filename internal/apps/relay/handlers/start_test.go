@@ -261,7 +261,7 @@ func TestStartHandlerOnCommand_ExistingOwner_StartsRootWhenMissing(t *testing.T)
 	assertLastSentContains(t, tgClient, "You are already registered as the bot owner. Relay mode is active.")
 }
 
-func TestStartHandlerOnCommand_RelayActivationFailure_DoesNotBlockOwnerRegistration(t *testing.T) {
+func TestStartHandlerOnCommand_RelayActivationFailure_DoesNotClaimRelayActive(t *testing.T) {
 	handler, store, tgClient := newStartHandlerTestHarness(t, "secret-token")
 	relay := &fakeRelayOwnerActivator{err: errors.New("precreate failed")}
 	handler.SetRelayHandler(relay)
@@ -276,6 +276,33 @@ func TestStartHandlerOnCommand_RelayActivationFailure_DoesNotBlockOwnerRegistrat
 	}
 	assertLastSentContains(t, tgClient, "Congratulations")
 	assertLastSentContains(t, tgClient, "Failed to start root agent session: precreate failed.")
+	assertLastSentNotContains(t, tgClient, "Relay mode is active.")
+}
+
+func TestStartHandlerOnCommand_ExistingOwnerActivationFailure_DoesNotClaimRelayActive(t *testing.T) {
+	handler, store, tgClient := newStartHandlerTestHarness(t, "secret-token")
+	relay := &fakeRelayOwnerActivator{err: errors.New("precreate failed")}
+	handler.SetRelayHandler(relay)
+
+	registered, err := store.RegisterOwner(101, 0, "owner", "Owner", "", true)
+	if err != nil {
+		t.Fatalf("RegisterOwner(): %v", err)
+	}
+	if !registered {
+		t.Fatal("owner should be newly registered")
+	}
+
+	err = handler.onCommand(context.Background(), newStartEvent("", 101, 9001))
+	if err != nil {
+		t.Fatalf("onCommand(): %v", err)
+	}
+
+	if len(relay.calls) != 1 {
+		t.Fatalf("ActivateOwner calls = %d, want 1", len(relay.calls))
+	}
+	assertLastSentContains(t, tgClient, "You are already registered as the bot owner.")
+	assertLastSentContains(t, tgClient, "Failed to start root agent session: precreate failed.")
+	assertLastSentNotContains(t, tgClient, "Relay mode is active.")
 }
 
 func TestStartHandlerOnCommand_SendErrorBubblesUp(t *testing.T) {
@@ -335,5 +362,16 @@ func assertLastSentContains(t *testing.T, tgClient *fakeTelegramClient, wantSubs
 	last := tgClient.messages[len(tgClient.messages)-1]
 	if !strings.Contains(last.Text, wantSubstring) {
 		t.Fatalf("last message = %q, want substring %q", last.Text, wantSubstring)
+	}
+}
+
+func assertLastSentNotContains(t *testing.T, tgClient *fakeTelegramClient, unwantedSubstring string) {
+	t.Helper()
+	if len(tgClient.messages) == 0 {
+		t.Fatal("no messages were sent")
+	}
+	last := tgClient.messages[len(tgClient.messages)-1]
+	if strings.Contains(last.Text, unwantedSubstring) {
+		t.Fatalf("last message = %q, must not contain %q", last.Text, unwantedSubstring)
 	}
 }

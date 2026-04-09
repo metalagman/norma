@@ -201,18 +201,22 @@ func (h *StartHandler) sendOwnerRegisteredMessage(ctx context.Context, chatID in
 		name = "Owner"
 	}
 
-	text := fmt.Sprintf("Congratulations, %s! You are now registered as the bot owner.\n\nRelay mode is active.", name)
+	text := fmt.Sprintf("Congratulations, %s! You are now registered as the bot owner.", name)
 	if startErr != nil {
 		text += "\n\n" + relayStartFailureMessage(startErr)
+		return h.messenger.SendPlain(ctx, chatID, text, 0)
 	}
+	text += "\n\nRelay mode is active."
 	return h.messenger.SendPlain(ctx, chatID, text, 0)
 }
 
 func (h *StartHandler) ownerAlreadyRegisteredMessage(startErr error) string {
-	msg := "You are already registered as the bot owner. Relay mode is active."
+	msg := "You are already registered as the bot owner."
 	if startErr != nil {
 		msg += "\n\n" + relayStartFailureMessage(startErr)
+		return msg
 	}
+	msg += " Relay mode is active."
 	return msg
 }
 

@@ -97,22 +97,23 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, chatID int64, agentName
 	}, nil
 }
 
-func (s *relayMCPServer) StopAgent(_ context.Context, sessionID string) error {
+func (s *relayMCPServer) StopAgent(ctx context.Context, sessionID string) error {
 	s.logger.Info().Str("session_id", sessionID).Msg("MCP: StopAgent called")
 
-	ts, err := s.findBySessionID(sessionID)
-	if err != nil {
-		s.logger.Error().Err(err).Str("session_id", sessionID).Msg("MCP: StopAgent failed - session not found")
+	if err := s.manager.StopSessionByID(ctx, sessionID); err != nil {
+		s.logger.Error().Err(err).Str("session_id", sessionID).Msg("MCP: StopAgent failed")
 		return err
 	}
 
-	s.manager.StopSession(ts.GetLocator())
 	s.logger.Info().Str("session_id", sessionID).Msg("MCP: StopAgent succeeded")
 	return nil
 }
 
-func (s *relayMCPServer) ListAgents(_ context.Context) ([]relaymcp.AgentInfo, error) {
-	infos := s.manager.ListSessions()
+func (s *relayMCPServer) ListAgents(ctx context.Context) ([]relaymcp.AgentInfo, error) {
+	infos, err := s.manager.ListSessionInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]relaymcp.AgentInfo, 0, len(infos))
 
 	s.logger.Debug().Int("count", len(infos)).Msg("MCP: ListAgents called")
@@ -124,31 +125,27 @@ func (s *relayMCPServer) ListAgents(_ context.Context) ([]relaymcp.AgentInfo, er
 			ChatID:     info.ChatID,
 			TopicID:    info.TopicID,
 			WorkingDir: info.WorkspaceDir,
-			Status:     "active",
+			Status:     info.Status,
 		})
 	}
 	return out, nil
 }
 
-func (s *relayMCPServer) GetSession(_ context.Context, sessionID string) (relaymcp.AgentInfo, error) {
+func (s *relayMCPServer) GetSession(ctx context.Context, sessionID string) (relaymcp.AgentInfo, error) {
 	s.logger.Debug().Str("session_id", sessionID).Msg("MCP: GetSession called")
 
-	ts, err := s.findBySessionID(sessionID)
+	info, err := s.manager.GetSessionInfo(ctx, sessionID)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("session_id", sessionID).Msg("MCP: GetSession failed - session not found")
 		return relaymcp.AgentInfo{}, err
 	}
 
 	return relaymcp.AgentInfo{
-		SessionID:  ts.sessionID,
-		AgentName:  ts.agentName,
-		ChatID:     ts.chatID,
-		TopicID:    ts.topicID,
-		WorkingDir: ts.workspaceDir,
-		Status:     "active",
+		SessionID:  info.SessionID,
+		AgentName:  info.AgentName,
+		ChatID:     info.ChatID,
+		TopicID:    info.TopicID,
+		WorkingDir: info.WorkspaceDir,
+		Status:     info.Status,
 	}, nil
-}
-
-func (s *relayMCPServer) findBySessionID(sessionID string) (*TopicSession, error) {
-	return s.manager.FindSessionByID(sessionID)
 }
