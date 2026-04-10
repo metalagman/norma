@@ -23,10 +23,10 @@ type AgentCreator interface {
 }
 
 type AgentRequest struct {
-	Name              string
-	Description       string
-	SystemInstruction string
-	WorkingDirectory  string
+	Name               string
+	Description        string
+	SystemInstructions string
+	WorkingDirectory   string
 }
 
 type PoolExecutor struct {

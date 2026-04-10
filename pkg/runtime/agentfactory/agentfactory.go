@@ -20,13 +20,13 @@ import (
 
 // BuildRequest defines the parameters for building a new agent instance.
 type BuildRequest struct {
-	AgentID           string   `json:"agent_id" validate:"required,min=1"`
-	Name              string   `json:"name,omitempty"`
-	Description       string   `json:"description,omitempty"`
-	SystemInstruction string   `json:"system_instruction,omitempty"`
-	WorkingDirectory  string   `json:"working_directory" validate:"required,min=1"`
-	MCPServerIDs      []string `json:"mcp_server_ids,omitempty"`
-	SessionID         string   `json:"session_id,omitempty"`
+	AgentID            string   `json:"agent_id" validate:"required,min=1"`
+	Name               string   `json:"name,omitempty"`
+	Description        string   `json:"description,omitempty"`
+	SystemInstructions string   `json:"system_instructions,omitempty"`
+	WorkingDirectory   string   `json:"working_directory" validate:"required,min=1"`
+	MCPServerIDs       []string `json:"mcp_server_ids,omitempty"`
+	SessionID          string   `json:"session_id,omitempty"`
 }
 
 var buildRequestValidator = newBuildRequestValidator()
@@ -291,11 +291,11 @@ func effectiveDescription(req BuildRequest, cfg agentconfig.ResolvedConfig) stri
 }
 
 func effectiveSystemInstruction(req BuildRequest, cfg agentconfig.ResolvedConfig) string {
-	override := strings.TrimSpace(req.SystemInstruction)
+	override := strings.TrimSpace(req.SystemInstructions)
 	if override != "" {
 		return override
 	}
-	return strings.TrimSpace(cfg.SystemInstruction)
+	return strings.TrimSpace(cfg.SystemInstructions)
 }
 
 var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
@@ -334,10 +334,10 @@ var poolConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, 
 	}
 
 	poolReq := poolagent.AgentRequest{
-		Name:              effectiveName(req),
-		Description:       effectiveDescription(req, cfg),
-		SystemInstruction: effectiveSystemInstruction(req, cfg),
-		WorkingDirectory:  req.WorkingDirectory,
+		Name:               effectiveName(req),
+		Description:        effectiveDescription(req, cfg),
+		SystemInstructions: effectiveSystemInstruction(req, cfg),
+		WorkingDirectory:   req.WorkingDirectory,
 	}
 
 	creator := &factoryAgentCreator{factory: f}
@@ -350,11 +350,11 @@ type factoryAgentCreator struct {
 
 func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req poolagent.AgentRequest) (agent.Agent, error) {
 	buildReq := BuildRequest{
-		AgentID:           name,
-		Name:              req.Name,
-		Description:       req.Description,
-		SystemInstruction: req.SystemInstruction,
-		WorkingDirectory:  req.WorkingDirectory,
+		AgentID:            name,
+		Name:               req.Name,
+		Description:        req.Description,
+		SystemInstructions: req.SystemInstructions,
+		WorkingDirectory:   req.WorkingDirectory,
 	}
 	return f.factory.Build(ctx, buildReq)
 }

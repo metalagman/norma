@@ -96,7 +96,7 @@ func (b *Builder) buildRelaySystemInstruction(
 
 	normaInstruction := ""
 	if agentCfg, ok := b.normaCfg.Agents[normalizedAgentName]; ok {
-		normaInstruction = agentCfg.SystemInstruction
+		normaInstruction = agentCfg.SystemInstructions
 	}
 	data.AgentInstructions = composeAgentInstructions(normaInstruction, b.relaySystemInstruction)
 
@@ -172,13 +172,13 @@ func (b *Builder) BuildWithMCPServerIDs(
 	sessionBranch := fmt.Sprintf("norma/relay/%s", sessionID)
 	repoBranchAtStart := b.currentRepoBranch(ctx)
 	req := agentfactory.BuildRequest{
-		AgentID:           agentName,
-		Name:              agentName,
-		Description:       b.buildAgentDescription(agentName),
-		WorkingDirectory:  workspaceDir,
-		SystemInstruction: b.buildRelaySystemInstruction(sessionID, "telegram", agentName, sessionBranch, workspaceDir, repoBranchAtStart),
-		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName, bundledMCPServerIDs, extraMCPServerIDs),
-		SessionID:         sessionID,
+		AgentID:            agentName,
+		Name:               agentName,
+		Description:        b.buildAgentDescription(agentName),
+		WorkingDirectory:   workspaceDir,
+		SystemInstructions: b.buildRelaySystemInstruction(sessionID, "telegram", agentName, sessionBranch, workspaceDir, repoBranchAtStart),
+		MCPServerIDs:       b.buildAgentMCPServerIDs(agentName, bundledMCPServerIDs, extraMCPServerIDs),
+		SessionID:          sessionID,
 	}
 
 	ag, err := b.factory.Build(ctx, req)

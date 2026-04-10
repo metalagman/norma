@@ -81,7 +81,7 @@ profiles: {}
   - effective MCP IDs = bundled defaults + `norma.agents.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
 - `relay.system_instructions`: optional relay instruction text applied to all sessions
   - value: instruction text appended in relay prompt for all agents
-  - effective relay instruction order: built-in relay instructions + `norma.agents.<agent>.system_instruction` + `relay.system_instructions` (last wins by position)
+  - effective relay instruction order: built-in relay instructions + `norma.agents.<agent>.system_instructions` + `relay.system_instructions` (last wins by position)
   - `relay init` generates a channel-aware example prompt
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository

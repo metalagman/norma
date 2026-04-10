@@ -56,5 +56,5 @@ relay:
   mcp_servers: []
 
   # Optional relay-specific system instructions applied to all sessions.
-  # Applied after norma.agents.<agent_id>.system_instruction when both are set.
+  # Applied after norma.agents.<agent_id>.system_instructions when both are set.
   system_instructions: ""

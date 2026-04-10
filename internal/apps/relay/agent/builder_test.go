@@ -112,7 +112,7 @@ func TestBuildRelaySystemInstruction_ComposesAgentInstructions(t *testing.T) {
 		normaCfg: runtimeconfig.NormaConfig{
 			Agents: map[string]agentconfig.Config{
 				"alpha": {
-					SystemInstruction: "norma instruction",
+					SystemInstructions: "norma instruction",
 				},
 			},
 		},

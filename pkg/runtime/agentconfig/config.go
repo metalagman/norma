@@ -53,9 +53,9 @@ type PoolConfig struct {
 //	<agent_type>:
 //	  ...type-specific config...
 type Config struct {
-	Type              string   `json:"type"                           mapstructure:"type"               validate:"required,oneof=generic_acp gemini_acp codex_acp opencode_acp copilot_acp claude_code_acp pool,agent_blocks"`
-	MCPServers        []string `json:"mcp_servers,omitempty"          mapstructure:"mcp_servers"        validate:"omitempty,dive,notblank"`
-	SystemInstruction string   `json:"system_instruction,omitempty"    mapstructure:"system_instruction" validate:"omitempty,notblank"`
+	Type               string   `json:"type"                           mapstructure:"type"               validate:"required,oneof=generic_acp gemini_acp codex_acp opencode_acp copilot_acp claude_code_acp pool,agent_blocks"`
+	MCPServers         []string `json:"mcp_servers,omitempty"          mapstructure:"mcp_servers"        validate:"omitempty,dive,notblank"`
+	SystemInstructions string   `json:"system_instructions,omitempty"  mapstructure:"system_instructions" validate:"omitempty,notblank"`
 
 	GenericACP    *ACPConfig  `json:"generic_acp,omitempty"     mapstructure:"generic_acp"`
 	GeminiACP     *ACPConfig  `json:"gemini_acp,omitempty"      mapstructure:"gemini_acp"`
@@ -68,9 +68,9 @@ type Config struct {
 
 // ResolvedConfig is a runtime-ready agent configuration produced from Config normalization.
 type ResolvedConfig struct {
-	Type              string
-	MCPServers        []string
-	SystemInstruction string
+	Type               string
+	MCPServers         []string
+	SystemInstructions string
 
 	Command     []string
 	Model       string
@@ -433,8 +433,8 @@ func explainMCPRequirementsError(cfg MCPServerConfig) string {
 // NormalizeConfig canonicalizes aliases and returns a runtime-ready configuration.
 func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) {
 	resolved := ResolvedConfig{
-		MCPServers:        append([]string(nil), cfg.MCPServers...),
-		SystemInstruction: cfg.SystemInstruction,
+		MCPServers:         append([]string(nil), cfg.MCPServers...),
+		SystemInstructions: cfg.SystemInstructions,
 	}
 
 	switch strings.TrimSpace(cfg.Type) {
