@@ -74,7 +74,7 @@ Common keys:
 - `relay.workspace.base_branch` (base branch for workspace import/export; auto-detected by `relay init` when possible)
 - `relay.state_dir` (default `.config/relay`; stores migration-managed `relay.db`)
 
-Environment overrides use `RELAY_*` (for example, `RELAY_TELEGRAM_TOKEN`). `.env` is auto-loaded on startup from the current working directory.
+Environment overrides use `RELAY_*` (for example, `RELAY_TELEGRAM_TOKEN`). `.env` is auto-loaded on startup from the current working directory only (for example `<cwd>/.env`).
 
 ## Troubleshooting
 

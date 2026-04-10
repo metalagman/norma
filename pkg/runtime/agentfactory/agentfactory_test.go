@@ -191,6 +191,81 @@ func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 	}
 }
 
+func TestFactoryBuild_DefaultACPStderrWriterIsProcessStderr(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedStderr any
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedStderr = cfg.Stderr
+		return nil, nil
+	}
+
+	agents := map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"fake-acp", "serve"},
+			},
+		},
+	}
+	f := New(agents, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:          "test-acp",
+		WorkingDirectory: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	stderrFile, ok := capturedStderr.(*os.File)
+	if !ok {
+		t.Fatalf("ACP stderr writer type = %T, want *os.File", capturedStderr)
+	}
+	if stderrFile != os.Stderr {
+		t.Fatalf("ACP stderr writer = %p, want process stderr %p", stderrFile, os.Stderr)
+	}
+}
+
+func TestFactoryBuild_WithStderrWriterOverridesACPStderr(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedStderr any
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedStderr = cfg.Stderr
+		return nil, nil
+	}
+
+	agents := map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"fake-acp", "serve"},
+			},
+		},
+	}
+	customStderr := &bytes.Buffer{}
+	f := New(agents, mcpregistry.New(nil), WithStderrWriter(customStderr))
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:          "test-acp",
+		WorkingDirectory: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if capturedStderr != customStderr {
+		t.Fatalf("ACP stderr writer = %T/%p, want custom writer %p", capturedStderr, capturedStderr, customStderr)
+	}
+}
+
 func TestFactoryBuild_UsesBuildRequestMCPServerIDsOverride(t *testing.T) {
 	origNewACPAgent := newACPAgent
 	t.Cleanup(func() {

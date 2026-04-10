@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -202,6 +203,7 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 			return nil
 		}
 	} else {
+		welcomeSent := false
 		ts, err = h.sessionManager.GetSession(locator)
 		if err != nil {
 			_ = h.channel.SendPlain(ctx, locator, "Restoring agent session...")
@@ -210,13 +212,42 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 				UserID:  transportUserID,
 			})
 			if err != nil {
-				log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to restore topic session")
-				_ = h.channel.SendPlain(ctx, locator, fmt.Sprintf("Failed to restore this session: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err))
-				return nil
+				if errors.Is(err, relaysession.ErrNoPersistedSession) {
+					if refreshErr := h.refreshRuntimeConfig(); refreshErr != nil {
+						h.logger.Error().Err(refreshErr).Int64("chat_id", locatorChatID(locator)).Msg("failed to refresh runtime config before topic session creation")
+						_ = h.channel.SendPlain(ctx, locator, "Failed to reload relay config for topic session creation. Please check config and try again.")
+						return nil
+					}
+					rootAgentName := h.getRootAgentName()
+					if rootAgentName == "" {
+						_ = h.channel.SendPlain(ctx, locator, "Relay root agent is not configured (`relay.root_agent`). Please close this chat and restart relay.")
+						return nil
+					}
+					agentDesc, mcpServers := h.sessionManager.GetAgentInfo(rootAgentName)
+					startMsg := BuildAgentWelcomeMessage(rootAgentName, locator.SessionID, agentDesc, mcpServers)
+					_ = h.channel.SendMarkdown(ctx, locator, startMsg)
+					welcomeSent = true
+
+					ts, err = h.sessionManager.EnsureSession(ctx, relaysession.SessionContext{
+						Locator: locator,
+						UserID:  transportUserID,
+					}, rootAgentName)
+					if err != nil {
+						log.Error().Err(err).Str("agent", rootAgentName).Int("topic_id", topicID).Msg("failed to create topic session")
+						_ = h.channel.SendPlain(ctx, locator, fmt.Sprintf("Failed to start topic session: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err))
+						return nil
+					}
+				} else {
+					log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to restore topic session")
+					_ = h.channel.SendPlain(ctx, locator, fmt.Sprintf("Failed to restore this session: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err))
+					return nil
+				}
 			}
-			agentDesc, mcpServers := h.sessionManager.GetAgentInfo(ts.GetAgentName())
-			welcomeMsg := BuildAgentWelcomeMessage(ts.GetAgentName(), ts.GetSessionID(), agentDesc, mcpServers)
-			_ = h.channel.SendMarkdown(ctx, locator, welcomeMsg)
+			if ts != nil && !welcomeSent {
+				agentDesc, mcpServers := h.sessionManager.GetAgentInfo(ts.GetAgentName())
+				welcomeMsg := BuildAgentWelcomeMessage(ts.GetAgentName(), ts.GetSessionID(), agentDesc, mcpServers)
+				_ = h.channel.SendMarkdown(ctx, locator, welcomeMsg)
+			}
 		}
 	}
 

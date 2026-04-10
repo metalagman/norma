@@ -218,10 +218,14 @@ func newCommandEvent(command, args string, userID, chatID int64, topicID *int) *
 	if trimmedArgs := strings.TrimSpace(args); trimmedArgs != "" {
 		text += " " + trimmedArgs
 	}
+	chatType := "private"
+	if topicID != nil {
+		chatType = "supergroup"
+	}
 	msg := &client.Message{
 		Chat: client.Chat{
 			Id:   chatID,
-			Type: "private",
+			Type: chatType,
 		},
 		From: &client.User{
 			Id:        userID,

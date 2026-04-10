@@ -1,6 +1,6 @@
 # Norma Relay (V1)
 
-`relay serve` is a channel-aware background ACP service that currently binds Telegram chats/topics to ADK agents created by Norma's agent factory.
+`relay start` is a channel-aware background ACP service that currently binds Telegram chats/topics to ADK agents created by Norma's agent factory.
 
 ## Summary
 
@@ -34,7 +34,7 @@ Relay config is loaded from one selected file (priority order):
 3. Profile app overrides in the same file (`profiles.<name>.relay.*`)
 4. Environment variables (`RELAY_*`) via Viper env mapping
 
-Relay also auto-loads a `.env` file at startup (via `godotenv`) from the relay process working directory. Values loaded from `.env` are treated as environment variables, so `RELAY_*` entries override file config the same way as exported shell variables.
+Relay also auto-loads a `.env` file at startup (via `godotenv`) from the relay process working directory only. Values loaded from `.env` are treated as environment variables, so `RELAY_*` entries override file config the same way as exported shell variables.
 
 Example `.env`:
 
@@ -71,7 +71,7 @@ profiles: {}
   - Schema is migration-versioned and auto-applied on startup.
   - Relative paths are resolved from `relay.working_dir`.
   - Default: `.config/relay`
-- owner auth token is generated at runtime per `relay serve` start and exposed via startup `auth_url` log field
+- owner auth token is generated at runtime per `relay start` and exposed via startup `auth_url` log field
 - bundled relay MCP listener always binds to local ephemeral address (`127.0.0.1:0`)
   - bundled routes on this listener:
     - `/mcp` and `/mcp/relay` for the built-in relay MCP server

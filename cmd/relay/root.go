@@ -59,7 +59,6 @@ func newRootCommand() (*cobra.Command, error) {
 	}
 
 	cmd.AddCommand(startCommand())
-	cmd.AddCommand(serveCommand())
 	cmd.AddCommand(initCommand())
 	cmd.AddCommand(toolCommand())
 	return cmd, nil

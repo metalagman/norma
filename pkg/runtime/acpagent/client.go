@@ -261,16 +261,45 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.Mc
 	if mcpServers == nil {
 		mcpServers = []acp.McpServer{}
 	}
+
+	desiredSessionID := strings.TrimSpace(c.sessionID)
+	req := acp.NewSessionRequest{
+		Cwd:        cwd,
+		McpServers: mcpServers,
+	}
+	if desiredSessionID != "" {
+		req.Meta = map[string]any{
+			"sessionId": desiredSessionID,
+		}
+	}
+
 	l := c.loggerForContext(ctx)
-	l.Debug().Str("cwd", cwd).Int("mcp_servers", len(mcpServers)).Msg("sending acp session/new")
-	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: mcpServers})
+	logEvent := l.Debug().
+		Str("cwd", cwd).
+		Int("mcp_servers", len(mcpServers))
+	if desiredSessionID != "" {
+		logEvent = logEvent.Str("relay_session_id", desiredSessionID)
+	}
+	logEvent.Msg("sending acp session/new")
+
+	resp, err := c.conn.NewSession(ctx, req)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
-	if strings.TrimSpace(string(resp.SessionId)) == "" {
+
+	acpSessionID := strings.TrimSpace(string(resp.SessionId))
+	if acpSessionID == "" {
 		return acp.NewSessionResponse{}, fmt.Errorf("acp session id is empty")
 	}
-	l.Debug().Str("session_id", string(resp.SessionId)).Msg("acp session/new succeeded")
+	if desiredSessionID != "" && acpSessionID != desiredSessionID {
+		return acp.NewSessionResponse{}, fmt.Errorf("acp session id mismatch: requested %q, got %q", desiredSessionID, acpSessionID)
+	}
+
+	successEvent := l.Debug().Str("acp_session_id", acpSessionID)
+	if desiredSessionID != "" {
+		successEvent = successEvent.Str("relay_session_id", desiredSessionID)
+	}
+	successEvent.Msg("acp session/new succeeded")
 	return resp, nil
 }
 

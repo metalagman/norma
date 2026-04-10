@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -60,7 +61,7 @@ func startCommand() *cobra.Command {
 			relayCfg := relay.Config{Relay: doc.Relay}
 
 			if relayCfg.Relay.Telegram.Token == "" {
-				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: RELAY_TELEGRAM_TOKEN=<token>\n  - App config: relay.telegram.token in .config/relay/config.yaml\n  - Profile override: profiles.<name>.relay.telegram.token in the same file")
+				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: RELAY_TELEGRAM_TOKEN=<token>\n  - CWD .env: %s with RELAY_TELEGRAM_TOKEN=<token>\n  - App config: relay.telegram.token in .config/relay/config.yaml\n  - Profile override: profiles.<name>.relay.telegram.token in the same file", filepath.Join(workingDir, ".env"))
 			}
 
 			ownerToken, err := auth.GenerateOwnerToken()
@@ -96,12 +97,5 @@ func startCommand() *cobra.Command {
 		},
 	}
 
-	return cmd
-}
-
-func serveCommand() *cobra.Command {
-	cmd := startCommand()
-	cmd.Use = "serve"
-	cmd.Aliases = []string{"start"}
 	return cmd
 }

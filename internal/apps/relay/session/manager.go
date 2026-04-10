@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -26,11 +27,14 @@ const cleanupTimeout = 10 * time.Second
 
 const sessionStatusPersisted = "persisted"
 
+var ErrNoPersistedSession = errors.New("no persisted session")
+
 // Manager manages relay ADK sessions and persists session metadata.
 type Manager struct {
 	agentBuilder      *relayagent.Builder
 	relayMCPServerIDs []string
 	runtimeMCPIDs     map[string]struct{}
+	rootAgentName     string
 	workingDir        string
 	workspaces        *relayagent.WorkspaceManager
 	workspaceEnabled  bool
@@ -54,6 +58,7 @@ type ManagerParams struct {
 	AgentBuilder      *relayagent.Builder
 	RelayMCPServerIDs []string `name:"relay_mcp_servers"`
 	RuntimeMCPIDs     []string `name:"relay_runtime_mcp_server_ids"`
+	RootAgentName     string   `name:"relay_root_agent"`
 	WorkingDir        string
 	WorkspaceEnabled  bool   `name:"relay_workspace_enabled"`
 	WorkspaceBaseRef  string `name:"relay_workspace_base_branch"`
@@ -74,6 +79,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		agentBuilder:      p.AgentBuilder,
 		relayMCPServerIDs: append([]string(nil), p.RelayMCPServerIDs...),
 		runtimeMCPIDs:     stringSet(p.RuntimeMCPIDs),
+		rootAgentName:     strings.TrimSpace(p.RootAgentName),
 		workingDir:        p.WorkingDir,
 		workspaces:        relayagent.NewWorkspaceManager(p.WorkingDir, p.WorkspaceBaseRef),
 		workspaceEnabled:  p.WorkspaceEnabled,
@@ -246,6 +252,7 @@ func (m *Manager) ApplyRuntimeConfig(normaCfg runtimeconfig.NormaConfig, relayCf
 	}
 	m.runtimeMCPIDs = stringSet(runtimeMCPIDs)
 	m.relayMCPServerIDs = append([]string(nil), relayCfg.MCPServers...)
+	m.rootAgentName = strings.TrimSpace(relayCfg.RootAgent)
 	m.agentBuilder = builder
 	return nil
 }
@@ -497,18 +504,24 @@ func (m *Manager) RestoreSession(ctx context.Context, sessionCtx SessionContext)
 		return nil, fmt.Errorf("read session metadata: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("no persisted session for %s", locator.AddressKey)
+		return nil, fmt.Errorf("%w for %s", ErrNoPersistedSession, locator.AddressKey)
 	}
 	if strings.TrimSpace(record.Status) != "" && record.Status != relaystate.SessionStatusActive {
 		return nil, fmt.Errorf("persisted session for %s is not active", locator.AddressKey)
-	}
-	if strings.TrimSpace(record.AgentName) == "" {
-		return nil, fmt.Errorf("persisted session for %s has empty agent name", locator.AddressKey)
 	}
 
 	recordLocator, err := LocatorFromRecord(record)
 	if err != nil {
 		return nil, fmt.Errorf("decode persisted session locator: %w", err)
+	}
+
+	resolvedAgentName, usedFallback, fallbackReason, err := resolveRestoreAgentName(
+		record.AgentName,
+		m.getRootAgentName(),
+		m.ValidateAgent,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("resolve persisted session agent for %s: %w", locator.AddressKey, err)
 	}
 
 	m.logger.Info().
@@ -517,11 +530,21 @@ func (m *Manager) RestoreSession(ctx context.Context, sessionCtx SessionContext)
 		Str("address_key", recordLocator.AddressKey).
 		Str("agent", record.AgentName).
 		Msg("restoring session from persisted metadata")
+	if usedFallback {
+		m.logger.Warn().
+			Str("session_id", sessionID).
+			Str("channel_type", recordLocator.ChannelType).
+			Str("address_key", recordLocator.AddressKey).
+			Str("persisted_agent", strings.TrimSpace(record.AgentName)).
+			Str("fallback_agent", resolvedAgentName).
+			Str("reason", fallbackReason).
+			Msg("persisted session agent unavailable; falling back to root agent")
+	}
 
 	return m.EnsureSession(ctx, SessionContext{
 		Locator: recordLocator,
 		UserID:  sessionCtx.UserID,
-	}, record.AgentName)
+	}, resolvedAgentName)
 }
 
 // RestoreTelegramSession restores a Telegram session from persisted metadata.
@@ -744,6 +767,48 @@ func sessionStatusForInactiveRecord(recordStatus string) string {
 		return sessionStatusPersisted
 	}
 	return recordStatus
+}
+
+func resolveRestoreAgentName(
+	persistedAgentName string,
+	rootAgentName string,
+	validate func(agentName string) error,
+) (resolvedAgentName string, usedFallback bool, fallbackReason string, err error) {
+	if validate == nil {
+		return "", false, "", fmt.Errorf("agent validator is required")
+	}
+
+	persisted := strings.TrimSpace(persistedAgentName)
+	root := strings.TrimSpace(rootAgentName)
+
+	if persisted != "" {
+		persistedErr := validate(persisted)
+		if persistedErr == nil {
+			return persisted, false, "", nil
+		}
+
+		if root == "" {
+			return "", false, "", fmt.Errorf("persisted agent %q is unavailable: %w; relay root agent is not configured", persisted, persistedErr)
+		}
+		if rootErr := validate(root); rootErr != nil {
+			return "", false, "", fmt.Errorf("persisted agent %q is unavailable: %w; relay root agent %q is unavailable: %w", persisted, persistedErr, root, rootErr)
+		}
+		return root, true, "persisted_agent_unavailable", nil
+	}
+
+	if root == "" {
+		return "", false, "", fmt.Errorf("persisted session agent is empty and relay root agent is not configured")
+	}
+	if rootErr := validate(root); rootErr != nil {
+		return "", false, "", fmt.Errorf("persisted session agent is empty and relay root agent %q is unavailable: %w", root, rootErr)
+	}
+	return root, true, "persisted_agent_missing", nil
+}
+
+func (m *Manager) getRootAgentName() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.rootAgentName
 }
 
 func (m *Manager) closeTopicSession(ctx context.Context, ts *TopicSession) error {

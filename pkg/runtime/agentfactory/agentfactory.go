@@ -4,6 +4,7 @@ package agentfactory
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -89,6 +90,17 @@ func WithPermissionHandler(handler acpagent.PermissionHandler) Option {
 	}
 }
 
+// WithStderrWriter configures where ACP subprocess stderr is written.
+func WithStderrWriter(writer io.Writer) Option {
+	return func(f *Factory) {
+		if writer == nil {
+			f.stderrWriter = os.Stderr
+			return
+		}
+		f.stderrWriter = writer
+	}
+}
+
 // constructor creates a new agent instance.
 type constructor func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error)
 
@@ -97,6 +109,7 @@ type Factory struct {
 	registry          map[string]agentconfig.Config
 	mcpRegistry       mcpregistry.Reader
 	permissionHandler acpagent.PermissionHandler
+	stderrWriter      io.Writer
 	executablePath    string
 }
 
@@ -107,8 +120,9 @@ func New(agents map[string]agentconfig.Config, mcp mcpregistry.Reader, opts ...O
 		registry[id] = cfg
 	}
 	f := &Factory{
-		registry:    registry,
-		mcpRegistry: mcp,
+		registry:     registry,
+		mcpRegistry:  mcp,
+		stderrWriter: os.Stderr,
 	}
 	if exePath, err := os.Executable(); err == nil {
 		f.executablePath = exePath
@@ -315,6 +329,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 		SystemInstructions: effectiveSystemInstruction(req, cfg),
 		Command:            append([]string(nil), cfg.Command...),
 		WorkingDir:         req.WorkingDirectory,
+		Stderr:             f.stderrWriter,
 		PermissionHandler:  f.permissionHandler,
 		Logger:             loggerFromContext(ctx),
 		MCPServers:         toRuntimeMCPServers(resolvedMCP),

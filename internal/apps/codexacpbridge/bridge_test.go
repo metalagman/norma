@@ -286,6 +286,82 @@ func TestCodexACPProxySessionFactoryCreatesDistinctBackendsPerSession(t *testing
 	}
 }
 
+func TestCodexACPProxyNewSessionUsesRequestedSessionID(t *testing.T) {
+	fakeSession := &fakeCodexMCPToolSession{
+		listTools: []*mcp.Tool{
+			{Name: codexToolName},
+			{Name: codexReplyToolName},
+		},
+	}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, &l)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	resp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
+		Cwd:  "/tmp/work",
+		Meta: map[string]any{"sessionId": "tg-2317500-523452"},
+	})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	if got := string(resp.SessionId); got != "tg-2317500-523452" {
+		t.Fatalf("session id = %q, want %q", got, "tg-2317500-523452")
+	}
+}
+
+func TestCodexACPProxyNewSessionRejectsDuplicateRequestedSessionID(t *testing.T) {
+	fakeSession := &fakeCodexMCPToolSession{
+		listTools: []*mcp.Tool{
+			{Name: codexToolName},
+			{Name: codexReplyToolName},
+		},
+	}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, &l)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	if _, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
+		Cwd:  "/tmp/work-1",
+		Meta: map[string]any{"sessionId": "tg-2317500-523452"},
+	}); err != nil {
+		t.Fatalf("first NewSession() error = %v", err)
+	}
+
+	_, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
+		Cwd:  "/tmp/work-2",
+		Meta: map[string]any{"sessionId": "tg-2317500-523452"},
+	})
+	if err == nil {
+		t.Fatal("second NewSession() error = nil, want duplicate session id error")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("second NewSession() error = %q, want duplicate session id", err.Error())
+	}
+}
+
+func TestCodexACPProxyNewSessionRejectsInvalidMetaSessionID(t *testing.T) {
+	fakeSession := &fakeCodexMCPToolSession{
+		listTools: []*mcp.Tool{
+			{Name: codexToolName},
+			{Name: codexReplyToolName},
+		},
+	}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, &l)
+	agent.setConnection(&fakeACPSessionUpdater{})
+
+	_, err := agent.NewSession(context.Background(), acp.NewSessionRequest{
+		Cwd:  "/tmp/work",
+		Meta: map[string]any{"sessionId": 42},
+	})
+	if err == nil {
+		t.Fatal("NewSession() error = nil, want invalid sessionId type error")
+	}
+	if !strings.Contains(err.Error(), "_meta.sessionId must be a string") {
+		t.Fatalf("NewSession() error = %q, want invalid _meta.sessionId type", err.Error())
+	}
+}
+
 func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 	backends := make([]*fakeCodexMCPToolSession, 0, 2)
 	l, logBuf := newDebugTestLogger()

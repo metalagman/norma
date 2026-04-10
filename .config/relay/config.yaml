@@ -69,3 +69,6 @@ profiles:
   default:
     relay:
       root_agent: codex
+  codex:
+    relay:
+      root_agent: codex

@@ -79,10 +79,7 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 		return MessageContext{}, false
 	}
 
-	topicID := 0
-	if event.Message.MessageThreadId != nil {
-		topicID = *event.Message.MessageThreadId
-	}
+	topicID := a.topicIDFromMessage(event.Message)
 
 	text := ""
 	if event.Message.Text != nil {
@@ -106,10 +103,7 @@ func (a *Adapter) CommandContextFromEvent(event *events.CommandEvent) (CommandCo
 		return CommandContext{}, false
 	}
 
-	topicID := 0
-	if event.Message.MessageThreadId != nil {
-		topicID = *event.Message.MessageThreadId
-	}
+	topicID := a.topicIDFromMessage(event.Message)
 
 	return CommandContext{
 		Locator: relaysession.NewTelegramSessionLocator(event.Message.Chat.Id, topicID),
@@ -124,6 +118,13 @@ func (a *Adapter) CommandContextFromEvent(event *events.CommandEvent) (CommandCo
 // TopicLifecycleFromEvent converts a Telegram topic lifecycle event into relay channel context.
 func (a *Adapter) TopicLifecycleFromEvent(event *events.MessageEvent) (TopicLifecycleContext, bool) {
 	if event == nil || event.Message == nil || event.Message.MessageThreadId == nil {
+		return TopicLifecycleContext{}, false
+	}
+	if !isTopicMessage(event.Message) {
+		a.logger.Debug().
+			Str("chat_type", event.Message.Chat.Type).
+			Int("message_thread_id", *event.Message.MessageThreadId).
+			Msg("ignoring topic lifecycle event for non-topic message")
 		return TopicLifecycleContext{}, false
 	}
 
@@ -239,4 +240,30 @@ func hasCommandEntity(msg *client.Message) bool {
 		}
 	}
 	return false
+}
+
+func (a *Adapter) topicIDFromMessage(msg *client.Message) int {
+	if msg == nil || msg.MessageThreadId == nil {
+		return 0
+	}
+	if !isTopicMessage(msg) {
+		a.logger.Debug().
+			Str("chat_type", msg.Chat.Type).
+			Int("message_thread_id", *msg.MessageThreadId).
+			Msg("ignoring message_thread_id for non-topic message")
+		return 0
+	}
+	return *msg.MessageThreadId
+}
+
+func isTopicMessage(msg *client.Message) bool {
+	if msg == nil || msg.MessageThreadId == nil {
+		return false
+	}
+	if msg.IsTopicMessage != nil {
+		return *msg.IsTopicMessage
+	}
+	// Fallback for payloads that omit is_topic_message: if Telegram sent a
+	// message_thread_id, treat it as a topic/thread-scoped message.
+	return true
 }

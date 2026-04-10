@@ -133,11 +133,17 @@ func (a *codexACPProxyAgent) Cancel(_ context.Context, params acp.CancelNotifica
 }
 
 func (a *codexACPProxyAgent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
-	sessionID := acp.SessionId(fmt.Sprintf("session-%d", atomic.AddUint64(&a.nextSessionID, 1)))
+	requestedSessionID, err := sessionIDFromNewSessionMeta(params.Meta)
+	if err != nil {
+		return acp.NewSessionResponse{}, acp.NewInvalidParams(err.Error())
+	}
+	sessionID := requestedSessionID
+	if sessionID == "" {
+		sessionID = acp.SessionId(fmt.Sprintf("session-%d", atomic.AddUint64(&a.nextSessionID, 1)))
+	}
 
 	var mcpServers map[string]acp.McpServer
 	if len(params.McpServers) > 0 {
-		var err error
 		mcpServers, err = validateMCPServers(params.McpServers)
 		if err != nil {
 			return acp.NewSessionResponse{}, acp.NewInvalidParams(err.Error())
@@ -145,6 +151,10 @@ func (a *codexACPProxyAgent) NewSession(ctx context.Context, params acp.NewSessi
 	}
 
 	a.mu.Lock()
+	if _, exists := a.sessions[sessionID]; exists {
+		a.mu.Unlock()
+		return acp.NewSessionResponse{}, acp.NewInvalidParams(fmt.Sprintf("session %q already exists", sessionID))
+	}
 	a.sessions[sessionID] = &codexProxySessionState{
 		cwd:        strings.TrimSpace(params.Cwd),
 		model:      a.defaultCodexConfig.Model,
@@ -174,6 +184,29 @@ func (a *codexACPProxyAgent) NewSession(ctx context.Context, params acp.NewSessi
 		return acp.NewSessionResponse{}, err
 	}
 	return resp, nil
+}
+
+func sessionIDFromNewSessionMeta(meta any) (acp.SessionId, error) {
+	if meta == nil {
+		return "", nil
+	}
+	metaMap, ok := meta.(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("session/new _meta must be an object")
+	}
+	rawSessionID, ok := metaMap["sessionId"]
+	if !ok {
+		return "", nil
+	}
+	sessionID, ok := rawSessionID.(string)
+	if !ok {
+		return "", fmt.Errorf("session/new _meta.sessionId must be a string")
+	}
+	trimmed := strings.TrimSpace(sessionID)
+	if trimmed == "" {
+		return "", fmt.Errorf("session/new _meta.sessionId must not be empty")
+	}
+	return acp.SessionId(trimmed), nil
 }
 
 func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {

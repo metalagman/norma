@@ -26,7 +26,7 @@ type Snapshot struct {
 	Relay RelayConfig
 }
 
-// Loader reloads relay runtime config from disk using the same resolution options as relay serve.
+// Loader reloads relay runtime config from disk using the same resolution options as relay start.
 type Loader struct {
 	runtimeOpts  runtimeconfig.RuntimeLoadOptions
 	defaultsYAML []byte

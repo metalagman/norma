@@ -59,7 +59,6 @@ type requestFields struct {
 
 func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsLog io.Writer) ([]byte, []byte, int, error) {
 	_ = stdout
-	_ = stderr
 
 	var fields requestFields
 	if err := json.Unmarshal(req, &fields); err != nil {
@@ -98,7 +97,11 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 	agentRegistry := map[string]agentconfig.Config{
 		r.role.Name(): r.cfg,
 	}
-	factory := agentfactory.New(agentRegistry, mcpregistry.New(r.mcpServers))
+	factoryOpts := make([]agentfactory.Option, 0, 1)
+	if stderr != nil {
+		factoryOpts = append(factoryOpts, agentfactory.WithStderrWriter(stderr))
+	}
+	factory := agentfactory.New(agentRegistry, mcpregistry.New(r.mcpServers), factoryOpts...)
 	innerAgent, err := factory.Build(l.WithContext(ctx), agentfactory.BuildRequest{
 		AgentID:            r.role.Name(),
 		Name:               "Norma" + toPascal(r.role.Name()) + "Agent",

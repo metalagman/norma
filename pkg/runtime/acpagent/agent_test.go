@@ -1188,6 +1188,62 @@ func TestClientNewSessionSendsEmptyMCPServersArrayWhenNil(t *testing.T) {
 	}
 }
 
+func TestClientNewSession_UsesConfiguredSessionIDAndMeta(t *testing.T) {
+	const relaySessionID = "tg-2317500-0"
+
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": relaySessionID,
+			"GO_FORCE_NEW_SESSION_ID":               relaySessionID,
+		}),
+		SessionID: relaySessionID,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	if got := string(sess.SessionId); got != relaySessionID {
+		t.Fatalf("session id = %q, want %q", got, relaySessionID)
+	}
+}
+
+func TestClientNewSession_FailsWhenACPReturnsDifferentSessionID(t *testing.T) {
+	const relaySessionID = "tg-2317500-0"
+
+	client, err := NewClient(context.Background(), ClientConfig{
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": relaySessionID,
+			"GO_FORCE_NEW_SESSION_ID":               "session-1",
+		}),
+		SessionID: relaySessionID,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	_, err = client.NewSession(context.Background(), t.TempDir(), nil)
+	if err == nil {
+		t.Fatal("NewSession() error = nil, want session id mismatch error")
+	}
+	if got := err.Error(); !strings.Contains(got, "acp session id mismatch") {
+		t.Fatalf("error = %q, want contains %q", got, "acp session id mismatch")
+	}
+}
+
 func TestAgentConfigMCPServersUseEmptyArraysNotNull(t *testing.T) {
 	expectedRaw := `[{"headers":[],"name":"http_server","type":"http","url":"http://localhost:9999/mcp"},{"headers":[],"name":"sse_server","type":"sse","url":"http://localhost:9998/sse"},{"args":[],"command":"echo","env":[],"name":"stdio_server"}]`
 
@@ -1276,6 +1332,8 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedSessionMode := os.Getenv("GO_EXPECT_SESSION_MODE")
 	expectedMCPServers := os.Getenv("GO_EXPECT_MCP_SERVERS")
 	expectedMCPServersRaw := os.Getenv("GO_EXPECT_MCP_SERVERS_RAW")
+	expectedNewSessionMetaSessionID := os.Getenv("GO_EXPECT_NEW_SESSION_META_SESSION_ID")
+	forceNewSessionID := os.Getenv("GO_FORCE_NEW_SESSION_ID")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
 	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
 	failFirstPromptEntityNotFound := os.Getenv("GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND") == "1"
@@ -1305,6 +1363,8 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			}
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperInitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber})})
 		case acp.AgentMethodSessionNew:
+			var req helperNewSessionRequest
+			must(json.Unmarshal(msg.Params, &req))
 			if expectedMCPServersRaw != "" {
 				var reqRaw struct {
 					McpServers json.RawMessage `json:"mcpServers"`
@@ -1322,8 +1382,6 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 				}
 			}
 			if expectedMCPServers != "" {
-				var req helperNewSessionRequest
-				must(json.Unmarshal(msg.Params, &req))
 				gotJSON, _ := json.Marshal(req.McpServers)
 				// Basic string comparison of JSON might be flaky if key order differs,
 				// but for simple struct it might work if mostly empty.
@@ -1352,9 +1410,28 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 					}
 				}
 			}
+			if expectedNewSessionMetaSessionID != "" {
+				metaSessionID := ""
+				if req.Meta != nil {
+					if raw, ok := req.Meta["sessionId"]; ok {
+						metaSessionID, _ = raw.(string)
+					}
+				}
+				if metaSessionID != expectedNewSessionMetaSessionID {
+					writeEnvelope(stdout, helperEnvelope{
+						JSONRPC: "2.0",
+						ID:      msg.ID,
+						Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected session/new _meta.sessionId: %q, want %q", metaSessionID, expectedNewSessionMetaSessionID)},
+					})
+					continue
+				}
+			}
 
 			sessionCount++
 			sessionID := fmt.Sprintf("session-%d", sessionCount)
+			if forceNewSessionID != "" {
+				sessionID = forceNewSessionID
+			}
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperNewSessionResponse{SessionID: sessionID})})
 		case acp.AgentMethodSessionSetModel:
 			if disableSetModel {
@@ -1559,6 +1636,7 @@ type helperNewSessionResponse struct {
 }
 
 type helperNewSessionRequest struct {
+	Meta       map[string]any  `json:"_meta,omitempty"`
 	Cwd        string          `json:"cwd"`
 	McpServers []acp.McpServer `json:"mcpServers,omitempty"`
 }

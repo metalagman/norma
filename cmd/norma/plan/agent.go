@@ -331,10 +331,6 @@ func createPlannerAgentWithOptions(
 		return nil, nil, fmt.Errorf("planner agent id is required")
 	}
 	stderr := options.Stderr
-	if stderr == nil {
-		stderr = io.Discard
-	}
-	_ = stderr
 
 	// Start embedded tasks MCP server over HTTP
 	taskServer, err := startEmbeddedTaskServer(ctx, workingDir)
@@ -348,10 +344,15 @@ func createPlannerAgentWithOptions(
 		return nil, nil, err
 	}
 
+	factoryOpts := make([]agentfactory.Option, 0, 2)
+	factoryOpts = append(factoryOpts, agentfactory.WithPermissionHandler(options.PermissionHandler))
+	if stderr != nil {
+		factoryOpts = append(factoryOpts, agentfactory.WithStderrWriter(stderr))
+	}
 	factory := agentfactory.New(
 		registry,
 		mcpregistry.New(plannerMCP),
-		agentfactory.WithPermissionHandler(options.PermissionHandler),
+		factoryOpts...,
 	)
 	baseAgent, err := factory.Build(ctx, agentfactory.BuildRequest{
 		AgentID:          plannerID,
