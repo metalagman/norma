@@ -9,11 +9,77 @@ import (
 	"testing"
 
 	relayagent "github.com/normahq/norma/internal/apps/relay/agent"
+	"github.com/normahq/norma/internal/apps/relay/runtimecfg"
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 )
+
+func TestApplyRuntimeConfig_RebuildsAgentBuilderAndMCPRegistry(t *testing.T) {
+	registry := mcpregistry.New(map[string]agentconfig.MCPServerConfig{
+		"relay": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://127.0.0.1:9090/mcp",
+		},
+		"old.server": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://127.0.0.1:9091/mcp",
+		},
+	})
+
+	m := &Manager{
+		workingDir:        t.TempDir(),
+		workspaceEnabled:  false,
+		workspaceBaseRef:  "main",
+		mcpRegistry:       registry,
+		relayMCPServerIDs: []string{"old.extra"},
+		runtimeMCPIDs:     stringSet([]string{"old.server"}),
+		logger:            zerolog.Nop(),
+	}
+
+	cfg := runtimeconfig.NormaConfig{
+		Agents: map[string]agentconfig.Config{
+			"fresh": {
+				Type: "opencode_acp",
+				OpenCodeACP: &agentconfig.ACPConfig{
+					Model: "opencode/big-pickle",
+				},
+			},
+		},
+		MCPServers: map[string]agentconfig.MCPServerConfig{
+			"new.server": {
+				Type: agentconfig.MCPServerTypeHTTP,
+				URL:  "http://127.0.0.1:9092/mcp",
+			},
+		},
+	}
+
+	if err := m.ApplyRuntimeConfig(cfg, runtimecfg.RelayConfig{
+		RootAgent: "fresh",
+		MCPServers: []string{
+			"relay.extra",
+		},
+	}); err != nil {
+		t.Fatalf("ApplyRuntimeConfig() error = %v", err)
+	}
+
+	if _, ok := registry.Get("old.server"); ok {
+		t.Fatal("old runtime MCP server still exists after ApplyRuntimeConfig")
+	}
+	if _, ok := registry.Get("new.server"); !ok {
+		t.Fatal("new runtime MCP server missing after ApplyRuntimeConfig")
+	}
+
+	if err := m.ValidateAgent("fresh"); err != nil {
+		t.Fatalf("ValidateAgent(fresh) error = %v", err)
+	}
+	_, mcpServers := m.GetAgentInfo("fresh")
+	if got := strings.Join(mcpServers, ","); got != "relay,relay.extra" {
+		t.Fatalf("GetAgentInfo(fresh) mcp servers = %q, want relay,relay.extra", got)
+	}
+}
 
 func TestStopAll_CleansWorkspaceWhenRootContextCanceled(t *testing.T) {
 	ctx := context.Background()

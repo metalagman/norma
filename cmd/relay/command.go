@@ -26,9 +26,9 @@ type relayConfigDocument struct {
 	Relay relay.RelayConfig     `mapstructure:"relay"`
 }
 
-func serveCommand() *cobra.Command {
+func startCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "serve",
+		Use:   "start",
 		Short: "Start Telegram relay bot",
 		Long:  "Start the Telegram relay bot server. A random owner token will be generated and displayed.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -68,7 +68,13 @@ func serveCommand() *cobra.Command {
 				return fmt.Errorf("generating owner token: %w", err)
 			}
 
-			app := relay.App(relayCfg, doc.Norma, ownerToken)
+			runtimeLoadOpts := appconfig.RuntimeLoadOptions{
+				WorkingDir: workingDir,
+				ConfigDir:  viper.GetString("config_dir"),
+				Profile:    viper.GetString("profile"),
+			}
+
+			app := relay.App(relayCfg, doc.Norma, ownerToken, runtimeLoadOpts, defaultRelayConfig)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
@@ -90,5 +96,12 @@ func serveCommand() *cobra.Command {
 		},
 	}
 
+	return cmd
+}
+
+func serveCommand() *cobra.Command {
+	cmd := startCommand()
+	cmd.Use = "serve"
+	cmd.Aliases = []string{"start"}
 	return cmd
 }

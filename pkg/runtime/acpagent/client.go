@@ -61,6 +61,9 @@ type ClientConfig struct {
 	PermissionHandler PermissionHandler
 	// Logger is the zerolog logger to use for this client.
 	Logger *zerolog.Logger
+	// SessionID is an optional desired session ID to use when creating ACP sessions.
+	// When provided, this ID is used instead of an auto-generated one.
+	SessionID string
 }
 
 // ExtendedSessionNotification wraps an ACP notification with its raw JSON representation
@@ -81,6 +84,7 @@ type Client struct {
 	permissionHandler PermissionHandler
 	clientName        string
 	clientVersion     string
+	sessionID         string
 	logger            zerolog.Logger
 
 	stateMu         sync.Mutex
@@ -177,6 +181,7 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		permissionHandler: cfg.PermissionHandler,
 		clientName:        clientName,
 		clientVersion:     clientVersion,
+		sessionID:         strings.TrimSpace(cfg.SessionID),
 		logger:            l,
 		activeBySession:   make(map[acp.SessionId]*activePrompt),
 		updates:           make(chan ExtendedSessionNotification, 256),

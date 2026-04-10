@@ -200,8 +200,8 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 		},
 	}
 	updater := &fakeACPSessionUpdater{}
-	l := zerolog.Nop()
-	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, &l)
+	l, logBuf := newDebugTestLogger()
+	agent := newCodexACPProxyAgent(fakeSession, "test-agent", codexToolConfig{}, l)
 	agent.setConnection(updater)
 
 	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
@@ -243,6 +243,8 @@ func TestCodexACPProxyCancelStopsPrompt(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for canceled prompt")
 	}
+	assertLogContains(t, logBuf, `"message":"mcp tool call"`, `"method":"tools/call"`, `"phase":"request"`)
+	assertLogContains(t, logBuf, `"message":"mcp tool call"`, `"method":"tools/call"`, `"phase":"response"`, `"status":"cancelled"`)
 }
 
 func TestCodexACPProxySessionFactoryCreatesDistinctBackendsPerSession(t *testing.T) {
@@ -357,6 +359,8 @@ func TestCodexACPProxySetModelResetsThreadAndBackend(t *testing.T) {
 	if _, exists := secondArgs["mode"]; exists {
 		t.Fatalf("mode argument should not be propagated to codex tool call: args=%v", secondArgs)
 	}
+	assertLogContains(t, logBuf, `"message":"mcp tool call"`, `"method":"tools/call"`, `"phase":"request"`, `"tool_name":"codex"`)
+	assertLogContains(t, logBuf, `"message":"mcp tool call"`, `"method":"tools/call"`, `"phase":"response"`, `"status":"completed"`)
 	assertLogContains(t, logBuf, `"message":"starting mcp backend session"`, `"reason":"session_new"`)
 	assertLogContains(t, logBuf, `"message":"mcp backend restart requested"`, `"reason":"session_set_model"`)
 	assertLogContains(t, logBuf, `"message":"closing mcp backend for restart"`, `"reason":"session_set_model"`)

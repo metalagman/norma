@@ -55,7 +55,6 @@ relay:
   # Removed built-in IDs such as norma.state, norma.relay, relay.state, and relay.agents are rejected.
   mcp_servers: []
 
-  # Optional relay-specific per-agent system instructions.
+  # Optional relay-specific system instructions applied to all sessions.
   # Applied after norma.agents.<agent_id>.system_instruction when both are set.
-  # Keys must match agent IDs defined in norma.agents.
-  agent_system_instructions: {}
+  system_instructions: ""

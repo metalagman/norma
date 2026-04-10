@@ -60,11 +60,10 @@ relay:
     mode: "auto"
     base_branch: "master"
   mcp_servers: []
-  agent_system_instructions:
-    opencode: |
-      You are my relay agent.
-      Prefer concise, actionable answers.
-      When a request is ambiguous, ask one short clarifying question.
+  system_instructions: |
+    You are my relay agent.
+    Prefer concise, actionable answers.
+    When a request is ambiguous, ask one short clarifying question.
 
 profiles:
   default:

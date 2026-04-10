@@ -238,6 +238,14 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 	toolID := acp.ToolCallId(fmt.Sprintf("codex-tool-%d", atomic.AddUint64(&a.nextToolID, 1)))
 	toolName, toolArgs := buildCodexToolInvocation(threadID, cwd, userPrompt, a.defaultCodexConfig, model, mcpServers)
 	callStartedAt := time.Now()
+	a.logger.Info().
+		Str("session_id", string(params.SessionId)).
+		Str("tool_name", toolName).
+		Str("tool_id", string(toolID)).
+		Str("proto", "mcp").
+		Str("method", "tools/call").
+		Str("phase", "request").
+		Msg("mcp tool call")
 	if a.logger.Debug().Enabled() {
 		a.logger.Debug().
 			Str("session_id", string(params.SessionId)).
@@ -274,9 +282,29 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 			acp.WithUpdateRawOutput(map[string]any{"error": err.Error()}),
 		))
 		if errors.Is(promptCtx.Err(), context.Canceled) {
+			a.logger.Info().
+				Str("session_id", string(params.SessionId)).
+				Str("tool_name", toolName).
+				Str("tool_id", string(toolID)).
+				Str("proto", "mcp").
+				Str("method", "tools/call").
+				Str("phase", "response").
+				Str("status", "cancelled").
+				Dur("duration", time.Since(callStartedAt)).
+				Msg("mcp tool call")
 			a.logger.Debug().Str("session_id", string(params.SessionId)).Msg("prompt canceled during tool call")
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 		}
+		a.logger.Info().
+			Str("session_id", string(params.SessionId)).
+			Str("tool_name", toolName).
+			Str("tool_id", string(toolID)).
+			Str("proto", "mcp").
+			Str("method", "tools/call").
+			Str("phase", "response").
+			Str("status", string(acp.ToolCallStatusFailed)).
+			Dur("duration", time.Since(callStartedAt)).
+			Msg("mcp tool call")
 		a.logger.Error().
 			Err(err).
 			Str("session_id", string(params.SessionId)).
@@ -301,6 +329,21 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 			Msg("mcp event")
 	}
 
+	callStatus := acp.ToolCallStatusCompleted
+	if result != nil && result.IsError {
+		callStatus = acp.ToolCallStatusFailed
+	}
+	a.logger.Info().
+		Str("session_id", string(params.SessionId)).
+		Str("tool_name", toolName).
+		Str("tool_id", string(toolID)).
+		Str("proto", "mcp").
+		Str("method", "tools/call").
+		Str("phase", "response").
+		Str("status", string(callStatus)).
+		Dur("duration", time.Since(callStartedAt)).
+		Msg("mcp tool call")
+
 	thread, responseText := extractCodexToolResult(result)
 	if thread != "" {
 		a.mu.Lock()
@@ -310,10 +353,6 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 		a.mu.Unlock()
 	}
 
-	callStatus := acp.ToolCallStatusCompleted
-	if result != nil && result.IsError {
-		callStatus = acp.ToolCallStatusFailed
-	}
 	if err := a.sendUpdate(promptCtx, params.SessionId, acp.UpdateToolCall(
 		toolID,
 		acp.WithUpdateStatus(callStatus),

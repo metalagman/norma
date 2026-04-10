@@ -200,6 +200,10 @@ func (s *service) registerTools(server *mcp.Server) {
 		Description: "Stop one relay agent session by session_id.",
 	}, s.stopAgent)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "relay.agents.restart",
+		Description: "Restart an existing relay agent session by session_id. The session is stopped and recreated with the same agent and channel context.",
+	}, s.restartAgent)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "relay.agents.list_agents",
 		Description: "List relay agent sessions, including active sessions and persisted restorable sessions.",
 	}, s.listAgents)
@@ -282,6 +286,66 @@ func (s *service) stopAgent(ctx context.Context, _ *mcp.CallToolRequest, in stop
 	}
 
 	return nil, okOutcome(), nil
+}
+
+type restartAgentInput struct {
+	SessionID string `json:"session_id" jsonschema:"relay session ID to restart"`
+}
+
+type restartAgentOutput struct {
+	ToolOutcome
+	ChannelType string   `json:"channel_type,omitempty" jsonschema:"channel type that owns the restarted session"`
+	AddressKey  string   `json:"address_key,omitempty" jsonschema:"channel-specific address key for the restarted session"`
+	SessionID   string   `json:"session_id,omitempty" jsonschema:"new relay session ID"`
+	TopicID     int      `json:"topic_id,omitempty" jsonschema:"Telegram topic ID when applicable"`
+	ChatID      int64    `json:"chat_id,omitempty" jsonschema:"Telegram chat ID when applicable"`
+	AgentName   string   `json:"agent_name,omitempty" jsonschema:"configured agent name that was restarted"`
+	Description string   `json:"description,omitempty" jsonschema:"human-readable configured agent description"`
+	MCPServers  []string `json:"mcp_servers,omitempty" jsonschema:"MCP server IDs mounted into the restarted session"`
+}
+
+func (s *service) restartAgent(ctx context.Context, req *mcp.CallToolRequest, in restartAgentInput) (*mcp.CallToolResult, restartAgentOutput, error) {
+	if strings.TrimSpace(in.SessionID) == "" {
+		result, out := validationFailure("relay.agents.restart", "session_id is required")
+		return result, restartAgentOutput{ToolOutcome: out}, nil
+	}
+
+	info, err := s.svc.GetSession(ctx, in.SessionID)
+	if err != nil {
+		result, out := backendFailure("relay.agents.restart", fmt.Errorf("session not found: %w", err))
+		return result, restartAgentOutput{ToolOutcome: out}, nil
+	}
+
+	if err := s.svc.StopAgent(ctx, in.SessionID); err != nil {
+		result, out := backendFailure("relay.agents.restart", fmt.Errorf("failed to stop session: %w", err))
+		return result, restartAgentOutput{ToolOutcome: out}, nil
+	}
+
+	startReq := StartRequest{
+		AgentName: info.AgentName,
+		Locator: &StartLocator{
+			ChannelType: info.ChannelType,
+			Address:     map[string]any{"chat_id": info.ChatID},
+		},
+	}
+
+	relayInfo, err := s.svc.StartAgent(ctx, startReq)
+	if err != nil {
+		result, out := backendFailure("relay.agents.restart", fmt.Errorf("failed to restart session: %w", err))
+		return result, restartAgentOutput{ToolOutcome: out}, nil
+	}
+
+	return nil, restartAgentOutput{
+		ToolOutcome: okOutcome(),
+		ChannelType: relayInfo.ChannelType,
+		AddressKey:  relayInfo.AddressKey,
+		SessionID:   relayInfo.SessionID,
+		TopicID:     relayInfo.TopicID,
+		ChatID:      relayInfo.ChatID,
+		AgentName:   relayInfo.AgentName,
+		Description: relayInfo.Description,
+		MCPServers:  relayInfo.MCPServers,
+	}, nil
 }
 
 type listAgentsOutput struct {

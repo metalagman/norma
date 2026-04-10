@@ -13,6 +13,7 @@ import (
 	relayagent "github.com/normahq/norma/internal/apps/relay/agent"
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/handlers"
+	"github.com/normahq/norma/internal/apps/relay/runtimecfg"
 	relaystate "github.com/normahq/norma/internal/apps/relay/state"
 	"github.com/normahq/norma/internal/apps/relay/tgbotkit"
 	"github.com/normahq/norma/internal/apps/sessionmcp"
@@ -36,19 +37,31 @@ type workspaceBaseBranchParams struct {
 const bundledRelayMCPServerID = "relay"
 
 // App creates a new fx.App for the relay bot with the provided configuration.
-func App(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) *fx.App {
+func App(
+	cfg Config,
+	normaCfg runtimeconfig.NormaConfig,
+	ownerToken string,
+	runtimeLoadOpts runtimeconfig.RuntimeLoadOptions,
+	defaultsYAML []byte,
+) *fx.App {
 	return fx.New(
 		fx.WithLogger(
 			fxlogger.WithZerolog(
 				log.Logger.With().Str("component", "relay").Logger(),
 			),
 		),
-		Module(cfg, normaCfg, ownerToken),
+		Module(cfg, normaCfg, ownerToken, runtimeLoadOpts, defaultsYAML),
 	)
 }
 
 // Module returns the fx.Module for the relay bot, initialized with the provided configurations.
-func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) fx.Option {
+func Module(
+	cfg Config,
+	normaCfg runtimeconfig.NormaConfig,
+	ownerToken string,
+	runtimeLoadOpts runtimeconfig.RuntimeLoadOptions,
+	defaultsYAML []byte,
+) fx.Option {
 	// Convert relay config to tgbotkit config.
 	tgbotkitCfg := tgbotkit.Config{
 		Token: cfg.Relay.Telegram.Token,
@@ -89,6 +102,11 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 			normaCfg,
 			workingDir,
 			mcpReg,
+		),
+		fx.Provide(
+			func() *runtimecfg.Loader {
+				return runtimecfg.NewLoader(runtimeLoadOpts, defaultsYAML)
+			},
 		),
 		fx.Provide(
 			func(lc fx.Lifecycle) (relaystate.Provider, error) {
@@ -167,10 +185,16 @@ func Module(cfg Config, normaCfg runtimeconfig.NormaConfig, ownerToken string) f
 		),
 		fx.Provide(
 			fx.Annotate(
-				func() map[string]string {
-					return normalizeAgentSystemInstructions(cfg.Relay.AgentSystemInstructions)
+				func() []string { return sortedMCPServerIDs(normaCfg.MCPServers) },
+				fx.ResultTags(`name:"relay_runtime_mcp_server_ids"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
+				func() string {
+					return strings.TrimSpace(cfg.Relay.SystemInstructions)
 				},
-				fx.ResultTags(`name:"relay_agent_system_instructions"`),
+				fx.ResultTags(`name:"relay_system_instructions"`),
 			),
 		),
 		fx.Provide(
@@ -364,23 +388,18 @@ func resolveWorkspaceBaseBranch(
 	return headBranch, "head", nil
 }
 
-func normalizeAgentSystemInstructions(raw map[string]string) map[string]string {
-	if len(raw) == 0 {
+func sortedMCPServerIDs(servers map[string]agentconfig.MCPServerConfig) []string {
+	if len(servers) == 0 {
 		return nil
 	}
-
-	normalized := make(map[string]string, len(raw))
-	for key, value := range raw {
-		trimmedKey := strings.TrimSpace(key)
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedKey == "" || trimmedValue == "" {
+	ids := make([]string, 0, len(servers))
+	for id := range servers {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
 			continue
 		}
-		normalized[trimmedKey] = trimmedValue
+		ids = append(ids, trimmed)
 	}
-
-	if len(normalized) == 0 {
-		return nil
-	}
-	return normalized
+	sort.Strings(ids)
+	return ids
 }

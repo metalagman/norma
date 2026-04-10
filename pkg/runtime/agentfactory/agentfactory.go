@@ -26,6 +26,7 @@ type BuildRequest struct {
 	SystemInstruction string   `json:"system_instruction,omitempty"`
 	WorkingDirectory  string   `json:"working_directory" validate:"required,min=1"`
 	MCPServerIDs      []string `json:"mcp_server_ids,omitempty"`
+	SessionID         string   `json:"session_id,omitempty"`
 }
 
 var buildRequestValidator = newBuildRequestValidator()
@@ -317,6 +318,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 		PermissionHandler:  f.permissionHandler,
 		Logger:             loggerFromContext(ctx),
 		MCPServers:         toRuntimeMCPServers(resolvedMCP),
+		SessionID:          req.SessionID,
 	})
 }
 

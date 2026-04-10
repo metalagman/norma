@@ -170,6 +170,15 @@ func (a *Adapter) SendDraftPlain(ctx context.Context, locator relaysession.Sessi
 	return a.messenger.SendDraftPlain(ctx, chatID, draftID, text, topicID)
 }
 
+// SendTyping sends a typing chat action to the locator chat/topic.
+func (a *Adapter) SendTyping(ctx context.Context, locator relaysession.SessionLocator) error {
+	chatID, topicID, err := telegramTuple(locator)
+	if err != nil {
+		return err
+	}
+	return a.messenger.SendChatAction(ctx, chatID, topicID, "typing")
+}
+
 // CreateTopicLocator creates a Telegram forum topic and returns the relay locator for it.
 func (a *Adapter) CreateTopicLocator(ctx context.Context, chatID int64, topicName string) (relaysession.SessionLocator, error) {
 	createTopicResp, err := a.tgClient.CreateForumTopicWithResponse(ctx, client.CreateForumTopicJSONRequestBody{

@@ -79,11 +79,10 @@ profiles: {}
   - relay agents should use the config path shown in the system instruction and edit `.config/relay/config.yaml` directly
 - `relay.mcp_servers`: extra MCP server IDs for all relay-started sessions (resolved from `norma.mcp_servers`)
   - effective MCP IDs = bundled defaults + `norma.agents.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
-- `relay.agent_system_instructions`: optional per-agent relay instruction map
-  - key: agent ID from `norma.agents`
-  - value: instruction text appended in relay prompt for that agent
-  - effective relay instruction order: built-in relay instructions + `norma.agents.<agent>.system_instruction` + `relay.agent_system_instructions.<agent>` (last wins by position)
-  - `relay init` generates a channel-aware example prompt for the selected root agent
+- `relay.system_instructions`: optional relay instruction text applied to all sessions
+  - value: instruction text appended in relay prompt for all agents
+  - effective relay instruction order: built-in relay instructions + `norma.agents.<agent>.system_instruction` + `relay.system_instructions` (last wins by position)
+  - `relay init` generates a channel-aware example prompt
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository
   - `off`: run agents directly in relay `working_dir` (no `relay.workspace` namespace)
@@ -101,6 +100,7 @@ Session key:
 - Root relay session: `(chat_id, topic_id=0)`
 - Topic subagent session: `(chat_id, topic_id)`
 - Canonical relay session IDs are channel-scoped. Telegram uses `tg-<chat_id>-<topic_id>`.
+- Root sessions are created lazily on the first owner message in that chat (`topic_id=0`).
 
 Session runtimes are still in-memory, but metadata is persisted in `relay.db`.
 Relay lazy-restores a topic session on first message after restart when metadata exists.
@@ -117,7 +117,7 @@ Relay lazy-restores a topic session on first message after restart when metadata
 
 Per model turn:
 
-1. Thought events are emitted as plain `sendMessageDraft` updates using a stable `draft_id`.
+1. Thought events are emitted as plain `sendMessageDraft` updates using a stable `draft_id`; relay also sends `sendChatAction` with `typing` for the same chat/topic.
 2. Final assistant text is sent with `sendMessage` using MarkdownV2.
 3. If MarkdownV2 delivery fails, relay retries once without `parse_mode`.
 

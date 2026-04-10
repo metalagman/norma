@@ -21,7 +21,7 @@ This creates `.config/relay/config.yaml` and prompts for:
 - `relay.root_agent` (required, auto-detected agents only; default by priority: codex, opencode, copilot, gemini, claude_code)
 - `relay.telegram.token` (optional, press Enter to skip)
 
-`relay init` also generates an example prompt at `relay.agent_system_instructions.<root_agent>` so you can customize root-agent behavior quickly.
+`relay init` also generates an example prompt at `relay.system_instructions` so you can customize relay behavior quickly.
 That example now includes guidance for session-scoped relay MCP usage and workspace MCP import/export.
 Built-in relay MCP is exposed as one bundled server ID, `relay`, with tool namespaces under `relay.*`.
 Relay config itself is not exposed via MCP; relay agents should edit `.config/relay/config.yaml` directly when needed.
@@ -41,7 +41,7 @@ RELAY_TELEGRAM_TOKEN=<your_bot_token>
 4. Start relay:
 
 ```bash
-relay serve
+relay start
 ```
 
 5. Authenticate as owner:
@@ -69,7 +69,7 @@ Common keys:
 - `relay.telegram.token`
 - future channels are expected as top-level siblings such as `relay.whatsapp`
 - `relay.mcp_servers` (extra MCP server IDs for all relay-started sessions, from `norma.mcp_servers`)
-- `relay.agent_system_instructions` (relay-only per-agent instruction overrides; appended after `norma.agents.<id>.system_instruction`)
+- `relay.system_instructions` (relay-only instruction override; applied to all sessions, appended after `norma.agents.<id>.system_instruction`)
 - `relay.workspace.mode` (`on|off|auto`)
 - `relay.workspace.base_branch` (base branch for workspace import/export; auto-detected by `relay init` when possible)
 - `relay.state_dir` (default `.config/relay`; stores migration-managed `relay.db`)

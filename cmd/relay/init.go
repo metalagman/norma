@@ -225,16 +225,11 @@ func buildRelayInitAgents(detected []relayInitAgentTemplate) map[string]any {
 }
 
 func buildRelayInitProfiles(agentIDs []string) map[string]any {
-	profiles := make(map[string]any, len(agentIDs)+1)
+	profiles := make(map[string]any, len(agentIDs))
 	if len(agentIDs) == 0 {
 		return profiles
 	}
 
-	profiles["default"] = map[string]any{
-		"relay": map[string]any{
-			"root_agent": agentIDs[0],
-		},
-	}
 	for _, id := range agentIDs {
 		profiles[id] = map[string]any{
 			"relay": map[string]any{
@@ -335,23 +330,6 @@ func setRelayRootAgent(doc map[string]any, rootAgent string) error {
 	relaySection["root_agent"] = rootAgent
 	doc["relay"] = relaySection
 
-	profilesSection, ok := toStringAnyMap(doc["profiles"])
-	if !ok {
-		return nil
-	}
-	defaultProfile, ok := toStringAnyMap(profilesSection["default"])
-	if !ok {
-		return nil
-	}
-	relayProfile, ok := toStringAnyMap(defaultProfile["relay"])
-	if !ok {
-		return nil
-	}
-	relayProfile["root_agent"] = rootAgent
-	defaultProfile["relay"] = relayProfile
-	profilesSection["default"] = defaultProfile
-	doc["profiles"] = profilesSection
-
 	return nil
 }
 
@@ -371,28 +349,15 @@ func setRelayTelegramToken(doc map[string]any, token string) error {
 }
 
 func setRelayAgentSystemInstructionExample(doc map[string]any, rootAgent string) error {
-	agentID := strings.TrimSpace(rootAgent)
-	if agentID == "" {
-		return nil
-	}
-
 	relaySection, ok := toStringAnyMap(doc["relay"])
 	if !ok {
 		return fmt.Errorf("relay section is missing from generated config")
 	}
 
-	agentInstructions := map[string]any{}
-	if raw, exists := relaySection["agent_system_instructions"]; exists && raw != nil {
-		if existing, ok := toStringAnyMap(raw); ok {
-			agentInstructions = existing
-		}
+	if existing, exists := relaySection["system_instructions"]; !exists || strings.TrimSpace(fmt.Sprintf("%v", existing)) == "" {
+		relaySection["system_instructions"] = relayInitSystemInstructionExample
 	}
 
-	if existing, exists := agentInstructions[agentID]; !exists || strings.TrimSpace(fmt.Sprintf("%v", existing)) == "" {
-		agentInstructions[agentID] = relayInitSystemInstructionExample
-	}
-
-	relaySection["agent_system_instructions"] = agentInstructions
 	doc["relay"] = relaySection
 	return nil
 }

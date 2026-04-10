@@ -118,18 +118,33 @@ func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text 
 }
 
 // SendChatAction sends a chat action (e.g., "typing").
-func (m *Messenger) SendChatAction(ctx context.Context, chatID int64, action string) {
+func (m *Messenger) SendChatAction(ctx context.Context, chatID int64, topicID int, action string) error {
 	if chatID == 0 {
-		return
+		return nil
 	}
-	_, _ = m.client.SendChatActionWithResponse(ctx, client.SendChatActionJSONRequestBody{
+	req := client.SendChatActionJSONRequestBody{
 		ChatId: chatID,
 		Action: action,
-	})
+	}
+	if topicID != 0 {
+		req.MessageThreadId = &topicID
+	}
+
+	resp, err := m.client.SendChatActionWithResponse(ctx, req)
+	if err != nil {
+		return fmt.Errorf("sending chat action %q to chat %d: %w", action, chatID, err)
+	}
+	if resp.JSON400 != nil {
+		return fmt.Errorf("sending chat action %q to chat %d: %s", action, chatID, resp.JSON400.Description)
+	}
+	if resp.JSON200 == nil {
+		return fmt.Errorf("sending chat action %q to chat %d: no response body", action, chatID)
+	}
+	return nil
 }
 
 // KeepTyping sends typing action every 4 seconds until context is canceled.
-func (m *Messenger) KeepTyping(ctx context.Context, chatID int64) {
+func (m *Messenger) KeepTyping(ctx context.Context, chatID int64, topicID int) {
 	ticker := time.NewTicker(4 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -137,7 +152,9 @@ func (m *Messenger) KeepTyping(ctx context.Context, chatID int64) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.SendChatAction(ctx, chatID, "typing")
+			if err := m.SendChatAction(ctx, chatID, topicID, "typing"); err != nil {
+				m.logger.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to send typing chat action")
+			}
 		}
 	}
 }

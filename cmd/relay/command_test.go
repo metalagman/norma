@@ -14,6 +14,8 @@ type relayTestConfigDocument struct {
 	Relay relayapp.RelayConfig  `mapstructure:"relay"`
 }
 
+const testRelayDefaultProfile = "default"
+
 func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
 	workingDir := t.TempDir()
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
@@ -34,7 +36,7 @@ profiles:
 
 	var doc relayTestConfigDocument
 	selectedProfile, err := appconfig.LoadConfigDocument(
-		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: "default"},
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: testRelayDefaultProfile},
 		appconfig.AppLoadOptions{
 			AppName:      "relay",
 			DefaultsYAML: defaultRelayConfig,
@@ -44,8 +46,8 @@ profiles:
 	if err != nil {
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
-	if selectedProfile != "default" {
-		t.Fatalf("profile = %q, want default", selectedProfile)
+	if selectedProfile != testRelayDefaultProfile {
+		t.Fatalf("profile = %q, want %s", selectedProfile, testRelayDefaultProfile)
 	}
 
 	relayCfg := relayapp.Config{Relay: doc.Relay}
@@ -58,6 +60,81 @@ profiles:
 	}
 }
 
+func TestLoadConfigDocument_ImplicitDefaultProfileDoesNotRequireProfilesDefault(t *testing.T) {
+	workingDir := t.TempDir()
+
+	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+  agents:
+    relay_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+profiles:
+  codex:
+    relay:
+      root_agent: codex
+relay:
+  root_agent: relay_agent
+`); err != nil {
+		t.Fatalf("write relay config: %v", err)
+	}
+
+	var doc relayTestConfigDocument
+	selectedProfile, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
+		appconfig.AppLoadOptions{
+			AppName:      "relay",
+			DefaultsYAML: defaultRelayConfig,
+		},
+		&doc,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigDocument: %v", err)
+	}
+	if selectedProfile != testRelayDefaultProfile {
+		t.Fatalf("profile = %q, want %s", selectedProfile, testRelayDefaultProfile)
+	}
+	if doc.Relay.RootAgent != "relay_agent" {
+		t.Fatalf("root_agent = %q, want relay_agent", doc.Relay.RootAgent)
+	}
+}
+
+func TestLoadConfigDocument_ExplicitMissingProfileFails(t *testing.T) {
+	workingDir := t.TempDir()
+
+	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+  agents:
+    relay_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+profiles:
+  codex:
+    relay:
+      root_agent: codex
+relay:
+  root_agent: relay_agent
+`); err != nil {
+		t.Fatalf("write relay config: %v", err)
+	}
+
+	var doc relayTestConfigDocument
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: testRelayDefaultProfile},
+		appconfig.AppLoadOptions{
+			AppName:      "relay",
+			DefaultsYAML: defaultRelayConfig,
+		},
+		&doc,
+	)
+	if err == nil {
+		t.Fatal("expected error for missing explicit profile")
+	}
+	if got, want := err.Error(), `top-level profile "default" not found`; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
 func TestNewRootCommand_RegistersCommandsAndFlags(t *testing.T) {
 	t.Setenv("GOOGLE_API_KEY", "test-google-api-key")
 
@@ -66,6 +143,9 @@ func TestNewRootCommand_RegistersCommandsAndFlags(t *testing.T) {
 		t.Fatalf("newRootCommand: %v", err)
 	}
 
+	if _, _, err := cmd.Find([]string{"start"}); err != nil {
+		t.Fatalf("start command missing: %v", err)
+	}
 	if _, _, err := cmd.Find([]string{"serve"}); err != nil {
 		t.Fatalf("serve command missing: %v", err)
 	}

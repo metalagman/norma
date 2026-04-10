@@ -48,6 +48,9 @@ type Config struct {
 	Logger *zerolog.Logger
 	// MCPServers is the map of MCP server configurations.
 	MCPServers map[string]MCPServerConfig
+	// SessionID is an optional desired session ID to use when creating ACP sessions.
+	// When provided, this ID is used instead of an auto-generated one.
+	SessionID string
 }
 
 // Agent adapts an Agentic Computing Protocol (ACP) runtime to the ADK agent interface.
@@ -59,6 +62,7 @@ type Agent struct {
 	workingDir         string
 	sessionModel       string
 	sessionMode        string
+	sessionID          string
 	systemInstructions string
 	logger             zerolog.Logger
 	sessionMu          sync.Mutex
@@ -106,6 +110,7 @@ func New(cfg Config) (*Agent, error) {
 		Stderr:            cfg.Stderr,
 		PermissionHandler: cfg.PermissionHandler,
 		Logger:            cfg.Logger,
+		SessionID:         cfg.SessionID,
 	})
 	if err != nil {
 		return nil, err
@@ -130,6 +135,7 @@ func New(cfg Config) (*Agent, error) {
 		workingDir:         cfg.WorkingDir,
 		sessionModel:       strings.TrimSpace(cfg.Model),
 		sessionMode:        strings.TrimSpace(cfg.Mode),
+		sessionID:          strings.TrimSpace(cfg.SessionID),
 		systemInstructions: strings.TrimSpace(cfg.SystemInstructions),
 		logger:             l,
 		remoteByADK:        make(map[string]string),

@@ -58,6 +58,7 @@ func newRootCommand() (*cobra.Command, error) {
 		return nil, fmt.Errorf("bind profile flag: %w", err)
 	}
 
+	cmd.AddCommand(startCommand())
 	cmd.AddCommand(serveCommand())
 	cmd.AddCommand(initCommand())
 	cmd.AddCommand(toolCommand())

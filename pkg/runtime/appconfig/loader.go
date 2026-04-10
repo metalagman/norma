@@ -139,7 +139,8 @@ func loadConfigViper(configPath string, defaultsYAML []byte) (*viper.Viper, erro
 }
 
 func applyProfileOverlay(v *viper.Viper, settings map[string]any, requestedProfile string) (string, error) {
-	selected := strings.TrimSpace(requestedProfile)
+	trimmedRequestedProfile := strings.TrimSpace(requestedProfile)
+	selected := trimmedRequestedProfile
 	if selected == "" {
 		selected = defaultProfileName
 	}
@@ -154,6 +155,9 @@ func applyProfileOverlay(v *viper.Viper, settings map[string]any, requestedProfi
 
 	rawOverride, ok := profiles[selected]
 	if !ok {
+		if trimmedRequestedProfile == "" && selected == defaultProfileName {
+			return selected, nil
+		}
 		return "", fmt.Errorf("top-level profile %q not found", selected)
 	}
 	overrideMap, ok := toStringAnyMap(rawOverride)

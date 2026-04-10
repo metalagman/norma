@@ -116,9 +116,7 @@ func TestBuildRelaySystemInstruction_ComposesAgentInstructions(t *testing.T) {
 				},
 			},
 		},
-		relayAgentInstructions: map[string]string{
-			"alpha": "relay instruction",
-		},
+		relaySystemInstruction: "relay instruction",
 	}
 
 	got := builder.buildRelaySystemInstruction(

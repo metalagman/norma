@@ -33,7 +33,7 @@ type Builder struct {
 	workingDir             string
 	workspaceEnabled       bool
 	workspaceBaseBranch    string
-	relayAgentInstructions map[string]string
+	relaySystemInstruction string
 }
 
 type relayPromptData struct {
@@ -98,8 +98,7 @@ func (b *Builder) buildRelaySystemInstruction(
 	if agentCfg, ok := b.normaCfg.Agents[normalizedAgentName]; ok {
 		normaInstruction = agentCfg.SystemInstruction
 	}
-	relayInstruction := b.relayAgentInstructions[normalizedAgentName]
-	data.AgentInstructions = composeAgentInstructions(normaInstruction, relayInstruction)
+	data.AgentInstructions = composeAgentInstructions(normaInstruction, b.relaySystemInstruction)
 
 	var buf bytes.Buffer
 	tmpl := template.Must(template.New("relay").Parse(relaySystemInstructionTmpl))
@@ -123,9 +122,9 @@ type BuilderParams struct {
 	Factory                *agentfactory.Factory
 	NormaCfg               runtimeconfig.NormaConfig
 	WorkingDir             string
-	WorkspaceEnabled       bool              `name:"relay_workspace_enabled"`
-	WorkspaceBaseBranch    string            `name:"relay_workspace_base_branch"`
-	RelayAgentInstructions map[string]string `name:"relay_agent_system_instructions"`
+	WorkspaceEnabled       bool   `name:"relay_workspace_enabled"`
+	WorkspaceBaseBranch    string `name:"relay_workspace_base_branch"`
+	RelaySystemInstruction string `name:"relay_system_instructions"`
 }
 
 // NewBuilder creates a Builder with the given factory and config.
@@ -136,7 +135,7 @@ func NewBuilder(params BuilderParams) *Builder {
 		workingDir:             strings.TrimSpace(params.WorkingDir),
 		workspaceEnabled:       params.WorkspaceEnabled,
 		workspaceBaseBranch:    strings.TrimSpace(params.WorkspaceBaseBranch),
-		relayAgentInstructions: normalizeRelayAgentInstructions(params.RelayAgentInstructions),
+		relaySystemInstruction: strings.TrimSpace(params.RelaySystemInstruction),
 	}
 }
 
@@ -179,6 +178,7 @@ func (b *Builder) BuildWithMCPServerIDs(
 		WorkingDirectory:  workspaceDir,
 		SystemInstruction: b.buildRelaySystemInstruction(sessionID, "telegram", agentName, sessionBranch, workspaceDir, repoBranchAtStart),
 		MCPServerIDs:      b.buildAgentMCPServerIDs(agentName, bundledMCPServerIDs, extraMCPServerIDs),
+		SessionID:         sessionID,
 	}
 
 	ag, err := b.factory.Build(ctx, req)
@@ -316,25 +316,4 @@ func composeAgentInstructions(normaInstruction, relayInstruction string) string 
 		parts = append(parts, trimmedRelay)
 	}
 	return strings.Join(parts, "\n\n")
-}
-
-func normalizeRelayAgentInstructions(raw map[string]string) map[string]string {
-	if len(raw) == 0 {
-		return nil
-	}
-
-	normalized := make(map[string]string, len(raw))
-	for key, value := range raw {
-		trimmedKey := strings.TrimSpace(key)
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedKey == "" || trimmedValue == "" {
-			continue
-		}
-		normalized[trimmedKey] = trimmedValue
-	}
-
-	if len(normalized) == 0 {
-		return nil
-	}
-	return normalized
 }
