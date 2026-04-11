@@ -30,6 +30,7 @@ type CommandHandler struct {
 	ownerStore     *auth.OwnerStore
 	channel        *relaytelegram.Adapter
 	sessionManager commandSessionManager
+	turnDispatcher turnQueue
 	messenger      *messenger.Messenger
 	agentIDs       []string
 }
@@ -44,6 +45,7 @@ type commandHandlerParams struct {
 	OwnerStore     *auth.OwnerStore
 	Channel        *relaytelegram.Adapter
 	SessionManager *session.Manager
+	TurnDispatcher *TurnDispatcher
 	Messenger      *messenger.Messenger
 	NormaCfg       runtimeconfig.NormaConfig
 }
@@ -54,6 +56,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		ownerStore:     params.OwnerStore,
 		channel:        params.Channel,
 		sessionManager: params.SessionManager,
+		turnDispatcher: params.TurnDispatcher,
 		messenger:      params.Messenger,
 		agentIDs:       sortedAgentIDs(params.NormaCfg),
 	}
@@ -75,6 +78,8 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return h.onNewCommand(ctx, commandCtx)
 	case "close":
 		return h.onCloseCommand(ctx, commandCtx)
+	case "cancel":
+		return h.onCancelCommand(ctx, commandCtx)
 	default:
 		return nil
 	}
@@ -157,6 +162,9 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx relaytel
 	}
 
 	if commandCtx.TopicID > 0 {
+		if h.turnDispatcher != nil {
+			_, _, _ = h.turnDispatcher.CancelSession(commandCtx.Locator, true)
+		}
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Closing this topic and stopping agent session."); err != nil {
 			log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Int("topic_id", commandCtx.TopicID).Msg("failed to send /close confirmation")
 		}
@@ -167,10 +175,64 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx relaytel
 		return nil
 	}
 
+	if h.turnDispatcher != nil {
+		_, _, _ = h.turnDispatcher.CancelSession(commandCtx.Locator, true)
+	}
 	if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Stopping root agent session. It will be recreated on your next message."); err != nil {
 		log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Msg("failed to send /close root confirmation")
 	}
 	h.sessionManager.StopSession(commandCtx.Locator)
+	return nil
+}
+
+func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
+	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(commandCtx.UserID) {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner can use this command."); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if strings.TrimSpace(commandCtx.Args) != "" {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /cancel"); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if h.turnDispatcher == nil {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Cancel is unavailable right now. Please try again."); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	hadInFlight, dropped, err := h.turnDispatcher.CancelSession(commandCtx.Locator, true)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to cancel session turns")
+		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to cancel current turn: %v", err)); sendErr != nil {
+			return sendErr
+		}
+		return nil
+	}
+
+	if !hadInFlight && dropped == 0 {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "No running or queued turns for this session."); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	response := "Canceled current turn."
+	if !hadInFlight {
+		response = "No running turn to cancel."
+	}
+	if dropped > 0 {
+		response = fmt.Sprintf("%s Dropped %d queued message(s).", response, dropped)
+	}
+	if err := h.channel.SendPlain(ctx, commandCtx.Locator, response); err != nil {
+		return err
+	}
 	return nil
 }
 

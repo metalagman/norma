@@ -22,13 +22,14 @@ type Adapter struct {
 
 // MessageContext is the relay-facing Telegram message shape.
 type MessageContext struct {
-	Locator    relaysession.SessionLocator
-	ChatID     int64
-	TopicID    int
-	MessageID  int
-	UserID     int64
-	Text       string
-	HasCommand bool
+	Locator            relaysession.SessionLocator
+	ChatID             int64
+	TopicID            int
+	MessageID          int
+	UserID             int64
+	Text               string
+	HasCommand         bool
+	AllowProgressHints bool
 }
 
 // CommandContext is the relay-facing Telegram command shape.
@@ -87,13 +88,14 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 	}
 
 	return MessageContext{
-		Locator:    relaysession.NewTelegramSessionLocator(event.Message.Chat.Id, topicID),
-		ChatID:     event.Message.Chat.Id,
-		TopicID:    topicID,
-		MessageID:  event.Message.MessageId,
-		UserID:     event.Message.From.Id,
-		Text:       text,
-		HasCommand: hasCommandEntity(event.Message),
+		Locator:            relaysession.NewTelegramSessionLocator(event.Message.Chat.Id, topicID),
+		ChatID:             event.Message.Chat.Id,
+		TopicID:            topicID,
+		MessageID:          event.Message.MessageId,
+		UserID:             event.Message.From.Id,
+		Text:               text,
+		HasCommand:         hasCommandEntity(event.Message),
+		AllowProgressHints: event.Message.Chat.Type == "private",
 	}, true
 }
 

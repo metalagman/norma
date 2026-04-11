@@ -30,6 +30,7 @@ type RelayHandler struct {
 	ownerStore     *auth.OwnerStore
 	channel        *relaytelegram.Adapter
 	sessionManager *relaysession.Manager
+	turnDispatcher turnQueue
 	messenger      *messenger.Messenger
 	configLoader   runtimeConfigLoader
 	tgClient       client.ClientWithResponsesInterface
@@ -55,6 +56,7 @@ type relayHandlerDeps struct {
 	OwnerStore         *auth.OwnerStore
 	Channel            *relaytelegram.Adapter
 	SessionManager     *relaysession.Manager
+	TurnDispatcher     *TurnDispatcher
 	Messenger          *messenger.Messenger
 	RuntimeConfig      *runtimecfg.Loader
 	TGClient           client.ClientWithResponsesInterface
@@ -70,6 +72,7 @@ func NewRelayHandler(deps relayHandlerDeps) (*RelayHandler, error) {
 		ownerStore:     deps.OwnerStore,
 		channel:        deps.Channel,
 		sessionManager: deps.SessionManager,
+		turnDispatcher: deps.TurnDispatcher,
 		messenger:      deps.Messenger,
 		configLoader:   deps.RuntimeConfig,
 		tgClient:       deps.TGClient,
@@ -251,18 +254,109 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		}
 	}
 
-	if err := h.runTurn(ctx, text, ts.GetRunner(), ts.GetUserID(), ts.GetSessionID(), locator, messageCtx.MessageID); err != nil {
-		log.Error().Err(err).Int("topic_id", topicID).Msg("Agent execution failed")
-		errText := fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat and start a new session.", err)
-		if topicID > 0 {
-			errText = fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err)
+	if h.turnDispatcher == nil {
+		if err := h.runTurnTask(ctx, text, ts.GetRunner(), ts.GetUserID(), ts.GetSessionID(), locator, messageCtx.MessageID, topicID, messageCtx.AllowProgressHints); err != nil {
+			log.Error().Err(err).Int("topic_id", topicID).Msg("Agent execution failed")
 		}
-		if sendErr := h.channel.SendPlain(ctx, locator, errText); sendErr != nil {
-			log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay error message")
+		return nil
+	}
+
+	if err := h.enqueueTurn(ctx, text, ts, locator, messageCtx.MessageID, topicID, messageCtx.AllowProgressHints); err != nil {
+		if errors.Is(err, ErrTurnQueueFull) {
+			_ = h.channel.SendPlain(ctx, locator, fmt.Sprintf("Session is busy and queue is full (%d). Please wait or use /cancel.", perSessionQueueLimit))
+			return nil
+		}
+
+		log.Error().Err(err).Int("topic_id", topicID).Msg("failed to enqueue relay turn")
+		_ = h.channel.SendPlain(ctx, locator, "Failed to queue your message for processing. Please try again.")
+	}
+
+	return nil
+}
+
+func (h *RelayHandler) enqueueTurn(
+	ctx context.Context,
+	text string,
+	ts *relaysession.TopicSession,
+	locator relaysession.SessionLocator,
+	messageID int,
+	topicID int,
+	allowProgressHints bool,
+) error {
+	if ts == nil {
+		return fmt.Errorf("topic session is required")
+	}
+
+	position, err := h.turnDispatcher.Enqueue(TurnTask{
+		SessionID: ts.GetSessionID(),
+		Run: func(runCtx context.Context) error {
+			if _, getErr := h.sessionManager.GetSession(locator); getErr != nil {
+				h.logger.Debug().
+					Str("session_id", locator.SessionID).
+					Str("address_key", locator.AddressKey).
+					Msg("dropping queued turn for inactive session")
+				return nil
+			}
+			return h.runTurnTask(runCtx, text, ts.GetRunner(), ts.GetUserID(), ts.GetSessionID(), locator, messageID, topicID, allowProgressHints)
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	if position > 0 {
+		queuedMsg := fmt.Sprintf("Message queued (position %d). I will process it after the current turn.", position)
+		if sendErr := h.channel.SendPlain(ctx, locator, queuedMsg); sendErr != nil {
+			h.logger.Warn().
+				Err(sendErr).
+				Str("session_id", ts.GetSessionID()).
+				Int("position", position).
+				Msg("failed to send queued message notice")
 		}
 	}
 
 	return nil
+}
+
+func (h *RelayHandler) runTurnTask(
+	ctx context.Context,
+	text string,
+	r *runner.Runner,
+	userID string,
+	sessionID string,
+	locator relaysession.SessionLocator,
+	messageID int,
+	topicID int,
+	allowProgressHints bool,
+) error {
+	err := h.runTurn(ctx, text, r, userID, sessionID, locator, messageID, allowProgressHints)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) {
+		h.logger.Info().
+			Str("session_id", sessionID).
+			Int("topic_id", topicID).
+			Msg("relay turn canceled")
+		return nil
+	}
+	if _, getErr := h.sessionManager.GetSession(locator); getErr != nil {
+		h.logger.Debug().
+			Str("session_id", sessionID).
+			Int("topic_id", topicID).
+			Msg("suppressing relay turn error for inactive session")
+		return nil
+	}
+
+	log.Error().Err(err).Int("topic_id", topicID).Msg("agent execution failed")
+	errText := fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat and start a new session.", err)
+	if topicID > 0 {
+		errText = fmt.Sprintf("Agent execution failed: %v.\n\nPlease close this chat topic and create a new session with /new <agent_name>.", err)
+	}
+	if sendErr := h.channel.SendPlain(context.Background(), locator, errText); sendErr != nil {
+		log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send relay error message")
+	}
+	return err
 }
 
 func (h *RelayHandler) onForumTopicLifecycle(_ context.Context, event *events.MessageEvent) error {
@@ -311,7 +405,16 @@ func (h *RelayHandler) onForumTopicLifecycle(_ context.Context, event *events.Me
 	return nil
 }
 
-func (h *RelayHandler) runTurn(ctx context.Context, text string, r *runner.Runner, userID string, sessionID string, locator relaysession.SessionLocator, messageID int) error {
+func (h *RelayHandler) runTurn(
+	ctx context.Context,
+	text string,
+	r *runner.Runner,
+	userID string,
+	sessionID string,
+	locator relaysession.SessionLocator,
+	messageID int,
+	allowProgressHints bool,
+) error {
 	address, ok, err := locator.TelegramAddress()
 	if err != nil {
 		return fmt.Errorf("decode telegram locator: %w", err)
@@ -350,11 +453,13 @@ func (h *RelayHandler) runTurn(ctx context.Context, text string, r *runner.Runne
 					continue
 				}
 				if part.Thought {
-					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, thinkingStages[thinkingIdx%len(thinkingStages)]); sendErr != nil {
-						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send thinking draft")
-					}
-					if sendErr := h.channel.SendTyping(ctx, locator); sendErr != nil {
-						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send typing chat action")
+					if allowProgressHints {
+						if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, thinkingStages[thinkingIdx%len(thinkingStages)]); sendErr != nil {
+							log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send thinking draft")
+						}
+						if sendErr := h.channel.SendTyping(ctx, locator); sendErr != nil {
+							log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send typing chat action")
+						}
 					}
 					thinkingIdx++
 					continue

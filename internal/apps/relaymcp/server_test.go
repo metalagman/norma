@@ -3,6 +3,7 @@ package relaymcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"reflect"
 	"strings"
@@ -30,31 +31,49 @@ func TestRelayServerPublishesInstructionsAndSchemas(t *testing.T) {
 		toolByName[tool.Name] = tool
 	}
 
-	if got := toolByName["relay.agents.list_agents"].Description; !strings.Contains(got, "persisted") {
-		t.Fatalf("relay.agents.list_agents description = %q, want persisted-session guidance", got)
-	}
 	if _, ok := toolByName["relay.agents.start"]; !ok {
 		t.Fatalf("tools missing relay.agents.start: %#v", toolByName)
+	}
+	if _, ok := toolByName["relay.agents.stop"]; !ok {
+		t.Fatalf("tools missing relay.agents.stop: %#v", toolByName)
+	}
+	if _, ok := toolByName["relay.agents.get"]; !ok {
+		t.Fatalf("tools missing relay.agents.get: %#v", toolByName)
+	}
+	if _, ok := toolByName["relay.agents.list"]; !ok {
+		t.Fatalf("tools missing relay.agents.list: %#v", toolByName)
+	}
+	if got := toolByName["relay.agents.list"].Description; !strings.Contains(got, "persisted") {
+		t.Fatalf("relay.agents.list description = %q, want persisted-session guidance", got)
 	}
 	if _, ok := toolByName["relay.agents.start_agent"]; ok {
 		t.Fatalf("tools unexpectedly still expose relay.agents.start_agent: %#v", toolByName)
 	}
+	if _, ok := toolByName["relay.agents.stop_agent"]; !ok {
+		t.Fatalf("tools missing relay.agents.stop_agent alias: %#v", toolByName)
+	}
+	if _, ok := toolByName["relay.agents.get_agent"]; !ok {
+		t.Fatalf("tools missing relay.agents.get_agent alias: %#v", toolByName)
+	}
+	if _, ok := toolByName["relay.agents.list_agents"]; !ok {
+		t.Fatalf("tools missing relay.agents.list_agents alias: %#v", toolByName)
+	}
 
-	outSchema, ok := toolByName["relay.agents.get_agent"].OutputSchema.(map[string]any)
+	outSchema, ok := toolByName["relay.agents.get"].OutputSchema.(map[string]any)
 	if !ok {
-		t.Fatalf("relay.agents.get_agent output schema type = %T, want map[string]any", toolByName["relay.agents.get_agent"].OutputSchema)
+		t.Fatalf("relay.agents.get output schema type = %T, want map[string]any", toolByName["relay.agents.get"].OutputSchema)
 	}
 	properties := outSchema["properties"].(map[string]any)
 	agent := properties["agent"].(map[string]any)
 	agentProperties := agent["properties"].(map[string]any)
 	if _, ok := agentProperties["session_id"]; !ok {
-		t.Fatalf("relay.agents.get_agent schema missing session_id: %#v", agentProperties)
+		t.Fatalf("relay.agents.get schema missing session_id: %#v", agentProperties)
 	}
 	if _, ok := agentProperties["agent_name"]; !ok {
-		t.Fatalf("relay.agents.get_agent schema missing agent_name: %#v", agentProperties)
+		t.Fatalf("relay.agents.get schema missing agent_name: %#v", agentProperties)
 	}
 	if _, ok := agentProperties["SessionID"]; ok {
-		t.Fatalf("relay.agents.get_agent schema unexpectedly contains legacy SessionID key: %#v", agentProperties)
+		t.Fatalf("relay.agents.get schema unexpectedly contains legacy SessionID key: %#v", agentProperties)
 	}
 }
 
@@ -218,11 +237,11 @@ func TestRelayAgentStructuredOutputUsesSnakeCase(t *testing.T) {
 	_ = session.InitializeResult()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "relay.agents.get_agent",
+		Name:      "relay.agents.get",
 		Arguments: map[string]any{"session_id": "tg-9-0"},
 	})
 	if err != nil {
-		t.Fatalf("CallTool(get_agent) error = %v", err)
+		t.Fatalf("CallTool(get) error = %v", err)
 	}
 	payload := structuredResultMap(t, result)
 	agent := payload["agent"].(map[string]any)
@@ -237,10 +256,54 @@ func TestRelayAgentStructuredOutputUsesSnakeCase(t *testing.T) {
 	}
 }
 
+func TestLifecycleToolValidationFailureUsesInvokedOperationName(t *testing.T) {
+	ctx, cleanup, session := newTestSession(t, &fakeRelayService{
+		stopErr: errors.New("stop failed"),
+		getErr:  errors.New("session not found"),
+	})
+	defer cleanup()
+	_ = session.InitializeResult()
+
+	tests := []struct {
+		name string
+		tool string
+	}{
+		{name: "canonical stop", tool: "relay.agents.stop"},
+		{name: "alias stop", tool: "relay.agents.stop_agent"},
+		{name: "canonical get", tool: "relay.agents.get"},
+		{name: "alias get", tool: "relay.agents.get_agent"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := session.CallTool(ctx, &mcp.CallToolParams{
+				Name:      tc.tool,
+				Arguments: map[string]any{"session_id": "tg-9-0"},
+			})
+			if err != nil {
+				t.Fatalf("CallTool(%s) error = %v", tc.tool, err)
+			}
+			if result == nil || !result.IsError {
+				t.Fatalf("CallTool(%s) result = %#v, want error", tc.tool, result)
+			}
+			payload := structuredResultMap(t, result)
+			errorObj, ok := payload["error"].(map[string]any)
+			if !ok {
+				t.Fatalf("CallTool(%s) payload.error type = %T, want map[string]any", tc.tool, payload["error"])
+			}
+			if got := errorObj["operation"]; got != tc.tool {
+				t.Fatalf("CallTool(%s) error.operation = %v, want %q", tc.tool, got, tc.tool)
+			}
+		})
+	}
+}
+
 type fakeRelayService struct {
 	startInfo   AgentInfo
 	startErr    error
 	startReq    StartRequest
+	stopErr     error
+	getErr      error
 	sessionInfo AgentInfo
 	listInfo    []AgentInfo
 }
@@ -254,7 +317,7 @@ func (f *fakeRelayService) StartAgent(_ context.Context, req StartRequest) (Agen
 }
 
 func (f *fakeRelayService) StopAgent(_ context.Context, _ string) error {
-	return nil
+	return f.stopErr
 }
 
 func (f *fakeRelayService) ListAgents(_ context.Context) ([]AgentInfo, error) {
@@ -262,6 +325,9 @@ func (f *fakeRelayService) ListAgents(_ context.Context) ([]AgentInfo, error) {
 }
 
 func (f *fakeRelayService) GetSession(_ context.Context, _ string) (AgentInfo, error) {
+	if f.getErr != nil {
+		return AgentInfo{}, f.getErr
+	}
 	return f.sessionInfo, nil
 }
 

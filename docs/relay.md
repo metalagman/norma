@@ -150,13 +150,14 @@ Both paths create:
     - external callers can provide `locator.channel_type` plus `locator.address`
     - Telegram locator example: `{"channel_type":"telegram","address":{"chat_id":123456}}`
   - output: structured session object including `channel_type`, `address_key`, `session_id`, `chat_id`, `topic_id`, `agent_name`, `description`, `mcp_servers`
-- `relay.agents.stop_agent`
+- `relay.agents.stop`
   - input: `session_id`
-- `relay.agents.list_agents`
+- `relay.agents.list`
   - output: structured `agents[]` entries, including persisted sessions with `status=persisted`
-- `relay.agents.get_agent`
+- `relay.agents.get`
   - input: `session_id`
   - output: structured `agent` object
+- Deprecated aliases (still supported): `relay.agents.stop_agent`, `relay.agents.list_agents`, `relay.agents.get_agent`
 
 Relay agents should prefer `relay.agents.start` without a locator when they spawn subagents from the current chat context.
 

@@ -61,8 +61,8 @@ type ClientConfig struct {
 	PermissionHandler PermissionHandler
 	// Logger is the zerolog logger to use for this client.
 	Logger *zerolog.Logger
-	// SessionID is an optional desired session ID to use when creating ACP sessions.
-	// When provided, this ID is used instead of an auto-generated one.
+	// SessionID is an optional desired session ID to request when creating ACP sessions.
+	// It is sent via session/new _meta.sessionId and may be ignored by some ACP runtimes.
 	SessionID string
 }
 
@@ -292,7 +292,10 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.Mc
 		return acp.NewSessionResponse{}, fmt.Errorf("acp session id is empty")
 	}
 	if desiredSessionID != "" && acpSessionID != desiredSessionID {
-		return acp.NewSessionResponse{}, fmt.Errorf("acp session id mismatch: requested %q, got %q", desiredSessionID, acpSessionID)
+		l.Warn().
+			Str("relay_session_id", desiredSessionID).
+			Str("acp_session_id", acpSessionID).
+			Msg("acp session/new returned different session id; using ACP session id")
 	}
 
 	successEvent := l.Debug().Str("acp_session_id", acpSessionID)

@@ -18,13 +18,25 @@ const (
 	CallerSessionIDHeader = "X-Norma-Relay-Caller-Session-ID"
 )
 
+const (
+	toolAgentsStart     = "relay.agents.start"
+	toolAgentsStop      = "relay.agents.stop"
+	toolAgentsStopAlias = "relay.agents.stop_agent"
+	toolAgentsRestart   = "relay.agents.restart"
+	toolAgentsList      = "relay.agents.list"
+	toolAgentsListAlias = "relay.agents.list_agents"
+	toolAgentsGet       = "relay.agents.get"
+	toolAgentsGetAlias  = "relay.agents.get_agent"
+)
+
 const serverInstructions = `Use this server to manage relay agent sessions.
 
 - relay.agents.start creates a new relay session for a configured agent.
 - When this server is mounted for an existing relay session, start uses the current caller session context automatically.
 - External callers can provide locator.channel_type plus locator.address to target a specific channel context.
-- list_agents returns both active sessions and persisted restorable sessions.
-- get_agent and stop_agent operate on a relay session_id.`
+- relay.agents.list returns both active sessions and persisted restorable sessions.
+- relay.agents.get and relay.agents.stop operate on a relay session_id.
+- Backward-compatible aliases remain available: relay.agents.list_agents, relay.agents.get_agent, relay.agents.stop_agent.`
 
 type ToolError struct {
 	Operation string `json:"operation" jsonschema:"tool name that produced the error"`
@@ -192,24 +204,36 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.agents.start",
+		Name:        toolAgentsStart,
 		Description: "Start a new relay agent session for a configured agent. The server uses the current caller session context automatically when available; external callers can provide locator.channel_type and locator.address instead.",
 	}, s.startAgent)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.agents.stop_agent",
+		Name:        toolAgentsStop,
 		Description: "Stop one relay agent session by session_id.",
 	}, s.stopAgent)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.agents.restart",
+		Name:        toolAgentsStopAlias,
+		Description: "Deprecated alias of relay.agents.stop. Stop one relay agent session by session_id.",
+	}, s.stopAgent)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        toolAgentsRestart,
 		Description: "Restart an existing relay agent session by session_id. The session is stopped and recreated with the same agent and channel context.",
 	}, s.restartAgent)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.agents.list_agents",
+		Name:        toolAgentsList,
 		Description: "List relay agent sessions, including active sessions and persisted restorable sessions.",
 	}, s.listAgents)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.agents.get_agent",
+		Name:        toolAgentsListAlias,
+		Description: "Deprecated alias of relay.agents.list. List relay agent sessions, including active sessions and persisted restorable sessions.",
+	}, s.listAgents)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        toolAgentsGet,
 		Description: "Get one relay agent session object by session_id, including channel context, status, and mounted MCP servers.",
+	}, s.getAgent)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        toolAgentsGetAlias,
+		Description: "Deprecated alias of relay.agents.get. Get one relay agent session object by session_id, including channel context, status, and mounted MCP servers.",
 	}, s.getAgent)
 }
 
@@ -230,6 +254,17 @@ type startAgentOutput struct {
 	MCPServers  []string `json:"mcp_servers,omitempty" jsonschema:"MCP server IDs mounted into the new session"`
 }
 
+func operationName(req *mcp.CallToolRequest, fallback string) string {
+	if req == nil || req.Params == nil {
+		return fallback
+	}
+	name := strings.TrimSpace(req.Params.Name)
+	if name == "" {
+		return fallback
+	}
+	return name
+}
+
 func callerSessionID(req *mcp.CallToolRequest) string {
 	if req == nil || req.GetExtra() == nil || req.GetExtra().Header == nil {
 		return ""
@@ -238,12 +273,13 @@ func callerSessionID(req *mcp.CallToolRequest) string {
 }
 
 func (s *service) startAgent(ctx context.Context, req *mcp.CallToolRequest, in startAgentInput) (*mcp.CallToolResult, startAgentOutput, error) {
+	operation := operationName(req, toolAgentsStart)
 	if strings.TrimSpace(in.AgentName) == "" {
-		result, out := validationFailure("relay.agents.start", "agent_name is required")
+		result, out := validationFailure(operation, "agent_name is required")
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
 	if in.Locator == nil && callerSessionID(req) == "" {
-		result, out := validationFailure("relay.agents.start", "locator is required unless this relay MCP server is already bound to a caller session")
+		result, out := validationFailure(operation, "locator is required unless this relay MCP server is already bound to a caller session")
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
 
@@ -253,7 +289,7 @@ func (s *service) startAgent(ctx context.Context, req *mcp.CallToolRequest, in s
 		Locator:         in.Locator,
 	})
 	if err != nil {
-		result, out := backendFailure("relay.agents.start", err)
+		result, out := backendFailure(operation, err)
 		return result, startAgentOutput{ToolOutcome: out}, nil
 	}
 
@@ -274,14 +310,15 @@ type stopAgentInput struct {
 	SessionID string `json:"session_id" jsonschema:"relay session ID to stop"`
 }
 
-func (s *service) stopAgent(ctx context.Context, _ *mcp.CallToolRequest, in stopAgentInput) (*mcp.CallToolResult, ToolOutcome, error) {
+func (s *service) stopAgent(ctx context.Context, req *mcp.CallToolRequest, in stopAgentInput) (*mcp.CallToolResult, ToolOutcome, error) {
+	operation := operationName(req, toolAgentsStop)
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("relay.agents.stop_agent", "session_id is required")
+		result, out := validationFailure(operation, "session_id is required")
 		return result, out, nil
 	}
 
 	if err := s.svc.StopAgent(ctx, in.SessionID); err != nil {
-		result, out := backendFailure("relay.agents.stop_agent", err)
+		result, out := backendFailure(operation, err)
 		return result, out, nil
 	}
 
@@ -305,19 +342,20 @@ type restartAgentOutput struct {
 }
 
 func (s *service) restartAgent(ctx context.Context, req *mcp.CallToolRequest, in restartAgentInput) (*mcp.CallToolResult, restartAgentOutput, error) {
+	operation := operationName(req, toolAgentsRestart)
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("relay.agents.restart", "session_id is required")
+		result, out := validationFailure(operation, "session_id is required")
 		return result, restartAgentOutput{ToolOutcome: out}, nil
 	}
 
 	info, err := s.svc.GetSession(ctx, in.SessionID)
 	if err != nil {
-		result, out := backendFailure("relay.agents.restart", fmt.Errorf("session not found: %w", err))
+		result, out := backendFailure(operation, fmt.Errorf("session not found: %w", err))
 		return result, restartAgentOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.svc.StopAgent(ctx, in.SessionID); err != nil {
-		result, out := backendFailure("relay.agents.restart", fmt.Errorf("failed to stop session: %w", err))
+		result, out := backendFailure(operation, fmt.Errorf("failed to stop session: %w", err))
 		return result, restartAgentOutput{ToolOutcome: out}, nil
 	}
 
@@ -331,7 +369,7 @@ func (s *service) restartAgent(ctx context.Context, req *mcp.CallToolRequest, in
 
 	relayInfo, err := s.svc.StartAgent(ctx, startReq)
 	if err != nil {
-		result, out := backendFailure("relay.agents.restart", fmt.Errorf("failed to restart session: %w", err))
+		result, out := backendFailure(operation, fmt.Errorf("failed to restart session: %w", err))
 		return result, restartAgentOutput{ToolOutcome: out}, nil
 	}
 
@@ -353,10 +391,11 @@ type listAgentsOutput struct {
 	Agents []AgentInfo `json:"agents,omitempty" jsonschema:"relay session objects for active and persisted sessions"`
 }
 
-func (s *service) listAgents(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listAgentsOutput, error) {
+func (s *service) listAgents(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listAgentsOutput, error) {
+	operation := operationName(req, toolAgentsList)
 	agents, err := s.svc.ListAgents(ctx)
 	if err != nil {
-		result, out := backendFailure("relay.agents.list_agents", err)
+		result, out := backendFailure(operation, err)
 		return result, listAgentsOutput{ToolOutcome: out}, nil
 	}
 
@@ -375,15 +414,16 @@ type getAgentOutput struct {
 	Agent *AgentInfo `json:"agent,omitempty" jsonschema:"relay session object for the requested session"`
 }
 
-func (s *service) getAgent(ctx context.Context, _ *mcp.CallToolRequest, in getAgentInput) (*mcp.CallToolResult, getAgentOutput, error) {
+func (s *service) getAgent(ctx context.Context, req *mcp.CallToolRequest, in getAgentInput) (*mcp.CallToolResult, getAgentOutput, error) {
+	operation := operationName(req, toolAgentsGet)
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("relay.agents.get_agent", "session_id is required")
+		result, out := validationFailure(operation, "session_id is required")
 		return result, getAgentOutput{ToolOutcome: out}, nil
 	}
 
 	agent, err := s.svc.GetSession(ctx, in.SessionID)
 	if err != nil {
-		result, out := validationFailure("relay.agents.get_agent", fmt.Sprintf("session not found: %v", err))
+		result, out := validationFailure(operation, fmt.Sprintf("session not found: %v", err))
 		return result, getAgentOutput{ToolOutcome: out}, nil
 	}
 

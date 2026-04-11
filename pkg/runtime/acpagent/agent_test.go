@@ -707,6 +707,45 @@ func TestAgentReusesRemoteSession(t *testing.T) {
 	}
 }
 
+func TestAgentUsesReturnedACPSessionIDWhenConfiguredSessionIDDiffers(t *testing.T) {
+	const relaySessionID = "tg-2317500-0"
+	const acpSessionID = "session-1"
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": relaySessionID,
+			"GO_FORCE_NEW_SESSION_ID":               acpSessionID,
+		}),
+		WorkingDir: t.TempDir(),
+		SessionID:  relaySessionID,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	want := acpSessionID + ":hello"
+	if got != want {
+		t.Fatalf("final text = %q, want %q", got, want)
+	}
+}
+
 func TestAgentFailsFastOnMissingRemoteSessionDuringPrompt(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
@@ -1216,13 +1255,14 @@ func TestClientNewSession_UsesConfiguredSessionIDAndMeta(t *testing.T) {
 	}
 }
 
-func TestClientNewSession_FailsWhenACPReturnsDifferentSessionID(t *testing.T) {
+func TestClientNewSession_AcceptsDifferentSessionIDFromACP(t *testing.T) {
 	const relaySessionID = "tg-2317500-0"
+	const acpSessionID = "session-1"
 
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommandWithEnv(t, map[string]string{
 			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": relaySessionID,
-			"GO_FORCE_NEW_SESSION_ID":               "session-1",
+			"GO_FORCE_NEW_SESSION_ID":               acpSessionID,
 		}),
 		SessionID: relaySessionID,
 	})
@@ -1235,12 +1275,12 @@ func TestClientNewSession_FailsWhenACPReturnsDifferentSessionID(t *testing.T) {
 		t.Fatalf("Initialize() error = %v", err)
 	}
 
-	_, err = client.NewSession(context.Background(), t.TempDir(), nil)
-	if err == nil {
-		t.Fatal("NewSession() error = nil, want session id mismatch error")
+	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
 	}
-	if got := err.Error(); !strings.Contains(got, "acp session id mismatch") {
-		t.Fatalf("error = %q, want contains %q", got, "acp session id mismatch")
+	if got := string(sess.SessionId); got != acpSessionID {
+		t.Fatalf("session id = %q, want %q", got, acpSessionID)
 	}
 }
 

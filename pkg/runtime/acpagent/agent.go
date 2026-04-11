@@ -48,8 +48,8 @@ type Config struct {
 	Logger *zerolog.Logger
 	// MCPServers is the map of MCP server configurations.
 	MCPServers map[string]MCPServerConfig
-	// SessionID is an optional desired session ID to use when creating ACP sessions.
-	// When provided, this ID is used instead of an auto-generated one.
+	// SessionID is an optional desired session ID to request when creating ACP sessions.
+	// It is sent via session/new _meta.sessionId and may be ignored by some ACP runtimes.
 	SessionID string
 }
 

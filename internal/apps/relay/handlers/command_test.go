@@ -15,7 +15,7 @@ import (
 )
 
 func TestCommandHandlerOnCommand_CloseTopicAndStopSession(t *testing.T) {
-	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 
 	topicID := 123
 	err := handler.onCommand(context.Background(), newCommandEvent("close", "", 101, 9001, &topicID))
@@ -29,6 +29,9 @@ func TestCommandHandlerOnCommand_CloseTopicAndStopSession(t *testing.T) {
 	if len(sm.stopCalls) != 1 {
 		t.Fatalf("StopSession calls = %d, want 1", len(sm.stopCalls))
 	}
+	if len(turns.cancelCalls) != 1 {
+		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	}
 	if tgClient.closedTopicIDs[0] != topicID {
 		t.Fatalf("CloseTopic call = %d, want topic=%d", tgClient.closedTopicIDs[0], topicID)
 	}
@@ -39,7 +42,7 @@ func TestCommandHandlerOnCommand_CloseTopicAndStopSession(t *testing.T) {
 }
 
 func TestCommandHandlerOnCommand_CloseRootStopsOnlySession(t *testing.T) {
-	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 
 	err := handler.onCommand(context.Background(), newCommandEvent("close", "", 101, 9001, nil))
 	if err != nil {
@@ -52,6 +55,9 @@ func TestCommandHandlerOnCommand_CloseRootStopsOnlySession(t *testing.T) {
 	if len(sm.stopCalls) != 1 {
 		t.Fatalf("StopSession calls = %d, want 1", len(sm.stopCalls))
 	}
+	if len(turns.cancelCalls) != 1 {
+		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	}
 	if sm.stopCalls[0].SessionID != "tg-9001-0" {
 		t.Fatalf("StopSession call = %+v, want session=tg-9001-0", sm.stopCalls[0])
 	}
@@ -59,7 +65,7 @@ func TestCommandHandlerOnCommand_CloseRootStopsOnlySession(t *testing.T) {
 }
 
 func TestCommandHandlerOnCommand_CloseWithArgsShowsUsage(t *testing.T) {
-	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 
 	topicID := 11
 	err := handler.onCommand(context.Background(), newCommandEvent("close", "now", 101, 9001, &topicID))
@@ -73,11 +79,14 @@ func TestCommandHandlerOnCommand_CloseWithArgsShowsUsage(t *testing.T) {
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
 	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
 	assertLastSentContains(t, tgClient, "Usage: /close")
 }
 
 func TestCommandHandlerOnCommand_CloseUnauthorized(t *testing.T) {
-	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 
 	topicID := 33
 	err := handler.onCommand(context.Background(), newCommandEvent("close", "", 999, 9001, &topicID))
@@ -91,11 +100,14 @@ func TestCommandHandlerOnCommand_CloseUnauthorized(t *testing.T) {
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
 	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
 	assertLastSentContains(t, tgClient, "Only the bot owner can use this command.")
 }
 
 func TestCommandHandlerOnCommand_NewWithoutArgs_ShowsConfiguredAgentIDs(t *testing.T) {
-	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 
 	err := handler.onCommand(context.Background(), newCommandEvent("new", "", 101, 9001, nil))
 	if err != nil {
@@ -108,12 +120,15 @@ func TestCommandHandlerOnCommand_NewWithoutArgs_ShowsConfiguredAgentIDs(t *testi
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
 	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
 	assertLastSentContains(t, tgClient, "Usage: /new <agent_id>")
 	assertLastSentContains(t, tgClient, "Available agents: alpha, beta")
 }
 
 func TestCommandHandlerOnCommand_NewCreatesTopicSession(t *testing.T) {
-	handler, sm, tgClient := newCommandHandlerTestHarness(t)
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 	tgClient.nextTopicID = 456
 
 	err := handler.onCommand(context.Background(), newCommandEvent("new", "alpha", 101, 9001, nil))
@@ -130,6 +145,9 @@ func TestCommandHandlerOnCommand_NewCreatesTopicSession(t *testing.T) {
 	if len(sm.createCalls) != 1 {
 		t.Fatalf("CreateSession calls = %d, want 1", len(sm.createCalls))
 	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
 	if sm.createCalls[0].SessionID != "tg-9001-456" || sm.createCalls[0].UserID != "tg-101" || sm.createCalls[0].AgentName != "alpha" {
 		t.Fatalf("CreateSession call = %+v, want session=tg-9001-456 user=tg-101 agent=alpha", sm.createCalls[0])
 	}
@@ -138,13 +156,79 @@ func TestCommandHandlerOnCommand_NewCreatesTopicSession(t *testing.T) {
 }
 
 func TestCommandHandlerNewUsageMessage_NoAgentsConfigured(t *testing.T) {
-	handler, _, _ := newCommandHandlerTestHarness(t)
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
+	_ = sm
+	_ = turns
+	_ = tgClient
 	handler.agentIDs = nil
 
 	got := handler.newCommandUsageMessage()
 	if !strings.Contains(got, "No agents configured under norma.agents in relay config.") {
 		t.Fatalf("newCommandUsageMessage() = %q, want no-agents guidance", got)
 	}
+}
+
+func TestCommandHandlerOnCommand_CancelClearsQueueAndInFlight(t *testing.T) {
+	handler, _, turns, tgClient := newCommandHandlerTestHarness(t)
+	turns.cancelHadInFlight = true
+	turns.cancelDropped = 2
+
+	topicID := 88
+	err := handler.onCommand(context.Background(), newCommandEvent("cancel", "", 101, 9001, &topicID))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(turns.cancelCalls) != 1 {
+		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	}
+	if turns.cancelCalls[0].SessionID != "tg-9001-88" {
+		t.Fatalf("CancelSession call = %+v, want session=tg-9001-88", turns.cancelCalls[0])
+	}
+	assertLastSentContains(t, tgClient, "Canceled current turn.")
+	assertLastSentContains(t, tgClient, "Dropped 2 queued message(s).")
+}
+
+func TestCommandHandlerOnCommand_CancelNoActiveTurns(t *testing.T) {
+	handler, _, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEvent("cancel", "", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(turns.cancelCalls) != 1 {
+		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "No running or queued turns for this session.")
+}
+
+func TestCommandHandlerOnCommand_CancelWithArgsShowsUsage(t *testing.T) {
+	handler, _, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEvent("cancel", "now", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "Usage: /cancel")
+}
+
+func TestCommandHandlerOnCommand_CancelUnauthorized(t *testing.T) {
+	handler, _, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEvent("cancel", "", 999, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "Only the bot owner can use this command.")
 }
 
 type fakeCommandSessionManager struct {
@@ -160,6 +244,11 @@ type createSessionCall struct {
 
 type stopSessionCall struct {
 	SessionID string
+}
+
+type cancelSessionCall struct {
+	SessionID   string
+	ClearQueued bool
 }
 
 func (f *fakeCommandSessionManager) CreateSession(_ context.Context, sessionCtx session.SessionContext, agentName string) error {
@@ -183,7 +272,29 @@ func (f *fakeCommandSessionManager) ValidateAgent(string) error {
 	return nil
 }
 
-func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSessionManager, *fakeTelegramClient) {
+type fakeTurnDispatcher struct {
+	cancelCalls       []cancelSessionCall
+	cancelHadInFlight bool
+	cancelDropped     int
+	cancelErr         error
+}
+
+func (f *fakeTurnDispatcher) Enqueue(TurnTask) (int, error) {
+	return 0, nil
+}
+
+func (f *fakeTurnDispatcher) CancelSession(locator session.SessionLocator, clearQueued bool) (bool, int, error) {
+	f.cancelCalls = append(f.cancelCalls, cancelSessionCall{
+		SessionID:   locator.SessionID,
+		ClearQueued: clearQueued,
+	})
+	if f.cancelErr != nil {
+		return false, 0, f.cancelErr
+	}
+	return f.cancelHadInFlight, f.cancelDropped, nil
+}
+
+func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSessionManager, *fakeTurnDispatcher, *fakeTelegramClient) {
 	t.Helper()
 
 	stateStore := &fakeOwnerKVStore{}
@@ -199,6 +310,7 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
 	sessionManager := &fakeCommandSessionManager{}
+	turnDispatcher := &fakeTurnDispatcher{}
 	handler := &CommandHandler{
 		ownerStore: ownerStore,
 		channel: relaytelegram.NewAdapter(relaytelegram.AdapterParams{
@@ -207,10 +319,11 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 			Logger:    zerolog.Nop(),
 		}),
 		sessionManager: sessionManager,
+		turnDispatcher: turnDispatcher,
 		messenger:      msg,
 		agentIDs:       []string{"alpha", "beta"},
 	}
-	return handler, sessionManager, tgClient
+	return handler, sessionManager, turnDispatcher, tgClient
 }
 
 func newCommandEvent(command, args string, userID, chatID int64, topicID *int) *events.CommandEvent {

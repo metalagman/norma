@@ -96,7 +96,7 @@ func TestRunTurn_SendsTypingForThoughtDraftUpdates(t *testing.T) {
 
 	adkRunner, sessionID := newRelayRunTurnTestRunner(t)
 	locator := relaysession.NewTelegramSessionLocator(9001, 77)
-	if err := h.runTurn(context.Background(), "hello", adkRunner, "tg-101", sessionID, locator, 41); err != nil {
+	if err := h.runTurn(context.Background(), "hello", adkRunner, "tg-101", sessionID, locator, 41, true); err != nil {
 		t.Fatalf("runTurn() error = %v", err)
 	}
 
@@ -130,6 +130,41 @@ func TestRunTurn_SendsTypingForThoughtDraftUpdates(t *testing.T) {
 		}
 	}
 
+	if len(tgClient.messages) != 1 {
+		t.Fatalf("message calls = %d, want 1", len(tgClient.messages))
+	}
+	if !strings.Contains(tgClient.messages[0].Text, "final answer") {
+		t.Fatalf("message text = %q, want to contain final answer", tgClient.messages[0].Text)
+	}
+}
+
+func TestRunTurn_SkipsTypingAndDraftWhenProgressHintsDisabled(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &relayRunTurnTelegramClient{}
+	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	channel := relaytelegram.NewAdapter(relaytelegram.AdapterParams{
+		Messenger: msg,
+		TGClient:  tgClient,
+		Logger:    zerolog.Nop(),
+	})
+	h := &RelayHandler{
+		channel: channel,
+		logger:  zerolog.Nop(),
+	}
+
+	adkRunner, sessionID := newRelayRunTurnTestRunner(t)
+	locator := relaysession.NewTelegramSessionLocator(9001, 77)
+	if err := h.runTurn(context.Background(), "hello", adkRunner, "tg-101", sessionID, locator, 41, false); err != nil {
+		t.Fatalf("runTurn() error = %v", err)
+	}
+
+	if len(tgClient.drafts) != 0 {
+		t.Fatalf("draft calls = %d, want 0", len(tgClient.drafts))
+	}
+	if len(tgClient.chatActions) != 0 {
+		t.Fatalf("chat action calls = %d, want 0", len(tgClient.chatActions))
+	}
 	if len(tgClient.messages) != 1 {
 		t.Fatalf("message calls = %d, want 1", len(tgClient.messages))
 	}

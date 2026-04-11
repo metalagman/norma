@@ -63,7 +63,7 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, req relaymcp.StartReque
 	s.logger.Info().
 		Int64("chat_id", chatID).
 		Str("agent", agentName).
-		Msg("MCP: StartAgent called")
+		Msg("MCP: relay.agents.start called")
 
 	if err := s.manager.ValidateAgent(agentName); err != nil {
 		return relaymcp.AgentInfo{}, fmt.Errorf("agent %q not available: %w", agentName, err)
@@ -75,7 +75,7 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, req relaymcp.StartReque
 			Err(err).
 			Int64("chat_id", chatID).
 			Str("agent", agentName).
-			Msg("MCP: StartAgent failed")
+			Msg("MCP: relay.agents.start failed")
 		return relaymcp.AgentInfo{}, err
 	}
 	if err := s.manager.CreateSession(ctx, SessionContext{
@@ -113,7 +113,7 @@ func (s *relayMCPServer) StartAgent(ctx context.Context, req relaymcp.StartReque
 		Int("topic_id", address.TopicID).
 		Str("agent", agentName).
 		Str("session_id", locator.SessionID).
-		Msg("MCP: StartAgent succeeded")
+		Msg("MCP: relay.agents.start succeeded")
 
 	return relaymcp.AgentInfo{
 		ChannelType: locator.ChannelType,
@@ -202,14 +202,14 @@ func (s *relayMCPServer) owner() *auth.Owner {
 }
 
 func (s *relayMCPServer) StopAgent(ctx context.Context, sessionID string) error {
-	s.logger.Info().Str("session_id", sessionID).Msg("MCP: StopAgent called")
+	s.logger.Info().Str("session_id", sessionID).Msg("MCP: relay.agents.stop called")
 
 	if err := s.manager.StopSessionByID(ctx, sessionID); err != nil {
-		s.logger.Error().Err(err).Str("session_id", sessionID).Msg("MCP: StopAgent failed")
+		s.logger.Error().Err(err).Str("session_id", sessionID).Msg("MCP: relay.agents.stop failed")
 		return err
 	}
 
-	s.logger.Info().Str("session_id", sessionID).Msg("MCP: StopAgent succeeded")
+	s.logger.Info().Str("session_id", sessionID).Msg("MCP: relay.agents.stop succeeded")
 	return nil
 }
 
@@ -220,7 +220,7 @@ func (s *relayMCPServer) ListAgents(ctx context.Context) ([]relaymcp.AgentInfo, 
 	}
 	out := make([]relaymcp.AgentInfo, 0, len(infos))
 
-	s.logger.Debug().Int("count", len(infos)).Msg("MCP: ListAgents called")
+	s.logger.Debug().Int("count", len(infos)).Msg("MCP: relay.agents.list called")
 
 	for _, info := range infos {
 		out = append(out, relaymcp.AgentInfo{
@@ -238,11 +238,11 @@ func (s *relayMCPServer) ListAgents(ctx context.Context) ([]relaymcp.AgentInfo, 
 }
 
 func (s *relayMCPServer) GetSession(ctx context.Context, sessionID string) (relaymcp.AgentInfo, error) {
-	s.logger.Debug().Str("session_id", sessionID).Msg("MCP: GetSession called")
+	s.logger.Debug().Str("session_id", sessionID).Msg("MCP: relay.agents.get called")
 
 	info, err := s.manager.GetSessionInfo(ctx, sessionID)
 	if err != nil {
-		s.logger.Warn().Err(err).Str("session_id", sessionID).Msg("MCP: GetSession failed - session not found")
+		s.logger.Warn().Err(err).Str("session_id", sessionID).Msg("MCP: relay.agents.get failed - session not found")
 		return relaymcp.AgentInfo{}, err
 	}
 

@@ -33,6 +33,9 @@ func TestMessageContextFromEvent_PrivateChatIgnoresMessageThreadID(t *testing.T)
 	if got.TopicID != 0 {
 		t.Fatalf("topic_id = %d, want 0 for private chat", got.TopicID)
 	}
+	if !got.AllowProgressHints {
+		t.Fatalf("allow_progress_hints = %v, want true for private chat", got.AllowProgressHints)
+	}
 	if got.Locator.SessionID != "tg-2317500-0" {
 		t.Fatalf("session_id = %q, want tg-2317500-0", got.Locator.SessionID)
 	}
@@ -58,6 +61,9 @@ func TestMessageContextFromEvent_SupergroupPreservesMessageThreadID(t *testing.T
 	}
 	if got.TopicID != 77 {
 		t.Fatalf("topic_id = %d, want 77 for supergroup topic", got.TopicID)
+	}
+	if got.AllowProgressHints {
+		t.Fatalf("allow_progress_hints = %v, want false for supergroup chat", got.AllowProgressHints)
 	}
 	if got.Locator.SessionID != "tg--1009001-77" {
 		t.Fatalf("session_id = %q, want tg--1009001-77", got.Locator.SessionID)
@@ -86,6 +92,9 @@ func TestMessageContextFromEvent_PrivateTopicPreservesMessageThreadID(t *testing
 	}
 	if got.TopicID != 523431 {
 		t.Fatalf("topic_id = %d, want 523431 for private topic message", got.TopicID)
+	}
+	if !got.AllowProgressHints {
+		t.Fatalf("allow_progress_hints = %v, want true for private topic", got.AllowProgressHints)
 	}
 	if got.Locator.SessionID != "tg-2317500-523431" {
 		t.Fatalf("session_id = %q, want tg-2317500-523431", got.Locator.SessionID)
