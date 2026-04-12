@@ -56,6 +56,10 @@ func (c NormaConfig) Validate() error {
 
 // ValidateSettings decodes and validates raw "norma" settings.
 func ValidateSettings(settings map[string]any) error {
+	if err := detectLegacyAgentsKey(settings); err != nil {
+		return err
+	}
+
 	var cfg NormaConfig
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Metadata: nil,
@@ -69,6 +73,24 @@ func ValidateSettings(settings map[string]any) error {
 		return fmt.Errorf("failed to decode settings: %w", err)
 	}
 	return cfg.Validate()
+}
+
+func detectLegacyAgentsKey(settings map[string]any) error {
+	normaSettings, ok := settings["norma"]
+	if !ok {
+		return nil
+	}
+
+	normaMap, ok := toStringAnyMap(normaSettings)
+	if !ok {
+		return nil
+	}
+
+	if _, hasAgents := normaMap["agents"]; hasAgents {
+		return fmt.Errorf("legacy 'norma.agents' key detected; please migrate to 'norma.providers' (see https://docs.norma.io/migration/agents-to-providers)")
+	}
+
+	return nil
 }
 
 var normaConfigValidator = newNormaConfigValidator()
