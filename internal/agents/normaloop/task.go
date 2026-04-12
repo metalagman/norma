@@ -178,6 +178,16 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 		w.logger.Info().Str("task_id", id).Str("duration", time.Since(startedAt).String()).Msg("task handled replan, returning without hard failure")
 		return nil
 	}
+	if outcome.Decision != nil && *outcome.Decision == "rollback" {
+		w.logger.Info().Str("task_id", id).Str("run_id", runID).Msg("handling rollback decision")
+		if err := w.handleRollback(ctx, id, runID); err != nil {
+			w.logger.Error().Err(err).Msg("failed to handle rollback")
+			_ = w.markStatusWithTimeout(ctx, id, runpkg.StatusFailed)
+			return fmt.Errorf("handle rollback: %w", err)
+		}
+		w.logger.Info().Str("task_id", id).Str("duration", time.Since(startedAt).String()).Msg("task rollback completed, continuing loop")
+		return nil
+	}
 
 	if outcome.Status == runpkg.StatusFailed {
 		_ = w.markStatusWithTimeout(ctx, id, runpkg.StatusFailed)
@@ -340,6 +350,109 @@ func randomHex(bytesLen int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func (w *loopRuntime) handleRollback(ctx context.Context, taskID, runID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	branchName := fmt.Sprintf("norma/task/%s", taskID)
+	if err := w.dropTaskBranch(ctx, branchName); err != nil {
+		return err
+	}
+
+	if err := w.tracker.MarkStatus(ctx, taskID, statusTodo); err != nil {
+		return fmt.Errorf("reset task status to todo: %w", err)
+	}
+
+	w.logger.Info().
+		Str("task_id", taskID).
+		Str("run_id", runID).
+		Str("branch", branchName).
+		Msg("rollback reset completed")
+	return nil
+}
+
+func (w *loopRuntime) dropTaskBranch(ctx context.Context, branchName string) error {
+	if strings.TrimSpace(w.workingDir) == "" || !git.Available(ctx, w.workingDir) {
+		return nil
+	}
+
+	_ = git.GitRunCmdErr(ctx, w.workingDir, "git", "worktree", "prune")
+
+	worktreePaths, err := worktreePathsForBranch(ctx, w.workingDir, branchName)
+	if err != nil {
+		return err
+	}
+	for _, worktreePath := range worktreePaths {
+		if filepath.Clean(worktreePath) == filepath.Clean(w.workingDir) {
+			return fmt.Errorf("cannot rollback while main worktree is on branch %q", branchName)
+		}
+		if err := git.GitRunCmdErr(ctx, w.workingDir, "git", "worktree", "remove", "--force", worktreePath); err != nil {
+			return fmt.Errorf("remove task worktree %q: %w", worktreePath, err)
+		}
+	}
+
+	_ = git.GitRunCmdErr(ctx, w.workingDir, "git", "worktree", "prune")
+
+	exists, err := localBranchExists(ctx, w.workingDir, branchName)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if err := git.GitRunCmdErr(ctx, w.workingDir, "git", "branch", "-D", branchName); err != nil {
+		return fmt.Errorf("delete task branch %q: %w", branchName, err)
+	}
+	return nil
+}
+
+func localBranchExists(ctx context.Context, workingDir, branchName string) (bool, error) {
+	if strings.TrimSpace(branchName) == "" {
+		return false, fmt.Errorf("branch name is required")
+	}
+	ref := "refs/heads/" + strings.TrimSpace(branchName)
+	if err := git.GitRunCmdErr(ctx, workingDir, "git", "show-ref", "--verify", "--quiet", ref); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+func worktreePathsForBranch(ctx context.Context, workingDir, branchName string) ([]string, error) {
+	out, err := git.GitRunCmdOutput(ctx, workingDir, "git", "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("list git worktrees: %w", err)
+	}
+
+	wantRef := "refs/heads/" + strings.TrimSpace(branchName)
+	paths := make([]string, 0)
+	currentPath := ""
+	currentBranch := ""
+
+	flush := func() {
+		if currentPath != "" && currentBranch == wantRef {
+			paths = append(paths, currentPath)
+		}
+		currentPath = ""
+		currentBranch = ""
+	}
+
+	for _, rawLine := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			flush()
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			currentPath = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+		case strings.HasPrefix(line, "branch "):
+			currentBranch = strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+		}
+	}
+	flush()
+	return paths, nil
 }
 
 func (w *loopRuntime) handleReplan(ctx context.Context, oldTaskID string, oldTask task.Task) error {

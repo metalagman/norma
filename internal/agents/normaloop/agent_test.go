@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -452,6 +456,81 @@ func TestRunTaskByIDReplanDecision(t *testing.T) {
 	}
 }
 
+func TestRunTaskByIDRollbackDecision(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-rollback1"
+	rollbackDecision := "rollback"
+	verdict := "FAIL"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:     taskID,
+				Status: statusTodo,
+				Goal:   "test goal",
+			},
+		},
+	}
+	tmp := t.TempDir()
+	w := &loopRuntime{
+		logger:     zerolog.Nop(),
+		workingDir: "",
+		normaDir:   tmp,
+		tracker:    tracker,
+		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
+		factory: &mockFactory{
+			outcome: runpkg.AgentOutcome{
+				Status:   runpkg.StatusFailed,
+				Verdict:  &verdict,
+				Decision: &rollbackDecision,
+			},
+		},
+	}
+
+	err := w.runTaskByID(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("runTaskByID() error = %v", err)
+	}
+
+	wantCalls := []string{statusPlanning, statusTodo}
+	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
+		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
+	}
+}
+
+func TestHandleRollbackResetsTodoAndDeletesTaskBranch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repoDir := t.TempDir()
+	initGitRepo(t, ctx, repoDir)
+
+	taskID := "norma-rollback2"
+	branchName := "norma/task/" + taskID
+	runGit(t, ctx, repoDir, "checkout", "-b", branchName)
+	runGit(t, ctx, repoDir, "checkout", "-")
+
+	tracker := &mockTracker{}
+	w := &loopRuntime{
+		logger:     zerolog.Nop(),
+		workingDir: repoDir,
+		tracker:    tracker,
+	}
+
+	if err := w.handleRollback(ctx, taskID, "run-1"); err != nil {
+		t.Fatalf("handleRollback() error = %v", err)
+	}
+
+	if got := strings.TrimSpace(runGitOutput(t, ctx, repoDir, "branch", "--list", branchName)); got != "" {
+		t.Fatalf("branch %q still exists after rollback reset: %q", branchName, got)
+	}
+
+	wantCalls := []string{statusTodo}
+	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
+		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
+	}
+}
+
 func TestHandleReplanRemovesStaleLabels(t *testing.T) {
 	t.Parallel()
 
@@ -633,4 +712,39 @@ func TestHandleReplanClosesWithReason(t *testing.T) {
 	if tracker.closeWithReasonCalls[0].reason != "wont do: replan needed" {
 		t.Errorf("closeWithReason reason = %v, want 'wont do: replan needed'", tracker.closeWithReasonCalls[0].reason)
 	}
+}
+
+func initGitRepo(t *testing.T, ctx context.Context, dir string) {
+	t.Helper()
+
+	runGit(t, ctx, dir, "init")
+	runGit(t, ctx, dir, "config", "user.email", "test@example.com")
+	runGit(t, ctx, dir, "config", "user.name", "Test User")
+
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("test\n"), 0o600); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	runGit(t, ctx, dir, "add", "README.md")
+	runGit(t, ctx, dir, "commit", "-m", "init")
+}
+
+func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
+	}
+}
+
+func runGitOutput(t *testing.T, ctx context.Context, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
+	}
+	return string(out)
 }

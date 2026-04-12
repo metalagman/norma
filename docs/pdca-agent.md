@@ -64,7 +64,8 @@ Expected output:
 
 Act behavior:
 - `close` with effective `PASS`: task is closed and changes are applied to main repo.
-- `replan|continue|rollback`: task remains open and loop may continue or stop by policy.
+- `replan|continue`: task remains open and loop may continue or stop by policy.
+- `rollback` (loop mode): Norma drops the task branch `norma/task/<task_id>`, resets task workflow state to `todo`, then continues with normal scheduler selection.
 
 ## Workspaces and Artifacts
 
