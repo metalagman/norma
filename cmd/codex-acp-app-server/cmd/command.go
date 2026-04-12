@@ -6,19 +6,19 @@ import (
 	"os"
 	"strings"
 
-	"github.com/normahq/norma/internal/apps/codexacp"
+	codexacpappserver "github.com/normahq/norma/internal/apps/codexacpappserver"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 var (
-	runProxy    = codexacp.RunProxy
+	runProxy    = codexacpappserver.RunProxy
 	initLogging = logging.Init
 )
 
 func Command() *cobra.Command {
-	opts := codexacp.Options{}
+	opts := codexacpappserver.Options{}
 	var codexConfigJSON string
 	var debugLogs bool
 

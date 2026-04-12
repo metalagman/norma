@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,10 @@ const (
 	decisionAcceptForSession = "acceptForSession"
 	decisionDecline          = "decline"
 	decisionCancel           = "cancel"
+	decisionApproved         = "approved"
+	decisionApprovedSession  = "approved_for_session"
+	decisionDenied           = "denied"
+	decisionAbort            = "abort"
 )
 
 type codexACPConnection interface {
@@ -54,6 +59,7 @@ type codexProxySessionState struct {
 	cancel  context.CancelFunc
 
 	planDeltaByItem      map[string]string
+	pendingRequests      map[string]string
 	lastThreadStatusText string
 	latestRateLimits     map[string]any
 }
@@ -240,6 +246,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 		if current := a.sessions[params.SessionId]; current != nil {
 			current.cancel = nil
 			current.turnID = ""
+			current.pendingRequests = nil
 		}
 		a.mu.Unlock()
 	}()
@@ -253,6 +260,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 	if current := a.sessions[params.SessionId]; current != nil {
 		current.turnID = turnID
 		current.planDeltaByItem = make(map[string]string)
+		current.pendingRequests = make(map[string]string)
 		current.lastThreadStatusText = ""
 	}
 	a.mu.Unlock()
@@ -285,22 +293,22 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 			if usageUpdate != nil {
 				usage = usageUpdate
 			}
-				if done {
-					resp := acp.PromptResponse{StopReason: stopReason}
-					meta := map[string]any{}
-					if usage != nil {
-						meta["usage"] = usage
-					}
-					if rateLimits := a.sessionRateLimits(params.SessionId); len(rateLimits) > 0 {
-						meta["rateLimits"] = rateLimits
-					}
-					if len(meta) > 0 {
-						resp.Meta = meta
-					}
-					return resp, nil
+			if done {
+				resp := acp.PromptResponse{StopReason: stopReason}
+				meta := map[string]any{}
+				if usage != nil {
+					meta["usage"] = usage
 				}
+				if rateLimits := a.sessionRateLimits(params.SessionId); len(rateLimits) > 0 {
+					meta["rateLimits"] = rateLimits
+				}
+				if len(meta) > 0 {
+					resp.Meta = meta
+				}
+				return resp, nil
 			}
 		}
+	}
 }
 
 func (a *codexACPProxyAgent) SetSessionMode(_ context.Context, params acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
@@ -458,40 +466,46 @@ func (a *codexACPProxyAgent) handleNotification(
 		return false, "", nil, nil
 	}
 
-		switch note.Method {
-		case "error":
-			errObj := mapValue(params, "error")
-			msg := stringValue(errObj, "message")
-			details := rawStringValue(errObj, "additionalDetails")
-			thought := strings.TrimSpace(msg)
-			if thought == "" {
-				thought = "Turn error."
-			}
-			if strings.TrimSpace(details) != "" {
-				thought = fmt.Sprintf("%s %s", thought, strings.TrimSpace(details))
-			}
-			if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
-				return false, "", nil, err
-			}
-			willRetry, ok := boolValue(params, "willRetry")
-			if ok && !willRetry {
-				return true, acp.StopReasonRefusal, usageFromTokenNotification(params), nil
-			}
-		case "thread/status/changed":
-			status := mapValue(params, "status")
-			summary := threadStatusSummary(status)
-			if summary == "" || !a.shouldEmitThreadStatus(sessionID, summary) {
-				return false, "", nil, nil
-			}
-			if err := a.sendThoughtUpdate(ctx, sessionID, "Thread status: "+summary); err != nil {
-				return false, "", nil, err
-			}
-		case "turn/started":
-			turn := mapValue(params, "turn")
-			startedTurnID := stringValue(turn, "id")
-			if startedTurnID == "" || startedTurnID == strings.TrimSpace(turnID) {
-				a.resetTurnState(sessionID)
-			}
+	switch note.Method {
+	case "thread/started":
+		thread := mapValue(params, "thread")
+		startedThreadID := stringValue(thread, "id")
+		if startedThreadID != "" {
+			a.syncThreadID(sessionID, startedThreadID)
+		}
+	case "error":
+		errObj := mapValue(params, "error")
+		msg := stringValue(errObj, "message")
+		details := rawStringValue(errObj, "additionalDetails")
+		thought := strings.TrimSpace(msg)
+		if thought == "" {
+			thought = "Turn error."
+		}
+		if strings.TrimSpace(details) != "" {
+			thought = fmt.Sprintf("%s %s", thought, strings.TrimSpace(details))
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+		willRetry, ok := boolValue(params, "willRetry")
+		if ok && !willRetry {
+			return true, acp.StopReasonRefusal, usageFromTokenNotification(params), nil
+		}
+	case "thread/status/changed":
+		status := mapValue(params, "status")
+		summary := threadStatusSummary(status)
+		if summary == "" || !a.shouldEmitThreadStatus(sessionID, summary) {
+			return false, "", nil, nil
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, "Thread status: "+summary); err != nil {
+			return false, "", nil, err
+		}
+	case "turn/started":
+		turn := mapValue(params, "turn")
+		startedTurnID := stringValue(turn, "id")
+		if startedTurnID == "" || startedTurnID == strings.TrimSpace(turnID) {
+			a.resetTurnState(sessionID)
+		}
 	case "item/agentMessage/delta":
 		delta := rawStringValue(params, "delta")
 		if delta == "" {
@@ -540,6 +554,14 @@ func (a *codexACPProxyAgent) handleNotification(
 			if err := a.sendUpdate(ctx, sessionID, acp.UpdatePlan(entries...)); err != nil {
 				return false, "", nil, err
 			}
+		}
+	case "turn/diff/updated":
+		diff := rawStringValue(params, "diff")
+		if diff == "" {
+			return false, "", nil, nil
+		}
+		if err := a.sendUpdate(ctx, sessionID, acp.UpdateAgentThoughtText("Turn diff updated:\n"+diff)); err != nil {
+			return false, "", nil, err
 		}
 	case "item/started":
 		item := mapValue(params, "item")
@@ -591,9 +613,9 @@ func (a *codexACPProxyAgent) handleNotification(
 			acp.WithUpdateStatus(acp.ToolCallStatusInProgress),
 			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(delta))}),
 		)
-			if err := a.sendUpdate(ctx, sessionID, update); err != nil {
-				return false, "", nil, err
-			}
+		if err := a.sendUpdate(ctx, sessionID, update); err != nil {
+			return false, "", nil, err
+		}
 	case "item/commandExecution/terminalInteraction":
 		itemID := stringValue(params, "itemId")
 		stdin := rawStringValue(params, "stdin")
@@ -709,9 +731,14 @@ func (a *codexACPProxyAgent) handleNotification(
 			acp.WithUpdateStatus(acp.ToolCallStatusInProgress),
 			acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock(message))}),
 		)
-			if err := a.sendUpdate(ctx, sessionID, update); err != nil {
-				return false, "", nil, err
-			}
+		if err := a.sendUpdate(ctx, sessionID, update); err != nil {
+			return false, "", nil, err
+		}
+	case "serverRequest/resolved":
+		requestID, ok := requestIDFromAny(params["requestId"])
+		if ok {
+			a.resolvePendingRequest(sessionID, requestID)
+		}
 	case "mcpServer/startupStatus/updated":
 		name := stringValue(params, "name")
 		status := stringValue(params, "status")
@@ -788,6 +815,182 @@ func (a *codexACPProxyAgent) handleNotification(
 		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
 			return false, "", nil, err
 		}
+	case "account/login/completed":
+		accountID := stringValue(params, "accountId")
+		thought := "Account login completed."
+		if accountID != "" {
+			thought = fmt.Sprintf("Account login completed: %s.", accountID)
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "account/updated":
+		if err := a.sendThoughtUpdate(ctx, sessionID, "Account updated."); err != nil {
+			return false, "", nil, err
+		}
+	case "app/list/updated":
+		if err := a.sendThoughtUpdate(ctx, sessionID, "App list updated."); err != nil {
+			return false, "", nil, err
+		}
+	case "skills/changed":
+		if err := a.sendThoughtUpdate(ctx, sessionID, "Skills changed."); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/compacted":
+		if err := a.sendThoughtUpdate(ctx, sessionID, "Thread compacted."); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/archived":
+		if err := a.sendThoughtUpdate(ctx, sessionID, "Thread archived."); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/unarchived":
+		if err := a.sendThoughtUpdate(ctx, sessionID, "Thread unarchived."); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/closed":
+		if err := a.sendThoughtUpdate(ctx, sessionID, "Thread closed."); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/name/updated":
+		threadName := stringValue(params, "threadName")
+		thought := "Thread name updated."
+		if threadName != "" {
+			thought = fmt.Sprintf("Thread name updated: %s.", threadName)
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "windows/worldWritableWarning":
+		extraCount, _ := int64Value(params, "extraCount")
+		failedScan, _ := boolValue(params, "failedScan")
+		samplePaths := listValue(params, "samplePaths")
+		pathSamples := make([]string, 0, len(samplePaths))
+		for _, rawPath := range samplePaths {
+			path, _ := rawPath.(string)
+			path = strings.TrimSpace(path)
+			if path == "" {
+				continue
+			}
+			pathSamples = append(pathSamples, path)
+		}
+		thought := fmt.Sprintf("Windows world-writable warning: %d additional path(s).", extraCount)
+		if len(pathSamples) > 0 {
+			thought = thought + " sample=" + strings.Join(pathSamples, ",")
+		}
+		if failedScan {
+			thought += " scan_failed=true"
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "windowsSandbox/setupCompleted":
+		mode := stringValue(params, "mode")
+		success, _ := boolValue(params, "success")
+		errText := stringValue(params, "error")
+		outcome := statusFailed
+		if success {
+			outcome = "succeeded"
+		}
+		thought := fmt.Sprintf("Windows sandbox setup %s (mode=%s).", outcome, mode)
+		if strings.TrimSpace(errText) != "" {
+			thought += " " + errText
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/realtime/started":
+		version := stringValue(params, "version")
+		session := stringValue(params, "sessionId")
+		thought := fmt.Sprintf("Realtime started (version=%s).", version)
+		if session != "" {
+			thought = fmt.Sprintf("Realtime started (version=%s, session=%s).", version, session)
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/realtime/itemAdded":
+		item := mapValue(params, "item")
+		itemType := stringValue(item, "type")
+		thought := "Realtime item added."
+		if itemType != "" {
+			thought = fmt.Sprintf("Realtime item added (type=%s).", itemType)
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/realtime/outputAudio/delta":
+		audio := mapValue(params, "audio")
+		itemID := stringValue(audio, "itemId")
+		sampleRate, _ := int64Value(audio, "sampleRate")
+		numChannels, _ := int64Value(audio, "numChannels")
+		data := rawStringValue(audio, "data")
+		thought := fmt.Sprintf("Realtime audio delta: sampleRate=%d channels=%d bytes=%d.", sampleRate, numChannels, len(data))
+		if itemID != "" {
+			thought = fmt.Sprintf("Realtime audio delta: item=%s sampleRate=%d channels=%d bytes=%d.", itemID, sampleRate, numChannels, len(data))
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/realtime/transcriptUpdated":
+		role := stringValue(params, "role")
+		text := rawStringValue(params, "text")
+		thought := "Realtime transcript updated."
+		if role != "" || text != "" {
+			thought = fmt.Sprintf("Realtime transcript (%s): %s", role, text)
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/realtime/error":
+		message := stringValue(params, "message")
+		thought := "Realtime error."
+		if message != "" {
+			thought = "Realtime error: " + message
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "thread/realtime/closed":
+		reason := stringValue(params, "reason")
+		thought := "Realtime closed."
+		if reason != "" {
+			thought = "Realtime closed: " + reason
+		}
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "fs/changed":
+		watchID := stringValue(params, "watchId")
+		changedPaths := listValue(params, "changedPaths")
+		pathCount := len(changedPaths)
+		thought := fmt.Sprintf("Filesystem changed: watch=%s paths=%d.", watchID, pathCount)
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "fuzzyFileSearch/sessionUpdated":
+		session := stringValue(params, "sessionId")
+		query := stringValue(params, "query")
+		files := listValue(params, "files")
+		thought := fmt.Sprintf("Fuzzy search update: session=%s query=%q files=%d.", session, query, len(files))
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "fuzzyFileSearch/sessionCompleted":
+		session := stringValue(params, "sessionId")
+		thought := fmt.Sprintf("Fuzzy search completed: session=%s.", session)
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
+	case "command/exec/outputDelta":
+		processID := stringValue(params, "processId")
+		stream := stringValue(params, "stream")
+		delta := rawStringValue(params, "deltaBase64")
+		capReached, _ := boolValue(params, "capReached")
+		thought := fmt.Sprintf("command/exec output: process=%s stream=%s bytes(base64)=%d capReached=%t.", processID, stream, len(delta), capReached)
+		if err := a.sendThoughtUpdate(ctx, sessionID, thought); err != nil {
+			return false, "", nil, err
+		}
 	case "account/rateLimits/updated":
 		rateLimits := mapValue(params, "rateLimits")
 		if len(rateLimits) > 0 {
@@ -813,6 +1016,10 @@ func (a *codexACPProxyAgent) handleServerRequest(ctx context.Context, sessionID 
 	a.mu.Unlock()
 	if state == nil || state.backend == nil {
 		return acp.NewInvalidParams("session backend unavailable")
+	}
+	requestID := canonicalRequestID(req.ID)
+	if requestID != "" {
+		a.markPendingRequest(sessionID, requestID, req.Method)
 	}
 
 	switch req.Method {
@@ -855,6 +1062,128 @@ func (a *codexACPProxyAgent) handleServerRequest(ctx context.Context, sessionID 
 				"scope":       "turn",
 			})
 		}
+	case "item/tool/call":
+		params, _ := decodeJSONMap(req.Params)
+		toolName := stringValue(params, "tool")
+		title := "Tool call request"
+		if toolName != "" {
+			title = fmt.Sprintf("Tool call request: %s", toolName)
+		}
+		decision, err := a.requestDecision(ctx, sessionID, title, acp.ToolKindExecute, params, nil, []any{decisionAccept, decisionAcceptForSession, decisionDecline, decisionCancel})
+		if err != nil {
+			return err
+		}
+		decisionName, _ := decision.(string)
+		statusText := "declined by user"
+		switch decisionName {
+		case decisionAccept, decisionAcceptForSession:
+			statusText = "approved by user, not executed by ACP bridge"
+		case decisionCancel:
+			statusText = "cancelled by user"
+		}
+		return state.backend.RespondRequest(ctx, req, map[string]any{
+			"success": false,
+			"contentItems": []any{
+				map[string]any{
+					"type": "inputText",
+					"text": "Dynamic tool call " + statusText + ".",
+				},
+			},
+		})
+	case "item/tool/requestUserInput":
+		params, _ := decodeJSONMap(req.Params)
+		answers := map[string]any{}
+		for _, rawQuestion := range listValue(params, "questions") {
+			question, ok := rawQuestion.(map[string]any)
+			if !ok {
+				continue
+			}
+			questionID := stringValue(question, "id")
+			if questionID == "" {
+				continue
+			}
+			title := "User input request"
+			if header := stringValue(question, "header"); header != "" {
+				title = "User input: " + header
+			}
+			decisions := questionDecisionOptions(question)
+			selected, err := a.requestDecision(ctx, sessionID, title, acp.ToolKindOther, mergeRequestInput(params, map[string]any{"question": question}), decisions, nil)
+			if err != nil {
+				return err
+			}
+			answerValues := []string{}
+			selectedText, _ := selected.(string)
+			if selectedText != "" && selectedText != decisionCancel && selectedText != decisionDecline {
+				answerValues = append(answerValues, selectedText)
+			}
+			answers[questionID] = map[string]any{"answers": answerValues}
+		}
+		return state.backend.RespondRequest(ctx, req, map[string]any{"answers": answers})
+	case "mcpServer/elicitation/request":
+		params, _ := decodeJSONMap(req.Params)
+		decision, err := a.requestDecision(ctx, sessionID, "MCP elicitation request", acp.ToolKindOther, params, nil, []any{decisionAccept, decisionDecline, decisionCancel})
+		if err != nil {
+			return err
+		}
+		decisionName, _ := decision.(string)
+		action := decisionCancel
+		switch decisionName {
+		case decisionAccept, decisionAcceptForSession:
+			action = decisionAccept
+		case decisionDecline:
+			action = decisionDecline
+		case decisionCancel:
+			action = decisionCancel
+		}
+		resp := map[string]any{
+			"action": action,
+		}
+		if action == decisionAccept {
+			resp["content"] = map[string]any{}
+		}
+		if meta, ok := params["_meta"]; ok {
+			resp["_meta"] = meta
+		}
+		return state.backend.RespondRequest(ctx, req, resp)
+	case "applyPatchApproval":
+		params, _ := decodeJSONMap(req.Params)
+		decision, err := a.requestDecision(ctx, sessionID, "Patch approval", acp.ToolKindEdit, params, nil, []any{decisionAccept, decisionAcceptForSession, decisionDecline, decisionCancel})
+		if err != nil {
+			return err
+		}
+		return state.backend.RespondRequest(ctx, req, map[string]any{
+			"decision": legacyApprovalDecision(decision),
+		})
+	case "execCommandApproval":
+		params, _ := decodeJSONMap(req.Params)
+		decision, err := a.requestDecision(ctx, sessionID, "Exec command approval", acp.ToolKindExecute, params, nil, []any{decisionAccept, decisionAcceptForSession, decisionDecline, decisionCancel})
+		if err != nil {
+			return err
+		}
+		return state.backend.RespondRequest(ctx, req, map[string]any{
+			"decision": legacyApprovalDecision(decision),
+		})
+	case "account/chatgptAuthTokens/refresh":
+		params, _ := decodeJSONMap(req.Params)
+		decision, err := a.requestDecision(ctx, sessionID, "ChatGPT token refresh", acp.ToolKindOther, params, nil, []any{decisionAccept, decisionCancel})
+		if err != nil {
+			return err
+		}
+		decisionName, _ := decision.(string)
+		if decisionName == decisionCancel || decisionName == decisionDecline {
+			return state.backend.RespondRequestError(ctx, req, -32000, "chatgpt token refresh declined", nil)
+		}
+		resp, ok := chatgptAuthTokensFromEnv()
+		if !ok {
+			return state.backend.RespondRequestError(
+				ctx,
+				req,
+				-32001,
+				"chatgpt token refresh unavailable: set CODEX_CHATGPT_ACCESS_TOKEN and CODEX_CHATGPT_ACCOUNT_ID",
+				nil,
+			)
+		}
+		return state.backend.RespondRequest(ctx, req, resp)
 	default:
 		return a.respondWithFallback(ctx, state.backend, req)
 	}
@@ -955,6 +1284,12 @@ func permissionOptionKind(decision any) acp.PermissionOptionKind {
 			return acp.PermissionOptionKindAllowAlways
 		case decisionDecline, decisionCancel:
 			return acp.PermissionOptionKindRejectOnce
+		case decisionApproved:
+			return acp.PermissionOptionKindAllowOnce
+		case decisionApprovedSession:
+			return acp.PermissionOptionKindAllowAlways
+		case decisionDenied, decisionAbort:
+			return acp.PermissionOptionKindRejectOnce
 		default:
 			return acp.PermissionOptionKindAllowOnce
 		}
@@ -975,12 +1310,82 @@ func permissionOptionLabel(decision any) string {
 			return "Decline"
 		case decisionCancel:
 			return "Cancel"
+		case decisionApproved:
+			return "Approve once"
+		case decisionApprovedSession:
+			return "Approve for session"
+		case decisionDenied:
+			return "Deny"
+		case decisionAbort:
+			return "Abort"
 		default:
 			return strings.TrimSpace(v)
 		}
 	default:
 		return "Allow"
 	}
+}
+
+func questionDecisionOptions(question map[string]any) []any {
+	questionOptions := listValue(question, "options")
+	if len(questionOptions) == 0 {
+		return []any{decisionAccept, decisionDecline, decisionCancel}
+	}
+	decisions := make([]any, 0, len(questionOptions)+1)
+	for _, raw := range questionOptions {
+		opt, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		label := stringValue(opt, "label")
+		if label == "" {
+			continue
+		}
+		decisions = append(decisions, label)
+	}
+	decisions = append(decisions, decisionCancel)
+	return decisions
+}
+
+func mergeRequestInput(base map[string]any, extra map[string]any) map[string]any {
+	out := cloneAnyMap(base)
+	if out == nil {
+		out = map[string]any{}
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
+}
+
+func legacyApprovalDecision(decision any) string {
+	decisionName, _ := decision.(string)
+	switch strings.TrimSpace(decisionName) {
+	case decisionAcceptForSession:
+		return decisionApprovedSession
+	case decisionDecline:
+		return decisionDenied
+	case decisionCancel:
+		return decisionAbort
+	default:
+		return decisionApproved
+	}
+}
+
+func chatgptAuthTokensFromEnv() (map[string]any, bool) {
+	accessToken := strings.TrimSpace(os.Getenv("CODEX_CHATGPT_ACCESS_TOKEN"))
+	accountID := strings.TrimSpace(os.Getenv("CODEX_CHATGPT_ACCOUNT_ID"))
+	if accessToken == "" || accountID == "" {
+		return nil, false
+	}
+	resp := map[string]any{
+		"accessToken":      accessToken,
+		"chatgptAccountId": accountID,
+	}
+	if planType := strings.TrimSpace(os.Getenv("CODEX_CHATGPT_PLAN_TYPE")); planType != "" {
+		resp["chatgptPlanType"] = planType
+	}
+	return resp, true
 }
 
 func sessionIDFromNewSessionMeta(meta any) (acp.SessionId, error) {
@@ -1343,6 +1748,7 @@ func (a *codexACPProxyAgent) resetTurnState(sessionID acp.SessionId) {
 	defer a.mu.Unlock()
 	if state := a.sessions[sessionID]; state != nil {
 		state.planDeltaByItem = make(map[string]string)
+		state.pendingRequests = make(map[string]string)
 		state.lastThreadStatusText = ""
 	}
 }
@@ -1401,6 +1807,64 @@ func cloneAnyMap(m map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func (a *codexACPProxyAgent) syncThreadID(sessionID acp.SessionId, nextThreadID string) {
+	trimmed := strings.TrimSpace(nextThreadID)
+	if trimmed == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if state := a.sessions[sessionID]; state != nil {
+		state.threadID = trimmed
+	}
+}
+
+func (a *codexACPProxyAgent) markPendingRequest(sessionID acp.SessionId, requestID string, method string) {
+	trimmedRequestID := strings.TrimSpace(requestID)
+	if trimmedRequestID == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state := a.sessions[sessionID]
+	if state == nil {
+		return
+	}
+	if state.pendingRequests == nil {
+		state.pendingRequests = make(map[string]string)
+	}
+	state.pendingRequests[trimmedRequestID] = strings.TrimSpace(method)
+}
+
+func (a *codexACPProxyAgent) resolvePendingRequest(sessionID acp.SessionId, requestID string) bool {
+	trimmedRequestID := strings.TrimSpace(requestID)
+	if trimmedRequestID == "" {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state := a.sessions[sessionID]
+	if state == nil || state.pendingRequests == nil {
+		return false
+	}
+	if _, ok := state.pendingRequests[trimmedRequestID]; !ok {
+		return false
+	}
+	delete(state.pendingRequests, trimmedRequestID)
+	return true
+}
+
+func requestIDFromAny(value any) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", false
+	}
+	return canonicalRequestID(raw), true
 }
 
 func toolCallTitle(itemType string, item map[string]any) string {

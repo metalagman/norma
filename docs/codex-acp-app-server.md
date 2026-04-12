@@ -266,4 +266,4 @@ mcpServer/elicitation/request
 
 ## Implementation status (current)
 
-- `internal/apps/codexacp` currently maps all methods listed in this schema inventory (`51` notifications, `9` server requests).
+- `internal/apps/codexacpappserver` currently maps all methods listed in this schema inventory (`51` notifications, `9` server requests).
