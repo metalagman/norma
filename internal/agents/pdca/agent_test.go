@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/structuredagent"
 )
 
 func TestResolvedAgentForRoleReturnsConfig(t *testing.T) {
@@ -388,6 +391,50 @@ func TestValidateStepResponse(t *testing.T) {
 				t.Fatalf("validateStepResponse() unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestStepFailureStopReason(t *testing.T) {
+	t.Parallel()
+
+	if got := stepFailureStopReason(context.DeadlineExceeded); got != "budget_exceeded" {
+		t.Fatalf("stepFailureStopReason(deadline) = %q, want %q", got, "budget_exceeded")
+	}
+
+	schemaErr := fmt.Errorf("outer: %w", structuredagent.ErrStructuredOutputSchemaValidation)
+	if got := stepFailureStopReason(schemaErr); got != "replan_required" {
+		t.Fatalf("stepFailureStopReason(schema) = %q, want %q", got, "replan_required")
+	}
+
+	blockedErr := errors.New("dependency blocked waiting for upstream")
+	if got := stepFailureStopReason(blockedErr); got != "dependency_blocked" {
+		t.Fatalf("stepFailureStopReason(blocked) = %q, want %q", got, "dependency_blocked")
+	}
+
+	otherErr := errors.New("unexpected failure")
+	if got := stepFailureStopReason(otherErr); got != "replan_required" {
+		t.Fatalf("stepFailureStopReason(other) = %q, want %q", got, "replan_required")
+	}
+}
+
+func TestStepFailureResponseIncludesSummaryAndExitCode(t *testing.T) {
+	t.Parallel()
+
+	resp := stepFailureResponse(RoleCheck, errors.New("structured output mismatch"), 2)
+	if resp == nil {
+		t.Fatal("stepFailureResponse() returned nil response")
+	}
+	if resp.Status != "error" {
+		t.Fatalf("resp.Status = %q, want %q", resp.Status, "error")
+	}
+	if resp.Progress.Title != "check step failed" {
+		t.Fatalf("resp.Progress.Title = %q, want %q", resp.Progress.Title, "check step failed")
+	}
+	if len(resp.Progress.Details) < 2 {
+		t.Fatalf("len(resp.Progress.Details) = %d, want at least 2", len(resp.Progress.Details))
+	}
+	if !strings.Contains(resp.Progress.Details[1], "exit_code=2") {
+		t.Fatalf("resp.Progress.Details[1] = %q, want contains %q", resp.Progress.Details[1], "exit_code=2")
 	}
 }
 

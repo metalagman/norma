@@ -3,6 +3,7 @@ package pdca
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -21,6 +22,7 @@ import (
 	"github.com/normahq/norma/internal/logging"
 	"github.com/normahq/norma/internal/task"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/structuredagent"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"
@@ -462,14 +464,14 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	startTime := time.Now()
 	lastOut, _, exitCode, err := runner.Run(ctx, reqBytes, multiStdout, multiStderr, eventsFile)
 	if err != nil {
-		return nil, fmt.Errorf("run role %q agent (exit code %d): %w", roleName, exitCode, err)
+		return a.persistStepFailure(ctx, roleName, iteration, index, stepDir, startTime, fmt.Errorf("run role %q agent (exit code %d): %w", roleName, exitCode, err), exitCode)
 	}
 	endTime := time.Now()
 
 	// Parse response
 	resp, err := role.MapResponse(lastOut)
 	if err != nil {
-		return nil, fmt.Errorf("map response: %w", err)
+		return a.persistStepFailure(ctx, roleName, iteration, index, stepDir, startTime, fmt.Errorf("map response: %w", err), 0)
 	}
 
 	// Persist output.json
@@ -484,7 +486,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	// Persist Do workspace changes before worktree cleanup.
 	if roleName == RoleDo && resp.Status == "ok" {
 		if err := commitWorkspaceChanges(ctx, workspaceDir, a.runInput.RunID, a.runInput.TaskID, index); err != nil {
-			return nil, err
+			return a.persistStepFailure(ctx, roleName, iteration, index, stepDir, startTime, err, 0)
 		}
 	}
 
@@ -532,6 +534,118 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	}
 
 	return &resp, nil
+}
+
+func (a *runtime) persistStepFailure(
+	ctx agent.InvocationContext,
+	roleName string,
+	iteration int,
+	index int,
+	stepDir string,
+	startTime time.Time,
+	runErr error,
+	exitCode int,
+) (*contracts.RawAgentResponse, error) {
+	resp := stepFailureResponse(roleName, runErr, exitCode)
+
+	respJSON, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal fallback output.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(stepDir, "output.json"), respJSON, 0o600); err != nil {
+		return nil, fmt.Errorf("write fallback output.json: %w", err)
+	}
+
+	if a.store != nil {
+		endTime := time.Now()
+		stepRec := db.StepRecord{
+			RunID:     a.runInput.RunID,
+			StepIndex: index,
+			Role:      roleName,
+			Iteration: iteration,
+			Status:    "fail",
+			StepDir:   stepDir,
+			StartedAt: startTime.UTC().Format(time.RFC3339),
+			EndedAt:   endTime.UTC().Format(time.RFC3339),
+			Summary:   resp.Summary.Text,
+		}
+		update := db.Update{
+			CurrentStepIndex: index,
+			Iteration:        iteration,
+			Status:           "running",
+		}
+		if err := a.store.CommitStep(ctx, stepRec, nil, update); err != nil {
+			return nil, fmt.Errorf("commit failed step %d (%s): %w", index, roleName, err)
+		}
+	}
+
+	if err := a.updateTaskState(ctx, resp, roleName, iteration, index); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func stepFailureResponse(roleName string, runErr error, exitCode int) *contracts.RawAgentResponse {
+	details := []string{
+		fmt.Sprintf("error: %s", compactErrorText(runErr, 800)),
+	}
+	if exitCode > 0 {
+		details = append(details, fmt.Sprintf("exit_code=%d", exitCode))
+	}
+
+	stopReason := stepFailureStopReason(runErr)
+	return &contracts.RawAgentResponse{
+		Status:     "error",
+		StopReason: stopReason,
+		Summary: contracts.ResponseSummary{
+			Text: fmt.Sprintf("%s step failed: %s", roleName, compactErrorText(runErr, 240)),
+		},
+		Progress: contracts.StepProgress{
+			Title:   fmt.Sprintf("%s step failed", roleName),
+			Details: details,
+		},
+	}
+}
+
+func stepFailureStopReason(runErr error) string {
+	if runErr == nil {
+		return "replan_required"
+	}
+
+	if errors.Is(runErr, context.DeadlineExceeded) {
+		return "budget_exceeded"
+	}
+	if errors.Is(runErr, structuredagent.ErrStructuredIOSchemaValidation) ||
+		errors.Is(runErr, structuredagent.ErrStructuredInputSchemaValidation) ||
+		errors.Is(runErr, structuredagent.ErrStructuredOutputSchemaValidation) {
+		return "replan_required"
+	}
+
+	lower := strings.ToLower(runErr.Error())
+	if strings.Contains(lower, "deadline exceeded") || strings.Contains(lower, "timed out") {
+		return "budget_exceeded"
+	}
+	if strings.Contains(lower, "dependency") && strings.Contains(lower, "block") {
+		return "dependency_blocked"
+	}
+
+	return "replan_required"
+}
+
+func compactErrorText(err error, max int) string {
+	if err == nil {
+		return "unknown error"
+	}
+	text := strings.TrimSpace(err.Error())
+	if text == "" {
+		return "unknown error"
+	}
+	text = strings.ReplaceAll(text, "\n", " | ")
+	if max <= 0 || len(text) <= max {
+		return text
+	}
+	return text[:max] + "..."
 }
 
 func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Writer) (io.Writer, io.Writer) {
