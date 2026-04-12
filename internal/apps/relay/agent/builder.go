@@ -95,7 +95,7 @@ func (b *Builder) buildRelaySystemInstruction(
 	}
 
 	normaInstruction := ""
-	if agentCfg, ok := b.normaCfg.Agents[normalizedAgentName]; ok {
+	if agentCfg, ok := b.normaCfg.Providers[normalizedAgentName]; ok {
 		normaInstruction = agentCfg.SystemInstructions
 	}
 	data.AgentInstructions = composeAgentInstructions(normaInstruction, b.relaySystemInstruction)
@@ -239,7 +239,7 @@ func (b *Builder) currentRepoBranch(ctx context.Context) string {
 
 // buildAgentDescription returns a human-readable description of the agent.
 func (b *Builder) buildAgentDescription(agentName string) string {
-	agentCfg, ok := b.normaCfg.Agents[agentName]
+	agentCfg, ok := b.normaCfg.Providers[agentName]
 	if !ok {
 		return agentName
 	}
@@ -248,7 +248,7 @@ func (b *Builder) buildAgentDescription(agentName string) string {
 
 // GetAgentInfo returns the description and list of MCP server names for an agent.
 func (b *Builder) GetAgentInfo(agentName string) (description string, mcpServers []string) {
-	agentCfg, ok := b.normaCfg.Agents[agentName]
+	agentCfg, ok := b.normaCfg.Providers[agentName]
 	if !ok {
 		return agentName, bundledMCPServerIDs(b.workspaceEnabled)
 	}
@@ -256,7 +256,7 @@ func (b *Builder) GetAgentInfo(agentName string) (description string, mcpServers
 }
 
 func (b *Builder) buildAgentMCPServerIDs(agentName string, bundled, extra []string) []string {
-	agentCfg, ok := b.normaCfg.Agents[agentName]
+	agentCfg, ok := b.normaCfg.Providers[agentName]
 	if !ok {
 		return mergeMCPServerIDsWithBase(defaultBundledMCPServerIDs(b.workspaceEnabled, bundled), nil, extra)
 	}

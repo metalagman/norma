@@ -16,10 +16,10 @@ import (
 // Config shape:
 //
 //	norma:
-//	  agents: ...
+//	  providers: ...
 //	  mcp_servers: ...
 type NormaConfig struct {
-	Agents     map[string]agentconfig.Config          `json:"agents,omitempty"      mapstructure:"agents"      validate:"required,gt=0"`
+	Providers  map[string]agentconfig.Config          `json:"providers,omitempty"   mapstructure:"providers"   validate:"required,gt=0"`
 	MCPServers map[string]agentconfig.MCPServerConfig `json:"mcp_servers,omitempty" mapstructure:"mcp_servers" validate:"omitempty"`
 }
 
@@ -36,8 +36,8 @@ func (c NormaConfig) Validate() error {
 		}
 	}
 
-	for name, agentCfg := range c.Agents {
-		if err := agentCfg.Validate(); err != nil {
+	for name, providerCfg := range c.Providers {
+		if err := providerCfg.Validate(); err != nil {
 			errList = append(errList, fmt.Sprintf("agent %q: %v", name, err))
 		}
 	}

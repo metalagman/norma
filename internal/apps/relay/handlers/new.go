@@ -245,8 +245,8 @@ func (h *CommandHandler) newCommandUsageMessage() string {
 }
 
 func sortedAgentIDs(cfg runtimeconfig.NormaConfig) []string {
-	agentIDs := make([]string, 0, len(cfg.Agents))
-	for id := range cfg.Agents {
+	agentIDs := make([]string, 0, len(cfg.Providers))
+	for id := range cfg.Providers {
 		trimmedID := strings.TrimSpace(id)
 		if trimmedID == "" {
 			continue

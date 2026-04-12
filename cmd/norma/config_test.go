@@ -43,7 +43,7 @@ cli:
 	if cfg.RoleIDs["plan"] != "opencode" {
 		t.Fatalf("plan role id = %q, want opencode", cfg.RoleIDs["plan"])
 	}
-	plan := cfg.Norma.Agents[cfg.RoleIDs["plan"]]
+	plan := cfg.Norma.Providers[cfg.RoleIDs["plan"]]
 	if plan.Type != "opencode_acp" {
 		t.Fatalf("plan agent type = %q, want opencode_acp", plan.Type)
 	}

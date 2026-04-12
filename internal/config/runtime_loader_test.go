@@ -46,7 +46,7 @@ func TestLoadRuntime_PrefersConfigDirOverRepoAndGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRuntime: %v", err)
 	}
-	agentCfg := cfg.Norma.Agents["agent"]
+	agentCfg := cfg.Norma.Providers["agent"]
 	if agentCfg.GenericACP == nil || len(agentCfg.GenericACP.Cmd) == 0 {
 		t.Fatalf("agent generic_acp block missing cmd: %#v", agentCfg)
 	}
@@ -314,7 +314,7 @@ cli:
 	if err != nil {
 		t.Fatalf("LoadRuntime returned error: %v", err)
 	}
-	agentCfg := cfg.Norma.Agents["agent"]
+	agentCfg := cfg.Norma.Providers["agent"]
 	if agentCfg.GenericACP == nil || len(agentCfg.GenericACP.Cmd) == 0 {
 		t.Fatalf("agent generic_acp block missing cmd: %#v", agentCfg)
 	}

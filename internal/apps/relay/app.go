@@ -216,7 +216,7 @@ func Module(
 		}),
 		fx.Provide(func(reg *mcpregistry.MapRegistry) *agentfactory.Factory {
 			return agentfactory.New(
-				normaCfg.Agents,
+				normaCfg.Providers,
 				reg,
 				agentfactory.WithPermissionHandler(relayagent.DefaultPermissionHandler),
 			)
@@ -290,7 +290,7 @@ func validateRelayMCPConfiguration(cfg Config, normaCfg runtimeconfig.NormaConfi
 		}
 	}
 
-	for agentName, agentCfg := range normaCfg.Agents {
+	for agentName, agentCfg := range normaCfg.Providers {
 		for i, id := range agentCfg.MCPServers {
 			trimmed := strings.TrimSpace(id)
 			if _, ok := removedConfigMCPServerIDs[trimmed]; ok {

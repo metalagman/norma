@@ -259,7 +259,7 @@ func (m *Manager) ApplyRuntimeConfig(normaCfg runtimeconfig.NormaConfig, relayCf
 
 func (m *Manager) rebuildAgentBuilder(normaCfg runtimeconfig.NormaConfig, relayCfg runtimecfg.RelayConfig) (*relayagent.Builder, error) {
 	factory := agentfactory.New(
-		normaCfg.Agents,
+		normaCfg.Providers,
 		m.mcpRegistry,
 		agentfactory.WithPermissionHandler(relayagent.DefaultPermissionHandler),
 	)

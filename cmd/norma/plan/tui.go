@@ -38,5 +38,5 @@ func runTUI(cmd *cobra.Command, _ []string) error {
 	if !ok {
 		return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 	}
-	return runAgentPlanner(cmd, workingDir, cfg.Norma.Agents, cfg.Norma.MCPServers, plannerID)
+	return runAgentPlanner(cmd, workingDir, cfg.Norma.Providers, cfg.Norma.MCPServers, plannerID)
 }
