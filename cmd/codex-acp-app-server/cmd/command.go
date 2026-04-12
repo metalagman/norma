@@ -23,7 +23,7 @@ func Command() *cobra.Command {
 	var debugLogs bool
 
 	cmd := &cobra.Command{
-		Use:          "codex-acp [flags]",
+		Use:          "codex-acp-app-server [flags]",
 		Short:        "Expose Codex app-server as ACP over stdio",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
@@ -65,9 +65,9 @@ func Command() *cobra.Command {
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
 	cmd.Long = "Run Codex app-server and expose it as an ACP agent over stdio. Use --codex-* flags to configure thread/start defaults and config overrides."
 	//nolint:dupword
-	cmd.Example = `  codex-acp
-  codex-acp --codex-model gpt-5.4 --codex-sandbox workspace-write
-  codex-acp --name team-codex
-  codex-acp --codex-approval-policy on-request --codex-config '{"env":"dev"}'`
+	cmd.Example = `  codex-acp-app-server
+  codex-acp-app-server --codex-model gpt-5.4 --codex-sandbox workspace-write
+  codex-acp-app-server --name team-codex
+  codex-acp-app-server --codex-approval-policy on-request --codex-config '{"env":"dev"}'`
 	return cmd
 }

@@ -13,7 +13,7 @@ import (
 )
 
 // DefaultAgentName is the fallback ACP agent name used when app-server identity is unavailable.
-const DefaultAgentName = "norma-codex-acp"
+const DefaultAgentName = "norma-codex-acp-app-server"
 
 // DefaultAgentVersion is the fallback ACP agent version used when app-server identity is unavailable.
 const DefaultAgentVersion = "dev"
