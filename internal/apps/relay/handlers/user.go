@@ -10,7 +10,6 @@ import (
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaysession "github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/tgbotkit/client"
-	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
 	"go.uber.org/fx"
 )
@@ -47,6 +46,10 @@ func NewUserHandler(params userHandlerParams) *userHandler {
 	}
 }
 
+func (h *userHandler) Register(registry handlers.RegistryInterface) {
+	// UserHandler is routed through CommandHandler, not directly registered
+}
+
 func (h *userHandler) getBotUsername(ctx context.Context) string {
 	if h.botUsername != "" {
 		return h.botUsername
@@ -63,19 +66,6 @@ func (h *userHandler) getBotUsername(ctx context.Context) string {
 	}
 	h.botUsername = *resp.JSON200.Result.Username
 	return h.botUsername
-}
-
-func (h *userHandler) Register(registry handlers.RegistryInterface) {
-	registry.OnCommand(h.onCommand)
-}
-
-func (h *userHandler) onCommand(ctx context.Context, event *events.CommandEvent) error {
-	commandCtx, ok := h.channel.CommandContextFromEvent(event)
-	if !ok {
-		return nil
-	}
-
-	return h.HandleUserCommand(ctx, commandCtx)
 }
 
 func (h *userHandler) HandleUserCommand(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
