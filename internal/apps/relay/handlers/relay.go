@@ -25,19 +25,39 @@ import (
 	"google.golang.org/genai"
 )
 
+// relayAuthorizer wraps OwnerStore and CollaboratorStore for auth.CanAccess.
+type relayAuthorizer struct {
+	ownerStore        *auth.OwnerStore
+	collaboratorStore *auth.CollaboratorStore
+}
+
+func (a *relayAuthorizer) IsOwner(userID int64) bool {
+	return a.ownerStore.IsOwner(userID)
+}
+
+func (a *relayAuthorizer) IsCollaborator(userID int64) bool {
+	collab, found, err := a.collaboratorStore.GetCollaborator(context.Background(), fmt.Sprintf("%d", userID))
+	if err != nil || !found {
+		return false
+	}
+	return collab != nil
+}
+
 // RelayHandler handles bidirectional message relay between owner and agent.
 type RelayHandler struct {
-	ownerStore     *auth.OwnerStore
-	channel        *relaytelegram.Adapter
-	sessionManager *relaysession.Manager
-	turnDispatcher turnQueue
-	messenger      *messenger.Messenger
-	configLoader   runtimeConfigLoader
-	tgClient       client.ClientWithResponsesInterface
-	authToken      string
-	rootAgentName  string
-	normaCfg       runtimeconfig.RuntimeConfig
-	logger         zerolog.Logger
+	ownerStore        *auth.OwnerStore
+	collaboratorStore *auth.CollaboratorStore
+	channel           *relaytelegram.Adapter
+	sessionManager    *relaysession.Manager
+	turnDispatcher    turnQueue
+	messenger         *messenger.Messenger
+	configLoader      runtimeConfigLoader
+	tgClient          client.ClientWithResponsesInterface
+	authToken         string
+	rootAgentName     string
+	normaCfg          runtimeconfig.RuntimeConfig
+	logger            zerolog.Logger
+	authorizer        auth.Authorizer
 
 	mu          sync.RWMutex
 	ownerID     int64
@@ -54,6 +74,7 @@ type relayHandlerDeps struct {
 
 	LC                 fx.Lifecycle
 	OwnerStore         *auth.OwnerStore
+	CollaboratorStore  *auth.CollaboratorStore
 	Channel            *relaytelegram.Adapter
 	SessionManager     *relaysession.Manager
 	TurnDispatcher     *TurnDispatcher
@@ -69,18 +90,20 @@ type relayHandlerDeps struct {
 
 func NewRelayHandler(deps relayHandlerDeps) (*RelayHandler, error) {
 	h := &RelayHandler{
-		ownerStore:     deps.OwnerStore,
-		channel:        deps.Channel,
-		sessionManager: deps.SessionManager,
-		turnDispatcher: deps.TurnDispatcher,
-		messenger:      deps.Messenger,
-		configLoader:   deps.RuntimeConfig,
-		tgClient:       deps.TGClient,
-		authToken:      strings.TrimSpace(deps.AuthToken),
-		rootAgentName:  strings.TrimSpace(deps.RootAgentName),
-		normaCfg:       deps.NormaCfg,
-		logger:         deps.Logger.With().Str("component", "relay.handler").Logger(),
+		ownerStore:        deps.OwnerStore,
+		collaboratorStore: deps.CollaboratorStore,
+		channel:           deps.Channel,
+		sessionManager:    deps.SessionManager,
+		turnDispatcher:    deps.TurnDispatcher,
+		messenger:         deps.Messenger,
+		configLoader:      deps.RuntimeConfig,
+		tgClient:          deps.TGClient,
+		authToken:         strings.TrimSpace(deps.AuthToken),
+		rootAgentName:     strings.TrimSpace(deps.RootAgentName),
+		normaCfg:          deps.NormaCfg,
+		logger:            deps.Logger.With().Str("component", "relay.handler").Logger(),
 	}
+	h.authorizer = &relayAuthorizer{ownerStore: deps.OwnerStore, collaboratorStore: deps.CollaboratorStore}
 
 	deps.LC.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
@@ -179,8 +202,9 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
-	if messageCtx.UserID != ownerID {
-		return nil
+	// RBAC check: owner or collaborator
+	if auth.CanAccess(h.authorizer, messageCtx.UserID, auth.ScopeCollaborator) != auth.Allow {
+		return nil // Silent drop for unknown users
 	}
 
 	if chatID == 0 {

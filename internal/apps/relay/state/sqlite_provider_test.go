@@ -130,8 +130,8 @@ func TestSQLiteProvider_WritesSchemaMigrationVersion(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("query schema_migrations version: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("schema_migrations version = %d, want 2", version)
+	if version != 5 {
+		t.Fatalf("schema_migrations version = %d, want 5", version)
 	}
 }
 
@@ -183,8 +183,8 @@ func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("query schema_migrations version: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("schema_migrations version = %d, want 2", version)
+	if version != 5 {
+		t.Fatalf("schema_migrations version = %d, want 5", version)
 	}
 }
 

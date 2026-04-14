@@ -2,7 +2,9 @@ package state
 
 import (
 	"context"
+	"time"
 
+	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/tgbotkit/runtime/updatepoller"
 )
 
@@ -26,6 +28,7 @@ type Provider interface {
 	SessionMCPKV() KVStore
 	Sessions() SessionStore
 	PollingOffsetStore() updatepoller.OffsetStore
+	Collaborators() CollaboratorStore
 	Close() error
 }
 
@@ -38,7 +41,16 @@ type KVStore interface {
 	Clear(ctx context.Context) error
 	GetJSON(ctx context.Context, key string) (value any, ok bool, err error)
 	SetJSON(ctx context.Context, key string, value any) error
+	SetWithTTL(ctx context.Context, key string, value any, ttl time.Duration) error
 	MergeJSON(ctx context.Context, key string, fields map[string]any) (merged map[string]any, err error)
+}
+
+// CollaboratorStore persists authorized collaborators.
+type CollaboratorStore interface {
+	AddCollaborator(ctx context.Context, c auth.Collaborator) error
+	RemoveCollaborator(ctx context.Context, userID string) error
+	GetCollaborator(ctx context.Context, userID string) (*auth.Collaborator, bool, error)
+	ListCollaborators(ctx context.Context) ([]auth.Collaborator, error)
 }
 
 // SessionRecord persists relay session metadata for lazy restore.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/tgbotkit/runtime/updatepoller"
 	_ "modernc.org/sqlite" // pure-Go SQLite driver
 )
@@ -16,6 +17,7 @@ type sqliteProvider struct {
 	mcpKV   *sqliteKVStore
 	session *sqliteSessionStore
 	offset  *sqliteOffsetStore
+	collab  *auth.CollaboratorStore
 }
 
 var _ Provider = (*sqliteProvider)(nil)
@@ -49,6 +51,7 @@ func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
 		mcpKV:   &sqliteKVStore{db: db, namespace: NamespaceSessionMCP},
 		session: &sqliteSessionStore{db: db},
 		offset:  &sqliteOffsetStore{db: db},
+		collab:  auth.NewCollaboratorStore(db),
 	}, nil
 }
 
@@ -66,6 +69,10 @@ func (p *sqliteProvider) Sessions() SessionStore {
 
 func (p *sqliteProvider) PollingOffsetStore() updatepoller.OffsetStore {
 	return p.offset
+}
+
+func (p *sqliteProvider) Collaborators() CollaboratorStore {
+	return p.collab
 }
 
 func (p *sqliteProvider) Close() error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
@@ -14,12 +15,14 @@ import (
 	"go.uber.org/fx"
 )
 
-// StartHandler handles /start command for owner authentication.
+// StartHandler handles /start command for owner authentication and invite consumption.
 type StartHandler struct {
-	ownerStore   *auth.OwnerStore
-	messenger    *messenger.Messenger
-	authToken    string
-	relayHandler relayOwnerActivator
+	ownerStore        *auth.OwnerStore
+	inviteStore       *auth.InviteStore
+	collaboratorStore *auth.CollaboratorStore
+	messenger         *messenger.Messenger
+	authToken         string
+	relayHandler      relayOwnerActivator
 }
 
 type relayOwnerActivator interface {
@@ -30,17 +33,21 @@ type relayOwnerActivator interface {
 type StartHandlerParams struct {
 	fx.In
 
-	OwnerStore *auth.OwnerStore
-	Messenger  *messenger.Messenger
-	AuthToken  string `name:"relay_auth_token"`
+	OwnerStore        *auth.OwnerStore
+	InviteStore       *auth.InviteStore
+	CollaboratorStore *auth.CollaboratorStore
+	Messenger         *messenger.Messenger
+	AuthToken         string `name:"relay_auth_token"`
 }
 
 // NewStartHandler creates a new start handler.
 func NewStartHandler(params StartHandlerParams) *StartHandler {
 	return &StartHandler{
-		ownerStore: params.OwnerStore,
-		messenger:  params.Messenger,
-		authToken:  params.AuthToken,
+		ownerStore:        params.OwnerStore,
+		inviteStore:       params.InviteStore,
+		collaboratorStore: params.CollaboratorStore,
+		messenger:         params.Messenger,
+		authToken:         params.AuthToken,
 	}
 }
 
@@ -64,13 +71,61 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	}
 
 	chatID := event.Message.Chat.Id
+	userIDStr := fmt.Sprintf("%d", event.Message.From.Id)
 	userID := event.Message.From.Id
-	authToken, malformed := parseStartAuthArg(event.Args)
 
 	log.Debug().
 		Int64("user_id", userID).
 		Int64("chat_id", chatID).
 		Msg("Start command received")
+
+	// Check if this is an invite token (not the owner token)
+	token := strings.TrimSpace(event.Args)
+	if token != "" && token != h.authToken && !strings.HasPrefix(token, "?") && !strings.Contains(token, "=") {
+		// Try to consume invite
+		invite, err := h.inviteStore.GetInvite(ctx, token)
+		if err != nil {
+			log.Warn().Err(err).Str("token", token).Msg("failed to get invite")
+			if err := h.messenger.SendPlain(ctx, chatID, "Failed to process invite. Please try again.", 0); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		if invite == nil {
+			if err := h.messenger.SendPlain(ctx, chatID, "This invite link is invalid or has expired.", 0); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		// Invite is valid - add user as collaborator
+		info := extractUserInfo(event.Message.From)
+		collaborator := auth.Collaborator{
+			UserID:    userIDStr,
+			Username:  info.username,
+			FirstName: info.firstName,
+			AddedBy:   invite.CreatedBy,
+			AddedAt:   time.Now(),
+		}
+		if err := h.collaboratorStore.AddCollaborator(ctx, collaborator); err != nil {
+			log.Error().Err(err).Msg("failed to add collaborator from invite")
+			if err := h.messenger.SendPlain(ctx, chatID, "Failed to complete registration. Please try again.", 0); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		log.Info().Str("user_id", userIDStr).Str("invited_by", invite.CreatedBy).Msg("User registered as collaborator via invite")
+
+		if err := h.messenger.SendPlain(ctx, chatID, "Welcome! You are now a bot collaborator.", 0); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Continue with normal owner authentication flow
+	authToken, malformed := parseStartAuthArg(event.Args)
 
 	if h.ownerStore.HasOwner() {
 		if h.ownerStore.IsOwner(userID) {

@@ -33,6 +33,7 @@ type CommandHandler struct {
 	turnDispatcher turnQueue
 	messenger      *messenger.Messenger
 	agentIDs       []string
+	userHandler    *userHandler
 }
 
 func BuildAgentWelcomeMessage(agentName, sessionID, agentDesc string, mcpServers []string) string {
@@ -48,6 +49,7 @@ type commandHandlerParams struct {
 	TurnDispatcher *TurnDispatcher
 	Messenger      *messenger.Messenger
 	NormaCfg       runtimeconfig.RuntimeConfig
+	UserHandler    *userHandler
 }
 
 // NewCommandHandler creates a new relay command handler.
@@ -59,6 +61,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		turnDispatcher: params.TurnDispatcher,
 		messenger:      params.Messenger,
 		agentIDs:       sortedAgentIDs(params.NormaCfg),
+		userHandler:    params.UserHandler,
 	}
 }
 
@@ -80,6 +83,9 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return h.onCloseCommand(ctx, commandCtx)
 	case "cancel":
 		return h.onCancelCommand(ctx, commandCtx)
+	case "user":
+		// Route to UserHandler
+		return h.userHandler.HandleUserCommand(ctx, commandCtx)
 	default:
 		return nil
 	}
