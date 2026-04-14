@@ -375,3 +375,109 @@ func assertLastSentNotContains(t *testing.T, tgClient *fakeTelegramClient, unwan
 		t.Fatalf("last message = %q, must not contain %q", last.Text, unwantedSubstring)
 	}
 }
+
+type fakeRelayHandler struct {
+	bootstrapCalls []bootstrapCall
+	bootstrapErr   error
+	ownerID        int64
+	chatID         int64
+	authToken      string
+}
+
+type bootstrapCall struct {
+	ownerID int64
+	chatID  int64
+}
+
+func (f *fakeRelayHandler) ActivateOwner(_ context.Context, ownerID, chatID int64) error {
+	f.ownerID = ownerID
+	f.chatID = chatID
+	if f.bootstrapErr != nil {
+		return f.bootstrapErr
+	}
+	f.bootstrapCalls = append(f.bootstrapCalls, bootstrapCall{ownerID: ownerID, chatID: chatID})
+	return nil
+}
+
+func (f *fakeRelayHandler) SetAuthToken(token string) {
+	f.authToken = token
+}
+
+func (f *fakeRelayHandler) GetAuthToken() string {
+	return f.authToken
+}
+
+func newRelayHandlerTestHarness(t *testing.T) (*StartHandler, *auth.OwnerStore, *fakeTelegramClient, *fakeRelayHandler) {
+	t.Helper()
+
+	stateStore := &fakeOwnerKVStore{}
+	ownerStore, err := auth.NewOwnerStore(stateStore)
+	if err != nil {
+		t.Fatalf("NewOwnerStore(): %v", err)
+	}
+
+	tgClient := &fakeTelegramClient{}
+	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	relayHandler := &fakeRelayHandler{}
+	startHandler := NewStartHandler(StartHandlerParams{
+		OwnerStore: ownerStore,
+		Messenger:  msg,
+		AuthToken:  "",
+	})
+	startHandler.SetRelayHandler(relayHandler)
+
+	return startHandler, ownerStore, tgClient, relayHandler
+}
+
+func TestActivateOwner_BootstrapsRootSession(t *testing.T) {
+	t.Run("calls ActivateOwner and bootstraps session", func(t *testing.T) {
+		handler, store, _, relayHandler := newRelayHandlerTestHarness(t)
+		relayHandler.SetAuthToken("secret-token")
+
+		registered, err := store.RegisterOwner(101, 0, "owner", "Owner", "", true)
+		if err != nil {
+			t.Fatalf("RegisterOwner(): %v", err)
+		}
+		if !registered {
+			t.Fatal("owner should be registered")
+		}
+
+		err = handler.onCommand(context.Background(), newStartEvent("", 101, 9001))
+		if err != nil {
+			t.Fatalf("onCommand(): %v", err)
+		}
+
+		if len(relayHandler.bootstrapCalls) != 1 {
+			t.Fatalf("bootstrapRootSession calls = %d, want 1", len(relayHandler.bootstrapCalls))
+		}
+		call := relayHandler.bootstrapCalls[0]
+		if call.ownerID != 101 {
+			t.Fatalf("bootstrap ownerID = %d, want 101", call.ownerID)
+		}
+		if call.chatID != 9001 {
+			t.Fatalf("bootstrap chatID = %d, want 9001", call.chatID)
+		}
+	})
+
+	t.Run("bootstrap failure results in failure message", func(t *testing.T) {
+		handler, store, tgClient, relayHandler := newRelayHandlerTestHarness(t)
+		relayHandler.SetAuthToken("secret-token")
+		relayHandler.bootstrapErr = errors.New("config reload failed")
+
+		registered, err := store.RegisterOwner(101, 0, "owner", "Owner", "", true)
+		if err != nil {
+			t.Fatalf("RegisterOwner(): %v", err)
+		}
+		if !registered {
+			t.Fatal("owner should be registered")
+		}
+
+		err = handler.onCommand(context.Background(), newStartEvent("", 101, 9001))
+		if err != nil {
+			t.Fatalf("onCommand(): %v", err)
+		}
+
+		assertLastSentContains(t, tgClient, "Failed to start root agent session: config reload failed.")
+		assertLastSentNotContains(t, tgClient, "Relay mode is active.")
+	})
+}
