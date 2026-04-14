@@ -127,10 +127,38 @@ func (h *RelayHandler) SendToOwner(ctx context.Context, msg string) error {
 	return nil
 }
 
-// ActivateOwner binds owner/chat for relay traffic.
+// ActivateOwner binds owner/chat for relay traffic and bootstraps the root session.
 func (h *RelayHandler) ActivateOwner(ctx context.Context, ownerID, chatID int64) error {
-	_ = ctx
 	h.SetOwner(ownerID, chatID)
+	return h.bootstrapRootSession(ctx, ownerID, chatID)
+}
+
+func (h *RelayHandler) bootstrapRootSession(ctx context.Context, ownerID, chatID int64) error {
+	if err := h.refreshRuntimeConfig(); err != nil {
+		return fmt.Errorf("refresh runtime config: %w", err)
+	}
+
+	rootAgentName := h.getRootAgentName()
+	if rootAgentName == "" {
+		return fmt.Errorf("relay root agent is not configured")
+	}
+
+	locator := relaysession.NewTelegramSessionLocator(chatID, 0)
+	transportUserID := relaysession.TelegramUserID(ownerID)
+
+	_, err := h.sessionManager.EnsureSession(ctx, relaysession.SessionContext{
+		Locator: locator,
+		UserID:  transportUserID,
+	}, rootAgentName)
+	if err != nil {
+		return fmt.Errorf("create root session: %w", err)
+	}
+
+	h.logger.Info().
+		Int64("owner_id", ownerID).
+		Int64("chat_id", chatID).
+		Str("agent", rootAgentName).
+		Msg("root session bootstrapped")
 	return nil
 }
 
@@ -516,6 +544,14 @@ func (h *RelayHandler) onStart(ctx context.Context) error {
 	}
 
 	h.SetOwner(owner.UserID, owner.ChatID)
+
+	if err := h.bootstrapRootSession(ctx, owner.UserID, owner.ChatID); err != nil {
+		h.logger.Error().Err(err).Int64("owner_id", owner.UserID).Msg("failed to bootstrap root session during startup")
+		if sendErr := h.messenger.SendPlain(ctx, owner.UserID, fmt.Sprintf("Failed to start root session: %v.\nPlease check relay configuration.", err), 0); sendErr != nil {
+			h.logger.Warn().Err(sendErr).Msg("failed to send root session failure message")
+		}
+		return nil
+	}
 
 	if err := h.messenger.SendPlain(ctx, owner.UserID, "Boss, I'm online and ready to work.", 0); err != nil {
 		h.logger.Warn().Err(err).Int64("owner_id", owner.UserID).Msg("failed to send startup ready message to owner")
