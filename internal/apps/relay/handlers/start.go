@@ -82,6 +82,22 @@ func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent
 	// Check if this is an invite token (not the owner token)
 	token := strings.TrimSpace(event.Args)
 	if token != "" && token != h.authToken && !strings.HasPrefix(token, "?") && !strings.Contains(token, "=") {
+		// Reject if user is already owner or collaborator
+		if h.ownerStore.IsOwner(userID) {
+			if err := h.messenger.SendPlain(ctx, chatID, "You are already the bot owner.", 0); err != nil {
+				return err
+			}
+			return nil
+		}
+		if _, ok, err := h.collaboratorStore.GetCollaborator(ctx, userIDStr); err != nil {
+			log.Warn().Err(err).Str("user_id", userIDStr).Msg("failed to check collaborator")
+		} else if ok {
+			if err := h.messenger.SendPlain(ctx, chatID, "You are already a collaborator.", 0); err != nil {
+				return err
+			}
+			return nil
+		}
+
 		// Try to consume invite
 		invite, err := h.inviteStore.GetInvite(ctx, token)
 		if err != nil {
