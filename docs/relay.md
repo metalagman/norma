@@ -194,8 +194,10 @@ Both paths create:
 
 ### Manual session control
 
-- `/new <agent_name>` creates a new topic-bound subagent session.
-- `/close` closes the current topic (when `message_thread_id > 0`) and stops the current agent session.
+**Note:** `/new` and `/close` commands are only available in direct messages (DM), not group chats.
+
+- `/new <agent_name>` creates a new topic-bound subagent session (DM only).
+- `/close` closes the current topic (when `message_thread_id > 0`) and stops the current agent session (DM only).
 - In the main chat (`topic_id = 0`), `/close` only stops the root session (topic is not closed).
 
 ## Relay MCP API (V1)

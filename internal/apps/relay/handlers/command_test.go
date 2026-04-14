@@ -106,6 +106,44 @@ func TestCommandHandlerOnCommand_CloseUnauthorized(t *testing.T) {
 	assertLastSentContains(t, tgClient, "Only the bot owner can use this command.")
 }
 
+func TestCommandHandlerOnCommand_NewInGroupChat_Rejects(t *testing.T) {
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEventWithChatType("new", "alpha", 101, 9001, nil, "supergroup"))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(sm.createCalls) != 0 {
+		t.Fatalf("CreateSession calls = %d, want 0", len(sm.createCalls))
+	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "This command is only available in direct messages.")
+}
+
+func TestCommandHandlerOnCommand_CloseInGroupChat_Rejects(t *testing.T) {
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	topicID := 33
+	err := handler.onCommand(context.Background(), newCommandEventWithChatType("close", "", 101, 9001, &topicID, "supergroup"))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(tgClient.closedTopicIDs) != 0 {
+		t.Fatalf("CloseTopic calls = %d, want 0", len(tgClient.closedTopicIDs))
+	}
+	if len(sm.stopCalls) != 0 {
+		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
+	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "This command is only available in direct messages.")
+}
+
 func TestCommandHandlerOnCommand_NewWithoutArgs_ShowsConfiguredAgentIDs(t *testing.T) {
 	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 
@@ -327,13 +365,13 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 }
 
 func newCommandEvent(command, args string, userID, chatID int64, topicID *int) *events.CommandEvent {
+	return newCommandEventWithChatType(command, args, userID, chatID, topicID, "private")
+}
+
+func newCommandEventWithChatType(command, args string, userID, chatID int64, topicID *int, chatType string) *events.CommandEvent {
 	text := "/" + command
 	if trimmedArgs := strings.TrimSpace(args); trimmedArgs != "" {
 		text += " " + trimmedArgs
-	}
-	chatType := "private"
-	if topicID != nil {
-		chatType = "supergroup"
 	}
 	msg := &client.Message{
 		Chat: client.Chat{

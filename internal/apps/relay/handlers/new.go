@@ -93,6 +93,13 @@ func (h *CommandHandler) onNewCommand(ctx context.Context, commandCtx relayteleg
 		return nil
 	}
 
+	if !commandCtx.IsDM {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "This command is only available in direct messages."); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	agentName := strings.TrimSpace(commandCtx.Args)
 	if agentName == "" {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, h.newCommandUsageMessage()); err != nil {
@@ -149,6 +156,13 @@ func (h *CommandHandler) onNewCommand(ctx context.Context, commandCtx relayteleg
 func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
 	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(commandCtx.UserID) {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner can use this command."); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if !commandCtx.IsDM {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "This command is only available in direct messages."); err != nil {
 			return err
 		}
 		return nil

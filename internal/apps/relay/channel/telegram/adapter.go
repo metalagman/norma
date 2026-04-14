@@ -40,6 +40,7 @@ type CommandContext struct {
 	UserID  int64
 	Command string
 	Args    string
+	IsDM    bool
 }
 
 // TopicLifecycleContext is the relay-facing Telegram topic lifecycle shape.
@@ -114,6 +115,7 @@ func (a *Adapter) CommandContextFromEvent(event *events.CommandEvent) (CommandCo
 		UserID:  event.Message.From.Id,
 		Command: event.Command,
 		Args:    event.Args,
+		IsDM:    event.Message.Chat.Type == "private",
 	}, true
 }
 
