@@ -14,6 +14,99 @@
   - Final assistant response: Telegram Bot API `sendMessage` (MarkdownV2; retry without `parse_mode` on failure).
 - Auth model: one-time owner authorization with startup-generated token.
 
+## Package Dependencies
+
+```mermaid
+flowchart TB
+    subgraph "relay (Root)"
+        relay_root["relay"]
+    end
+
+    subgraph "agent"
+        agent["relay/agent"]
+    end
+
+    subgraph "auth"
+        auth["relay/auth"]
+    end
+
+    subgraph "channel/telegram"
+        telegram["relay/channel/telegram"]
+    end
+
+    subgraph "handlers"
+        handlers["relay/handlers"]
+    end
+
+    subgraph "messenger"
+        messenger["relay/messenger"]
+    end
+
+    subgraph "middleware"
+        middleware["relay/middleware"]
+    end
+
+    subgraph "runtimecfg"
+        runtimecfg["relay/runtimecfg"]
+    end
+
+    subgraph "session"
+        session["relay/session"]
+    end
+
+    subgraph "state"
+        state["relay/state"]
+    end
+
+    subgraph "tgbotkit"
+        tgbotkit["relay/tgbotkit"]
+    end
+
+    subgraph "welcome"
+        welcome["relay/welcome"]
+    end
+
+    relay_root --> agent
+    relay_root --> auth
+    relay_root --> handlers
+    relay_root --> runtimecfg
+    relay_root --> state
+    relay_root --> tgbotkit
+
+    telegram --> messenger
+    telegram --> session
+
+    handlers --> auth
+    handlers --> telegram
+    handlers --> messenger
+    handlers --> runtimecfg
+    handlers --> session
+    handlers --> welcome
+
+    middleware --> auth
+
+    session --> agent
+    session --> runtimecfg
+    session --> state
+```
+
+### Dependency Summary
+
+| Package | Description | Depends On |
+|---------|-------------|------------|
+| `relay` | Root application module | agent, auth, handlers, runtimecfg, state, tgbotkit |
+| `agent` | Agent builder & workspace manager | `internal/git`, `pkg/runtime/*` |
+| `auth` | Owner authentication store | state (interface) |
+| `channel/telegram` | Telegram message adapter | messenger, session |
+| `handlers` | Telegram command handlers | auth, channel/telegram, messenger, runtimecfg, session, welcome |
+| `messenger` | Telegram message sending | `tgbotkit/client` |
+| `middleware` | Auth middleware | auth |
+| `runtimecfg` | Runtime config loader | `pkg/runtime/appconfig` |
+| `session` | Session management | agent, runtimecfg, state |
+| `state` | SQLite state persistence | `modernc.org/sqlite`, `updatepoller` |
+| `tgbotkit` | Telegram bot runtime | `tgbotkit/*` |
+| `welcome` | Welcome message builder | (standalone) |
+
 ## Startup Order (Required)
 
 Relay startup order is strict:
