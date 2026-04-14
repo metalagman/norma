@@ -42,7 +42,7 @@ type userHandlerParams struct {
 	CollaboratorStore *auth.CollaboratorStore
 	Messenger         *messenger.Messenger
 	Channel           *relaytelegram.Adapter
-	TelegramClient    tgClientGetter `name:"relay_telegram_client"`
+	TelegramClient    tgClientGetter `optional:"true"`
 }
 
 func NewUserHandler(params userHandlerParams) *userHandler {
