@@ -146,13 +146,17 @@ func (h *RelayHandler) bootstrapRootSession(ctx context.Context, ownerID, chatID
 	locator := relaysession.NewTelegramSessionLocator(chatID, 0)
 	transportUserID := relaysession.TelegramUserID(ownerID)
 
-	_, err := h.sessionManager.EnsureSession(ctx, relaysession.SessionContext{
+	ts, err := h.sessionManager.EnsureSession(ctx, relaysession.SessionContext{
 		Locator: locator,
 		UserID:  transportUserID,
 	}, rootAgentName)
 	if err != nil {
 		return fmt.Errorf("create root session: %w", err)
 	}
+
+	agentDesc, mcpServers := h.sessionManager.GetAgentInfo(rootAgentName)
+	welcomeMsg := BuildAgentWelcomeMessage(rootAgentName, ts.GetSessionID(), agentDesc, mcpServers)
+	_ = h.channel.SendMarkdown(ctx, locator, welcomeMsg)
 
 	h.logger.Info().
 		Int64("owner_id", ownerID).
