@@ -3,14 +3,13 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
 	relaysession "github.com/normahq/norma/internal/apps/relay/session"
+	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/handlers"
 	"go.uber.org/fx"
@@ -22,16 +21,8 @@ type userHandler struct {
 	collaboratorStore *auth.CollaboratorStore
 	messenger         *messenger.Messenger
 	channel           *relaytelegram.Adapter
-	tgClient          tgClientGetter
+	tgClient          client.ClientWithResponsesInterface
 	botUsername       string
-}
-
-type tgClientGetter interface {
-	GetMeWithResponse(ctx context.Context) (interface{ GetResult() *meResult }, error)
-}
-
-type meResult struct {
-	Username *string `json:"username"`
 }
 
 type userHandlerParams struct {
@@ -42,7 +33,7 @@ type userHandlerParams struct {
 	CollaboratorStore *auth.CollaboratorStore
 	Messenger         *messenger.Messenger
 	Channel           *relaytelegram.Adapter
-	TelegramClient    tgClientGetter `optional:"true"`
+	TGClient          client.ClientWithResponsesInterface `optional:"true"`
 }
 
 func NewUserHandler(params userHandlerParams) *userHandler {
@@ -52,7 +43,7 @@ func NewUserHandler(params userHandlerParams) *userHandler {
 		collaboratorStore: params.CollaboratorStore,
 		messenger:         params.Messenger,
 		channel:           params.Channel,
-		tgClient:          params.TelegramClient,
+		tgClient:          params.TGClient,
 	}
 }
 
@@ -64,10 +55,13 @@ func (h *userHandler) getBotUsername(ctx context.Context) string {
 		return ""
 	}
 	resp, err := h.tgClient.GetMeWithResponse(ctx)
-	if err != nil || resp == nil || resp.GetResult() == nil || resp.GetResult().Username == nil {
+	if err != nil {
 		return ""
 	}
-	h.botUsername = *resp.GetResult().Username
+	if resp.JSON200 == nil || resp.JSON200.Result.Username == nil {
+		return ""
+	}
+	h.botUsername = *resp.JSON200.Result.Username
 	return h.botUsername
 }
 
@@ -81,37 +75,29 @@ func (h *userHandler) onCommand(ctx context.Context, event *events.CommandEvent)
 		return nil
 	}
 
-	// Route "user" subcommands
 	return h.HandleUserCommand(ctx, commandCtx)
 }
 
 func (h *userHandler) HandleUserCommand(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
-	// Owner-only check
-	if !h.ownerStore.HasOwner() || !h.ownerStore.IsOwner(commandCtx.UserID) {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner can manage collaborators."); err != nil {
+	if !h.ownerStore.IsOwner(commandCtx.UserID) {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "This command is only for the owner."); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	parts := strings.Fields(commandCtx.Args)
-	if len(parts) == 0 {
+	args := strings.Fields(commandCtx.Args)
+	if len(args) == 0 {
 		return h.sendUsage(ctx, commandCtx.Locator)
 	}
 
-	subcommand := parts[0]
-	args := ""
-	if len(parts) > 1 {
-		args = strings.Join(parts[1:], " ")
-	}
-
-	switch subcommand {
+	switch args[0] {
 	case "add":
 		return h.onAdd(ctx, commandCtx)
 	case "list":
 		return h.onList(ctx, commandCtx)
 	case "remove":
-		return h.onRemove(ctx, commandCtx, args)
+		return h.onRemove(ctx, commandCtx)
 	default:
 		return h.sendUsage(ctx, commandCtx.Locator)
 	}
@@ -137,7 +123,7 @@ func (h *userHandler) onAdd(ctx context.Context, commandCtx relaytelegram.Comman
 	}
 
 	inviteLink := fmt.Sprintf("https://t.me/%s?start=%s", h.getBotUsername(ctx), token)
-	message := fmt.Sprintf("Visit this link to become a bot collaborator:\n%s", inviteLink)
+	message := fmt.Sprintf("Invite link created:\n%s\n\nVisit this link to become a bot collaborator", inviteLink)
 
 	if err := h.channel.SendPlain(ctx, commandCtx.Locator, message); err != nil {
 		return err
@@ -148,7 +134,6 @@ func (h *userHandler) onAdd(ctx context.Context, commandCtx relaytelegram.Comman
 func (h *userHandler) onList(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
 	var lines []string
 
-	// List collaborators from SQL
 	collaborators, err := h.collaboratorStore.ListCollaborators(ctx)
 	if err != nil {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Failed to list collaborators. Please try again."); err != nil {
@@ -158,13 +143,15 @@ func (h *userHandler) onList(ctx context.Context, commandCtx relaytelegram.Comma
 	}
 
 	if len(collaborators) > 0 {
-		lines = append(lines, fmt.Sprintf("Collaborators (%d):", len(collaborators)))
+		lines = append(lines, "Collaborators:")
 		for _, c := range collaborators {
-			lines = append(lines, fmt.Sprintf("• @%s (ID: %s) - Added %s", c.Username, c.UserID, c.AddedAt.Format("2006-01-02")))
+			lines = append(lines, fmt.Sprintf("• %s (%s) - added %s",
+				c.UserID, displayName(c.Username, c.FirstName), c.AddedAt.Format("2006-01-02 15:04")))
 		}
+	} else {
+		lines = append(lines, "No collaborators")
 	}
 
-	// List active invites from KV
 	invites, err := h.inviteStore.ListInvites(ctx)
 	if err != nil {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Failed to list invites. Please try again."); err != nil {
@@ -174,56 +161,36 @@ func (h *userHandler) onList(ctx context.Context, commandCtx relaytelegram.Comma
 	}
 
 	if len(invites) > 0 {
-		if len(lines) > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, fmt.Sprintf("Active Invites (%d):", len(invites)))
+		lines = append(lines, "", "Active Invites:")
 		for _, inv := range invites {
-			ttl := time.Until(inv.ExpiresAt)
-			if ttl < 0 {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("• %s... (expires in %.0fh)", inv.CreatedBy[:8], ttl.Hours()))
+			lines = append(lines, fmt.Sprintf("expires %s", inv.ExpiresAt.Format("2006-01-02 15:04")))
 		}
 	}
 
-	if len(lines) == 0 {
-		lines = append(lines, "No collaborators or active invites.")
-	}
-
-	if err := h.channel.SendPlain(ctx, commandCtx.Locator, strings.Join(lines, "\n")); err != nil {
+	message := strings.Join(lines, "\n")
+	if err := h.channel.SendPlain(ctx, commandCtx.Locator, message); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (h *userHandler) onRemove(ctx context.Context, commandCtx relaytelegram.CommandContext, args string) error {
-	userID := strings.TrimSpace(args)
+func (h *userHandler) onRemove(ctx context.Context, commandCtx relaytelegram.CommandContext) error {
+	args := strings.Fields(commandCtx.Args)
+	if len(args) < 2 {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /user remove <user_id>"); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	userID := strings.TrimSpace(args[1])
 	if userID == "" {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /user remove <id>"); err != nil {
+		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "User ID required"); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	// Validate it's a numeric string
-	if _, err := strconv.ParseInt(userID, 10, 64); err != nil {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Invalid user ID. Use numeric Telegram user ID."); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// Check if collaborator exists
-	existing, found, err := h.collaboratorStore.GetCollaborator(ctx, userID)
-	if err != nil || !found {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Collaborator not found."); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// Remove
 	if err := h.collaboratorStore.RemoveCollaborator(ctx, userID); err != nil {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Failed to remove collaborator. Please try again."); err != nil {
 			return err
@@ -231,8 +198,19 @@ func (h *userHandler) onRemove(ctx context.Context, commandCtx relaytelegram.Com
 		return nil
 	}
 
-	if err := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Removed @%s from collaborators.", existing.Username)); err != nil {
+	message := fmt.Sprintf("Removed collaborator: %s", userID)
+	if err := h.channel.SendPlain(ctx, commandCtx.Locator, message); err != nil {
 		return err
 	}
 	return nil
+}
+
+func displayName(username, firstName string) string {
+	if username != "" {
+		return "@" + username
+	}
+	if firstName != "" {
+		return firstName
+	}
+	return "unknown"
 }
