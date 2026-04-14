@@ -115,7 +115,7 @@ func TestValidateRelayMCPConfiguration_RejectsRemovedBuiltInServerReferences(t *
 		},
 	}
 	normaCfg := runtimeconfig.NormaConfig{
-		Agents: map[string]agentconfig.Config{
+		Providers: map[string]agentconfig.Config{
 			"root": {MCPServers: []string{"relay.workspace"}},
 		},
 	}
@@ -127,14 +127,14 @@ func TestValidateRelayMCPConfiguration_RejectsRemovedBuiltInServerReferences(t *
 	if !strings.Contains(err.Error(), `relay.mcp_servers[0] references removed built-in config MCP server "relay.config"; edit the relay config file directly at "/tmp/work/.config/relay/config.yaml"`) {
 		t.Fatalf("unexpected relay.mcp_servers validation error: %v", err)
 	}
-	if !strings.Contains(err.Error(), `norma.agents.root.mcp_servers[0] references removed built-in MCP server "relay.workspace"; use "relay"`) {
-		t.Fatalf("unexpected norma.agents validation error: %v", err)
+	if !strings.Contains(err.Error(), `norma.providers.root.mcp_servers[0] references removed built-in MCP server "relay.workspace"; use "relay"`) {
+		t.Fatalf("unexpected norma.providers validation error: %v", err)
 	}
 }
 
 func TestValidateRelayMCPConfiguration_RejectsReservedCustomServerIDs(t *testing.T) {
 	normaCfg := runtimeconfig.NormaConfig{
-		Agents: map[string]agentconfig.Config{
+		Providers: map[string]agentconfig.Config{
 			"root": {},
 		},
 		MCPServers: map[string]agentconfig.MCPServerConfig{

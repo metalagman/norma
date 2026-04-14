@@ -294,9 +294,9 @@ func validateRelayMCPConfiguration(cfg Config, normaCfg runtimeconfig.NormaConfi
 		for i, id := range agentCfg.MCPServers {
 			trimmed := strings.TrimSpace(id)
 			if _, ok := removedConfigMCPServerIDs[trimmed]; ok {
-				errs = append(errs, fmt.Sprintf("norma.agents.%s.mcp_servers[%d] references removed built-in config MCP server %q; edit the relay config file directly at %q", agentName, i, id, configPath))
+				errs = append(errs, fmt.Errorf("norma.providers.%s.mcp_servers[%d] references removed built-in config MCP server %q; edit the relay config file directly at %q", agentName, i, id, configPath).Error())
 			} else if replacement, ok := removedBuiltInRelayMCPServerIDs[trimmed]; ok {
-				errs = append(errs, fmt.Sprintf("norma.agents.%s.mcp_servers[%d] references removed built-in MCP server %q; use %q", agentName, i, id, replacement))
+				errs = append(errs, fmt.Errorf("norma.providers.%s.mcp_servers[%d] references removed built-in MCP server %q; use %q", agentName, i, id, replacement).Error())
 			}
 		}
 	}

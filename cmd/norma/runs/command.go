@@ -69,7 +69,11 @@ func pruneCommand() *cobra.Command {
 			if dryRun {
 				mode = "would delete"
 			}
-			log.Info().Msgf("%s %d runs (kept %d, skipped %d)", mode, res.Deleted, res.Kept, res.Skipped)
+			log.Info().
+				Int("deleted", res.Deleted).
+				Int("kept", res.Kept).
+				Int("skipped", res.Skipped).
+				Msg(mode + " runs")
 			return nil
 		},
 	}

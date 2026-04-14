@@ -82,10 +82,10 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	if !ok {
 		t.Fatal("norma section missing in generated config")
 	}
-	assertMapHasOnlyKeys(t, normaSection, []string{"agents", "mcp_servers"})
-	agents, ok := toStringAnyMap(normaSection["agents"])
+	assertMapHasOnlyKeys(t, normaSection, []string{"providers", "mcp_servers"})
+	providers, ok := toStringAnyMap(normaSection["providers"])
 	if !ok {
-		t.Fatal("norma.agents missing in generated config")
+		t.Fatal("norma.providers missing in generated config")
 	}
 	mcpServers, ok := toStringAnyMap(normaSection["mcp_servers"])
 	if !ok {
@@ -94,11 +94,11 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	if len(mcpServers) != 0 {
 		t.Fatalf("norma.mcp_servers = %#v, want empty map", mcpServers)
 	}
-	assertMapHasOnlyKeys(t, agents, []string{"codex", "opencode", "copilot", "gemini", "claude_code", "pool"})
-	assertAgentModel(t, agents, "codex", "codex_acp", relayInitCodexModel)
-	assertAgentModel(t, agents, "claude_code", "claude_code_acp", relayInitClaudeCodeModel)
+	assertMapHasOnlyKeys(t, providers, []string{"codex", "opencode", "copilot", "gemini", "claude_code", "pool"})
+	assertAgentModel(t, providers, "codex", "codex_acp", relayInitCodexModel)
+	assertAgentModel(t, providers, "claude_code", "claude_code_acp", relayInitClaudeCodeModel)
 
-	poolMembers := readPoolMembers(t, agents)
+	poolMembers := readPoolMembers(t, providers)
 	wantMembers := []string{"codex", "opencode", "copilot", "gemini", "claude_code"}
 	if !reflect.DeepEqual(poolMembers, wantMembers) {
 		t.Fatalf("pool.members = %#v, want %#v", poolMembers, wantMembers)
@@ -456,28 +456,28 @@ func assertMapHasOnlyKeys(t *testing.T, m map[string]any, expected []string) {
 	}
 }
 
-func assertAgentModel(t *testing.T, agents map[string]any, id, typeName, wantModel string) {
+func assertAgentModel(t *testing.T, providers map[string]any, id, typeName, wantModel string) {
 	t.Helper()
-	agent := mustMap(t, agents, id)
+	agent := mustMap(t, providers, id)
 	if got := agent["type"]; got != typeName {
-		t.Fatalf("norma.agents.%s.type = %#v, want %s", id, got, typeName)
+		t.Fatalf("norma.providers.%s.type = %#v, want %s", id, got, typeName)
 	}
 	typeBlock := mustMap(t, agent, typeName)
 	if got := typeBlock["model"]; got != wantModel {
-		t.Fatalf("norma.agents.%s.%s.model = %#v, want %s", id, typeName, got, wantModel)
+		t.Fatalf("norma.providers.%s.%s.model = %#v, want %s", id, typeName, got, wantModel)
 	}
 }
 
-func readPoolMembers(t *testing.T, agents map[string]any) []string {
+func readPoolMembers(t *testing.T, providers map[string]any) []string {
 	t.Helper()
-	poolAgent := mustMap(t, agents, "pool")
+	poolAgent := mustMap(t, providers, "pool")
 	if got := poolAgent["type"]; got != "pool" {
-		t.Fatalf("norma.agents.pool.type = %#v, want pool", got)
+		t.Fatalf("norma.providers.pool.type = %#v, want pool", got)
 	}
 	poolCfg := mustMap(t, poolAgent, "pool")
 	rawMembers, ok := poolCfg["members"].([]any)
 	if !ok {
-		t.Fatalf("norma.agents.pool.pool.members type = %T, want []any", poolCfg["members"])
+		t.Fatalf("norma.providers.pool.pool.members type = %T, want []any", poolCfg["members"])
 	}
 	members := make([]string, 0, len(rawMembers))
 	for _, raw := range rawMembers {

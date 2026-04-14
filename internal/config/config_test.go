@@ -17,7 +17,7 @@ func TestResolveRoleIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
 
 	cfg := Config{
 		Norma: runtimeconfig.NormaConfig{
-			Agents: map[string]AgentConfig{
+			Providers: map[string]AgentConfig{
 				opencodeACPAgentID: {
 					Type: opencodeACPType,
 					OpenCodeACP: &agentconfig.ACPConfig{
@@ -63,7 +63,7 @@ func TestResolveRoleIDs_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
 
 	cfg := Config{
 		Norma: runtimeconfig.NormaConfig{
-			Agents: map[string]AgentConfig{
+			Providers: map[string]AgentConfig{
 				"defined": {Type: "gemini_acp", GeminiACP: &agentconfig.ACPConfig{Model: "gemini-3-flash-preview"}},
 			},
 		},

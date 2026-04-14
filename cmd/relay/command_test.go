@@ -21,7 +21,7 @@ func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
 	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
-  agents:
+  providers:
     relay_agent:
       type: opencode_acp
       opencode_acp:
@@ -64,7 +64,7 @@ func TestLoadConfigDocument_ImplicitDefaultProfileDoesNotRequireProfilesDefault(
 	workingDir := t.TempDir()
 
 	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
-  agents:
+  providers:
     relay_agent:
       type: opencode_acp
       opencode_acp:
@@ -103,7 +103,7 @@ func TestLoadConfigDocument_ExplicitMissingProfileFails(t *testing.T) {
 	workingDir := t.TempDir()
 
 	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
-  agents:
+  providers:
     relay_agent:
       type: opencode_acp
       opencode_acp:

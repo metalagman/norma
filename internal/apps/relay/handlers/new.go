@@ -239,7 +239,7 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx relayte
 func (h *CommandHandler) newCommandUsageMessage() string {
 	usage := "Usage: /new <agent_id>"
 	if len(h.agentIDs) == 0 {
-		return usage + "\n\nNo agents configured under norma.agents in relay config."
+		return usage + "\n\nNo providers configured under norma.providers in relay config."
 	}
 	return usage + "\n\nAvailable agents: " + strings.Join(h.agentIDs, ", ")
 }

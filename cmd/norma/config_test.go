@@ -12,7 +12,7 @@ import (
 func TestLoadConfig_LoadsRuntimeFromConfigYAML(t *testing.T) {
 	workingDir := t.TempDir()
 	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `norma:
-  agents:
+  providers:
     opencode:
       type: opencode_acp
       opencode_acp:
@@ -55,7 +55,7 @@ cli:
 func TestLoadRuntimeAndCLIConfig_LoadsCLIAppSettings(t *testing.T) {
 	workingDir := t.TempDir()
 	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `norma:
-  agents:
+  providers:
     opencode:
       type: opencode_acp
       opencode_acp:
@@ -95,7 +95,7 @@ func TestLoadConfig_IgnoresNormaYAML(t *testing.T) {
 	workingDir := t.TempDir()
 	normaYAMLPath := filepath.Join(workingDir, ".norma", "norma.yaml")
 	if err := writeTestFile(normaYAMLPath, `norma:
-  agents:
+  providers:
     opencode:
       type: opencode_acp
       opencode_acp:

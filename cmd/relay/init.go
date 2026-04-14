@@ -27,7 +27,7 @@ const (
 	relayInitClaudeCodeModel = "claude-sonnet-4-6"
 )
 
-const relayInitSystemInstructionExample = "You are my relay agent.\nPrefer concise, actionable answers.\nUse relay.agents.start without a locator when you want a subagent in the current chat context.\nUse relay.workspace import/export instead of manual branch landing when workspace mode is enabled.\nWhen a request is ambiguous, ask one short clarifying question."
+const relayInitSystemInstructionExample = "You are my relay agent.\nPrefer concise, actionable answers.\nUse relay.providers.start without a locator when you want a subagent in the current chat context.\nUse relay.workspace import/export instead of manual branch landing when workspace mode is enabled.\nWhen a request is ambiguous, ask one short clarifying question."
 
 type relayInitAgentTemplate struct {
 	ID           string
@@ -172,7 +172,7 @@ func buildRelayInitDocument(workingDir string) (map[string]any, []string, error)
 
 	doc := map[string]any{
 		"norma": map[string]any{
-			"agents":      buildRelayInitAgents(detectedAgents),
+			"providers":   buildRelayInitAgents(detectedAgents),
 			"mcp_servers": map[string]any{},
 		},
 		"relay":    relaySection,

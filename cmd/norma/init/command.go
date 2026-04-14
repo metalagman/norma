@@ -108,9 +108,8 @@ const NormaGitignoreContent = `# ignore everything in .norma by default
 # keep config
 !config.yaml
 `
-
 const DefaultConfigYAML = `norma:
-  agents:
+  providers:
     gemini_acp_agent:
       type: gemini_acp
       gemini_acp:

@@ -52,9 +52,9 @@ relay:
 
   # Extra MCP server IDs (from norma.mcp_servers) injected into every relay-started session.
   # Effective MCP IDs are: bundled default `relay` + agent mcp_servers + relay.mcp_servers.
-  # Removed built-in IDs such as norma.state, norma.relay, relay.state, and relay.agents are rejected.
+  # Removed built-in IDs such as norma.state, norma.relay, relay.state, and relay.providers are rejected.
   mcp_servers: []
 
   # Optional relay-specific system instructions applied to all sessions.
-  # Applied after norma.agents.<agent_id>.system_instructions when both are set.
+  # Applied after norma.providers.<agent_id>.system_instructions when both are set.
   system_instructions: ""

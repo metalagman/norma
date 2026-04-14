@@ -48,7 +48,7 @@ Config shape:
 
 ```yaml
 norma:
-  agents: {}
+  providers: {}
   mcp_servers: {}
 relay: {}
 profiles: {}
@@ -78,10 +78,10 @@ profiles: {}
 - Relay config is edited via the config file itself, not through MCP.
   - relay agents should use the config path shown in the system instruction and edit `.config/relay/config.yaml` directly
 - `relay.mcp_servers`: extra MCP server IDs for all relay-started sessions (resolved from `norma.mcp_servers`)
-  - effective MCP IDs = bundled defaults + `norma.agents.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
+  - effective MCP IDs = bundled defaults + `norma.providers.<agent>.mcp_servers` + `relay.mcp_servers` (deduplicated)
 - `relay.system_instructions`: optional relay instruction text applied to all sessions
   - value: instruction text appended in relay prompt for all agents
-  - effective relay instruction order: built-in relay instructions + `norma.agents.<agent>.system_instructions` + `relay.system_instructions` (last wins by position)
+  - effective relay instruction order: built-in relay instructions + `norma.providers.<agent>.system_instructions` + `relay.system_instructions` (last wins by position)
   - `relay init` generates a channel-aware example prompt
 - `relay.workspace.mode`: `on|off|auto` (default `auto`)
   - `on`: always use Git worktrees per session; startup fails if `working_dir` is not a Git repository

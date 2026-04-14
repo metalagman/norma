@@ -64,7 +64,7 @@ func TestLoadRuntime_UsesSingleEffectiveFileWithoutCrossRootMerge(t *testing.T) 
 		t.Fatalf("write global config: %v", err)
 	}
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "cli.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -86,7 +86,7 @@ func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_AUTH_TOKEN", "auth-token")
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -147,7 +147,7 @@ func TestLoadConfigDocument_UsesDedicatedRelayConfigPathWithoutLegacyMerge(t *te
 	workingDir := t.TempDir()
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -167,7 +167,7 @@ relay:
 		t.Fatalf("write core config: %v", err)
 	}
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -200,7 +200,7 @@ func TestLoadConfigDocument_DoesNotFallbackToLegacyCoreWhenDedicatedRelayConfigM
 	workingDir := t.TempDir()
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -231,7 +231,7 @@ relay:
 func TestLoadRuntime_AcceptsNormaMCPServersKey(t *testing.T) {
 	workingDir := t.TempDir()
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -262,7 +262,7 @@ cli:
 func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 	workingDir := t.TempDir()
 	content := "norma:\n" +
-		"  agents:\n" +
+		"  providers:\n" +
 		"    agent:\n" +
 		"      type: generic_acp\n" +
 		"      generic_acp:\n" +
@@ -285,7 +285,7 @@ func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 
 func TestLoadRuntime_IgnoresLegacyTopLevelRuntimeKeys(t *testing.T) {
 	workingDir := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `agents:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `providers:
   legacy_agent:
     type: generic_acp
     generic_acp:
@@ -295,7 +295,7 @@ mcp_servers:
     type: stdio
     cmd: ["legacy-mcp"]
 norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -326,7 +326,7 @@ cli:
 func TestLoadRuntime_IgnoresLegacyNormaKeys(t *testing.T) {
 	workingDir := t.TempDir()
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -361,7 +361,7 @@ cli:
 func TestLoadConfigDocument_IgnoresLegacyKeysInProfileOverride(t *testing.T) {
 	workingDir := t.TempDir()
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:
@@ -370,7 +370,7 @@ relay:
   root_agent: from_relay_file
 profiles:
   default:
-    agents:
+    providers:
       legacy_agent:
         type: generic_acp
         generic_acp:
@@ -403,7 +403,7 @@ profiles:
 
 func runtimeYAMLWithCmd(cmd string) string {
 	return `norma:
-  agents:
+  providers:
     agent:
       type: generic_acp
       generic_acp:

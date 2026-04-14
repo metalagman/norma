@@ -63,13 +63,13 @@ Primary relay config file:
 - `.config/relay/config.yaml`
 
 Common keys:
-- `norma.agents`
+- `norma.providers`
 - `norma.mcp_servers`
 - `relay.root_agent`
 - `relay.telegram.token`
 - future channels are expected as top-level siblings such as `relay.whatsapp`
 - `relay.mcp_servers` (extra MCP server IDs for all relay-started sessions, from `norma.mcp_servers`)
-- `relay.system_instructions` (relay-only instruction override; applied to all sessions, appended after `norma.agents.<id>.system_instructions`)
+- `relay.system_instructions` (relay-only instruction override; applied to all sessions, appended after `norma.providers.<id>.system_instructions`)
 - `relay.workspace.mode` (`on|off|auto`)
 - `relay.workspace.base_branch` (base branch for workspace import/export; auto-detected by `relay init` when possible)
 - `relay.state_dir` (default `.config/relay`; stores migration-managed `relay.db`)
@@ -81,7 +81,7 @@ Environment overrides use `RELAY_*` (for example, `RELAY_TELEGRAM_TOKEN`). `.env
 - `telegram token is required`:
   - set `RELAY_TELEGRAM_TOKEN`, or set `relay.telegram.token` in `.config/relay/config.yaml`.
 - `relay.root_agent is required`:
-  - run `relay init` again (new repo) or set `relay.root_agent` to an ID from `norma.agents`.
+  - run `relay init` again (new repo) or set `relay.root_agent` to an ID from `norma.providers`.
 - `agent "<id>" not available` on `/new`:
   - use one of the listed agent IDs from `/new` usage help.
 

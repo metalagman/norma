@@ -163,8 +163,8 @@ func TestCommandHandlerNewUsageMessage_NoAgentsConfigured(t *testing.T) {
 	handler.agentIDs = nil
 
 	got := handler.newCommandUsageMessage()
-	if !strings.Contains(got, "No agents configured under norma.agents in relay config.") {
-		t.Fatalf("newCommandUsageMessage() = %q, want no-agents guidance", got)
+	if !strings.Contains(got, "No providers configured under norma.providers in relay config.") {
+		t.Fatalf("newCommandUsageMessage() = %q, want no-providers guidance", got)
 	}
 }
 

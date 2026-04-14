@@ -41,7 +41,7 @@ func TestApplyRuntimeConfig_RebuildsAgentBuilderAndMCPRegistry(t *testing.T) {
 	}
 
 	cfg := runtimeconfig.NormaConfig{
-		Agents: map[string]agentconfig.Config{
+		Providers: map[string]agentconfig.Config{
 			"fresh": {
 				Type: "opencode_acp",
 				OpenCodeACP: &agentconfig.ACPConfig{
