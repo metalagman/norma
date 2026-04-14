@@ -20,6 +20,11 @@ import (
 	"github.com/normahq/norma/pkg/runtime/structuredagent"
 )
 
+const (
+	stopReasonBudgetExceeded = "budget_exceeded"
+	statusError              = "error"
+)
+
 func TestResolvedAgentForRoleReturnsConfig(t *testing.T) {
 	t.Parallel()
 
@@ -397,13 +402,13 @@ func TestValidateStepResponse(t *testing.T) {
 func TestStepFailureStopReason(t *testing.T) {
 	t.Parallel()
 
-	if got := stepFailureStopReason(context.DeadlineExceeded); got != "budget_exceeded" {
-		t.Fatalf("stepFailureStopReason(deadline) = %q, want %q", got, "budget_exceeded")
+	if got := stepFailureStopReason(context.DeadlineExceeded); got != stopReasonBudgetExceeded {
+		t.Fatalf("stepFailureStopReason(deadline) = %q, want %q", got, stopReasonBudgetExceeded)
 	}
 
 	schemaErr := fmt.Errorf("outer: %w", structuredagent.ErrStructuredOutputSchemaValidation)
-	if got := stepFailureStopReason(schemaErr); got != "replan_required" {
-		t.Fatalf("stepFailureStopReason(schema) = %q, want %q", got, "replan_required")
+	if got := stepFailureStopReason(schemaErr); got != stopReasonReplanRequired {
+		t.Fatalf("stepFailureStopReason(schema) = %q, want %q", got, stopReasonReplanRequired)
 	}
 
 	blockedErr := errors.New("dependency blocked waiting for upstream")
@@ -412,7 +417,7 @@ func TestStepFailureStopReason(t *testing.T) {
 	}
 
 	otherErr := errors.New("unexpected failure")
-	if got := stepFailureStopReason(otherErr); got != "replan_required" {
+	if got := stepFailureStopReason(otherErr); got != stopReasonReplanRequired {
 		t.Fatalf("stepFailureStopReason(other) = %q, want %q", got, "replan_required")
 	}
 }
@@ -424,7 +429,7 @@ func TestStepFailureResponseIncludesSummaryAndExitCode(t *testing.T) {
 	if resp == nil {
 		t.Fatal("stepFailureResponse() returned nil response")
 	}
-	if resp.Status != "error" {
+	if resp.Status != statusError {
 		t.Fatalf("resp.Status = %q, want %q", resp.Status, "error")
 	}
 	if resp.Progress.Title != "check step failed" {

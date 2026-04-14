@@ -30,7 +30,8 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// runtime holds PDCA step execution state used by role subagents.
+const stopReasonReplanRequired = "replan_required"
+
 type runtime struct {
 	cfg           config.Config
 	maxIterations int
@@ -610,7 +611,7 @@ func stepFailureResponse(roleName string, runErr error, exitCode int) *contracts
 
 func stepFailureStopReason(runErr error) string {
 	if runErr == nil {
-		return "replan_required"
+		return stopReasonReplanRequired
 	}
 
 	if errors.Is(runErr, context.DeadlineExceeded) {
@@ -619,7 +620,7 @@ func stepFailureStopReason(runErr error) string {
 	if errors.Is(runErr, structuredagent.ErrStructuredIOSchemaValidation) ||
 		errors.Is(runErr, structuredagent.ErrStructuredInputSchemaValidation) ||
 		errors.Is(runErr, structuredagent.ErrStructuredOutputSchemaValidation) {
-		return "replan_required"
+		return stopReasonReplanRequired
 	}
 
 	lower := strings.ToLower(runErr.Error())
@@ -630,10 +631,10 @@ func stepFailureStopReason(runErr error) string {
 		return "dependency_blocked"
 	}
 
-	return "replan_required"
+	return stopReasonReplanRequired
 }
 
-func compactErrorText(err error, max int) string {
+func compactErrorText(err error, maxLen int) string {
 	if err == nil {
 		return "unknown error"
 	}
@@ -642,10 +643,10 @@ func compactErrorText(err error, max int) string {
 		return "unknown error"
 	}
 	text = strings.ReplaceAll(text, "\n", " | ")
-	if max <= 0 || len(text) <= max {
+	if maxLen <= 0 || len(text) <= maxLen {
 		return text
 	}
-	return text[:max] + "..."
+	return text[:maxLen] + "..."
 }
 
 func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Writer) (io.Writer, io.Writer) {
