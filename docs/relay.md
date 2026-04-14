@@ -18,53 +18,18 @@
 
 ```mermaid
 flowchart TB
-    subgraph "relay (Root)"
-        relay_root["relay"]
-    end
-
-    subgraph "agent"
-        agent["relay/agent"]
-    end
-
-    subgraph "auth"
-        auth["relay/auth"]
-    end
-
-    subgraph "channel/telegram"
-        telegram["relay/channel/telegram"]
-    end
-
-    subgraph "handlers"
-        handlers["relay/handlers"]
-    end
-
-    subgraph "messenger"
-        messenger["relay/messenger"]
-    end
-
-    subgraph "middleware"
-        middleware["relay/middleware"]
-    end
-
-    subgraph "runtimecfg"
-        runtimecfg["relay/runtimecfg"]
-    end
-
-    subgraph "session"
-        session["relay/session"]
-    end
-
-    subgraph "state"
-        state["relay/state"]
-    end
-
-    subgraph "tgbotkit"
-        tgbotkit["relay/tgbotkit"]
-    end
-
-    subgraph "welcome"
-        welcome["relay/welcome"]
-    end
+    relay_root["github.com/normahq/norma/internal/apps/relay"]
+    agent["github.com/normahq/norma/internal/apps/relay/agent"]
+    auth["github.com/normahq/norma/internal/apps/relay/auth"]
+    telegram["github.com/normahq/norma/internal/apps/relay/channel/telegram"]
+    handlers["github.com/normahq/norma/internal/apps/relay/handlers"]
+    messenger["github.com/normahq/norma/internal/apps/relay/messenger"]
+    middleware["github.com/normahq/norma/internal/apps/relay/middleware"]
+    runtimecfg["github.com/normahq/norma/internal/apps/relay/runtimecfg"]
+    session["github.com/normahq/norma/internal/apps/relay/session"]
+    state["github.com/normahq/norma/internal/apps/relay/state"]
+    tgbotkit["github.com/normahq/norma/internal/apps/relay/tgbotkit"]
+    welcome["github.com/normahq/norma/internal/apps/relay/welcome"]
 
     relay_root --> agent
     relay_root --> auth
@@ -92,20 +57,20 @@ flowchart TB
 
 ### Dependency Summary
 
-| Package | Description | Depends On |
-|---------|-------------|------------|
-| `relay` | Root application module | agent, auth, handlers, runtimecfg, state, tgbotkit |
-| `agent` | Agent builder & workspace manager | `internal/git`, `pkg/runtime/*` |
-| `auth` | Owner authentication store | state (interface) |
-| `channel/telegram` | Telegram message adapter | messenger, session |
-| `handlers` | Telegram command handlers | auth, channel/telegram, messenger, runtimecfg, session, welcome |
-| `messenger` | Telegram message sending | `tgbotkit/client` |
-| `middleware` | Auth middleware | auth |
-| `runtimecfg` | Runtime config loader | `pkg/runtime/appconfig` |
-| `session` | Session management | agent, runtimecfg, state |
-| `state` | SQLite state persistence | `modernc.org/sqlite`, `updatepoller` |
-| `tgbotkit` | Telegram bot runtime | `tgbotkit/*` |
-| `welcome` | Welcome message builder | (standalone) |
+| Package | Import Path | Description | Depends On |
+|---------|-------------|-------------|------------|
+| `relay` | `internal/apps/relay` | Root application module | agent, auth, handlers, runtimecfg, state, tgbotkit |
+| `agent` | `internal/apps/relay/agent` | Agent builder & workspace manager | `internal/git`, `pkg/runtime/*` |
+| `auth` | `internal/apps/relay/auth` | Owner authentication store | state (interface) |
+| `channel/telegram` | `internal/apps/relay/channel/telegram` | Telegram message adapter | messenger, session |
+| `handlers` | `internal/apps/relay/handlers` | Telegram command handlers | auth, channel/telegram, messenger, runtimecfg, session, welcome |
+| `messenger` | `internal/apps/relay/messenger` | Telegram message sending | `tgbotkit/client` |
+| `middleware` | `internal/apps/relay/middleware` | Auth middleware | auth |
+| `runtimecfg` | `internal/apps/relay/runtimecfg` | Runtime config loader | `pkg/runtime/appconfig` |
+| `session` | `internal/apps/relay/session` | Session management | agent, runtimecfg, state |
+| `state` | `internal/apps/relay/state` | SQLite state persistence | `modernc.org/sqlite`, `updatepoller` |
+| `tgbotkit` | `internal/apps/relay/tgbotkit` | Telegram bot runtime | `tgbotkit/*` |
+| `welcome` | `internal/apps/relay/welcome` | Welcome message builder | (standalone) |
 
 ## Startup Order (Required)
 
