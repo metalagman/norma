@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	"github.com/tgbotkit/runtime/updatepoller"
@@ -21,6 +22,98 @@ type sqliteProvider struct {
 }
 
 var _ Provider = (*sqliteProvider)(nil)
+
+func (p *sqliteProvider) AddCollaborator(ctx context.Context, c auth.Collaborator) error {
+	if c.UserID == "" {
+		return fmt.Errorf("user_id is required")
+	}
+
+	_, err := p.db.ExecContext(ctx, `
+		INSERT OR REPLACE INTO relay_collaborators (user_id, username, first_name, added_by, added_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		c.UserID, c.Username, c.FirstName, c.AddedBy, c.AddedAt.Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("add collaborator: %w", err)
+	}
+	return nil
+}
+
+func (p *sqliteProvider) RemoveCollaborator(ctx context.Context, userID string) error {
+	if userID == "" {
+		return fmt.Errorf("user_id is required")
+	}
+
+	_, err := p.db.ExecContext(ctx, `
+		DELETE FROM relay_collaborators
+		WHERE user_id = ?`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("remove collaborator: %w", err)
+	}
+	return nil
+}
+
+func (p *sqliteProvider) GetCollaborator(ctx context.Context, userID string) (*auth.Collaborator, bool, error) {
+	var username, firstName, addedBy, addedAt string
+	err := p.db.QueryRowContext(ctx, `
+		SELECT username, first_name, added_by, added_at
+		FROM relay_collaborators
+		WHERE user_id = ?`,
+		userID,
+	).Scan(&username, &firstName, &addedBy, &addedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("get collaborator: %w", err)
+	}
+
+	parsedTime, err := time.Parse(time.RFC3339, addedAt)
+	if err != nil {
+		return nil, false, fmt.Errorf("parse added_at: %w", err)
+	}
+
+	return &auth.Collaborator{
+		UserID:    userID,
+		Username:  username,
+		FirstName: firstName,
+		AddedBy:   addedBy,
+		AddedAt:   parsedTime,
+	}, true, nil
+}
+
+func (p *sqliteProvider) ListCollaborators(ctx context.Context) ([]auth.Collaborator, error) {
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT user_id, username, first_name, added_by, added_at
+		FROM relay_collaborators
+		ORDER BY added_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list collaborators: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var collaborators []auth.Collaborator
+	for rows.Next() {
+		var c auth.Collaborator
+		var addedAt string
+		if err := rows.Scan(&c.UserID, &c.Username, &c.FirstName, &c.AddedBy, &addedAt); err != nil {
+			return nil, fmt.Errorf("scan collaborator: %w", err)
+		}
+		parsedTime, err := time.Parse(time.RFC3339, addedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse added_at: %w", err)
+		}
+		c.AddedAt = parsedTime
+		collaborators = append(collaborators, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate collaborators: %w", err)
+	}
+
+	return collaborators, nil
+}
 
 // NewSQLiteProvider initializes relay state storage in a SQLite database.
 func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
@@ -45,14 +138,15 @@ func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
 		return nil, err
 	}
 
-	return &sqliteProvider{
+	var provider = &sqliteProvider{
 		db:      db,
 		appKV:   &sqliteKVStore{db: db, namespace: NamespaceApp},
 		mcpKV:   &sqliteKVStore{db: db, namespace: NamespaceSessionMCP},
 		session: &sqliteSessionStore{db: db},
 		offset:  &sqliteOffsetStore{db: db},
-		collab:  auth.NewCollaboratorStore(db),
-	}, nil
+	}
+	provider.collab = auth.NewCollaboratorStore(provider)
+	return provider, nil
 }
 
 func (p *sqliteProvider) AppKV() KVStore {

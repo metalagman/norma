@@ -27,7 +27,7 @@ type inviteKVStore interface {
 	GetJSON(ctx context.Context, key string) (value any, ok bool, err error)
 	SetWithTTL(ctx context.Context, key string, value any, ttl time.Duration) error
 	Delete(ctx context.Context, key string) error
-	ListKeys(ctx context.Context, prefix string) ([]string, error)
+	List(ctx context.Context, prefix string) ([]string, error)
 }
 
 func inviteKey(token string) string {
@@ -94,7 +94,7 @@ func (s *InviteStore) GetInvite(ctx context.Context, token string) (*Invite, err
 }
 
 func (s *InviteStore) ListInvites(ctx context.Context) ([]Invite, error) {
-	keys, err := s.store.ListKeys(ctx, inviteListPrefix)
+	keys, err := s.store.List(ctx, inviteListPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("list invite keys: %w", err)
 	}

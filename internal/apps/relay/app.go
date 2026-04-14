@@ -214,6 +214,14 @@ func Module(
 		fx.Provide(func(provider relaystate.Provider) (*auth.OwnerStore, error) {
 			return auth.NewOwnerStore(provider.AppKV())
 		}),
+		fx.Provide(func(provider relaystate.Provider) (*auth.InviteStore, error) {
+			return auth.NewInviteStore(provider.AppKV())
+		}),
+		fx.Provide(func(provider relaystate.Provider) *auth.CollaboratorStore {
+			// Wrap the state.CollaboratorStore interface in *auth.CollaboratorStore
+			// The wrapper delegates to the underlying store implementation
+			return auth.NewCollaboratorStore(provider.Collaborators())
+		}),
 		fx.Provide(func(reg *mcpregistry.MapRegistry) *agentfactory.Factory {
 			return agentfactory.New(
 				normaCfg.Providers,
