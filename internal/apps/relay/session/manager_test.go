@@ -40,7 +40,7 @@ func TestApplyRuntimeConfig_RebuildsAgentBuilderAndMCPRegistry(t *testing.T) {
 		logger:            zerolog.Nop(),
 	}
 
-	cfg := runtimeconfig.NormaConfig{
+	cfg := runtimeconfig.RuntimeConfig{
 		Providers: map[string]agentconfig.Config{
 			"fresh": {
 				Type: "opencode_acp",

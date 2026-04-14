@@ -10,8 +10,8 @@ import (
 )
 
 type relayTestConfigDocument struct {
-	Norma appconfig.NormaConfig `mapstructure:"norma"`
-	Relay relayapp.RelayConfig  `mapstructure:"relay"`
+	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
+	Relay   relayapp.RelayConfig    `mapstructure:"relay"`
 }
 
 const testRelayDefaultProfile = "default"
@@ -20,7 +20,7 @@ func TestLoadConfigDocument_AppliesProfileRelayOverrides(t *testing.T) {
 	workingDir := t.TempDir()
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 
-	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
   providers:
     relay_agent:
       type: opencode_acp
@@ -63,7 +63,7 @@ profiles:
 func TestLoadConfigDocument_ImplicitDefaultProfileDoesNotRequireProfilesDefault(t *testing.T) {
 	workingDir := t.TempDir()
 
-	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
   providers:
     relay_agent:
       type: opencode_acp
@@ -102,7 +102,7 @@ relay:
 func TestLoadConfigDocument_ExplicitMissingProfileFails(t *testing.T) {
 	workingDir := t.TempDir()
 
-	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+	if err := writeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
   providers:
     relay_agent:
       type: opencode_acp

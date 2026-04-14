@@ -16,14 +16,14 @@ type RelayConfig struct {
 
 // Document is the runtime relay config document shape.
 type Document struct {
-	Norma runtimeconfig.NormaConfig `mapstructure:"norma"`
-	Relay RelayConfig               `mapstructure:"relay"`
+	Runtime runtimeconfig.RuntimeConfig `mapstructure:"runtime"`
+	Relay   RelayConfig                 `mapstructure:"relay"`
 }
 
 // Snapshot is the normalized runtime config view for consumers.
 type Snapshot struct {
-	Norma runtimeconfig.NormaConfig
-	Relay RelayConfig
+	Runtime runtimeconfig.RuntimeConfig
+	Relay   RelayConfig
 }
 
 // Loader reloads relay runtime config from disk using the same resolution options as relay start.

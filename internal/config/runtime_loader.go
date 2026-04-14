@@ -38,8 +38,8 @@ func (c CLISettings) EffectiveRetention() RetentionPolicy {
 }
 
 type cliConfigDocument struct {
-	Norma appconfig.NormaConfig `mapstructure:"norma"`
-	CLI   CLISettings           `mapstructure:"cli"`
+	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
+	CLI     CLISettings             `mapstructure:"cli"`
 }
 
 // LoadRuntime loads and validates runtime core config for norma CLI commands.
@@ -60,7 +60,7 @@ func LoadRuntimeAndCLIConfig(opts RuntimeLoadOptions) (Config, CLISettings, erro
 	}
 
 	cfg := Config{
-		Norma:   doc.Norma,
+		Runtime: doc.Runtime,
 		Profile: strings.TrimSpace(selectedProfile),
 	}
 	if cfg.Profile == "" {

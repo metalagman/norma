@@ -78,21 +78,21 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	}
 	assertRelaySystemInstructionExample(t, relaySection)
 
-	normaSection, ok := toStringAnyMap(doc["norma"])
+	normaSection, ok := toStringAnyMap(doc["runtime"])
 	if !ok {
-		t.Fatal("norma section missing in generated config")
+		t.Fatal("runtime section missing in generated config")
 	}
 	assertMapHasOnlyKeys(t, normaSection, []string{"providers", "mcp_servers"})
 	providers, ok := toStringAnyMap(normaSection["providers"])
 	if !ok {
-		t.Fatal("norma.providers missing in generated config")
+		t.Fatal("runtime.providers missing in generated config")
 	}
 	mcpServers, ok := toStringAnyMap(normaSection["mcp_servers"])
 	if !ok {
-		t.Fatal("norma.mcp_servers missing in generated config")
+		t.Fatal("runtime.mcp_servers missing in generated config")
 	}
 	if len(mcpServers) != 0 {
-		t.Fatalf("norma.mcp_servers = %#v, want empty map", mcpServers)
+		t.Fatalf("runtime.mcp_servers = %#v, want empty map", mcpServers)
 	}
 	assertMapHasOnlyKeys(t, providers, []string{"codex", "opencode", "copilot", "gemini", "claude_code", "pool"})
 	assertAgentModel(t, providers, "codex", "codex_acp", relayInitCodexModel)

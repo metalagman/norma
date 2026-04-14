@@ -232,7 +232,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 }
 
 // ApplyRuntimeConfig updates manager runtime configuration used for creating new sessions.
-func (m *Manager) ApplyRuntimeConfig(normaCfg runtimeconfig.NormaConfig, relayCfg runtimecfg.RelayConfig) error {
+func (m *Manager) ApplyRuntimeConfig(normaCfg runtimeconfig.RuntimeConfig, relayCfg runtimecfg.RelayConfig) error {
 	builder, err := m.rebuildAgentBuilder(normaCfg, relayCfg)
 	if err != nil {
 		return err
@@ -257,7 +257,7 @@ func (m *Manager) ApplyRuntimeConfig(normaCfg runtimeconfig.NormaConfig, relayCf
 	return nil
 }
 
-func (m *Manager) rebuildAgentBuilder(normaCfg runtimeconfig.NormaConfig, relayCfg runtimecfg.RelayConfig) (*relayagent.Builder, error) {
+func (m *Manager) rebuildAgentBuilder(normaCfg runtimeconfig.RuntimeConfig, relayCfg runtimecfg.RelayConfig) (*relayagent.Builder, error) {
 	factory := agentfactory.New(
 		normaCfg.Providers,
 		m.mcpRegistry,

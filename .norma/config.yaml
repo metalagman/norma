@@ -1,4 +1,4 @@
-norma:
+runtime:
   providers:
     gemini_acp_agent:
       type: gemini_acp

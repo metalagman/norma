@@ -39,7 +39,7 @@ const bundledRelayMCPServerID = "relay"
 // App creates a new fx.App for the relay bot with the provided configuration.
 func App(
 	cfg Config,
-	normaCfg runtimeconfig.NormaConfig,
+	normaCfg runtimeconfig.RuntimeConfig,
 	ownerToken string,
 	runtimeLoadOpts runtimeconfig.RuntimeLoadOptions,
 	defaultsYAML []byte,
@@ -57,7 +57,7 @@ func App(
 // Module returns the fx.Module for the relay bot, initialized with the provided configurations.
 func Module(
 	cfg Config,
-	normaCfg runtimeconfig.NormaConfig,
+	normaCfg runtimeconfig.RuntimeConfig,
 	ownerToken string,
 	runtimeLoadOpts runtimeconfig.RuntimeLoadOptions,
 	defaultsYAML []byte,
@@ -252,31 +252,31 @@ func Module(
 }
 
 var removedBuiltInRelayMCPServerIDs = map[string]string{
-	"norma.state":     bundledRelayMCPServerID,
-	"norma.workspace": bundledRelayMCPServerID,
-	"norma.relay":     bundledRelayMCPServerID,
-	"relay.state":     bundledRelayMCPServerID,
-	"relay.workspace": bundledRelayMCPServerID,
-	"relay.agents":    bundledRelayMCPServerID,
+	"runtime.state":     bundledRelayMCPServerID,
+	"runtime.workspace": bundledRelayMCPServerID,
+	"runtime.relay":     bundledRelayMCPServerID,
+	"relay.state":       bundledRelayMCPServerID,
+	"relay.workspace":   bundledRelayMCPServerID,
+	"relay.agents":      bundledRelayMCPServerID,
 }
 
 var removedConfigMCPServerIDs = map[string]struct{}{
-	"norma.config": {},
-	"relay.config": {},
+	"runtime.config": {},
+	"relay.config":   {},
 }
 
-func validateRelayMCPConfiguration(cfg Config, normaCfg runtimeconfig.NormaConfig, configPath string) error {
+func validateRelayMCPConfiguration(cfg Config, normaCfg runtimeconfig.RuntimeConfig, configPath string) error {
 	errs := make([]string, 0)
 
 	for id := range normaCfg.MCPServers {
 		switch id {
 		case bundledRelayMCPServerID:
-			errs = append(errs, `norma.mcp_servers.relay is reserved for the built-in relay MCP server`)
+			errs = append(errs, `runtime.mcp_servers.relay is reserved for the built-in relay MCP server`)
 		default:
 			if _, ok := removedConfigMCPServerIDs[id]; ok {
-				errs = append(errs, fmt.Sprintf("norma.mcp_servers.%s conflicts with removed built-in config MCP server ID %q; edit the relay config file directly at %q", id, id, configPath))
+				errs = append(errs, fmt.Sprintf("runtime.mcp_servers.%s conflicts with removed built-in config MCP server ID %q; edit the relay config file directly at %q", id, id, configPath))
 			} else if replacement, ok := removedBuiltInRelayMCPServerIDs[id]; ok {
-				errs = append(errs, fmt.Sprintf("norma.mcp_servers.%s conflicts with removed built-in MCP server ID %q; rename the custom server and use %q for the built-in relay MCP server", id, id, replacement))
+				errs = append(errs, fmt.Sprintf("runtime.mcp_servers.%s conflicts with removed built-in MCP server ID %q; rename the custom server and use %q for the built-in relay MCP server", id, id, replacement))
 			}
 		}
 	}
@@ -294,9 +294,9 @@ func validateRelayMCPConfiguration(cfg Config, normaCfg runtimeconfig.NormaConfi
 		for i, id := range agentCfg.MCPServers {
 			trimmed := strings.TrimSpace(id)
 			if _, ok := removedConfigMCPServerIDs[trimmed]; ok {
-				errs = append(errs, fmt.Errorf("norma.providers.%s.mcp_servers[%d] references removed built-in config MCP server %q; edit the relay config file directly at %q", agentName, i, id, configPath).Error())
+				errs = append(errs, fmt.Errorf("runtime.providers.%s.mcp_servers[%d] references removed built-in config MCP server %q; edit the relay config file directly at %q", agentName, i, id, configPath).Error())
 			} else if replacement, ok := removedBuiltInRelayMCPServerIDs[trimmed]; ok {
-				errs = append(errs, fmt.Errorf("norma.providers.%s.mcp_servers[%d] references removed built-in MCP server %q; use %q", agentName, i, id, replacement).Error())
+				errs = append(errs, fmt.Errorf("runtime.providers.%s.mcp_servers[%d] references removed built-in MCP server %q; use %q", agentName, i, id, replacement).Error())
 			}
 		}
 	}

@@ -47,7 +47,7 @@ type commandHandlerParams struct {
 	SessionManager *session.Manager
 	TurnDispatcher *TurnDispatcher
 	Messenger      *messenger.Messenger
-	NormaCfg       runtimeconfig.NormaConfig
+	NormaCfg       runtimeconfig.RuntimeConfig
 }
 
 // NewCommandHandler creates a new relay command handler.
@@ -239,12 +239,12 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx relayte
 func (h *CommandHandler) newCommandUsageMessage() string {
 	usage := "Usage: /new <agent_id>"
 	if len(h.agentIDs) == 0 {
-		return usage + "\n\nNo providers configured under norma.providers in relay config."
+		return usage + "\n\nNo providers configured under runtime.providers in relay config."
 	}
 	return usage + "\n\nAvailable agents: " + strings.Join(h.agentIDs, ", ")
 }
 
-func sortedAgentIDs(cfg runtimeconfig.NormaConfig) []string {
+func sortedAgentIDs(cfg runtimeconfig.RuntimeConfig) []string {
 	agentIDs := make([]string, 0, len(cfg.Providers))
 	for id := range cfg.Providers {
 		trimmedID := strings.TrimSpace(id)

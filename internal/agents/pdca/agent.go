@@ -426,7 +426,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	}
 
 	// Create runner for this step
-	agentCfg, err := resolvedAgentForRole(a.cfg.Norma.Providers, a.cfg.RoleIDs, roleName)
+	agentCfg, err := resolvedAgentForRole(a.cfg.Runtime.Providers, a.cfg.RoleIDs, roleName)
 	if err != nil {
 		return nil, err
 	}

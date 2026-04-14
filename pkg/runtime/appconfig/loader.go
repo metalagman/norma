@@ -17,7 +17,7 @@ const (
 	// CoreConfigFileName is the fallback config file name.
 	CoreConfigFileName = "config.yaml"
 	relayAppName       = "relay"
-	runtimeRootKey     = "norma"
+	runtimeRootKey     = "runtime"
 	overridesRootKey   = "profiles"
 	defaultProfileName = "default"
 )
@@ -59,7 +59,7 @@ func LoadConfigDocument(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions, out
 
 	runtimeSettings, ok := extractAppSection(settings, runtimeRootKey)
 	if !ok {
-		return "", fmt.Errorf("runtime config key %q is required", runtimeRootKey)
+		return "", fmt.Errorf("config key %q is required", runtimeRootKey)
 	}
 	if err := ValidateSettings(runtimeSettings); err != nil {
 		return "", fmt.Errorf("validate runtime config: %w", err)
@@ -314,9 +314,26 @@ func applyAppEnvOverrides(v *viper.Viper, appName string) {
 	if settings == nil {
 		return
 	}
+
+	sections := []struct {
+		name string
+		data map[string]any
+	}{}
+
 	appSettings, ok := extractAppSection(settings, appName)
-	if !ok {
-		return
+	if ok {
+		sections = append(sections, struct {
+			name string
+			data map[string]any
+		}{appName, appSettings})
+	}
+
+	runtimeSettings, ok := extractAppSection(settings, runtimeRootKey)
+	if ok {
+		sections = append(sections, struct {
+			name string
+			data map[string]any
+		}{runtimeRootKey, runtimeSettings})
 	}
 
 	envViper := viper.New()
@@ -324,11 +341,13 @@ func applyAppEnvOverrides(v *viper.Viper, appName string) {
 	envViper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	envViper.AutomaticEnv()
 
-	for _, key := range leafPaths(appSettings, "") {
-		if !envViper.IsSet(key) {
-			continue
+	for _, section := range sections {
+		for _, key := range leafPaths(section.data, "") {
+			if !envViper.IsSet(key) {
+				continue
+			}
+			v.Set(section.name+"."+key, envViper.Get(key))
 		}
-		v.Set(appName+"."+key, envViper.Get(key))
 	}
 }
 

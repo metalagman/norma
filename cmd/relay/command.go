@@ -23,8 +23,8 @@ var defaultRelayConfig []byte
 const shutdownTimeout = 10 * time.Second
 
 type relayConfigDocument struct {
-	Norma appconfig.NormaConfig `mapstructure:"norma"`
-	Relay relay.RelayConfig     `mapstructure:"relay"`
+	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
+	Relay   relay.RelayConfig       `mapstructure:"relay"`
 }
 
 func startCommand() *cobra.Command {
@@ -75,7 +75,7 @@ func startCommand() *cobra.Command {
 				Profile:    viper.GetString("profile"),
 			}
 
-			app := relay.App(relayCfg, doc.Norma, ownerToken, runtimeLoadOpts, defaultRelayConfig)
+			app := relay.App(relayCfg, doc.Runtime, ownerToken, runtimeLoadOpts, defaultRelayConfig)
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()

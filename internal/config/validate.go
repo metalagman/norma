@@ -44,7 +44,7 @@ func (c Config) Validate() error {
 	}
 
 	// 2. Custom validation for runtime agent-factory config
-	if err := c.Norma.Validate(); err != nil {
+	if err := c.Runtime.Validate(); err != nil {
 		errs = append(errs, err.Error())
 	}
 

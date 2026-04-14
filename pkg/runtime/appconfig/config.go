@@ -11,20 +11,20 @@ import (
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 )
 
-// NormaConfig contains runtime agent-factory settings for Norma.
+// RuntimeConfig contains runtime agent-factory settings.
 //
 // Config shape:
 //
-//	norma:
+//	runtime:
 //	  providers: ...
 //	  mcp_servers: ...
-type NormaConfig struct {
+type RuntimeConfig struct {
 	Providers  map[string]agentconfig.Config          `json:"providers,omitempty"   mapstructure:"providers"   validate:"required,gt=0"`
 	MCPServers map[string]agentconfig.MCPServerConfig `json:"mcp_servers,omitempty" mapstructure:"mcp_servers" validate:"omitempty"`
 }
 
-// Validate validates the runtime norma config.
-func (c NormaConfig) Validate() error {
+// Validate validates the runtime config.
+func (c RuntimeConfig) Validate() error {
 	errList := make([]string, 0)
 
 	if err := normaConfigValidator.Struct(c); err != nil {
@@ -54,13 +54,13 @@ func (c NormaConfig) Validate() error {
 	return fmt.Errorf("norma config validation failed: %s", strings.Join(errList, "; "))
 }
 
-// ValidateSettings decodes and validates raw "norma" settings.
+// ValidateSettings decodes and validates raw "runtime" settings.
 func ValidateSettings(settings map[string]any) error {
-	if err := detectLegacyAgentsKey(settings); err != nil {
+	if err := detectLegacyNormaKey(settings); err != nil {
 		return err
 	}
 
-	var cfg NormaConfig
+	var cfg RuntimeConfig
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Metadata: nil,
 		Result:   &cfg,
@@ -75,19 +75,9 @@ func ValidateSettings(settings map[string]any) error {
 	return cfg.Validate()
 }
 
-func detectLegacyAgentsKey(settings map[string]any) error {
-	normaSettings, ok := settings["norma"]
-	if !ok {
-		return nil
-	}
-
-	normaMap, ok := toStringAnyMap(normaSettings)
-	if !ok {
-		return nil
-	}
-
-	if _, hasAgents := normaMap["agents"]; hasAgents {
-		return fmt.Errorf("legacy 'norma.agents' key detected; please migrate to 'norma.providers' (see https://docs.norma.io/migration/agents-to-providers)")
+func detectLegacyNormaKey(settings map[string]any) error {
+	if _, hasLegacyNorma := settings["norma"]; hasLegacyNorma {
+		return fmt.Errorf("legacy root key 'norma' detected; please migrate to 'runtime'")
 	}
 
 	return nil

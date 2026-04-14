@@ -1,5 +1,5 @@
-norma:
-  agents:
+runtime:
+  providers:
     codex:
       type: codex_acp
       codex_acp:

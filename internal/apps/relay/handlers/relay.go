@@ -36,7 +36,7 @@ type RelayHandler struct {
 	tgClient       client.ClientWithResponsesInterface
 	authToken      string
 	rootAgentName  string
-	normaCfg       runtimeconfig.NormaConfig
+	normaCfg       runtimeconfig.RuntimeConfig
 	logger         zerolog.Logger
 
 	mu          sync.RWMutex
@@ -62,7 +62,7 @@ type relayHandlerDeps struct {
 	TGClient           client.ClientWithResponsesInterface
 	AuthToken          string `name:"relay_auth_token"`
 	RootAgentName      string `name:"relay_root_agent"`
-	NormaCfg           runtimeconfig.NormaConfig
+	NormaCfg           runtimeconfig.RuntimeConfig
 	Logger             zerolog.Logger
 	InternalMCPManager *InternalMCPManager `optional:"true"`
 }
@@ -578,7 +578,7 @@ func (h *RelayHandler) refreshRuntimeConfig() error {
 	if err != nil {
 		return err
 	}
-	if err := h.sessionManager.ApplyRuntimeConfig(snapshot.Norma, snapshot.Relay); err != nil {
+	if err := h.sessionManager.ApplyRuntimeConfig(snapshot.Runtime, snapshot.Relay); err != nil {
 		return err
 	}
 	h.setRootAgentName(snapshot.Relay.RootAgent)

@@ -171,7 +171,7 @@ func buildRelayInitDocument(workingDir string) (map[string]any, []string, error)
 	}
 
 	doc := map[string]any{
-		"norma": map[string]any{
+		"runtime": map[string]any{
 			"providers":   buildRelayInitAgents(detectedAgents),
 			"mcp_servers": map[string]any{},
 		},

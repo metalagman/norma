@@ -29,7 +29,7 @@ const (
 
 type Builder struct {
 	factory                *agentfactory.Factory
-	normaCfg               runtimeconfig.NormaConfig
+	normaCfg               runtimeconfig.RuntimeConfig
 	workingDir             string
 	workspaceEnabled       bool
 	workspaceBaseBranch    string
@@ -120,7 +120,7 @@ type BuilderParams struct {
 	fx.In
 
 	Factory                *agentfactory.Factory
-	NormaCfg               runtimeconfig.NormaConfig
+	NormaCfg               runtimeconfig.RuntimeConfig
 	WorkingDir             string
 	WorkspaceEnabled       bool   `name:"relay_workspace_enabled"`
 	WorkspaceBaseBranch    string `name:"relay_workspace_base_branch"`

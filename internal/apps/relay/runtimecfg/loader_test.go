@@ -10,7 +10,7 @@ import (
 
 func TestLoaderLoad_AppliesSelectedProfile(t *testing.T) {
 	workingDir := t.TempDir()
-	if err := writeRuntimeConfig(t, workingDir, `norma:
+	if err := writeRuntimeConfig(t, workingDir, `runtime:
   providers:
     opencode:
       type: opencode_acp
@@ -51,7 +51,7 @@ func TestLoaderLoad_ReadsCurrentConfigOnEveryCall(t *testing.T) {
 	workingDir := t.TempDir()
 	loader := NewLoader(runtimeconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: "default"}, nil)
 
-	if err := writeRuntimeConfig(t, workingDir, `norma:
+	if err := writeRuntimeConfig(t, workingDir, `runtime:
   providers:
     alpha:
       type: opencode_acp
@@ -73,7 +73,7 @@ profiles:
 		t.Fatalf("first root_agent = %q, want alpha", first.Relay.RootAgent)
 	}
 
-	if err := writeRuntimeConfig(t, workingDir, `norma:
+	if err := writeRuntimeConfig(t, workingDir, `runtime:
   providers:
     beta:
       type: opencode_acp

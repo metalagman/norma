@@ -11,9 +11,9 @@ import (
 
 // Config is the root configuration.
 type Config struct {
-	Norma   runtimeconfig.NormaConfig `json:"norma"            mapstructure:"norma"  validate:"required"`
-	Profile string                    `json:"profile,omitempty" mapstructure:"profile"`
-	RoleIDs map[string]string         `json:"-"                 mapstructure:"-"`
+	Runtime runtimeconfig.RuntimeConfig `json:"runtime"           mapstructure:"runtime"  validate:"required"`
+	Profile string                      `json:"profile,omitempty" mapstructure:"profile"`
+	RoleIDs map[string]string           `json:"-"                  mapstructure:"-"`
 }
 
 // Budgets defines run limits (optional, defaults to 5 iterations if not set).
@@ -66,7 +66,7 @@ func IsPlannerSupportedType(agentType string) bool {
 
 // ResolveRoleIDs resolves role agent IDs from CLI app settings.
 func (c Config) ResolveRoleIDs(cli CLISettings) (map[string]string, error) {
-	if len(c.Norma.Providers) == 0 {
+	if len(c.Runtime.Providers) == 0 {
 		return nil, fmt.Errorf("missing global agents configuration")
 	}
 
@@ -78,7 +78,7 @@ func (c Config) ResolveRoleIDs(cli CLISettings) (map[string]string, error) {
 		if name == "" {
 			return fmt.Errorf("profile %q missing cli.%s agent reference", c.Profile, role)
 		}
-		if _, exists := c.Norma.Providers[name]; !exists {
+		if _, exists := c.Runtime.Providers[name]; !exists {
 			return fmt.Errorf("profile %q references undefined agent %q in cli.%s", c.Profile, name, role)
 		}
 		resolved[role] = name

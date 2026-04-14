@@ -11,7 +11,7 @@ import (
 
 func TestLoadConfig_LoadsRuntimeFromConfigYAML(t *testing.T) {
 	workingDir := t.TempDir()
-	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `norma:
+	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `runtime:
   providers:
     opencode:
       type: opencode_acp
@@ -43,7 +43,7 @@ cli:
 	if cfg.RoleIDs["plan"] != "opencode" {
 		t.Fatalf("plan role id = %q, want opencode", cfg.RoleIDs["plan"])
 	}
-	plan := cfg.Norma.Providers[cfg.RoleIDs["plan"]]
+	plan := cfg.Runtime.Providers[cfg.RoleIDs["plan"]]
 	if plan.Type != "opencode_acp" {
 		t.Fatalf("plan agent type = %q, want opencode_acp", plan.Type)
 	}
@@ -54,7 +54,7 @@ cli:
 
 func TestLoadRuntimeAndCLIConfig_LoadsCLIAppSettings(t *testing.T) {
 	workingDir := t.TempDir()
-	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `norma:
+	if err := writeTestFile(filepath.Join(workingDir, defaultConfigPath), `runtime:
   providers:
     opencode:
       type: opencode_acp
@@ -94,7 +94,7 @@ cli:
 func TestLoadConfig_IgnoresNormaYAML(t *testing.T) {
 	workingDir := t.TempDir()
 	normaYAMLPath := filepath.Join(workingDir, ".norma", "norma.yaml")
-	if err := writeTestFile(normaYAMLPath, `norma:
+	if err := writeTestFile(normaYAMLPath, `runtime:
   providers:
     opencode:
       type: opencode_acp

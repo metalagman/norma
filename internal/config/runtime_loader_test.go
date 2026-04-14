@@ -9,8 +9,8 @@ import (
 )
 
 type relayConfigDocumentForTest struct {
-	Norma appconfig.NormaConfig `mapstructure:"norma"`
-	Relay struct {
+	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
+	Relay   struct {
 		RootAgent               string            `mapstructure:"root_agent"`
 		AgentSystemInstructions map[string]string `mapstructure:"agent_system_instructions"`
 		Telegram                struct {
@@ -46,7 +46,7 @@ func TestLoadRuntime_PrefersConfigDirOverRepoAndGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRuntime: %v", err)
 	}
-	agentCfg := cfg.Norma.Providers["agent"]
+	agentCfg := cfg.Runtime.Providers["agent"]
 	if agentCfg.GenericACP == nil || len(agentCfg.GenericACP.Cmd) == 0 {
 		t.Fatalf("agent generic_acp block missing cmd: %#v", agentCfg)
 	}
@@ -63,7 +63,7 @@ func TestLoadRuntime_UsesSingleEffectiveFileWithoutCrossRootMerge(t *testing.T) 
 	if err := writeRuntimeFile(filepath.Join(xdgRoot, "norma", "cli.yaml"), runtimeYAMLWithCmd("global")); err != nil {
 		t.Fatalf("write global config: %v", err)
 	}
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "cli.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "cli.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -85,7 +85,7 @@ func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
 	t.Setenv("RELAY_TELEGRAM_WEBHOOK_AUTH_TOKEN", "auth-token")
 
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -146,7 +146,7 @@ profiles:
 func TestLoadConfigDocument_UsesDedicatedRelayConfigPathWithoutLegacyMerge(t *testing.T) {
 	workingDir := t.TempDir()
 
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -166,7 +166,7 @@ relay:
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -199,7 +199,7 @@ relay:
 func TestLoadConfigDocument_DoesNotFallbackToLegacyCoreWhenDedicatedRelayConfigMissing(t *testing.T) {
 	workingDir := t.TempDir()
 
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -230,7 +230,7 @@ relay:
 
 func TestLoadRuntime_AcceptsNormaMCPServersKey(t *testing.T) {
 	workingDir := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -254,14 +254,14 @@ cli:
 	if err != nil {
 		t.Fatalf("LoadRuntime returned error: %v", err)
 	}
-	if len(cfg.Norma.MCPServers) != 1 {
-		t.Fatalf("len(cfg.Norma.MCPServers) = %d, want 1", len(cfg.Norma.MCPServers))
+	if len(cfg.Runtime.MCPServers) != 1 {
+		t.Fatalf("len(cfg.Runtime.MCPServers) = %d, want 1", len(cfg.Runtime.MCPServers))
 	}
 }
 
 func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 	workingDir := t.TempDir()
-	content := "norma:\n" +
+	content := "runtime:\n" +
 		"  providers:\n" +
 		"    agent:\n" +
 		"      type: generic_acp\n" +
@@ -294,7 +294,7 @@ mcp_servers:
   legacy:
     type: stdio
     cmd: ["legacy-mcp"]
-norma:
+runtime:
   providers:
     agent:
       type: generic_acp
@@ -314,7 +314,7 @@ cli:
 	if err != nil {
 		t.Fatalf("LoadRuntime returned error: %v", err)
 	}
-	agentCfg := cfg.Norma.Providers["agent"]
+	agentCfg := cfg.Runtime.Providers["agent"]
 	if agentCfg.GenericACP == nil || len(agentCfg.GenericACP.Cmd) == 0 {
 		t.Fatalf("agent generic_acp block missing cmd: %#v", agentCfg)
 	}
@@ -325,7 +325,7 @@ cli:
 
 func TestLoadRuntime_IgnoresLegacyNormaKeys(t *testing.T) {
 	workingDir := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -360,7 +360,7 @@ cli:
 
 func TestLoadConfigDocument_IgnoresLegacyKeysInProfileOverride(t *testing.T) {
 	workingDir := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `norma:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
@@ -401,8 +401,39 @@ profiles:
 	}
 }
 
+func TestLoadConfigDocument_AppliesEnvOverridesToRuntimeSection(t *testing.T) {
+	workingDir := t.TempDir()
+	t.Setenv("RELAY_PROVIDERS_OPENCODE_OPENCODE_ACP_MODEL", "env-override-model")
+
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
+  providers:
+    opencode:
+      type: opencode_acp
+      opencode_acp:
+        model: file-model
+relay:
+  root_agent: opencode
+`); err != nil {
+		t.Fatalf("write relay config: %v", err)
+	}
+
+	var doc relayConfigDocumentForTest
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
+		appconfig.AppLoadOptions{AppName: "relay"},
+		&doc,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigDocument: %v", err)
+	}
+
+	if got := doc.Runtime.Providers["opencode"].OpenCodeACP.Model; got != "env-override-model" {
+		t.Fatalf("runtime.providers.opencode.opencode_acp.model = %q, want env-override-model", got)
+	}
+}
+
 func runtimeYAMLWithCmd(cmd string) string {
-	return `norma:
+	return `runtime:
   providers:
     agent:
       type: generic_acp
