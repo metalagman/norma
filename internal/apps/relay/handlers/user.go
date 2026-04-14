@@ -22,7 +22,16 @@ type userHandler struct {
 	collaboratorStore *auth.CollaboratorStore
 	messenger         *messenger.Messenger
 	channel           *relaytelegram.Adapter
+	tgClient          tgClientGetter
 	botUsername       string
+}
+
+type tgClientGetter interface {
+	GetMeWithResponse(ctx context.Context) (interface{ GetResult() *meResult }, error)
+}
+
+type meResult struct {
+	Username *string `json:"username"`
 }
 
 type userHandlerParams struct {
@@ -33,17 +42,33 @@ type userHandlerParams struct {
 	CollaboratorStore *auth.CollaboratorStore
 	Messenger         *messenger.Messenger
 	Channel           *relaytelegram.Adapter
+	TelegramClient    tgClientGetter `name:"relay_telegram_client"`
 }
 
-func NewUserHandler(params userHandlerParams, botUsername string) *userHandler {
+func NewUserHandler(params userHandlerParams) *userHandler {
 	return &userHandler{
 		ownerStore:        params.OwnerStore,
 		inviteStore:       params.InviteStore,
 		collaboratorStore: params.CollaboratorStore,
 		messenger:         params.Messenger,
 		channel:           params.Channel,
-		botUsername:       botUsername,
+		tgClient:          params.TelegramClient,
 	}
+}
+
+func (h *userHandler) getBotUsername(ctx context.Context) string {
+	if h.botUsername != "" {
+		return h.botUsername
+	}
+	if h.tgClient == nil {
+		return ""
+	}
+	resp, err := h.tgClient.GetMeWithResponse(ctx)
+	if err != nil || resp == nil || resp.GetResult() == nil || resp.GetResult().Username == nil {
+		return ""
+	}
+	h.botUsername = *resp.GetResult().Username
+	return h.botUsername
 }
 
 func (h *userHandler) Register(registry handlers.RegistryInterface) {
@@ -111,7 +136,7 @@ func (h *userHandler) onAdd(ctx context.Context, commandCtx relaytelegram.Comman
 		return nil
 	}
 
-	inviteLink := fmt.Sprintf("https://t.me/%s?start=%s", h.botUsername, token)
+	inviteLink := fmt.Sprintf("https://t.me/%s?start=%s", h.getBotUsername(ctx), token)
 	message := fmt.Sprintf("Visit this link to become a bot collaborator:\n%s", inviteLink)
 
 	if err := h.channel.SendPlain(ctx, commandCtx.Locator, message); err != nil {

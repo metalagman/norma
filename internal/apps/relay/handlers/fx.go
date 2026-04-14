@@ -20,6 +20,7 @@ var Module = fx.Module("relay_handlers",
 		NewStartHandler,
 		NewRelayHandler,
 		NewCommandHandler,
+		NewUserHandler,
 		fx.Annotate(
 			registerStartHandler,
 			fx.As(new(tgbotkit.Handler)),
@@ -32,6 +33,11 @@ var Module = fx.Module("relay_handlers",
 		),
 		fx.Annotate(
 			registerCommandHandler,
+			fx.As(new(tgbotkit.Handler)),
+			fx.ResultTags(`group:"bot_handlers"`),
+		),
+		fx.Annotate(
+			registerUserHandler,
 			fx.As(new(tgbotkit.Handler)),
 			fx.ResultTags(`group:"bot_handlers"`),
 		),
@@ -53,5 +59,9 @@ func registerRelayHandler(h *RelayHandler) tgbotkit.Handler {
 }
 
 func registerCommandHandler(h *CommandHandler) tgbotkit.Handler {
+	return h
+}
+
+func registerUserHandler(h *userHandler) tgbotkit.Handler {
 	return h
 }
