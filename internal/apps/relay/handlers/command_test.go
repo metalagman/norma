@@ -312,12 +312,14 @@ func (f *fakeCommandSessionManager) ValidateAgent(string) error {
 
 type fakeTurnDispatcher struct {
 	cancelCalls       []cancelSessionCall
+	enqueueCalls      []TurnTask
 	cancelHadInFlight bool
 	cancelDropped     int
 	cancelErr         error
 }
 
-func (f *fakeTurnDispatcher) Enqueue(TurnTask) (int, error) {
+func (f *fakeTurnDispatcher) Enqueue(task TurnTask) (int, error) {
+	f.enqueueCalls = append(f.enqueueCalls, task)
 	return 0, nil
 }
 

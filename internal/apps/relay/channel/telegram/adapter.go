@@ -30,6 +30,7 @@ type MessageContext struct {
 	Text               string
 	HasCommand         bool
 	AllowProgressHints bool
+	IsDM               bool
 }
 
 // CommandContext is the relay-facing Telegram command shape.
@@ -97,6 +98,7 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 		Text:               text,
 		HasCommand:         hasCommandEntity(event.Message),
 		AllowProgressHints: event.Message.Chat.Type == "private",
+		IsDM:               event.Message.Chat.Type == "private",
 	}, true
 }
 

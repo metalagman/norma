@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/normahq/norma/internal/apps/relay/auth"
 	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
@@ -220,9 +222,18 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	if text == "" {
 		return nil
 	}
+	topicID := messageCtx.TopicID
+
+	if !messageCtx.IsDM && topicID == 0 && h.botUsername != "" {
+		mentionPrefix := "@" + h.botUsername
+		if !hasBotMentionPrefix(text, mentionPrefix) {
+			return nil
+		}
+		text = strings.TrimPrefix(text, mentionPrefix)
+		text = strings.TrimPrefix(text, " ")
+	}
 
 	locator := messageCtx.Locator
-	topicID := messageCtx.TopicID
 	transportUserID := relaysession.TelegramUserID(messageCtx.UserID)
 
 	log.Info().Int64("user_id", ownerID).Int("topic_id", topicID).Msg("Relaying message to agent")
@@ -655,4 +666,20 @@ func locatorChatID(locator relaysession.SessionLocator) int64 {
 		return 0
 	}
 	return address.ChatID
+}
+
+func hasBotMentionPrefix(text, mentionPrefix string) bool {
+	if !strings.HasPrefix(text, mentionPrefix) {
+		return false
+	}
+	if len(text) == len(mentionPrefix) {
+		return true
+	}
+
+	next, _ := utf8.DecodeRuneInString(text[len(mentionPrefix):])
+	return isMentionBoundary(next)
+}
+
+func isMentionBoundary(r rune) bool {
+	return unicode.IsSpace(r) || (unicode.IsPunct(r) && r != '_')
 }

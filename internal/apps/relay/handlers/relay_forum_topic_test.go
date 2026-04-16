@@ -2,10 +2,14 @@ package handlers
 
 import (
 	"context"
+	"reflect"
 	"testing"
+	"unsafe"
 
+	"github.com/normahq/norma/internal/apps/relay/auth"
 	relaytelegram "github.com/normahq/norma/internal/apps/relay/channel/telegram"
 	"github.com/normahq/norma/internal/apps/relay/messenger"
+	relaysession "github.com/normahq/norma/internal/apps/relay/session"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/eventemitter"
@@ -37,6 +41,19 @@ func (f *fakeRelayRegistry) OnMessageType(t messagetype.MessageType, _ rtHandler
 
 func (f *fakeRelayRegistry) OnCommand(rtHandlers.CommandHandler) eventemitter.UnsubscribeFunc {
 	return func() {}
+}
+
+type fakeRelayAuthorizer struct {
+	ownerID        int64
+	isCollaborator bool
+}
+
+func (f *fakeRelayAuthorizer) IsOwner(userID int64) bool {
+	return userID == f.ownerID
+}
+
+func (f *fakeRelayAuthorizer) IsCollaborator(userID int64) bool {
+	return f.isCollaborator
 }
 
 func TestRelayHandlerRegister_RegistersForumTopicMessageTypes(t *testing.T) {
@@ -166,6 +183,86 @@ func TestRelayHandlerOnMessage_IgnoresNilFrom(t *testing.T) {
 	}
 }
 
+func TestRelayHandlerOnMessage_ChannelIgnoresNonMention(t *testing.T) {
+	handler, turns, _ := newRelayMessageHandlerHarness(t, 0)
+
+	text := "hello world"
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			Text: &text,
+			From: &client.User{Id: 101},
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.enqueueCalls) != 0 {
+		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	}
+}
+
+func TestRelayHandlerOnMessage_TopicReplyBypassesMentionGate(t *testing.T) {
+	handler, turns, locator := newRelayMessageHandlerHarness(t, 77)
+
+	text := "hello from the topic"
+	topicID := 77
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			MessageThreadId: &topicID,
+			Text:            &text,
+			From:            &client.User{Id: 101},
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.enqueueCalls) != 1 {
+		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	}
+	if turns.enqueueCalls[0].SessionID != locator.SessionID {
+		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	}
+}
+
+func TestRelayHandlerOnMessage_RejectsFalsePositiveBotMentionPrefix(t *testing.T) {
+	handler, turns, _ := newRelayMessageHandlerHarness(t, 0)
+
+	text := "@testbotx please ignore this"
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			Text: &text,
+			From: &client.User{Id: 101},
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.enqueueCalls) != 0 {
+		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	}
+}
+
 func newRelayTestTelegramAdapter() *relaytelegram.Adapter {
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
@@ -174,4 +271,57 @@ func newRelayTestTelegramAdapter() *relaytelegram.Adapter {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
+}
+
+func newRelayMessageHandlerHarness(t *testing.T, topicID int) (*RelayHandler, *fakeTurnDispatcher, relaysession.SessionLocator) {
+	t.Helper()
+
+	stateStore := &fakeOwnerKVStore{}
+	ownerStore, err := auth.NewOwnerStore(stateStore)
+	if err != nil {
+		t.Fatalf("NewOwnerStore(): %v", err)
+	}
+	if _, err := ownerStore.RegisterOwner(101, 9001, "owner", "Owner", "", true); err != nil {
+		t.Fatalf("RegisterOwner(): %v", err)
+	}
+
+	locator := relaysession.NewTelegramSessionLocator(9001, topicID)
+	sessionManager := newRelaySessionManagerWithSession(t, locator, newRelayTopicSession(t, locator.SessionID))
+	turnDispatcher := &fakeTurnDispatcher{}
+	handler := &RelayHandler{
+		ownerStore:     ownerStore,
+		channel:        newRelayTestTelegramAdapter(),
+		sessionManager: sessionManager,
+		turnDispatcher: turnDispatcher,
+		logger:         zerolog.Nop(),
+		authorizer:     &fakeRelayAuthorizer{ownerID: 101},
+	}
+	handler.SetOwner(101, 9001)
+	setUnexportedField(t, handler, "rootAgentName", "alpha")
+	handler.botUsername = "testbot"
+
+	return handler, turnDispatcher, locator
+}
+
+func newRelaySessionManagerWithSession(t *testing.T, locator relaysession.SessionLocator, ts *relaysession.TopicSession) *relaysession.Manager {
+	t.Helper()
+
+	m := &relaysession.Manager{}
+	setUnexportedField(t, m, "sessions", map[string]*relaysession.TopicSession{locator.SessionID: ts})
+	return m
+}
+
+func newRelayTopicSession(t *testing.T, sessionID string) *relaysession.TopicSession {
+	t.Helper()
+
+	ts := &relaysession.TopicSession{}
+	setUnexportedField(t, ts, "sessionID", sessionID)
+	return ts
+}
+
+func setUnexportedField[T any](t *testing.T, target any, fieldName string, value T) {
+	t.Helper()
+
+	rv := reflect.ValueOf(target).Elem().FieldByName(fieldName)
+	reflect.NewAt(rv.Type(), unsafe.Pointer(rv.UnsafeAddr())).Elem().Set(reflect.ValueOf(value))
 }
