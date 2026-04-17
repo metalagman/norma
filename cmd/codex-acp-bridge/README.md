@@ -1,6 +1,6 @@
 # codex-acp-bridge
 
-`codex-acp-bridge` runs `codex mcp-server` and exposes it as an ACP agent over stdio.
+`codex-acp-bridge` runs `codex app-server` and exposes it as an ACP agent over stdio.
 
 ## Installation
 
@@ -33,31 +33,29 @@ codex-acp-bridge --debug
 
 ## Flags
 
-- `--name`: ACP agent name override (default: MCP server name from `codex mcp-server` initialize metadata).
-- `--codex-model`: model for MCP `codex` tool calls.
-- `--codex-sandbox`: sandbox for MCP `codex` tool calls (`read-only|workspace-write|danger-full-access`).
-- `--codex-approval-policy`: approval policy for MCP `codex` tool calls (`untrusted|on-failure|on-request|never`).
-- `--codex-profile`: profile for MCP `codex` tool calls.
-- `--codex-base-instructions`: base instructions for MCP `codex` tool calls.
-- `--codex-developer-instructions`: developer instructions for MCP `codex` tool calls.
-- `--codex-compact-prompt`: compact prompt for MCP `codex` tool calls.
-- `--codex-config`: JSON object for MCP `codex` tool `config` field.
+- `--name`: ACP agent name override (default: `norma-codex-acp-bridge`).
+- `--codex-model`: app-server model override.
+- `--codex-sandbox`: app-server sandbox override (`read-only|workspace-write|danger-full-access`).
+- `--codex-approval-policy`: app-server approval policy override (`untrusted|on-failure|on-request|never`).
+- `--codex-profile`: codex config profile override.
+- `--codex-base-instructions`: codex base instructions override.
+- `--codex-developer-instructions`: codex developer instructions override.
+- `--codex-compact-prompt`: codex config `compact_prompt` override.
+- `--codex-config`: codex app-server config JSON object.
 - `--debug`: enable debug logs.
 
 ## Behavior
 
-- Validates that Codex MCP tools `codex` and `codex-reply` are available.
-- Creates separate backend Codex MCP sessions per ACP session.
-- Supports ACP `session/set_model` and propagates the selected model to new Codex tool calls.
-- Accepts ACP `session/set_mode` and resets backend session/thread state, but does not propagate mode to Codex MCP tool arguments.
-- Supports per-session MCP servers via ACP `session/new` `mcpServers` parameter (stdio and http transports). SSE transport is not supported, and each server entry must declare exactly one transport.
-- For ACP `initialize.agentInfo`, forwards MCP `serverInfo.name` and `serverInfo.version` by default; `--name` overrides only the name.
+- Creates separate backend app-server sessions per ACP session.
+- Supports ACP `session/set_model` and `session/set_mode`.
+- Supports per-session MCP servers via ACP `session/new` `mcpServers` parameter (stdio and http transports only; `sse` is rejected).
+- Preserves bridge command identity while using app-server runtime semantics.
 
 ## MCP Servers
 
-The bridge supports passing MCP servers to the Codex tool via the ACP `session/new` request. On the first turn of a session (no thread ID), any MCP servers provided in the `mcpServers` parameter are translated into Codex config values under `config.mcp_servers`.
+The bridge supports passing MCP servers to Codex via ACP `session/new`. On thread start, any MCP servers provided in `mcpServers` are translated into Codex config values under `config.mcp_servers`.
 
-Example ACP session/new request with MCP servers:
+Example ACP `session/new` request with MCP servers:
 
 ```json
 {

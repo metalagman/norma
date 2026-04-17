@@ -184,7 +184,7 @@ Notes:
 - V1 is text-first: normal text responses are rendered in the terminal, while richer ACP events are mainly for debugging via `--debug-events`.
 
 ### 7. Codex ACP Proxy
-Use the tool command to expose `codex mcp-server` as ACP over stdio.
+Use the tool command to expose `codex app-server` as ACP over stdio.
 
 ```bash
 # Start bridge with default ACP agent name
@@ -193,13 +193,13 @@ norma tool codex-acp-bridge
 # Override ACP agent name
 norma tool codex-acp-bridge --name team-codex
 
-# Set Codex MCP `codex` tool config arguments
+# Set Codex app-server config overrides
 norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-write
 ```
 
 Notes:
 - `--name` sets ACP `initialize.agentInfo.name`.
-- `--codex-*` flags configure the initial MCP `codex` tool call.
+- `--codex-*` flags configure app-server thread/start defaults and config overrides.
 - Full reference: [docs/codex-acp-bridge.md](docs/codex-acp-bridge.md).
 - Standalone binary is also available as `codex-acp-bridge`.
 
