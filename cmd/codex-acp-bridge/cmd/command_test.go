@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	codexacpappserver "github.com/normahq/norma/internal/apps/codexacpappserver"
+	codexacpbridge "github.com/normahq/norma/internal/apps/codexacpbridge"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -26,7 +26,7 @@ func TestCommandUsesBridgeComponentLogger(t *testing.T) {
 	initLogging = func(...logging.OptOptionsSetter) error {
 		return nil
 	}
-	runProxy = func(ctx context.Context, _ string, _ codexacpappserver.Options, _ io.Reader, _, _ io.Writer) error {
+	runProxy = func(ctx context.Context, _ string, _ codexacpbridge.Options, _ io.Reader, _, _ io.Writer) error {
 		logging.Ctx(ctx).Info().Msg("probe")
 		return nil
 	}

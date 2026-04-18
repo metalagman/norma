@@ -275,7 +275,7 @@ func (a *codexACPProxyAgent) Prompt(ctx context.Context, params acp.PromptReques
 			return acp.PromptResponse{}, promptCtx.Err()
 		case event, ok := <-backend.Events():
 			if !ok {
-				return acp.PromptResponse{}, errors.New("app-server event stream closed")
+				return acp.PromptResponse{}, errors.New("bridge backend event stream closed")
 			}
 			if event.Request != nil {
 				if err := a.handleServerRequest(promptCtx, params.SessionId, event.Request); err != nil {
@@ -357,7 +357,7 @@ func (a *codexACPProxyAgent) ensureSessionBackend(ctx context.Context, sessionID
 
 	backend, err := a.sessionFactory(ctx, sessionCWD)
 	if err != nil {
-		return fmt.Errorf("create app-server backend: %w", err)
+		return fmt.Errorf("create bridge backend backend: %w", err)
 	}
 
 	a.mu.Lock()

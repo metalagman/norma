@@ -1,15 +1,17 @@
-# Codex ACP (App-Server) JSON API Spec
+# Codex ACP (Bridge Backend) JSON API Spec
 
 Status: draft  
 Date: 2026-04-12  
-Audience: `codex-acp-app-server` adapter maintainers
+Audience: `codex-acp-bridge` adapter maintainers
 
 ## Source of truth
 
-This spec is derived from `codex app-server` JSON schema output only.
+This document is code-first for Norma behavior:
+- backend schema shape comes from `codex backend` JSON schema output.
+- adapter projection semantics come from `internal/apps/codexacpbridge` implementation and tests.
 
 ```bash
-codex app-server generate-json-schema --experimental --out /tmp/codex-app-schema-docspec
+codex backend generate-json-schema --experimental --out /tmp/codex-app-schema-docspec
 ```
 
 Primary files:
@@ -17,7 +19,7 @@ Primary files:
 - `/tmp/codex-app-schema-docspec/ServerRequest.json`
 - `/tmp/codex-app-schema-docspec/*Response.json`
 
-This document intentionally does not inspect app-server source code.
+This document does not require backend source internals; it documents observable backend schema plus current Norma adapter behavior.
 
 ## API surface summary
 
@@ -31,13 +33,13 @@ This document intentionally does not inspect app-server source code.
 - Correlate every streaming/update event by `(threadId, turnId, itemId)` when present.
 - Correlate every server request lifecycle by `(threadId, requestId)`.
 - Preserve streaming text exactly as received.
-- Preserve command output bytes exactly as received.
+- Preserve `item/*/outputDelta` text exactly as received when forwarding ACP tool call updates.
 - Do not trim, collapse, or normalize whitespace in message deltas or completed text.
 - Treat `item/completed` payload as authoritative final state for that item.
 
 ## ACP projection (normative)
 
-The adapter should project Codex app-server events into ACP session semantics as follows.
+The adapter should project Codex backend events into ACP session semantics as follows.
 
 ### Core notification mapping
 
@@ -50,7 +52,7 @@ The adapter should project Codex app-server events into ACP session semantics as
 | `item/agentMessage/delta` | `threadId,turnId,itemId,delta` | `session/update.agent_message_chunk` | Append delta byte-for-byte. |
 | `item/plan/delta` | `threadId,turnId,itemId,delta` | `session/update.agent_thought_chunk` or plan channel | Mark as experimental. |
 | `item/reasoning/textDelta` | `threadId,turnId,itemId,contentIndex,delta` | `session/update.agent_thought_chunk` | Preserve index ordering. |
-| `item/reasoning/summaryPartAdded` | `threadId,turnId,itemId,summaryIndex` | reasoning summary state update | Create bucket for `summaryIndex`. |
+| `item/reasoning/summaryPartAdded` | `threadId,turnId,itemId,summaryIndex` | `session/update.agent_thought_chunk` | Emits a summary progress thought string (no separate summary bucket state). |
 | `item/reasoning/summaryTextDelta` | `threadId,turnId,itemId,summaryIndex,delta` | `session/update.agent_thought_chunk` | Append by summary index. |
 | `item/commandExecution/outputDelta` | `threadId,turnId,itemId,delta` | `session/update.tool_call_update` | Text output chunk for command item. |
 | `item/fileChange/outputDelta` | `threadId,turnId,itemId,delta` | `session/update.tool_call_update` | Streaming patch preview/update. |
@@ -58,7 +60,7 @@ The adapter should project Codex app-server events into ACP session semantics as
 | `item/completed` | `threadId,turnId,item` | item lifecycle completed | Finalize item state by `item.type`. |
 | `turn/plan/updated` | `threadId,turnId,plan` | plan snapshot update | Snapshot; do not assume continuity with deltas. |
 | `turn/diff/updated` | `threadId,turnId,diff` | diff snapshot update | Unified diff at turn scope. |
-| `thread/tokenUsage/updated` | `threadId,turnId,tokenUsage` | usage update | Forward `last`, `total`, `modelContextWindow`. |
+| `thread/tokenUsage/updated` | `threadId,turnId,tokenUsage` | usage update | Forwards `tokenUsage.last.{inputTokens,outputTokens,totalTokens,cachedInputTokens}` into ACP meta usage (`cachedInputTokens` -> `cachedReadTokens`). |
 | `error` | `threadId,turnId,error,willRetry` | error event | If `willRetry=false`, finalize turn as failed/interrupted. |
 | `turn/completed` | `threadId,turn` | turn completed | Terminal per-turn signal. |
 | `serverRequest/resolved` | `threadId,requestId` | request lifecycle ack | Clear pending request state. |
@@ -68,6 +70,7 @@ The adapter should project Codex app-server events into ACP session semantics as
 `command/exec/outputDelta` and `item/commandExecution/outputDelta` are different channels and must not be merged blindly.
 
 - `command/exec/outputDelta`: connection-scoped raw process stream with `deltaBase64`, `processId`, `stream`, `capReached`.
+  - Current adapter behavior: emits an ACP thought summary containing process/stream/size/cap metadata; it does not forward raw decoded bytes into ACP content fields.
 - `item/commandExecution/outputDelta`: turn/item-scoped text stream keyed by `itemId`.
 
 ### Server request mapping
@@ -94,7 +97,7 @@ Decision values used by approval responses include:
 
 ### Partial forwarding behavior (implemented)
 
-For request types without a native ACP equivalent, the adapter uses ACP `session/request_permission` to collect a user decision, then returns schema-valid app-server responses:
+For request types without a native ACP equivalent, the adapter uses ACP `session/request_permission` to collect a user decision, then returns schema-valid backend responses:
 
 - `item/tool/call`: returns `DynamicToolCallResponse` with `success=false` and explanatory `contentItems`.
 - `item/tool/requestUserInput`: maps chosen option labels into `answers[question_id].answers[]`.
@@ -266,4 +269,4 @@ mcpServer/elicitation/request
 
 ## Implementation status (current)
 
-- `internal/apps/codexacpappserver` currently maps all methods listed in this schema inventory (`51` notifications, `9` server requests).
+- `internal/apps/codexacpbridge` currently maps all methods listed in this schema inventory (`51` notifications, `9` server requests).

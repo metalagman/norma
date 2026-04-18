@@ -186,6 +186,9 @@ func TestBuildRelaySystemInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 			t.Fatalf("buildRelaySystemInstruction() missing snippet %q in output:\n%s", snippet, got)
 		}
 	}
+	if strings.Contains(got, "ask one short clarifying question") {
+		t.Fatalf("buildRelaySystemInstruction() unexpectedly included clarification mandate:\n%s", got)
+	}
 }
 
 func TestBuildRelaySystemInstruction_IncludesDirectModeSettingsWhenWorkspaceDisabled(t *testing.T) {

@@ -8,6 +8,9 @@ runtime:
       type: opencode_acp
       opencode_acp:
         model: opencode/big-pickle
+        extra_args:
+            - --print-logs
+            - --log-level=DEBUG
     codex_acp_agent:
       type: codex_acp
       codex_acp:

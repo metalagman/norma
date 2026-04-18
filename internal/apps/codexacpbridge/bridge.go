@@ -12,15 +12,15 @@ import (
 	"github.com/normahq/norma/internal/logging"
 )
 
-// DefaultAgentName is the fallback ACP agent name used when app-server identity is unavailable.
-const DefaultAgentName = "norma-codex-acp-app-server"
+// DefaultAgentName is the fallback ACP agent name used when backend identity is unavailable.
+const DefaultAgentName = "norma-codex-acp-bridge"
 
-// DefaultAgentVersion is the fallback ACP agent version used when app-server identity is unavailable.
+// DefaultAgentVersion is the fallback ACP agent version used when backend identity is unavailable.
 const DefaultAgentVersion = "dev"
 
 type appServerBackendFactory func(ctx context.Context, cwd string) (appServerSession, error)
 
-// RunProxy starts a Codex app-server and exposes it as an ACP agent over stdio.
+// RunProxy starts the Codex backend and exposes it as an ACP agent over stdio.
 func RunProxy(ctx context.Context, workingDir string, opts Options, stdin io.Reader, stdout, stderr io.Writer) error {
 	if stdin == nil {
 		return errors.New("stdin is required")
@@ -57,7 +57,7 @@ func RunProxy(ctx context.Context, workingDir string, opts Options, stdin io.Rea
 	}
 	identity, err := validateAppServerFactory(ctx, sessionFactory, workingDir)
 	if err != nil {
-		logger.Error().Err(err).Msg("codex app-server initialization failed")
+		logger.Error().Err(err).Msg("codex backend initialization failed")
 		return err
 	}
 	agentName, agentVersion := resolveAgentIdentity(requestedAgentName, identity)

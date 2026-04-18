@@ -60,6 +60,158 @@ func TestBuildThreadStartParamsIncludesConfigAndMCPServers(t *testing.T) {
 	}
 }
 
+func TestSessionModeIsStoredButNotForwardedToBackendPayloads(t *testing.T) {
+	session := newFakeAppServerSession("codex_test/1.0.0", "thr-1", "turn-1")
+	queueNotification(session, "turn/completed", map[string]any{
+		"threadId": "thr-1",
+		"turnId":   "turn-1",
+		"turn": map[string]any{
+			"id":     "turn-1",
+			"status": "completed",
+		},
+	})
+
+	conn := &fakeACPAppConnection{}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(func(context.Context, string) (appServerSession, error) {
+		return session, nil
+	}, "agent", codexAppConfig{Model: "gpt-5.4"}, &l)
+	agent.setConnection(conn)
+
+	newResp, err := agent.NewSession(context.Background(), acp.NewSessionRequest{Cwd: "/tmp/work"})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+
+	if _, err := agent.SetSessionMode(context.Background(), acp.SetSessionModeRequest{
+		SessionId: newResp.SessionId,
+		ModeId:    acp.SessionModeId("workspace-write"),
+	}); err != nil {
+		t.Fatalf("SetSessionMode() error = %v", err)
+	}
+
+	if _, err := agent.SetSessionModel(context.Background(), acp.SetSessionModelRequest{
+		SessionId: newResp.SessionId,
+		ModelId:   acp.ModelId("gpt-5.5"),
+	}); err != nil {
+		t.Fatalf("SetSessionModel() error = %v", err)
+	}
+
+	if _, err := agent.Prompt(context.Background(), acp.PromptRequest{
+		SessionId: newResp.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock("hello")},
+	}); err != nil {
+		t.Fatalf("Prompt() error = %v", err)
+	}
+
+	threadStartParams := session.threadStartParamsSnapshot()
+	if len(threadStartParams) != 1 {
+		t.Fatalf("thread/start calls = %d, want 1", len(threadStartParams))
+	}
+	if got := stringValue(threadStartParams[0], "cwd"); got != "/tmp/work" {
+		t.Fatalf("thread/start cwd = %q, want %q", got, "/tmp/work")
+	}
+	if _, ok := threadStartParams[0]["mode"]; ok {
+		t.Fatalf("thread/start params unexpectedly include mode: %#v", threadStartParams[0])
+	}
+
+	turnStartParams := session.turnStartParamsSnapshot()
+	if len(turnStartParams) != 1 {
+		t.Fatalf("turn/start calls = %d, want 1", len(turnStartParams))
+	}
+	if got := stringValue(turnStartParams[0], "model"); got != "gpt-5.5" {
+		t.Fatalf("turn/start model = %q, want %q", got, "gpt-5.5")
+	}
+	if _, ok := turnStartParams[0]["mode"]; ok {
+		t.Fatalf("turn/start params unexpectedly include mode: %#v", turnStartParams[0])
+	}
+}
+
+func TestHandleNotificationCommandExecOutputDeltaUsesSummaryThought(t *testing.T) {
+	sessionID := acp.SessionId("s1")
+	conn := &fakeACPAppConnection{}
+	l := zerolog.Nop()
+	agent := newCodexACPProxyAgent(func(context.Context, string) (appServerSession, error) {
+		return nil, errors.New("not used")
+	}, "agent", codexAppConfig{}, &l)
+	agent.setConnection(conn)
+	agent.sessions[sessionID] = &codexProxySessionState{
+		threadID: "thr-1",
+		turnID:   "turn-1",
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"threadId":    "thr-1",
+		"turnId":      "turn-1",
+		"processId":   "proc-1",
+		"stream":      "stdout",
+		"deltaBase64": "QUJDRA==",
+		"capReached":  false,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	done, stopReason, usage, err := agent.handleNotification(context.Background(), sessionID, "thr-1", "turn-1", &appServerNotification{
+		Method: "command/exec/outputDelta",
+		Params: raw,
+	})
+	if err != nil {
+		t.Fatalf("handleNotification() error = %v", err)
+	}
+	if done {
+		t.Fatalf("handleNotification() done = %v, want false", done)
+	}
+	if stopReason != "" {
+		t.Fatalf("handleNotification() stopReason = %q, want empty", stopReason)
+	}
+	if usage != nil {
+		t.Fatalf("handleNotification() usage = %#v, want nil", usage)
+	}
+
+	updates := conn.sessionUpdates(sessionID)
+	if !containsThoughtSubstring(updates, "command/exec output: process=proc-1 stream=stdout bytes(base64)=8 capReached=false.") {
+		t.Fatalf("missing command/exec summary thought: %#v", updates)
+	}
+	if containsThoughtSubstring(updates, "QUJDRA==") {
+		t.Fatalf("unexpected raw delta payload in thought update: %#v", updates)
+	}
+}
+
+func TestUsageFromTokenNotificationUsesLastFieldsOnly(t *testing.T) {
+	usage := usageFromTokenNotification(map[string]any{
+		"tokenUsage": map[string]any{
+			"last": map[string]any{
+				"inputTokens":       10,
+				"outputTokens":      2,
+				"totalTokens":       12,
+				"cachedInputTokens": 4,
+			},
+			"total": map[string]any{
+				"inputTokens": 999,
+			},
+			"modelContextWindow": 200000,
+		},
+	})
+	if usage == nil {
+		t.Fatal("usage = nil, want non-nil")
+	}
+	if got := usage["inputTokens"]; got != 10 {
+		t.Fatalf("usage.inputTokens = %#v, want %d", got, 10)
+	}
+	if got := usage["outputTokens"]; got != 2 {
+		t.Fatalf("usage.outputTokens = %#v, want %d", got, 2)
+	}
+	if got := usage["totalTokens"]; got != 12 {
+		t.Fatalf("usage.totalTokens = %#v, want %d", got, 12)
+	}
+	if got := usage["cachedReadTokens"]; got != 4 {
+		t.Fatalf("usage.cachedReadTokens = %#v, want %d", got, 4)
+	}
+	if _, ok := usage["modelContextWindow"]; ok {
+		t.Fatalf("usage unexpectedly includes modelContextWindow: %#v", usage)
+	}
+}
+
 func TestResolveAgentIdentityFromUserAgent(t *testing.T) {
 	name, version := resolveAgentIdentity("", parseAppServerIdentity("codex_vscode/0.1.0 (darwin)"))
 	if name != "codex_vscode" {
@@ -472,7 +624,7 @@ func TestPromptMapsExtendedNotifications(t *testing.T) {
 		"sessionId": "fuzzy-1",
 		"query":     "agent",
 		"files": []any{
-			map[string]any{"path": "internal/apps/codexacpappserver/agent.go", "score": 0.9},
+			map[string]any{"path": "internal/apps/codexacpbridge/agent.go", "score": 0.9},
 		},
 	})
 	queueNotification(session, "fuzzyFileSearch/sessionCompleted", map[string]any{
@@ -1260,6 +1412,22 @@ func (f *fakeAppServerSession) responsesSnapshot() []map[string]any {
 	defer f.mu.Unlock()
 	out := make([]map[string]any, len(f.responses))
 	copy(out, f.responses)
+	return out
+}
+
+func (f *fakeAppServerSession) threadStartParamsSnapshot() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]map[string]any, len(f.threadStartParams))
+	copy(out, f.threadStartParams)
+	return out
+}
+
+func (f *fakeAppServerSession) turnStartParamsSnapshot() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]map[string]any, len(f.turnStartParams))
+	copy(out, f.turnStartParams)
 	return out
 }
 

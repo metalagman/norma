@@ -166,6 +166,7 @@ Relay lazy-restores a topic session on first message after restart when metadata
 ## Message Flow
 
 1. User sends Telegram message.
+   - In non-DM chats (groups/supergroups/topics), relay processes the message only when it starts with `@<bot_username>` or it is a reply to this bot's message.
 2. Relay resolves session by `(chat_id, topic_id)`.
 3. If topic session is missing in memory, relay attempts lazy restore from persisted metadata.
 4. Relay calls ADK runner for that session.

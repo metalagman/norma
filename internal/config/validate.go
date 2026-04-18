@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 var configValidator = newConfigValidator()
@@ -22,11 +21,6 @@ func newConfigValidator() *validator.Validate {
 		return name
 	})
 	return v
-}
-
-// ValidateSettings validates raw config settings against the Config struct tags and custom logic.
-func ValidateSettings(settings map[string]any) error {
-	return appconfig.ValidateSettings(settings)
 }
 
 // Validate validates the configuration.

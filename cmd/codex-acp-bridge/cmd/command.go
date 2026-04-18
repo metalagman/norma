@@ -6,27 +6,27 @@ import (
 	"os"
 	"strings"
 
-	codexacpappserver "github.com/normahq/norma/internal/apps/codexacpappserver"
+	codexacpbridge "github.com/normahq/norma/internal/apps/codexacpbridge"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 var (
-	runProxy    = codexacpappserver.RunProxy
+	runProxy    = codexacpbridge.RunProxy
 	initLogging = logging.Init
 )
 
 const bridgeDefaultAgentName = "norma-codex-acp-bridge"
 
 func Command() *cobra.Command {
-	opts := codexacpappserver.Options{}
+	opts := codexacpbridge.Options{}
 	var codexConfigJSON string
 	var debugLogs bool
 
 	cmd := &cobra.Command{
 		Use:          "codex-acp-bridge [flags]",
-		Short:        "Expose Codex app-server as ACP over stdio",
+		Short:        "Expose Codex bridge backend as ACP over stdio",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -59,16 +59,16 @@ func Command() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed via initialize (defaults to norma-codex-acp-bridge)")
-	cmd.Flags().StringVar(&opts.CodexModel, "codex-model", "", "Codex app-server model override")
-	cmd.Flags().StringVar(&opts.CodexSandbox, "codex-sandbox", "", "Codex app-server sandbox mode (read-only|workspace-write|danger-full-access)")
-	cmd.Flags().StringVar(&opts.CodexApprovalPolicy, "codex-approval-policy", "", "Codex app-server approval policy (untrusted|on-failure|on-request|never)")
+	cmd.Flags().StringVar(&opts.CodexModel, "codex-model", "", "Codex backend model override")
+	cmd.Flags().StringVar(&opts.CodexSandbox, "codex-sandbox", "", "Codex backend sandbox mode (read-only|workspace-write|danger-full-access)")
+	cmd.Flags().StringVar(&opts.CodexApprovalPolicy, "codex-approval-policy", "", "Codex backend approval policy (untrusted|on-failure|on-request|never)")
 	cmd.Flags().StringVar(&opts.CodexProfile, "codex-profile", "", "Codex config profile override")
 	cmd.Flags().StringVar(&opts.CodexBaseInstructions, "codex-base-instructions", "", "Codex base instructions override")
 	cmd.Flags().StringVar(&opts.CodexDeveloperInstructions, "codex-developer-instructions", "", "Codex developer instructions override")
 	cmd.Flags().StringVar(&opts.CodexCompactPrompt, "codex-compact-prompt", "", "Codex config compact_prompt override")
-	cmd.Flags().StringVar(&codexConfigJSON, "codex-config", "", "Codex app-server config JSON object")
+	cmd.Flags().StringVar(&codexConfigJSON, "codex-config", "", "Codex backend config JSON object")
 	cmd.Flags().BoolVar(&debugLogs, "debug", false, "enable debug logging")
-	cmd.Long = "Run Codex app-server and expose it as an ACP agent over stdio. Use --codex-* flags to configure thread/start defaults and config overrides."
+	cmd.Long = "Run the Codex bridge backend and expose it as an ACP agent over stdio. Use --codex-* flags to configure thread/start defaults and config overrides."
 	//nolint:dupword
 	cmd.Example = `  codex-acp-bridge
   codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-write

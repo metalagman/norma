@@ -65,6 +65,7 @@ type RelayHandler struct {
 	ownerID     int64
 	chatID      int64
 	botUsername string
+	botUserID   int64
 }
 
 type runtimeConfigLoader interface {
@@ -218,19 +219,17 @@ func (h *RelayHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		return nil
 	}
 
-	text := messageCtx.Text
-	if text == "" {
-		return nil
-	}
 	topicID := messageCtx.TopicID
-
-	if !messageCtx.IsDM && topicID == 0 && h.botUsername != "" {
-		mentionPrefix := "@" + h.botUsername
-		if !hasBotMentionPrefix(text, mentionPrefix) {
+	text := messageCtx.Text
+	if !messageCtx.IsDM {
+		var ok bool
+		text, ok = h.normalizePublicText(messageCtx)
+		if !ok {
 			return nil
 		}
-		text = strings.TrimPrefix(text, mentionPrefix)
-		text = strings.TrimPrefix(text, " ")
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil
 	}
 
 	locator := messageCtx.Locator
@@ -610,27 +609,32 @@ func (h *RelayHandler) initializeBotUsername(ctx context.Context) {
 		h.logger.Warn().Err(err).Msg("getMe failed; bot username unavailable")
 		return
 	}
-	if meResp.JSON200 == nil || meResp.JSON200.Result.Username == nil {
-		h.logger.Warn().Str("status", meResp.Status()).Msg("getMe response missing username")
+	if meResp.JSON200 == nil {
+		h.logger.Warn().Str("status", meResp.Status()).Msg("getMe response missing result")
 		return
 	}
+	botUserID := meResp.JSON200.Result.Id
 
-	username := strings.TrimSpace(*meResp.JSON200.Result.Username)
-	if username == "" {
-		h.logger.Warn().Msg("getMe returned empty username")
-		return
+	username := ""
+	if meResp.JSON200.Result.Username != nil {
+		username = strings.TrimSpace(*meResp.JSON200.Result.Username)
 	}
 
 	h.mu.Lock()
+	h.botUserID = botUserID
 	h.botUsername = username
 	h.mu.Unlock()
+	if username == "" {
+		h.logger.Warn().Int64("bot_user_id", botUserID).Msg("getMe returned empty username")
+		return
+	}
 
 	if h.authToken != "" {
 		deeplink := fmt.Sprintf("https://t.me/%s?start=%s", username, h.authToken)
-		h.logger.Info().Str("bot_username", username).Str("start_deeplink", deeplink).Msg("relay start deeplink ready")
+		h.logger.Info().Int64("bot_user_id", botUserID).Str("bot_username", username).Str("start_deeplink", deeplink).Msg("relay start deeplink ready")
 		return
 	}
-	h.logger.Info().Str("bot_username", username).Msg("relay bot username loaded")
+	h.logger.Info().Int64("bot_user_id", botUserID).Str("bot_username", username).Msg("relay bot identity loaded")
 }
 
 func (h *RelayHandler) getRootAgentName() string {
@@ -666,6 +670,35 @@ func locatorChatID(locator relaysession.SessionLocator) int64 {
 		return 0
 	}
 	return address.ChatID
+}
+
+func (h *RelayHandler) normalizePublicText(messageCtx relaytelegram.MessageContext) (string, bool) {
+	botUserID, botUsername := h.getBotIdentity()
+
+	if botUsername != "" {
+		mentionPrefix := "@" + botUsername
+		if hasBotMentionPrefix(messageCtx.Text, mentionPrefix) {
+			text := strings.TrimPrefix(messageCtx.Text, mentionPrefix)
+			text = strings.TrimLeftFunc(text, unicode.IsSpace)
+			return text, strings.TrimSpace(text) != ""
+		}
+	}
+
+	if !messageCtx.IsReply || !messageCtx.ReplyToIsBot || botUserID == 0 {
+		return "", false
+	}
+
+	if messageCtx.ReplyToUserID != botUserID {
+		return "", false
+	}
+
+	return messageCtx.Text, true
+}
+
+func (h *RelayHandler) getBotIdentity() (int64, string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.botUserID, h.botUsername
 }
 
 func hasBotMentionPrefix(text, mentionPrefix string) bool {

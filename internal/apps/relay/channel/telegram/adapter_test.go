@@ -101,6 +101,65 @@ func TestMessageContextFromEvent_PrivateTopicPreservesMessageThreadID(t *testing
 	}
 }
 
+func TestMessageContextFromEvent_PopulatesReplyMetadataWhenPresent(t *testing.T) {
+	got, ok := (&Adapter{}).MessageContextFromEvent(&events.MessageEvent{
+		Message: &client.Message{
+			MessageId: 41,
+			Chat: client.Chat{
+				Id:   -1009001,
+				Type: "supergroup",
+			},
+			From: &client.User{Id: 101},
+			Text: textPtr(testMessageText),
+			ReplyToMessage: &client.Message{
+				MessageId: 7,
+				From: &client.User{
+					Id:    404,
+					IsBot: true,
+				},
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("MessageContextFromEvent() ok = false, want true")
+	}
+	if !got.IsReply {
+		t.Fatalf("is_reply = %v, want true", got.IsReply)
+	}
+	if got.ReplyToUserID != 404 {
+		t.Fatalf("reply_to_user_id = %d, want 404", got.ReplyToUserID)
+	}
+	if !got.ReplyToIsBot {
+		t.Fatalf("reply_to_is_bot = %v, want true", got.ReplyToIsBot)
+	}
+}
+
+func TestMessageContextFromEvent_ReplyMetadataEmptyWithoutReply(t *testing.T) {
+	got, ok := (&Adapter{}).MessageContextFromEvent(&events.MessageEvent{
+		Message: &client.Message{
+			MessageId: 42,
+			Chat: client.Chat{
+				Id:   -1009001,
+				Type: "supergroup",
+			},
+			From: &client.User{Id: 101},
+			Text: textPtr(testMessageText),
+		},
+	})
+	if !ok {
+		t.Fatal("MessageContextFromEvent() ok = false, want true")
+	}
+	if got.IsReply {
+		t.Fatalf("is_reply = %v, want false", got.IsReply)
+	}
+	if got.ReplyToUserID != 0 {
+		t.Fatalf("reply_to_user_id = %d, want 0", got.ReplyToUserID)
+	}
+	if got.ReplyToIsBot {
+		t.Fatalf("reply_to_is_bot = %v, want false", got.ReplyToIsBot)
+	}
+}
+
 func TestCommandContextFromEvent_PrivateChatIgnoresMessageThreadID(t *testing.T) {
 	topicID := 523431
 	isTopicMessage := false

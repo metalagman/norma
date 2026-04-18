@@ -13,6 +13,8 @@ import (
 	"go.uber.org/fx"
 )
 
+const chatTypePrivate = "private"
+
 // Adapter maps Telegram runtime events and operations to relay session locators.
 type Adapter struct {
 	messenger *messenger.Messenger
@@ -27,6 +29,9 @@ type MessageContext struct {
 	TopicID            int
 	MessageID          int
 	UserID             int64
+	IsReply            bool
+	ReplyToUserID      int64
+	ReplyToIsBot       bool
 	Text               string
 	HasCommand         bool
 	AllowProgressHints bool
@@ -88,6 +93,13 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 	if event.Message.Text != nil {
 		text = *event.Message.Text
 	}
+	isReply := event.Message.ReplyToMessage != nil
+	replyToUserID := int64(0)
+	replyToIsBot := false
+	if event.Message.ReplyToMessage != nil && event.Message.ReplyToMessage.From != nil {
+		replyToUserID = event.Message.ReplyToMessage.From.Id
+		replyToIsBot = event.Message.ReplyToMessage.From.IsBot
+	}
 
 	return MessageContext{
 		Locator:            relaysession.NewTelegramSessionLocator(event.Message.Chat.Id, topicID),
@@ -95,10 +107,13 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 		TopicID:            topicID,
 		MessageID:          event.Message.MessageId,
 		UserID:             event.Message.From.Id,
+		IsReply:            isReply,
+		ReplyToUserID:      replyToUserID,
+		ReplyToIsBot:       replyToIsBot,
 		Text:               text,
 		HasCommand:         hasCommandEntity(event.Message),
-		AllowProgressHints: event.Message.Chat.Type == "private",
-		IsDM:               event.Message.Chat.Type == "private",
+		AllowProgressHints: event.Message.Chat.Type == chatTypePrivate,
+		IsDM:               event.Message.Chat.Type == chatTypePrivate,
 	}, true
 }
 
@@ -117,7 +132,7 @@ func (a *Adapter) CommandContextFromEvent(event *events.CommandEvent) (CommandCo
 		UserID:  event.Message.From.Id,
 		Command: event.Command,
 		Args:    event.Args,
-		IsDM:    event.Message.Chat.Type == "private",
+		IsDM:    event.Message.Chat.Type == chatTypePrivate,
 	}, true
 }
 

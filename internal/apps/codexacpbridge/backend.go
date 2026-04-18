@@ -27,7 +27,7 @@ func (e *appServerRPCError) Error() string {
 	if e == nil {
 		return ""
 	}
-	return fmt.Sprintf("app-server rpc error (%d): %s", e.Code, e.Message)
+	return fmt.Sprintf("bridge backend rpc error (%d): %s", e.Code, e.Message)
 }
 
 type appServerEnvelope struct {
@@ -139,21 +139,21 @@ func connectAppServerBackend(
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, fmt.Errorf("app-server stdin pipe: %w", err)
+		return nil, fmt.Errorf("bridge backend stdin pipe: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
-		return nil, fmt.Errorf("app-server stdout pipe: %w", err)
+		return nil, fmt.Errorf("bridge backend stdout pipe: %w", err)
 	}
 	logger.Debug().
 		Str("cwd", cmd.Dir).
 		Str("cmd", command[0]).
 		Strs("args", command[1:]).
-		Msg("starting codex app-server backend")
+		Msg("starting codex bridge backend")
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
-		return nil, fmt.Errorf("start codex app-server: %w", err)
+		return nil, fmt.Errorf("start codex bridge backend: %w", err)
 	}
 
 	backend := &appServerBackend{
@@ -244,7 +244,7 @@ func (b *appServerBackend) initialize(ctx context.Context, clientName string) (a
 	}
 	var resp appServerInitializeResponse
 	if err := b.call(ctx, "initialize", params, &resp); err != nil {
-		return appServerInitializeResponse{}, fmt.Errorf("initialize app-server: %w", err)
+		return appServerInitializeResponse{}, fmt.Errorf("initialize bridge backend: %w", err)
 	}
 	if err := b.sendNotification(ctx, "initialized", nil); err != nil {
 		return appServerInitializeResponse{}, fmt.Errorf("send initialized notification: %w", err)
@@ -275,7 +275,7 @@ func (b *appServerBackend) call(ctx context.Context, method string, params any, 
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-b.done:
-		return errors.New("app-server backend stopped")
+		return errors.New("bridge backend stopped")
 	case resp := <-respCh:
 		if resp.err != nil {
 			return resp.err
@@ -340,7 +340,7 @@ func (b *appServerBackend) sendNotification(ctx context.Context, method string, 
 func (b *appServerBackend) sendJSON(ctx context.Context, payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal app-server payload: %w", err)
+		return fmt.Errorf("marshal bridge backend payload: %w", err)
 	}
 
 	b.writeMu.Lock()
@@ -350,15 +350,15 @@ func (b *appServerBackend) sendJSON(ctx context.Context, payload any) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-b.done:
-		return errors.New("app-server backend stopped")
+		return errors.New("bridge backend stopped")
 	default:
 	}
 
 	if _, err := b.stdin.Write(append(raw, '\n')); err != nil {
-		return fmt.Errorf("write app-server payload: %w", err)
+		return fmt.Errorf("write bridge backend payload: %w", err)
 	}
 	if b.logger.Debug().Enabled() {
-		b.logger.Debug().Str("payload", string(raw)).Msg("app-server send")
+		b.logger.Debug().Str("payload", string(raw)).Msg("bridge backend send")
 	}
 	return nil
 }
@@ -369,14 +369,14 @@ func (b *appServerBackend) readLoop(stdout io.Reader) {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
 			if parseErr := b.handleIncomingLine(line); parseErr != nil {
-				b.logger.Warn().Err(parseErr).Str("line", strings.TrimSpace(string(line))).Msg("invalid app-server message")
+				b.logger.Warn().Err(parseErr).Str("line", strings.TrimSpace(string(line))).Msg("invalid bridge backend message")
 			}
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return
 			}
-			b.logger.Warn().Err(err).Msg("app-server read loop stopped")
+			b.logger.Warn().Err(err).Msg("bridge backend read loop stopped")
 			return
 		}
 	}
@@ -397,7 +397,7 @@ func (b *appServerBackend) handleIncomingLine(line []byte) error {
 			Str("method", env.Method).
 			Str("id", canonicalRequestID(env.ID)).
 			Str("payload", trimmed).
-			Msg("app-server recv")
+			Msg("bridge backend recv")
 	}
 
 	switch {
@@ -447,9 +447,9 @@ func (b *appServerBackend) waitLoop() {
 func (b *appServerBackend) failPending(waitErr error) {
 	b.pendingMu.Lock()
 	defer b.pendingMu.Unlock()
-	backendErr := errors.New("app-server backend stopped")
+	backendErr := errors.New("bridge backend stopped")
 	if waitErr != nil && !errors.Is(waitErr, os.ErrProcessDone) {
-		backendErr = fmt.Errorf("app-server exited: %w", waitErr)
+		backendErr = fmt.Errorf("bridge backend exited: %w", waitErr)
 	}
 	for key, ch := range b.pending {
 		ch <- appServerRPCResponse{err: backendErr}

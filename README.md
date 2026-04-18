@@ -184,24 +184,24 @@ Notes:
 - V1 is text-first: normal text responses are rendered in the terminal, while richer ACP events are mainly for debugging via `--debug-events`.
 
 ### 7. Codex ACP Proxy
-Use the tool command to expose `codex app-server` as ACP over stdio.
+Use the tool command to expose the Codex bridge backend as ACP over stdio.
 
 ```bash
-# Start bridge with default ACP agent name
+# Start proxy with default ACP agent name
 norma tool codex-acp-bridge
 
 # Override ACP agent name
 norma tool codex-acp-bridge --name team-codex
 
-# Set Codex app-server config overrides
+# Set Codex backend config overrides
 norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-write
 ```
 
 Notes:
 - `--name` sets ACP `initialize.agentInfo.name`.
-- `--codex-*` flags configure app-server thread/start defaults and config overrides.
+- `--codex-*` flags configure backend thread/start defaults and config overrides.
 - Full reference: [docs/codex-acp-bridge.md](docs/codex-acp-bridge.md).
-- Standalone binary is also available as `codex-acp-bridge`.
+- Standalone compatibility binary is also available as `codex-acp-bridge`.
 
 ### 8. Generic ACP Inspector (`acp-dump`)
 Inspect any stdio ACP server command without changing Norma config.

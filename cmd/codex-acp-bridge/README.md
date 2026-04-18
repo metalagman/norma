@@ -1,6 +1,6 @@
 # codex-acp-bridge
 
-`codex-acp-bridge` runs `codex app-server` and exposes it as an ACP agent over stdio.
+`codex-acp-bridge` runs the Codex bridge backend and exposes it as an ACP agent over stdio.
 
 ## Installation
 
@@ -34,22 +34,27 @@ codex-acp-bridge --debug
 ## Flags
 
 - `--name`: ACP agent name override (default: `norma-codex-acp-bridge`).
-- `--codex-model`: app-server model override.
-- `--codex-sandbox`: app-server sandbox override (`read-only|workspace-write|danger-full-access`).
-- `--codex-approval-policy`: app-server approval policy override (`untrusted|on-failure|on-request|never`).
+- `--codex-model`: backend model override.
+- `--codex-sandbox`: backend sandbox override (`read-only|workspace-write|danger-full-access`).
+- `--codex-approval-policy`: backend approval policy override (`untrusted|on-failure|on-request|never`).
 - `--codex-profile`: codex config profile override.
 - `--codex-base-instructions`: codex base instructions override.
 - `--codex-developer-instructions`: codex developer instructions override.
 - `--codex-compact-prompt`: codex config `compact_prompt` override.
-- `--codex-config`: codex app-server config JSON object.
+- `--codex-config`: codex backend config JSON object.
 - `--debug`: enable debug logs.
 
 ## Behavior
 
-- Creates separate backend app-server sessions per ACP session.
+- Creates separate backend sessions per ACP session.
+- Working directory precedence for each backend session:
+  - Uses ACP `session/new.params.cwd` when provided.
+  - Falls back to the bridge process working directory when `cwd` is not provided.
 - Supports ACP `session/set_model` and `session/set_mode`.
+  - `session/set_model` is applied to subsequent `turn/start` payloads.
+  - `session/set_mode` is currently stored as ACP-side session state and is not forwarded into backend request payloads.
 - Supports per-session MCP servers via ACP `session/new` `mcpServers` parameter (stdio and http transports only; `sse` is rejected).
-- Preserves bridge command identity while using app-server runtime semantics.
+- Preserves bridge command identity while using backend runtime semantics.
 
 ## MCP Servers
 

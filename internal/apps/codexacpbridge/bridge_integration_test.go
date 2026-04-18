@@ -169,12 +169,12 @@ func findWorkingDir(t *testing.T) string {
 func buildCodexACPBinary(t *testing.T, workingDir string) string {
 	t.Helper()
 
-	binPath := filepath.Join(t.TempDir(), "codex-acp-app-server")
-	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/codex-acp-app-server")
+	binPath := filepath.Join(t.TempDir(), "codex-acp-bridge")
+	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/codex-acp-bridge")
 	cmd.Dir = workingDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("build codex-acp-app-server binary failed: %v | output=%s", err, strings.TrimSpace(string(out)))
+		t.Fatalf("build codex-acp-bridge binary failed: %v | output=%s", err, strings.TrimSpace(string(out)))
 	}
 	return binPath
 }
@@ -192,7 +192,7 @@ func newCodexACPClient(t *testing.T, workingDir, binPath string, args ...string)
 		Stderr:     &stderr,
 	})
 	if err != nil {
-		failWithDetails(t, "start codex-acp-app-server client failed", err, stderr.String())
+		failWithDetails(t, "start codex-acp-bridge client failed", err, stderr.String())
 	}
 	t.Cleanup(func() {
 		_ = client.Close()

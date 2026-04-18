@@ -19,7 +19,7 @@ var (
 	}
 )
 
-// Options configures Codex app-server -> ACP proxy behavior.
+// Options configures Codex bridge backend -> ACP proxy behavior.
 type Options struct {
 	Name string
 

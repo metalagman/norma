@@ -11,9 +11,9 @@ import (
 type relayConfigDocumentForTest struct {
 	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
 	Relay   struct {
-		RootAgent               string            `mapstructure:"root_agent"`
-		AgentSystemInstructions map[string]string `mapstructure:"agent_system_instructions"`
-		Telegram                struct {
+		RootAgent          string `mapstructure:"root_agent"`
+		SystemInstructions string `mapstructure:"system_instructions"`
+		Telegram           struct {
 			Webhook struct {
 				URL       string `mapstructure:"url"`
 				Enabled   bool   `mapstructure:"enabled"`
@@ -98,8 +98,7 @@ profiles:
     relay:
       logger:
         level: debug
-      agent_system_instructions:
-        agent: relay-override
+      system_instructions: relay-override
 `); err != nil {
 		t.Fatalf("write relay config: %v", err)
 	}
@@ -138,8 +137,8 @@ profiles:
 	if got := doc.Relay.Logger.Level; got != "debug" {
 		t.Fatalf("logger.level = %q, want debug", got)
 	}
-	if got := doc.Relay.AgentSystemInstructions["agent"]; got != "relay-override" {
-		t.Fatalf("relay.agent_system_instructions[agent] = %q, want relay-override", got)
+	if got := doc.Relay.SystemInstructions; got != "relay-override" {
+		t.Fatalf("relay.system_instructions = %q, want relay-override", got)
 	}
 }
 
@@ -280,124 +279,6 @@ func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 
 	if _, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir}); err != nil {
 		t.Fatalf("LoadRuntime returned error for extra field: %v", err)
-	}
-}
-
-func TestLoadRuntime_IgnoresLegacyTopLevelRuntimeKeys(t *testing.T) {
-	workingDir := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `providers:
-  legacy_agent:
-    type: generic_acp
-    generic_acp:
-      cmd: ["legacy"]
-mcp_servers:
-  legacy:
-    type: stdio
-    cmd: ["legacy-mcp"]
-runtime:
-  providers:
-    agent:
-      type: generic_acp
-      generic_acp:
-        cmd: ["current"]
-cli:
-  pdca:
-    plan: agent
-    do: agent
-    check: agent
-    act: agent
-`); err != nil {
-		t.Fatalf("write runtime config: %v", err)
-	}
-
-	cfg, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir})
-	if err != nil {
-		t.Fatalf("LoadRuntime returned error: %v", err)
-	}
-	agentCfg := cfg.Runtime.Providers["agent"]
-	if agentCfg.GenericACP == nil || len(agentCfg.GenericACP.Cmd) == 0 {
-		t.Fatalf("agent generic_acp block missing cmd: %#v", agentCfg)
-	}
-	if got := agentCfg.GenericACP.Cmd[0]; got != "current" {
-		t.Fatalf("agent generic_acp.cmd[0] = %q, want current", got)
-	}
-}
-
-func TestLoadRuntime_IgnoresLegacyNormaKeys(t *testing.T) {
-	workingDir := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
-  providers:
-    agent:
-      type: generic_acp
-      generic_acp:
-        cmd: ["current"]
-  mcps:
-    old:
-      type: stdio
-      cmd: ["old"]
-  profiles:
-    old:
-      pdca:
-        plan: old
-  budgets:
-    max_iterations: 1
-  retention:
-    keep_last: 1
-cli:
-  pdca:
-    plan: agent
-    do: agent
-    check: agent
-    act: agent
-`); err != nil {
-		t.Fatalf("write runtime config: %v", err)
-	}
-
-	if _, err := LoadRuntime(RuntimeLoadOptions{WorkingDir: workingDir}); err != nil {
-		t.Fatalf("LoadRuntime returned error: %v", err)
-	}
-}
-
-func TestLoadConfigDocument_IgnoresLegacyKeysInProfileOverride(t *testing.T) {
-	workingDir := t.TempDir()
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
-  providers:
-    agent:
-      type: generic_acp
-      generic_acp:
-        cmd: ["agent"]
-relay:
-  root_agent: from_relay_file
-profiles:
-  default:
-    providers:
-      legacy_agent:
-        type: generic_acp
-        generic_acp:
-          cmd: ["legacy"]
-    pdca:
-      plan: legacy_agent
-    relay:
-      logger:
-        level: debug
-`); err != nil {
-		t.Fatalf("write relay config: %v", err)
-	}
-
-	var doc relayConfigDocumentForTest
-	selectedProfile, err := appconfig.LoadConfigDocument(
-		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: "default"},
-		appconfig.AppLoadOptions{AppName: "relay"},
-		&doc,
-	)
-	if err != nil {
-		t.Fatalf("LoadConfigDocument: %v", err)
-	}
-	if selectedProfile != "default" {
-		t.Fatalf("profile = %q, want default", selectedProfile)
-	}
-	if got := doc.Relay.Logger.Level; got != "debug" {
-		t.Fatalf("logger.level = %q, want debug", got)
 	}
 }
 

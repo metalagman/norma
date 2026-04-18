@@ -208,8 +208,36 @@ func TestRelayHandlerOnMessage_ChannelIgnoresNonMention(t *testing.T) {
 	}
 }
 
-func TestRelayHandlerOnMessage_TopicReplyBypassesMentionGate(t *testing.T) {
-	handler, turns, locator := newRelayMessageHandlerHarness(t, 77)
+func TestRelayHandlerOnMessage_ChannelMentionBypassesGate(t *testing.T) {
+	handler, turns, locator := newRelayMessageHandlerHarness(t, 0)
+
+	text := "@testbot hello world"
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			Text: &text,
+			From: &client.User{Id: 101},
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.enqueueCalls) != 1 {
+		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	}
+	if turns.enqueueCalls[0].SessionID != locator.SessionID {
+		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	}
+}
+
+func TestRelayHandlerOnMessage_TopicIgnoresNonMentionNonReply(t *testing.T) {
+	handler, turns, _ := newRelayMessageHandlerHarness(t, 77)
 
 	text := "hello from the topic"
 	topicID := 77
@@ -230,11 +258,8 @@ func TestRelayHandlerOnMessage_TopicReplyBypassesMentionGate(t *testing.T) {
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
-	}
-	if turns.enqueueCalls[0].SessionID != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	if len(turns.enqueueCalls) != 0 {
+		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
 	}
 }
 
@@ -251,6 +276,92 @@ func TestRelayHandlerOnMessage_RejectsFalsePositiveBotMentionPrefix(t *testing.T
 			},
 			Text: &text,
 			From: &client.User{Id: 101},
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.enqueueCalls) != 0 {
+		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	}
+}
+
+func TestRelayHandlerOnMessage_ChannelReplyToBotBypassesMentionGate(t *testing.T) {
+	handler, turns, locator := newRelayMessageHandlerHarness(t, 0)
+
+	text := "following up in channel"
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			Text:           &text,
+			From:           &client.User{Id: 101},
+			ReplyToMessage: replyToMessageFrom(4242, true),
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.enqueueCalls) != 1 {
+		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	}
+	if turns.enqueueCalls[0].SessionID != locator.SessionID {
+		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	}
+}
+
+func TestRelayHandlerOnMessage_TopicReplyToBotBypassesMentionGate(t *testing.T) {
+	handler, turns, locator := newRelayMessageHandlerHarness(t, 77)
+
+	text := "topic follow up"
+	topicID := 77
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			MessageThreadId: &topicID,
+			Text:            &text,
+			From:            &client.User{Id: 101},
+			ReplyToMessage:  replyToMessageFrom(4242, true),
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.enqueueCalls) != 1 {
+		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	}
+	if turns.enqueueCalls[0].SessionID != locator.SessionID {
+		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	}
+}
+
+func TestRelayHandlerOnMessage_ChannelReplyToDifferentBotIgnored(t *testing.T) {
+	handler, turns, _ := newRelayMessageHandlerHarness(t, 0)
+
+	text := "following up in channel"
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			Text:           &text,
+			From:           &client.User{Id: 101},
+			ReplyToMessage: replyToMessageFrom(9898, true),
 		},
 	}
 
@@ -299,8 +410,19 @@ func newRelayMessageHandlerHarness(t *testing.T, topicID int) (*RelayHandler, *f
 	handler.SetOwner(101, 9001)
 	setUnexportedField(t, handler, "rootAgentName", "alpha")
 	handler.botUsername = "testbot"
+	handler.botUserID = 4242
 
 	return handler, turnDispatcher, locator
+}
+
+func replyToMessageFrom(userID int64, isBot bool) *client.Message {
+	return &client.Message{
+		MessageId: 7,
+		From: &client.User{
+			Id:    userID,
+			IsBot: isBot,
+		},
+	}
 }
 
 func newRelaySessionManagerWithSession(t *testing.T, locator relaysession.SessionLocator, ts *relaysession.TopicSession) *relaysession.Manager {
