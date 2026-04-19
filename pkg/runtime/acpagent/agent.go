@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -452,8 +453,7 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext Extende
 	case update.ToolCallUpdate != nil:
 		return mapACPToolCallUpdate(invocationID, update.ToolCallUpdate)
 	case update.Plan != nil:
-		logIgnoredACPUpdate(logger, "plan", map[string]any{"entries": update.Plan.Entries})
-		return nil, false
+		return mapACPPlanUpdate(logger, invocationID, update.Plan)
 	case update.AvailableCommandsUpdate != nil:
 		logIgnoredACPUpdate(logger, "available_commands_update", map[string]any{
 			"availableCommands": update.AvailableCommandsUpdate.AvailableCommands,
@@ -580,6 +580,32 @@ func mapACPToolCallUpdate(invocationID string, tool *acp.SessionToolCallUpdate) 
 	return ev, true
 }
 
+func mapACPPlanUpdate(logger zerolog.Logger, invocationID string, plan *acp.SessionUpdatePlan) (*session.Event, bool) {
+	if plan == nil || len(plan.Entries) == 0 {
+		return nil, false
+	}
+	entries := make([]map[string]any, 0, len(plan.Entries))
+	for _, entry := range plan.Entries {
+		entries = append(entries, map[string]any{
+			"content":  entry.Content,
+			"status":   entry.Status,
+			"priority": entry.Priority,
+		})
+	}
+	part := &genai.Part{
+		FunctionResponse: &genai.FunctionResponse{
+			ID:   "acp_plan",
+			Name: "acp_plan_update",
+			Response: map[string]any{
+				"entries": entries,
+			},
+		},
+	}
+	ev := session.NewEvent(invocationID)
+	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
+	return ev, true
+}
+
 func mapACPContentBlockToPart(logger zerolog.Logger, block acp.ContentBlock) (*genai.Part, bool) {
 	if block.Text != nil {
 		if block.Text.Text == "" {
@@ -587,8 +613,86 @@ func mapACPContentBlockToPart(logger zerolog.Logger, block acp.ContentBlock) (*g
 		}
 		return genai.NewPartFromText(block.Text.Text), true
 	}
+	if block.Image != nil {
+		part := mapACPImageToPart(block.Image)
+		if part != nil {
+			return part, true
+		}
+	}
+	if block.Audio != nil {
+		part := mapACPAudioToPart(block.Audio)
+		if part != nil {
+			return part, true
+		}
+	}
+	if block.ResourceLink != nil {
+		part := mapACPResourceLinkToPart(block.ResourceLink)
+		if part != nil {
+			return part, true
+		}
+	}
 	logIgnoredACPContentBlock(logger, block)
 	return nil, false
+}
+
+func mapACPImageToPart(img *acp.ContentBlockImage) *genai.Part {
+	if img == nil {
+		return nil
+	}
+	mimeType := "image/jpeg"
+	if img.MimeType != "" {
+		mimeType = img.MimeType
+	}
+	if img.Data != "" {
+		imgBytes, err := decodeBase64(img.Data)
+		if err != nil {
+			return nil
+		}
+		return genai.NewPartFromBytes(imgBytes, mimeType)
+	}
+	if img.Uri != nil && *img.Uri != "" {
+		return genai.NewPartFromURI(*img.Uri, mimeType)
+	}
+	return nil
+}
+
+func mapACPAudioToPart(audio *acp.ContentBlockAudio) *genai.Part {
+	if audio == nil {
+		return nil
+	}
+	mimeType := "audio/wav"
+	if audio.MimeType != "" {
+		mimeType = audio.MimeType
+	}
+	if audio.Data != "" {
+		audioBytes, err := decodeBase64(audio.Data)
+		if err != nil {
+			return nil
+		}
+		return genai.NewPartFromBytes(audioBytes, mimeType)
+	}
+	return nil
+}
+
+func mapACPResourceLinkToPart(link *acp.ContentBlockResourceLink) *genai.Part {
+	if link == nil {
+		return nil
+	}
+	if link.Uri != "" {
+		mimeType := "application/octet-stream"
+		if link.MimeType != nil && *link.MimeType != "" {
+			mimeType = *link.MimeType
+		}
+		return genai.NewPartFromURI(link.Uri, mimeType)
+	}
+	return nil
+}
+
+func decodeBase64(s string) ([]byte, error) {
+	if s == "" {
+		return nil, errors.New("empty")
+	}
+	return base64.StdEncoding.DecodeString(s)
 }
 
 func marshalACPUpdatePayload(logger zerolog.Logger, payloadType string, v any) (string, bool) {

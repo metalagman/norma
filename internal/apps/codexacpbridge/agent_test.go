@@ -1536,3 +1536,142 @@ func countThoughtText(updates []acp.SessionNotification, text string) int {
 	}
 	return count
 }
+
+func TestStopReasonFromTurnStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+		want   acp.StopReason
+	}{
+		{"completed", "completed", acp.StopReasonEndTurn},
+		{"interrupted", "interrupted", acp.StopReasonCancelled},
+		{"failed", "failed", acp.StopReasonRefusal},
+		{"empty", "", acp.StopReasonEndTurn},
+		{"unknown status", "unknown_status", acp.StopReasonEndTurn},
+		{"inProgress", "inProgress", acp.StopReasonEndTurn},
+		{"cancelled", "cancelled", acp.StopReasonEndTurn},
+		{"max_iterations", "max_iterations", acp.StopReasonEndTurn},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stopReasonFromTurnStatus(tt.status)
+			if got != tt.want {
+				t.Errorf("stopReasonFromTurnStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToACPToolCallStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+		want   acp.ToolCallStatus
+	}{
+		{"inProgress", "inProgress", acp.ToolCallStatusInProgress},
+		{"completed", "completed", acp.ToolCallStatusCompleted},
+		{"failed", "failed", acp.ToolCallStatusFailed},
+		{"declined", "declined", acp.ToolCallStatusFailed},
+		{"empty", "", acp.ToolCallStatusInProgress},
+		{"unknown", "unknown", acp.ToolCallStatusInProgress},
+		{"pending", "pending", acp.ToolCallStatusInProgress},
+		{"in_progress", "in_progress", acp.ToolCallStatusInProgress},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := toACPToolCallStatus(tt.status)
+			if got != tt.want {
+				t.Errorf("toACPToolCallStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToACPPlanStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+		want   acp.PlanEntryStatus
+	}{
+		{"pending", "pending", acp.PlanEntryStatusPending},
+		{"inProgress", "inProgress", acp.PlanEntryStatusInProgress},
+		{"completed", "completed", acp.PlanEntryStatusCompleted},
+		{"empty", "", acp.PlanEntryStatusPending},
+		{"unknown", "unknown", acp.PlanEntryStatusPending},
+		{"done", "done", acp.PlanEntryStatusPending},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := toACPPlanStatus(tt.status)
+			if got != tt.want {
+				t.Errorf("toACPPlanStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPermissionToolCallID(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawInput map[string]any
+		want     acp.ToolCallId
+	}{
+		{
+			name:     "with itemId",
+			rawInput: map[string]any{"itemId": "item-123"},
+			want:     "codex-item-item-123",
+		},
+		{
+			name:     "with tool name",
+			rawInput: map[string]any{"tool": "myTool"},
+			want:     "codex-tool-myTool",
+		},
+		{
+			name:     "with patchId",
+			rawInput: map[string]any{"patchId": "patch-456"},
+			want:     "codex-patch-patch-456",
+		},
+		{
+			name:     "with command",
+			rawInput: map[string]any{"command": "ls -la"},
+			want:     "codex-cmd-ls -la",
+		},
+		{
+			name:     "with serverName",
+			rawInput: map[string]any{"serverName": "myMcp"},
+			want:     "codex-mcp-myMcp",
+		},
+		{
+			name:     "empty input",
+			rawInput: map[string]any{},
+			want:     "codex-permission-unknown",
+		},
+		{
+			name:     "nil input",
+			rawInput: nil,
+			want:     "codex-permission-unknown",
+		},
+		{
+			name:     "priority: itemId over tool",
+			rawInput: map[string]any{"itemId": "item-1", "tool": "myTool"},
+			want:     "codex-item-item-1",
+		},
+		{
+			name:     "priority: tool over patchId",
+			rawInput: map[string]any{"tool": "myTool", "patchId": "patch-1"},
+			want:     "codex-tool-myTool",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := permissionToolCallID(tt.rawInput)
+			if got != tt.want {
+				t.Errorf("permissionToolCallID() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

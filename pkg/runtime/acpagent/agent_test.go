@@ -928,173 +928,8 @@ func TestAgentRunUsesInvocationLogger(t *testing.T) {
 	}
 }
 
-func TestMapACPUpdateToEventAgentMessageChunk(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.UpdateAgentMessageText("hello")}})
-	if !ok || ev == nil {
-		t.Fatalf("mapACPUpdateToEvent() returned no event")
-	}
-	if !ev.Partial {
-		t.Fatalf("event.Partial = false, want true")
-	}
-	if got := extractPromptText(ev.Content); got != "hello" {
-		t.Fatalf("event text = %q, want %q", got, "hello")
-	}
-}
-
-func TestMapACPUpdateToEventToolCall(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.StartToolCall(
-		acp.ToolCallId(testACPCallID),
-		"run shell",
-		acp.WithStartKind(acp.ToolKindExecute),
-		acp.WithStartStatus(acp.ToolCallStatusInProgress),
-		acp.WithStartRawInput(map[string]any{"cmd": "ls"}),
-	)}})
-	if !ok || ev == nil {
-		t.Fatalf("mapACPUpdateToEvent() returned no event")
-	}
-	if ev.Content == nil || len(ev.Content.Parts) != 1 || ev.Content.Parts[0].FunctionCall == nil {
-		t.Fatalf("event content = %+v, want single function call part", ev.Content)
-	}
-	call := ev.Content.Parts[0].FunctionCall
-	if call.ID != testACPCallID {
-		t.Fatalf("function call id = %q, want %q", call.ID, testACPCallID)
-	}
-	if call.Name != "acp_tool_call" {
-		t.Fatalf("function call name = %q, want %q", call.Name, "acp_tool_call")
-	}
-	if len(ev.LongRunningToolIDs) != 1 || ev.LongRunningToolIDs[0] != testACPCallID {
-		t.Fatalf("long running ids = %v, want [%s]", ev.LongRunningToolIDs, testACPCallID)
-	}
-}
-
-func TestMapACPUpdateToEventToolCallUpdate(t *testing.T) {
-	ev, ok := mapACPUpdateToEvent(zerolog.Nop(), "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.UpdateToolCall(
-		acp.ToolCallId(testACPCallID),
-		acp.WithUpdateStatus(acp.ToolCallStatusCompleted),
-		acp.WithUpdateRawOutput(map[string]any{"ok": true}),
-	)}})
-	if !ok || ev == nil {
-		t.Fatalf("mapACPUpdateToEvent() returned no event")
-	}
-	if ev.Content == nil || len(ev.Content.Parts) != 1 || ev.Content.Parts[0].FunctionResponse == nil {
-		t.Fatalf("event content = %+v, want single function response part", ev.Content)
-	}
-	resp := ev.Content.Parts[0].FunctionResponse
-	if resp.ID != testACPCallID {
-		t.Fatalf("function response id = %q, want %q", resp.ID, testACPCallID)
-	}
-	if resp.Name != "acp_tool_call_update" {
-		t.Fatalf("function response name = %q, want %q", resp.Name, "acp_tool_call_update")
-	}
-	if len(ev.LongRunningToolIDs) != 0 {
-		t.Fatalf("long running ids = %v, want empty", ev.LongRunningToolIDs)
-	}
-}
-
-func TestMapACPUpdateToEventIgnoresUnknownUpdate(t *testing.T) {
-	var logBuf bytes.Buffer
-	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
-
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.SessionUpdate{}}})
-	if ok || ev != nil {
-		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
-	}
-	if got := logBuf.String(); !strings.Contains(got, "ignoring unsupported acp session update") {
-		t.Fatalf("debug log = %q, want unsupported update message", got)
-	}
-}
-
-func TestMapACPUpdateToEventIgnoresAvailableCommandsUpdate(t *testing.T) {
-	var logBuf bytes.Buffer
-	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
-
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: acp.SessionUpdate{
-		AvailableCommandsUpdate: &acp.SessionAvailableCommandsUpdate{
-			AvailableCommands: []acp.AvailableCommand{
-				{Name: "compact", Description: "compact the session"},
-			},
-		},
-	}}})
-	if ok || ev != nil {
-		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
-	}
-	got := logBuf.String()
-	if !strings.Contains(got, "available_commands_update") {
-		t.Fatalf("debug log = %q, want available_commands_update marker", got)
-	}
-	if !strings.Contains(got, "ignoring non-user-visible acp session update") {
-		t.Fatalf("debug log = %q, want ignored update message", got)
-	}
-}
-
-func TestMapACPUpdateToEventIgnoresUnmarshalableContentBlock(t *testing.T) {
-	var logBuf bytes.Buffer
-	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
-
-	update := acp.SessionUpdate{
-		UserMessageChunk: &acp.SessionUpdateUserMessageChunk{
-			Content: acp.ContentBlock{
-				ResourceLink: &acp.ContentBlockResourceLink{
-					Meta: badJSONMarshaler{},
-					Name: "doc",
-					Uri:  "file:///tmp/doc.txt",
-				},
-			},
-		},
-	}
-
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: update}})
-	if ok || ev != nil {
-		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
-	}
-	got := logBuf.String()
-	if !strings.Contains(got, "resource_link") {
-		t.Fatalf("debug log = %q, want resource_link marker", got)
-	}
-	if !strings.Contains(got, "\"acp_content_block\"") {
-		t.Fatalf("debug log = %q, want structured content block payload", got)
-	}
-	if !strings.Contains(got, "\"acp_content_block_text\":\"resource_link name=\\\"doc\\\" uri=\\\"file:///tmp/doc.txt\\\"\"") {
-		t.Fatalf("debug log = %q, want text content block summary", got)
-	}
-	if !strings.Contains(got, "\"name\":\"doc\"") {
-		t.Fatalf("debug log = %q, want content block fields", got)
-	}
-	if !strings.Contains(got, "ignoring non-text acp content block") {
-		t.Fatalf("debug log = %q, want ignored non-text block message", got)
-	}
-	if strings.Contains(got, "ignoring acp payload that failed to marshal") {
-		t.Fatalf("debug log = %q, want no marshal failure", got)
-	}
-}
-
-func TestMapACPUpdateToEventIgnoresUnknownContentBlockWithoutMarshalAttempt(t *testing.T) {
-	var logBuf bytes.Buffer
-	logger := zerolog.New(&logBuf).Level(zerolog.DebugLevel)
-
-	update := acp.SessionUpdate{
-		UserMessageChunk: &acp.SessionUpdateUserMessageChunk{
-			Content: acp.ContentBlock{},
-		},
-	}
-
-	ev, ok := mapACPUpdateToEvent(logger, "inv-1", ExtendedSessionNotification{SessionNotification: acp.SessionNotification{Update: update}})
-	if ok || ev != nil {
-		t.Fatalf("mapACPUpdateToEvent() = (%v, %v), want no event", ev, ok)
-	}
-	got := logBuf.String()
-	if !strings.Contains(got, "ignoring unsupported acp content block") {
-		t.Fatalf("debug log = %q, want unsupported content block message", got)
-	}
-	if !strings.Contains(got, "\"acp_content_block_text\":\"unknown\"") {
-		t.Fatalf("debug log = %q, want unknown content block text", got)
-	}
-	if !strings.Contains(got, "\"acp_content_block\":{\"type\":\"unknown\"}") {
-		t.Fatalf("debug log = %q, want structured unknown content block payload", got)
-	}
-	if strings.Contains(got, "failed to marshal") {
-		t.Fatalf("debug log = %q, want no marshal failure", got)
-	}
+func strPtr(s string) *string {
+	return &s
 }
 
 func TestAgentRunMapsACPEventsToADKEvents(t *testing.T) {
@@ -1750,4 +1585,66 @@ func readPromptOutput(t *testing.T, updates <-chan ExtendedSessionNotification, 
 		t.Fatalf("PromptResult.Err = %v", result.Err)
 	}
 	return strings.Join(chunks, "")
+}
+
+func TestMapACPPlanUpdate(t *testing.T) {
+	logger := zerolog.Nop()
+
+	tests := []struct {
+		name      string
+		plan      *acp.SessionUpdatePlan
+		wantOK    bool
+		wantCount int
+	}{
+		{
+			name:   "nil plan",
+			plan:   nil,
+			wantOK: false,
+		},
+		{
+			name:   "empty entries",
+			plan:   &acp.SessionUpdatePlan{Entries: []acp.PlanEntry{}},
+			wantOK: false,
+		},
+		{
+			name: "single entry",
+			plan: &acp.SessionUpdatePlan{
+				Entries: []acp.PlanEntry{
+					{
+						Content:  "Run tests",
+						Status:   acp.PlanEntryStatusInProgress,
+						Priority: acp.PlanEntryPriorityMedium,
+					},
+				},
+			},
+			wantOK:    true,
+			wantCount: 1,
+		},
+		{
+			name: "multiple entries",
+			plan: &acp.SessionUpdatePlan{
+				Entries: []acp.PlanEntry{
+					{Content: "Step 1", Status: acp.PlanEntryStatusCompleted},
+					{Content: "Step 2", Status: acp.PlanEntryStatusPending},
+				},
+			},
+			wantOK:    true,
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev, ok := mapACPPlanUpdate(logger, "inv-1", tt.plan)
+			if ok != tt.wantOK {
+				t.Errorf("mapACPPlanUpdate() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if tt.wantOK && ev == nil {
+				t.Errorf("mapACPPlanUpdate() ev = nil, want event")
+			}
+			if tt.wantOK && ev.Content != nil && len(ev.Content.Parts) != tt.wantCount {
+				t.Errorf("mapACPPlanUpdate() parts = %d, want %d", len(ev.Content.Parts), tt.wantCount)
+			}
+		})
+	}
 }

@@ -999,6 +999,9 @@ func (a *codexACPProxyAgent) handleNotification(
 	case "thread/tokenUsage/updated":
 		usage = usageFromTokenNotification(params)
 	case "turn/completed":
+		if sessionID != "" {
+			a.clearPendingRequests(sessionID)
+		}
 		turn := mapValue(params, "turn")
 		status := stringValue(turn, "status")
 		return true, stopReasonFromTurnStatus(status), usageFromTokenNotification(params), nil
@@ -1236,7 +1239,7 @@ func (a *codexACPProxyAgent) requestDecision(
 	req := acp.RequestPermissionRequest{
 		SessionId: sessionID,
 		ToolCall: acp.RequestPermissionToolCall{
-			ToolCallId: toolCallID(stringValue(rawInput, "itemId")),
+			ToolCallId: permissionToolCallID(rawInput),
 			Title:      acp.Ptr(title),
 			Kind:       acp.Ptr(toolKind),
 			RawInput:   rawInput,
@@ -1625,6 +1628,25 @@ func toolCallID(itemID string) acp.ToolCallId {
 	return acp.ToolCallId("codex-item-" + trimmed)
 }
 
+func permissionToolCallID(rawInput map[string]any) acp.ToolCallId {
+	if itemID := stringValue(rawInput, "itemId"); itemID != "" {
+		return toolCallID(itemID)
+	}
+	if toolName := stringValue(rawInput, "tool"); toolName != "" {
+		return acp.ToolCallId("codex-tool-" + toolName)
+	}
+	if patchID := stringValue(rawInput, "patchId"); patchID != "" {
+		return acp.ToolCallId("codex-patch-" + patchID)
+	}
+	if command := stringValue(rawInput, "command"); command != "" {
+		return acp.ToolCallId("codex-cmd-" + command)
+	}
+	if serverName := stringValue(rawInput, "serverName"); serverName != "" {
+		return acp.ToolCallId("codex-mcp-" + serverName)
+	}
+	return acp.ToolCallId("codex-permission-unknown")
+}
+
 func guardianToolCallID(targetItemID string) acp.ToolCallId {
 	return syntheticToolCallID("guardian", targetItemID)
 }
@@ -1854,6 +1876,16 @@ func (a *codexACPProxyAgent) resolvePendingRequest(sessionID acp.SessionId, requ
 	}
 	delete(state.pendingRequests, trimmedRequestID)
 	return true
+}
+
+func (a *codexACPProxyAgent) clearPendingRequests(sessionID acp.SessionId) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state := a.sessions[sessionID]
+	if state == nil {
+		return
+	}
+	state.pendingRequests = make(map[string]string)
 }
 
 func requestIDFromAny(value any) (string, bool) {
