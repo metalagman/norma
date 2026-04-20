@@ -161,7 +161,7 @@ func TestNormalizeConfig(t *testing.T) {
 			exec: execPath,
 			want: ResolvedConfig{
 				Type:    AgentTypeGenericACP,
-				Command: []string{execPath, "tool", "codex-acp-bridge", "--codex-model", "gpt-5-codex", "--trace"},
+				Command: []string{"npx", "-y", "@normahq/codex-acp-bridge@latest", "--trace"},
 				Model:   "gpt-5-codex",
 				Mode:    "code",
 			},
@@ -225,11 +225,6 @@ func TestNormalizeConfig(t *testing.T) {
 				Type:        AgentTypePool,
 				PoolMembers: []string{"a", "b"},
 			},
-		},
-		{
-			name:    "codex_alias_empty_exec_path",
-			cfg:     Config{Type: AgentTypeCodexACP, CodexACP: &ACPConfig{}},
-			wantErr: "resolve executable path: empty",
 		},
 	}
 
@@ -330,8 +325,8 @@ func TestNormalizeConfigs(t *testing.T) {
 	if checkCfg.Type != AgentTypeGenericACP {
 		t.Fatalf("check type = %q, want %q", checkCfg.Type, AgentTypeGenericACP)
 	}
-	if len(checkCfg.Command) < 3 || checkCfg.Command[0] != execPath || checkCfg.Command[1] != "tool" || checkCfg.Command[2] != "codex-acp-bridge" {
-		t.Fatalf("check command = %v, want codex tool command", checkCfg.Command)
+	if len(checkCfg.Command) < 3 || checkCfg.Command[0] != "npx" || checkCfg.Command[1] != "-y" || checkCfg.Command[2] != "@normahq/codex-acp-bridge@latest" {
+		t.Fatalf("check command = %v, want npx -y @normahq/codex-acp-bridge@latest", checkCfg.Command)
 	}
 
 	actCfg := got["act"]

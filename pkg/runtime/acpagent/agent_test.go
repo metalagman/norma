@@ -29,12 +29,6 @@ const (
 	testACPToolID = "tool-1"
 )
 
-type badJSONMarshaler struct{}
-
-func (badJSONMarshaler) MarshalJSON() ([]byte, error) {
-	return []byte("{"), nil
-}
-
 func TestClientPromptReceivesUpdates(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommand(t),
@@ -926,10 +920,6 @@ func TestAgentRunUsesInvocationLogger(t *testing.T) {
 	if got := bootstrapBuf.String(); strings.Contains(got, "starting adk invocation") || strings.Contains(got, "sending acp session/prompt") {
 		t.Fatalf("bootstrap logger unexpectedly received invocation logs: %q", got)
 	}
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 func TestAgentRunMapsACPEventsToADKEvents(t *testing.T) {

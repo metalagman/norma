@@ -45,19 +45,4 @@ func TestCommandRegistered(t *testing.T) {
 	if got := acpReplSub.Flags().Lookup("mode"); got == nil {
 		t.Fatalf("expected --mode flag on acp-repl command")
 	}
-
-	// Test codex-acp-bridge subcommand
-	sub, _, err := cmd.Find([]string{"codex-acp-bridge"})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != "codex-acp-bridge" {
-		t.Fatalf("subcommand = %v, want codex-acp-bridge", sub)
-	}
-	if got := sub.Flags().Lookup("name"); got == nil {
-		t.Fatalf("expected --name flag on codex-acp-bridge command")
-	}
-	if got := sub.Flags().Lookup("codex-model"); got == nil {
-		t.Fatalf("expected --codex-model flag on codex-acp-bridge command")
-	}
 }

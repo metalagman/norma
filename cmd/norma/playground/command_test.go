@@ -241,11 +241,8 @@ func TestRunCodexACPOneShot(t *testing.T) {
 		t.Fatalf("stderr = %q, want lifecycle log entry", got)
 	}
 	args := readArgsFile(t, argsFile)
-	wantArgs := []string{"tool", "codex-acp-bridge"}
-	for _, want := range wantArgs {
-		if !containsArg(args, want) {
-			t.Fatalf("args %v do not contain %q", args, want)
-		}
+	if len(args) != 0 {
+		t.Fatalf("args = %v, want empty args for direct bridge binary", args)
 	}
 }
 
@@ -396,13 +393,12 @@ func TestRunACPInfoJSON(t *testing.T) {
 
 func TestBuildCodexACPCommand(t *testing.T) {
 	got, err := acpcmd.BuildCodexACPCommand(acpcmd.CodexOptions{
-		BridgeBin: "/tmp/norma",
-		Model:     "gpt-5.4",
+		Model: "gpt-5.4",
 	})
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5.4"}
+	want := []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -417,7 +413,7 @@ func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"/tmp/norma", "tool", "codex-acp-bridge", "--codex-model", "gpt-5.4", "--name", "team-codex"}
+	want := []string{"/tmp/norma", "--name", "team-codex"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}

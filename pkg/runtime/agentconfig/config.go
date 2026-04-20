@@ -432,6 +432,7 @@ func explainMCPRequirementsError(cfg MCPServerConfig) string {
 
 // NormalizeConfig canonicalizes aliases and returns a runtime-ready configuration.
 func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) {
+	_ = executablePath
 	resolved := ResolvedConfig{
 		MCPServers:         append([]string(nil), cfg.MCPServers...),
 		SystemInstructions: cfg.SystemInstructions,
@@ -462,16 +463,8 @@ func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) 
 		if cfg.CodexACP == nil {
 			return ResolvedConfig{}, fmt.Errorf("codex_acp block is required")
 		}
-		exePath := strings.TrimSpace(executablePath)
-		if exePath == "" {
-			return ResolvedConfig{}, fmt.Errorf("resolve executable path: empty")
-		}
-		cmd := []string{exePath, "tool", "codex-acp-bridge"}
-		if cfg.CodexACP.Model != "" {
-			cmd = append(cmd, "--codex-model", cfg.CodexACP.Model)
-		}
 		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
-			Cmd:       cmd,
+			Cmd:       []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"},
 			ExtraArgs: append([]string(nil), cfg.CodexACP.ExtraArgs...),
 			Model:     cfg.CodexACP.Model,
 			Mode:      cfg.CodexACP.Mode,

@@ -152,12 +152,6 @@ func TestNewRootCommand_RegistersCommandsAndFlags(t *testing.T) {
 	if _, _, err := cmd.Find([]string{"init"}); err != nil {
 		t.Fatalf("init command missing: %v", err)
 	}
-	if _, _, err := cmd.Find([]string{"tool"}); err != nil {
-		t.Fatalf("tool command missing: %v", err)
-	}
-	if _, _, err := cmd.Find([]string{"tool", "codex-acp-bridge"}); err != nil {
-		t.Fatalf("tool codex-acp-bridge command missing: %v", err)
-	}
 
 	for _, name := range []string{"config-dir", "profile", "debug", "trace"} {
 		if cmd.PersistentFlags().Lookup(name) == nil {

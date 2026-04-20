@@ -146,7 +146,6 @@ App configs can use app-specific environment prefixes (for example `RELAY_*` for
 - [Planner and Interactive Planning](docs/planner.md)
 - [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
 - [NormaLoop Orchestration](docs/normaloop-agent.md)
-- [Codex ACP Bridge](docs/codex-acp-bridge.md)
 
 ### 4. Create a Task & Run
 ```bash
@@ -183,25 +182,18 @@ Notes:
 - It starts Gemini CLI as `gemini --experimental-acp`.
 - V1 is text-first: normal text responses are rendered in the terminal, while richer ACP events are mainly for debugging via `--debug-events`.
 
-### 7. Codex ACP Proxy
-Use the tool command to expose the Codex bridge backend as ACP over stdio.
+### 7. Codex ACP Bridge (External Package)
+Codex ACP bridge is now distributed as a standalone package.
 
 ```bash
-# Start proxy with default ACP agent name
-norma tool codex-acp-bridge
-
-# Override ACP agent name
-norma tool codex-acp-bridge --name team-codex
-
-# Set Codex backend config overrides
-norma tool codex-acp-bridge --codex-model gpt-5.4 --codex-sandbox workspace-write
+npx -y @normahq/codex-acp-bridge@latest
 ```
 
 Notes:
-- `--name` sets ACP `initialize.agentInfo.name`.
-- `--codex-*` flags configure backend thread/start defaults and config overrides.
-- Full reference: [docs/codex-acp-bridge.md](docs/codex-acp-bridge.md).
-- Standalone compatibility binary is also available as `codex-acp-bridge`.
+- `codex_acp` agent type resolves to `npx -y @normahq/codex-acp-bridge@latest`.
+- Per-session Codex defaults are set via ACP `session/new._meta.codex`.
+- Bridge docs live in the standalone repository:
+  <https://github.com/normahq/codex-acp-bridge>
 
 ### 8. Generic ACP Inspector (`acp-dump`)
 Inspect any stdio ACP server command without changing Norma config.
@@ -248,7 +240,6 @@ Profiles configured in `.omnidist/omnidist.yaml`:
 - `acp-dump`
 - `mcp-dump`
 - `acp-repl`
-- `codex-acp-bridge`
 - `relay`
 
 npm distributions use the `@normahq` scope:
@@ -256,7 +247,6 @@ npm distributions use the `@normahq` scope:
 - `@normahq/acp-dump`
 - `@normahq/mcp-dump`
 - `@normahq/acp-repl`
-- `@normahq/codex-acp-bridge`
 - `@normahq/relay`
 
 Quickstart per profile:
@@ -266,7 +256,6 @@ omnidist --profile norma quickstart
 omnidist --profile acp-dump quickstart
 omnidist --profile mcp-dump quickstart
 omnidist --profile acp-repl quickstart
-omnidist --profile codex-acp-bridge quickstart
 omnidist --profile relay quickstart
 ```
 
@@ -283,7 +272,6 @@ GitHub release workflows are split per profile and run on `v*` tag pushes:
 - `omnidist-release-acp-dump.yml`
 - `omnidist-release-mcp-dump.yml`
 - `omnidist-release-acp-repl.yml`
-- `omnidist-release-codex-acp-bridge.yml`
 - `omnidist-release-relay.yml`
 
 Publishing uses npm only.

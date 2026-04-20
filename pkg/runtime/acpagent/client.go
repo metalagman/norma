@@ -26,6 +26,7 @@ var (
 
 	errSessionIDRequired = errors.New("acp session id is required")
 	errPromptRequired    = errors.New("acp prompt is required")
+	errPromptContentReq  = errors.New("acp prompt content is required")
 	errModelRequired     = errors.New("acp model is required")
 	errModeRequired      = errors.New("acp mode is required")
 )
@@ -258,6 +259,17 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 
 // NewSession creates a new ACP session in the provided working directory.
 func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.McpServer) (acp.NewSessionResponse, error) {
+	return c.NewSessionWithMeta(ctx, cwd, mcpServers, nil)
+}
+
+// NewSessionWithMeta creates a new ACP session in the provided working
+// directory and sends optional _meta extensions with the session request.
+func (c *Client) NewSessionWithMeta(
+	ctx context.Context,
+	cwd string,
+	mcpServers []acp.McpServer,
+	meta map[string]any,
+) (acp.NewSessionResponse, error) {
 	if mcpServers == nil {
 		mcpServers = []acp.McpServer{}
 	}
@@ -267,10 +279,15 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.Mc
 		Cwd:        cwd,
 		McpServers: mcpServers,
 	}
+	reqMeta := cloneAnyMap(meta)
 	if desiredSessionID != "" {
-		req.Meta = map[string]any{
-			"sessionId": desiredSessionID,
+		if reqMeta == nil {
+			reqMeta = map[string]any{}
 		}
+		reqMeta["sessionId"] = desiredSessionID
+	}
+	if len(reqMeta) > 0 {
+		req.Meta = reqMeta
 	}
 
 	l := c.loggerForContext(ctx)
@@ -304,6 +321,17 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.Mc
 	}
 	successEvent.Msg("acp session/new succeeded")
 	return resp, nil
+}
+
+func cloneAnyMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 // CreateSession creates a new ACP session and applies configured session
@@ -414,11 +442,29 @@ func isACPMethodNotFoundError(err error) bool {
 
 // Prompt sends a prompt to an ACP session and streams session updates.
 func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan ExtendedSessionNotification, <-chan PromptResult, error) {
-	if strings.TrimSpace(sessionID) == "" {
-		return nil, nil, errSessionIDRequired
-	}
 	if strings.TrimSpace(prompt) == "" {
 		return nil, nil, errPromptRequired
+	}
+	return c.promptWithBlocks(ctx, sessionID, []acp.ContentBlock{acp.TextBlock(prompt)}, len(prompt))
+}
+
+// PromptWithContent sends a prompt composed of ACP content blocks and streams
+// session updates.
+func (c *Client) PromptWithContent(ctx context.Context, sessionID string, prompt []acp.ContentBlock) (<-chan ExtendedSessionNotification, <-chan PromptResult, error) {
+	if len(prompt) == 0 {
+		return nil, nil, errPromptContentReq
+	}
+	return c.promptWithBlocks(ctx, sessionID, prompt, 0)
+}
+
+func (c *Client) promptWithBlocks(
+	ctx context.Context,
+	sessionID string,
+	prompt []acp.ContentBlock,
+	promptLen int,
+) (<-chan ExtendedSessionNotification, <-chan PromptResult, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, nil, errSessionIDRequired
 	}
 
 	c.stateMu.Lock()
@@ -433,7 +479,14 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan E
 	c.activeBySession[activeSessionID] = active
 	c.stateMu.Unlock()
 
-	l.Debug().Str("session_id", sessionID).Int("prompt_len", len(prompt)).Msg("sending acp session/prompt")
+	promptBlocks := append([]acp.ContentBlock(nil), prompt...)
+	logEvent := l.Debug().
+		Str("session_id", sessionID).
+		Int("prompt_blocks", len(promptBlocks))
+	if promptLen > 0 {
+		logEvent = logEvent.Int("prompt_len", promptLen)
+	}
+	logEvent.Msg("sending acp session/prompt")
 
 	resultCh := make(chan PromptResult, 1)
 	go func() {
@@ -442,7 +495,7 @@ func (c *Client) Prompt(ctx context.Context, sessionID, prompt string) (<-chan E
 
 		resp, err := c.conn.Prompt(ctx, acp.PromptRequest{
 			SessionId: activeSessionID,
-			Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
+			Prompt:    promptBlocks,
 		})
 		waitForUpdateIdle(ctx, active.signal)
 		c.logLastChunkInSeries(activeSessionID)

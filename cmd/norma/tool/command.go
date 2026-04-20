@@ -5,7 +5,6 @@ import (
 
 	acpdump "github.com/normahq/norma/cmd/acp-dump/cmd"
 	acprepl "github.com/normahq/norma/cmd/acp-repl/cmd"
-	codexacpbridge "github.com/normahq/norma/cmd/codex-acp-bridge/cmd"
 	mcpdump "github.com/normahq/norma/cmd/mcp-dump/cmd"
 )
 
@@ -15,12 +14,11 @@ func Command() *cobra.Command {
 		Use:          "tool",
 		Short:        "Tool commands for protocol bridges",
 		Long:         "Run tool helpers that expose one agent protocol through another.",
-		Example:      "  norma tool codex-acp-bridge --name team-codex\n  norma tool acp-dump -- opencode acp\n  norma tool mcp-dump -- codex mcp-server\n  norma tool acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp",
+		Example:      "  norma tool acp-dump -- opencode acp\n  norma tool mcp-dump -- codex mcp-server\n  norma tool acp-repl --model openai/gpt-5.4 --mode coding -- opencode acp",
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(acpdump.Command())
 	cmd.AddCommand(mcpdump.Command())
 	cmd.AddCommand(acprepl.Command())
-	cmd.AddCommand(codexacpbridge.Command())
 	return cmd
 }

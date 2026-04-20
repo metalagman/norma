@@ -111,45 +111,6 @@ profiles:
           - repl
           - interactive
 
-  codex-acp-bridge:
-    tool:
-      name: codex-acp-bridge
-      main: ./cmd/codex-acp-bridge
-    readme-path: ./cmd/codex-acp-bridge/README.md
-    version:
-      source: fixed
-      fixed: 0.0.3
-    targets:
-      - os: darwin
-        arch: amd64
-      - os: darwin
-        arch: arm64
-      - os: linux
-        arch: amd64
-      - os: linux
-        arch: arm64
-      - os: windows
-        arch: amd64
-    build:
-      ldflags: -s -w
-      tags: []
-      cgo: false
-    distributions:
-      npm:
-        package: '@normahq/codex-acp-bridge'
-        registry: https://registry.npmjs.org
-        access: public
-        include-readme: true
-        keywords:
-          - ai
-          - llm
-          - codex
-          - acp
-          - mcp
-          - agent
-          - bridge
-          - cli
-
   relay:
     tool:
       name: relay
