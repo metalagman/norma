@@ -58,7 +58,6 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 ### 2. Install
 ```bash
 go install github.com/normahq/norma/cmd/norma@latest
-go install github.com/normahq/norma/cmd/relay@latest
 ```
 
 ### 3. Initialize & Configure
@@ -137,12 +136,8 @@ profiles:
       planner: copilot_acp
 ```
 
-App configs can use app-specific environment prefixes (for example `RELAY_*` for relay settings).
-
 ## 📖 Documentation
 
-- [Relay User Guide](cmd/relay/README.md)
-- [Relay Technical Spec](docs/relay.md)
 - [Planner and Interactive Planning](docs/planner.md)
 - [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
 - [NormaLoop Orchestration](docs/normaloop-agent.md)
@@ -166,23 +161,7 @@ norma plan tui   # interactive TUI
 norma plan repl  # line-based REPL
 ```
 
-### 6. Experimental ACP Playground
-Use the playground ACP commands to talk to model CLIs through ACP and Go ADK without changing your normal Norma agent configuration.
-
-```bash
-# One-shot prompt
-norma playground acp gemini --prompt "summarize this repository"
-
-# Interactive REPL
-norma playground acp gemini
-```
-
-Notes:
-- This command is experimental and does not use `.norma/config.yaml` profiles.
-- It starts Gemini CLI as `gemini --experimental-acp`.
-- V1 is text-first: normal text responses are rendered in the terminal, while richer ACP events are mainly for debugging via `--debug-events`.
-
-### 7. Codex ACP Bridge (External Package)
+### 6. Codex ACP Bridge (External Package)
 Codex ACP bridge is now distributed as a standalone package.
 
 ```bash
@@ -195,7 +174,7 @@ Notes:
 - Bridge docs live in the standalone repository:
   <https://github.com/normahq/codex-acp-bridge>
 
-### 8. Generic ACP Inspector (`acp-dump`)
+### 7. Generic ACP Inspector (`acp-dump`)
 Inspect any stdio ACP server command without changing Norma config.
 
 ```bash
@@ -208,7 +187,7 @@ norma tool acp-dump --json -- gemini --experimental-acp
 
 Standalone binary is also available as `acp-dump`.
 
-### 9. Generic MCP Inspector (`mcp-dump`)
+### 8. Generic MCP Inspector (`mcp-dump`)
 Inspect any stdio MCP server command and dump capabilities plus MCP tool schemas.
 
 ```bash
@@ -221,7 +200,7 @@ norma tool mcp-dump --json -- codex mcp-server
 
 Standalone binary is also available as `mcp-dump`.
 
-### 10. Generic ACP REPL (`acp-repl`)
+### 9. Generic ACP REPL (`acp-repl`)
 Run an interactive terminal REPL against any stdio ACP server command.
 
 ```bash
@@ -232,7 +211,7 @@ norma tool acp-repl -- gemini --experimental-acp
 
 Standalone binary is also available as `acp-repl`.
 
-### 11. Omnidist Multi-Profile Distribution
+### 10. Omnidist Multi-Profile Distribution
 Norma uses [Omnidist](https://github.com/metalagman/omnidist) profiles for build/stage/verify/publish flows across all command binaries.
 
 Profiles configured in `.omnidist/omnidist.yaml`:
@@ -240,14 +219,12 @@ Profiles configured in `.omnidist/omnidist.yaml`:
 - `acp-dump`
 - `mcp-dump`
 - `acp-repl`
-- `relay`
 
 npm distributions use the `@normahq` scope:
 - `@normahq/norma`
 - `@normahq/acp-dump`
 - `@normahq/mcp-dump`
 - `@normahq/acp-repl`
-- `@normahq/relay`
 
 Quickstart per profile:
 
@@ -256,7 +233,6 @@ omnidist --profile norma quickstart
 omnidist --profile acp-dump quickstart
 omnidist --profile mcp-dump quickstart
 omnidist --profile acp-repl quickstart
-omnidist --profile relay quickstart
 ```
 
 Run build pipeline for a profile:
@@ -272,7 +248,6 @@ GitHub release workflows are split per profile and run on `v*` tag pushes:
 - `omnidist-release-acp-dump.yml`
 - `omnidist-release-mcp-dump.yml`
 - `omnidist-release-acp-repl.yml`
-- `omnidist-release-relay.yml`
 
 Publishing uses npm only.
 

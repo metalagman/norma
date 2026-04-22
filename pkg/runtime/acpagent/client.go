@@ -295,7 +295,7 @@ func (c *Client) NewSessionWithMeta(
 		Str("cwd", cwd).
 		Int("mcp_servers", len(mcpServers))
 	if desiredSessionID != "" {
-		logEvent = logEvent.Str("relay_session_id", desiredSessionID)
+		logEvent = logEvent.Str("session_id", desiredSessionID)
 	}
 	logEvent.Msg("sending acp session/new")
 
@@ -310,14 +310,14 @@ func (c *Client) NewSessionWithMeta(
 	}
 	if desiredSessionID != "" && acpSessionID != desiredSessionID {
 		l.Warn().
-			Str("relay_session_id", desiredSessionID).
+			Str("session_id", desiredSessionID).
 			Str("acp_session_id", acpSessionID).
 			Msg("acp session/new returned different session id; using ACP session id")
 	}
 
 	successEvent := l.Debug().Str("acp_session_id", acpSessionID)
 	if desiredSessionID != "" {
-		successEvent = successEvent.Str("relay_session_id", desiredSessionID)
+		successEvent = successEvent.Str("session_id", desiredSessionID)
 	}
 	successEvent.Msg("acp session/new succeeded")
 	return resp, nil

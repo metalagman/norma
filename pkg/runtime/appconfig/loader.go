@@ -16,7 +16,6 @@ import (
 const (
 	// CoreConfigFileName is the fallback config file name.
 	CoreConfigFileName = "config.yaml"
-	relayAppName       = "relay"
 	runtimeRootKey     = "runtime"
 	overridesRootKey   = "profiles"
 	defaultProfileName = "default"
@@ -33,13 +32,17 @@ type RuntimeLoadOptions struct {
 type AppLoadOptions struct {
 	AppName      string
 	DefaultsYAML []byte
+	// UseDotConfigAppDir resolves config from app-specific .config layout:
+	//   - <config-dir>/<app>/config.yaml, then <config-dir>/config.yaml
+	//   - <working-dir>/.config/<app>/config.yaml
+	UseDotConfigAppDir bool
 }
 
 // LoadConfigDocument loads and decodes a full app config document into out.
 //
 // The selected file is single-source by priority:
-//   - general apps: <app>.yaml first, then config.yaml
-//   - relay app: .config/relay/config.yaml (or config-dir override targets)
+//   - default layout: <app>.yaml first, then config.yaml
+//   - app-dir layout (UseDotConfigAppDir): .config/<app>/config.yaml (or config-dir override targets)
 //
 // Profile overrides (profiles.<name>) and app env overrides are applied before decode.
 func LoadConfigDocument(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions, out any) (string, error) {
@@ -77,7 +80,7 @@ func loadResolvedSettings(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (
 		return nil, "", fmt.Errorf("app name is required")
 	}
 
-	selectedPath, searchedPaths, err := selectConfigFile(runtimeOpts, appName)
+	selectedPath, searchedPaths, err := selectConfigFile(runtimeOpts, opts)
 	if err != nil {
 		return nil, "", err
 	}
@@ -171,10 +174,11 @@ func applyProfileOverlay(v *viper.Viper, settings map[string]any, requestedProfi
 	return selected, nil
 }
 
-func selectConfigFile(runtimeOpts RuntimeLoadOptions, appName string) (string, []string, error) {
+func selectConfigFile(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (string, []string, error) {
+	appName := strings.TrimSpace(opts.AppName)
 	var searched []string
-	if appName == relayAppName {
-		searched = searchedRelayConfigPaths(runtimeOpts.WorkingDir, runtimeOpts.ConfigDir)
+	if opts.UseDotConfigAppDir {
+		searched = searchedAppConfigDirPaths(runtimeOpts.WorkingDir, runtimeOpts.ConfigDir, appName)
 	} else {
 		roots := coreConfigRoots(runtimeOpts.WorkingDir, runtimeOpts.ConfigDir)
 		searched = searchedConfigPaths(roots, appName)
@@ -191,20 +195,21 @@ func selectConfigFile(runtimeOpts RuntimeLoadOptions, appName string) (string, [
 	return "", searched, nil
 }
 
-func searchedRelayConfigPaths(workingDir, configuredRoot string) []string {
+func searchedAppConfigDirPaths(workingDir, configuredRoot, appName string) []string {
 	paths := make([]string, 0, 3)
+	trimmedAppName := strings.TrimSpace(appName)
 
 	if extra := strings.TrimSpace(configuredRoot); extra != "" {
 		if !filepath.IsAbs(extra) && workingDir != "" {
 			extra = filepath.Join(workingDir, extra)
 		}
 		paths = append(paths,
-			filepath.Join(extra, "relay", CoreConfigFileName),
+			filepath.Join(extra, trimmedAppName, CoreConfigFileName),
 			filepath.Join(extra, CoreConfigFileName),
 		)
 	}
 	if workingDir != "" {
-		paths = append(paths, filepath.Join(workingDir, ".config", "relay", CoreConfigFileName))
+		paths = append(paths, filepath.Join(workingDir, ".config", trimmedAppName, CoreConfigFileName))
 	}
 
 	return dedupePaths(paths)

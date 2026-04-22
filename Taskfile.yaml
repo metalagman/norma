@@ -4,28 +4,23 @@ version: '3'
 vars:
   NORMA_BINARY_NAME: norma
   NORMA_MAIN_PATH: ./cmd/norma
-  RELAY_BINARY_NAME: relay
-  RELAY_MAIN_PATH: ./cmd/relay
   OUTPUT_DIR: bin
   
 tasks:
   default:
-    desc: Build norma and relay binaries
+    desc: Build norma binary
     cmds:
       - mkdir -p {{.OUTPUT_DIR}}
       - go build -o {{.OUTPUT_DIR}}/{{.NORMA_BINARY_NAME}} {{.NORMA_MAIN_PATH}}
-      - go build -o {{.OUTPUT_DIR}}/{{.RELAY_BINARY_NAME}} {{.RELAY_MAIN_PATH}}
     
   install:
-    desc: Build and install norma and relay to GOBIN
+    desc: Build and install norma to GOBIN
     vars:
       VERSION:
         sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
     cmds:
       - echo "Installing {{.NORMA_BINARY_NAME}} version {{.VERSION}}"
       - go install -ldflags "-X main.version={{.VERSION}}" {{.NORMA_MAIN_PATH}}
-      - echo "Installing {{.RELAY_BINARY_NAME}} version {{.VERSION}}"
-      - go install -ldflags "-X main.version={{.VERSION}}" {{.RELAY_MAIN_PATH}}
     
   clean:
     desc: Clean build artifacts

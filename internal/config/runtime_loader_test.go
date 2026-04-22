@@ -8,9 +8,9 @@ import (
 	"github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
-type relayConfigDocumentForTest struct {
+type appConfigDocumentForTest struct {
 	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
-	Relay   struct {
+	App     struct {
 		RootAgent          string `mapstructure:"root_agent"`
 		SystemInstructions string `mapstructure:"system_instructions"`
 		Telegram           struct {
@@ -23,7 +23,7 @@ type relayConfigDocumentForTest struct {
 		Logger struct {
 			Level string `mapstructure:"level"`
 		} `mapstructure:"logger"`
-	} `mapstructure:"relay"`
+	} `mapstructure:"app"`
 }
 
 func TestLoadRuntime_PrefersConfigDirOverRepoAndGlobal(t *testing.T) {
@@ -81,34 +81,35 @@ func TestLoadRuntime_UsesSingleEffectiveFileWithoutCrossRootMerge(t *testing.T) 
 
 func TestLoadConfigDocument_AppliesProfileOverridesAndEnv(t *testing.T) {
 	workingDir := t.TempDir()
-	t.Setenv("RELAY_TELEGRAM_WEBHOOK_URL", "https://example.com/webhook")
-	t.Setenv("RELAY_TELEGRAM_WEBHOOK_ENABLED", "true")
-	t.Setenv("RELAY_TELEGRAM_WEBHOOK_AUTH_TOKEN", "auth-token")
+	t.Setenv("APP_TELEGRAM_WEBHOOK_URL", "https://example.com/webhook")
+	t.Setenv("APP_TELEGRAM_WEBHOOK_ENABLED", "true")
+	t.Setenv("APP_TELEGRAM_WEBHOOK_AUTH_TOKEN", "auth-token")
 
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "app", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
       generic_acp:
         cmd: ["agent"]
-relay:
-  root_agent: from_relay_file
+app:
+  root_agent: from_app_file
 profiles:
   default:
-    relay:
+    app:
       logger:
         level: debug
-      system_instructions: relay-override
+      system_instructions: app-override
 `); err != nil {
-		t.Fatalf("write relay config: %v", err)
+		t.Fatalf("write app config: %v", err)
 	}
 
-	var doc relayConfigDocumentForTest
+	var doc appConfigDocumentForTest
 	_, err := appconfig.LoadConfigDocument(
 		appconfig.RuntimeLoadOptions{WorkingDir: workingDir, Profile: "default"},
 		appconfig.AppLoadOptions{
-			AppName: "relay",
-			DefaultsYAML: []byte(`relay:
+			AppName:            "app",
+			UseDotConfigAppDir: true,
+			DefaultsYAML: []byte(`app:
   telegram:
     webhook:
       url: ""
@@ -122,27 +123,27 @@ profiles:
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
 
-	if got := doc.Relay.RootAgent; got != "from_relay_file" {
-		t.Fatalf("root_agent = %q, want from_relay_file", got)
+	if got := doc.App.RootAgent; got != "from_app_file" {
+		t.Fatalf("root_agent = %q, want from_app_file", got)
 	}
-	if got := doc.Relay.Telegram.Webhook.URL; got != "https://example.com/webhook" {
+	if got := doc.App.Telegram.Webhook.URL; got != "https://example.com/webhook" {
 		t.Fatalf("telegram.webhook.url = %q, want https://example.com/webhook", got)
 	}
-	if !doc.Relay.Telegram.Webhook.Enabled {
+	if !doc.App.Telegram.Webhook.Enabled {
 		t.Fatalf("telegram.webhook.enabled = false, want true from env")
 	}
-	if got := doc.Relay.Telegram.Webhook.AuthToken; got != "auth-token" {
+	if got := doc.App.Telegram.Webhook.AuthToken; got != "auth-token" {
 		t.Fatalf("telegram.webhook.auth_token = %q, want auth-token from env", got)
 	}
-	if got := doc.Relay.Logger.Level; got != "debug" {
+	if got := doc.App.Logger.Level; got != "debug" {
 		t.Fatalf("logger.level = %q, want debug", got)
 	}
-	if got := doc.Relay.SystemInstructions; got != "relay-override" {
-		t.Fatalf("relay.system_instructions = %q, want relay-override", got)
+	if got := doc.App.SystemInstructions; got != "app-override" {
+		t.Fatalf("app.system_instructions = %q, want app-override", got)
 	}
 }
 
-func TestLoadConfigDocument_UsesDedicatedRelayConfigPathWithoutLegacyMerge(t *testing.T) {
+func TestLoadConfigDocument_UsesDedicatedAppConfigPathWithoutLegacyMerge(t *testing.T) {
 	workingDir := t.TempDir()
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
@@ -157,7 +158,7 @@ cli:
     do: agent
     check: agent
     act: agent
-relay:
+app:
   root_agent: from_core_file
   telegram:
     webhook:
@@ -165,37 +166,37 @@ relay:
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "app", "config.yaml"), `runtime:
   providers:
     agent:
       type: generic_acp
       generic_acp:
-        cmd: ["relay-agent"]
-relay:
-  root_agent: from_dedicated_relay_config
+        cmd: ["app-agent"]
+app:
+  root_agent: from_dedicated_app_config
 `); err != nil {
-		t.Fatalf("write relay config: %v", err)
+		t.Fatalf("write app config: %v", err)
 	}
 
-	var doc relayConfigDocumentForTest
+	var doc appConfigDocumentForTest
 	_, err := appconfig.LoadConfigDocument(
 		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
-		appconfig.AppLoadOptions{AppName: "relay"},
+		appconfig.AppLoadOptions{AppName: "app", UseDotConfigAppDir: true},
 		&doc,
 	)
 	if err != nil {
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
 
-	if got := doc.Relay.RootAgent; got != "from_dedicated_relay_config" {
-		t.Fatalf("root_agent = %q, want from_dedicated_relay_config", got)
+	if got := doc.App.RootAgent; got != "from_dedicated_app_config" {
+		t.Fatalf("root_agent = %q, want from_dedicated_app_config", got)
 	}
-	if got := doc.Relay.Telegram.Webhook.URL; got != "" {
-		t.Fatalf("relay.telegram.webhook unexpectedly loaded from legacy core config")
+	if got := doc.App.Telegram.Webhook.URL; got != "" {
+		t.Fatalf("app.telegram.webhook unexpectedly loaded from legacy core config")
 	}
 }
 
-func TestLoadConfigDocument_DoesNotFallbackToLegacyCoreWhenDedicatedRelayConfigMissing(t *testing.T) {
+func TestLoadConfigDocument_DoesNotFallbackToLegacyCoreWhenDedicatedAppConfigMissing(t *testing.T) {
 	workingDir := t.TempDir()
 
 	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
@@ -210,20 +211,20 @@ cli:
     do: agent
     check: agent
     act: agent
-relay:
+app:
   root_agent: from_core_file
 `); err != nil {
 		t.Fatalf("write core config: %v", err)
 	}
 
-	var doc relayConfigDocumentForTest
+	var doc appConfigDocumentForTest
 	_, err := appconfig.LoadConfigDocument(
 		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
-		appconfig.AppLoadOptions{AppName: "relay"},
+		appconfig.AppLoadOptions{AppName: "app", UseDotConfigAppDir: true},
 		&doc,
 	)
 	if err == nil {
-		t.Fatal("LoadConfigDocument returned nil error, want config not found for dedicated relay path")
+		t.Fatal("LoadConfigDocument returned nil error, want config not found for dedicated app path")
 	}
 }
 
@@ -284,24 +285,24 @@ func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 
 func TestLoadConfigDocument_AppliesEnvOverridesToRuntimeSection(t *testing.T) {
 	workingDir := t.TempDir()
-	t.Setenv("RELAY_PROVIDERS_OPENCODE_OPENCODE_ACP_MODEL", "env-override-model")
+	t.Setenv("APP_PROVIDERS_OPENCODE_OPENCODE_ACP_MODEL", "env-override-model")
 
-	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "relay", "config.yaml"), `runtime:
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "app", "config.yaml"), `runtime:
   providers:
     opencode:
       type: opencode_acp
       opencode_acp:
         model: file-model
-relay:
+app:
   root_agent: opencode
 `); err != nil {
-		t.Fatalf("write relay config: %v", err)
+		t.Fatalf("write app config: %v", err)
 	}
 
-	var doc relayConfigDocumentForTest
+	var doc appConfigDocumentForTest
 	_, err := appconfig.LoadConfigDocument(
 		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
-		appconfig.AppLoadOptions{AppName: "relay"},
+		appconfig.AppLoadOptions{AppName: "app", UseDotConfigAppDir: true},
 		&doc,
 	)
 	if err != nil {

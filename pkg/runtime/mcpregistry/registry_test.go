@@ -8,12 +8,12 @@ import (
 
 func TestMapRegistryDelete(t *testing.T) {
 	reg := New(map[string]agentconfig.MCPServerConfig{
-		"relay": {Type: agentconfig.MCPServerTypeHTTP, URL: "http://127.0.0.1:9090/mcp"},
+		"state": {Type: agentconfig.MCPServerTypeHTTP, URL: "http://127.0.0.1:9090/mcp"},
 	})
 
-	reg.Delete("relay")
+	reg.Delete("state")
 
-	if _, ok := reg.Get("relay"); ok {
-		t.Fatal("Get(relay) = ok, want deleted entry")
+	if _, ok := reg.Get("state"); ok {
+		t.Fatal("Get(state) = ok, want deleted entry")
 	}
 }

@@ -16,6 +16,7 @@ import (
 const (
 	tasksMCPServerName   = "norma_tasks"
 	sessionMCPServerName = "norma_state"
+	sessionMCPToolPrefix = "state"
 )
 
 var resolveExecutablePath = os.Executable
@@ -49,7 +50,12 @@ func startEmbeddedMCPServers(ctx context.Context, workingDir string) (*embeddedM
 	}
 
 	// Start state MCP server
-	stateServer, err := sessionmcp.StartHTTPServer(ctx, sessionmcp.NewMemoryStore(), "127.0.0.1:0")
+	stateServer, err := sessionmcp.StartHTTPServer(
+		ctx,
+		sessionmcp.NewMemoryStore(),
+		"127.0.0.1:0",
+		sessionmcp.WithToolPrefix(sessionMCPToolPrefix),
+	)
 	if err != nil {
 		_ = taskServer.Close()
 		return nil, nil, fmt.Errorf("start state MCP server: %w", err)

@@ -28,112 +28,12 @@ const (
 	acpSubcommandGemini     = "gemini"
 	acpSubcommandOpenCode   = "opencode"
 	acpSubcommandCodex      = "codex"
-	acpSubcommandInfo       = "info"
-	acpSubcommandWeb        = "web"
-	mcpSubcommand           = "mcp"
-	pingPongSubcommand      = "ping-pong"
 )
 
 func TestPlaygroundCommandRegistered(t *testing.T) {
 	cmd := Command()
-	sub, _, err := cmd.Find([]string{"acp"})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != "acp" {
-		t.Fatalf("subcommand = %v, want acp", sub)
-	}
-
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandGemini})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandGemini {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandGemini)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandOpenCode})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandOpenCode {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandOpenCode)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandCodex})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandCodex {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandCodex)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandInfo})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandInfo {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandInfo)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandInfo, acpSubcommandGemini})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandGemini {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandGemini)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandInfo, acpSubcommandOpenCode})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandOpenCode {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandOpenCode)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandInfo, acpSubcommandCodex})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandCodex {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandCodex)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandWeb {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandWeb)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb, acpSubcommandGemini})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandGemini {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandGemini)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb, acpSubcommandOpenCode})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandOpenCode {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandOpenCode)
-	}
-	sub, _, err = cmd.Find([]string{"acp", acpSubcommandWeb, acpSubcommandCodex})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != acpSubcommandCodex {
-		t.Fatalf("subcommand = %v, want %s", sub, acpSubcommandCodex)
-	}
-	sub, _, err = cmd.Find([]string{mcpSubcommand})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != mcpSubcommand {
-		t.Fatalf("subcommand = %v, want %s", sub, mcpSubcommand)
-	}
-	sub, _, err = cmd.Find([]string{mcpSubcommand, pingPongSubcommand})
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if sub == nil || sub.Name() != pingPongSubcommand {
-		t.Fatalf("subcommand = %v, want %s", sub, pingPongSubcommand)
+	if cmd.HasSubCommands() {
+		t.Fatalf("playground should not expose subcommands; got %d", len(cmd.Commands()))
 	}
 }
 

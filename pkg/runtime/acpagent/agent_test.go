@@ -702,17 +702,17 @@ func TestAgentReusesRemoteSession(t *testing.T) {
 }
 
 func TestAgentUsesReturnedACPSessionIDWhenConfiguredSessionIDDiffers(t *testing.T) {
-	const relaySessionID = "tg-2317500-0"
+	const sessionID = "tg-2317500-0"
 	const acpSessionID = "session-1"
 
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": relaySessionID,
+			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": sessionID,
 			"GO_FORCE_NEW_SESSION_ID":               acpSessionID,
 		}),
 		WorkingDir: t.TempDir(),
-		SessionID:  relaySessionID,
+		SessionID:  sessionID,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -1053,14 +1053,14 @@ func TestClientNewSessionSendsEmptyMCPServersArrayWhenNil(t *testing.T) {
 }
 
 func TestClientNewSession_UsesConfiguredSessionIDAndMeta(t *testing.T) {
-	const relaySessionID = "tg-2317500-0"
+	const sessionID = "tg-2317500-0"
 
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": relaySessionID,
-			"GO_FORCE_NEW_SESSION_ID":               relaySessionID,
+			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": sessionID,
+			"GO_FORCE_NEW_SESSION_ID":               sessionID,
 		}),
-		SessionID: relaySessionID,
+		SessionID: sessionID,
 	})
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
@@ -1075,21 +1075,21 @@ func TestClientNewSession_UsesConfiguredSessionIDAndMeta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
 	}
-	if got := string(sess.SessionId); got != relaySessionID {
-		t.Fatalf("session id = %q, want %q", got, relaySessionID)
+	if got := string(sess.SessionId); got != sessionID {
+		t.Fatalf("session id = %q, want %q", got, sessionID)
 	}
 }
 
 func TestClientNewSession_AcceptsDifferentSessionIDFromACP(t *testing.T) {
-	const relaySessionID = "tg-2317500-0"
+	const sessionID = "tg-2317500-0"
 	const acpSessionID = "session-1"
 
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": relaySessionID,
+			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": sessionID,
 			"GO_FORCE_NEW_SESSION_ID":               acpSessionID,
 		}),
-		SessionID: relaySessionID,
+		SessionID: sessionID,
 	})
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)

@@ -1,18 +1,19 @@
 package playgroundcmd
 
 import (
-	acpcmd "github.com/normahq/norma/cmd/norma/playground/acp"
-	mcpcmd "github.com/normahq/norma/cmd/norma/playground/mcp"
 	"github.com/spf13/cobra"
 )
 
 func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "playground",
-		Short:        "Experimental playground commands for agent integrations",
+		Short:        "Reserved command group for internal playground integrations",
+		Long:         "Reserved command group for internal playground integrations; no public subcommands are currently exposed.",
+		Args:         cobra.NoArgs,
 		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
-	cmd.AddCommand(acpcmd.Command())
-	cmd.AddCommand(mcpcmd.Command())
 	return cmd
 }

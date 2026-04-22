@@ -3,7 +3,6 @@ module github.com/normahq/norma
 go 1.25.5
 
 require (
-	github.com/Mad-Pixels/goldmark-tgmd v0.0.10
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0
@@ -11,22 +10,17 @@ require (
 	github.com/coder/acp-go-sdk v0.6.3
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/go-viper/mapstructure/v2 v2.5.0
-	github.com/ipfans/fxlogger v0.2.0
 	github.com/joho/godotenv v1.5.1
-	github.com/metalagman/appkit v0.1.0
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/pressly/goose/v3 v3.16.0
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tgbotkit/client v0.3.2
-	github.com/tgbotkit/runtime v0.0.0-20260326045117-da01e4eaebb0
 	github.com/xeipuuv/gojsonschema v1.2.0
 	go.uber.org/fx v1.24.0
 	google.golang.org/adk v1.0.0
 	google.golang.org/genai v1.49.0
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.27.0
 )
 
@@ -190,6 +184,7 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
+	github.com/metalagman/appkit v0.1.0 // indirect
 	github.com/metalagman/omnidist v0.1.24 // indirect
 	github.com/mgechev/revive v1.14.0 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
@@ -204,7 +199,6 @@ require (
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
-	github.com/oapi-codegen/runtime v1.1.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -299,6 +293,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
 	lukechampine.com/uint128 v1.3.0 // indirect
 	modernc.org/cc/v3 v3.41.0 // indirect
