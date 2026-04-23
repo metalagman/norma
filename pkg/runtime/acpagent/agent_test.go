@@ -11,6 +11,7 @@ import (
 	"iter"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -27,6 +28,8 @@ import (
 const (
 	testACPCallID = "call-1"
 	testACPToolID = "tool-1"
+
+	testSessionOneHello = "session-1:hello"
 )
 
 func TestClientPromptReceivesUpdates(t *testing.T) {
@@ -701,6 +704,308 @@ func TestAgentReusesRemoteSession(t *testing.T) {
 	}
 }
 
+func TestAgentUsesWorkingDirAsDefaultSessionCWD(t *testing.T) {
+	workingDir := t.TempDir()
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD": workingDir,
+		}),
+		WorkingDir: workingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentUsesSessionStateCWDOverride(t *testing.T) {
+	defaultWorkingDir := t.TempDir()
+	overrideWorkingDir := t.TempDir()
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD": overrideWorkingDir,
+		}),
+		WorkingDir: defaultWorkingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"acp_session": map[string]any{
+				"cwd": overrideWorkingDir,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentNormalizesRelativeSessionStateCWDOverride(t *testing.T) {
+	defaultWorkingDir := t.TempDir()
+	overrideWorkingDir := t.TempDir()
+	currentWorkingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	relativeOverride, err := filepath.Rel(currentWorkingDir, overrideWorkingDir)
+	if err != nil {
+		t.Fatalf("filepath.Rel() error = %v", err)
+	}
+	if strings.TrimSpace(relativeOverride) == "" {
+		t.Fatal("relative override cwd is empty")
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD": overrideWorkingDir,
+		}),
+		WorkingDir: defaultWorkingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"acp_session": map[string]any{
+				"cwd": relativeOverride,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentFailsOnInvalidSessionStateCWDOverride(t *testing.T) {
+	defaultWorkingDir := t.TempDir()
+	missingWorkingDir := filepath.Join(t.TempDir(), "missing")
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommand(t),
+		WorkingDir: defaultWorkingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"acp_session": map[string]any{
+				"cwd": missingWorkingDir,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	var runErr error
+	for _, err := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
+		if err != nil {
+			runErr = err
+		}
+	}
+	if runErr == nil {
+		t.Fatal("run error = nil, want invalid cwd error")
+	}
+	if got := runErr.Error(); !strings.Contains(got, "stat acp session cwd") {
+		t.Fatalf("run error = %q, want invalid cwd message", got)
+	}
+}
+
+func TestAgentForwardsSessionStateMetaToSessionNew(t *testing.T) {
+	workingDir := t.TempDir()
+	meta := map[string]any{
+		"codex": map[string]any{
+			"approvalMode": "manual",
+		},
+	}
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("json.Marshal(meta) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD":          workingDir,
+			"GO_EXPECT_NEW_SESSION_META_RAW": string(metaJSON),
+		}),
+		WorkingDir: workingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"acp_session": map[string]any{
+				"cwd":  workingDir,
+				"meta": meta,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentWarnsAndKeepsBindingWhenSessionConfigChanges(t *testing.T) {
+	defaultWorkingDir := t.TempDir()
+	overrideWorkingDir := t.TempDir()
+	var bootstrapBuf bytes.Buffer
+	bootstrapLogger := zerolog.New(zerolog.SyncWriter(&bootstrapBuf)).Level(zerolog.DebugLevel)
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD": defaultWorkingDir,
+		}),
+		WorkingDir: defaultWorkingDir,
+		Logger:     &bootstrapLogger,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	var invocationBuf bytes.Buffer
+	invocationLogger := zerolog.New(zerolog.SyncWriter(&invocationBuf)).Level(zerolog.DebugLevel).With().Str("source", "invocation").Logger()
+	invocationCtx := invocationLogger.WithContext(context.Background())
+
+	first := collectFinalText(t, r.Run(invocationCtx, "test-user", sess.Session.ID(), genai.NewContentFromText("one", genai.RoleUser), agent.RunConfig{}))
+	second := collectFinalText(t, r.Run(
+		invocationCtx,
+		"test-user",
+		sess.Session.ID(),
+		genai.NewContentFromText("two", genai.RoleUser),
+		agent.RunConfig{},
+		runnerpkg.WithStateDelta(map[string]any{
+			"acp_session": map[string]any{
+				"cwd": overrideWorkingDir,
+			},
+		}),
+	))
+
+	if first != "session-1:one" {
+		t.Fatalf("first final text = %q, want session-1:one", first)
+	}
+	if second != "session-1:two" {
+		t.Fatalf("second final text = %q, want session-1:two", second)
+	}
+
+	logs := invocationBuf.String()
+	if !strings.Contains(logs, "acp session config changed for existing adk session; keeping existing acp session binding") {
+		t.Fatalf("invocation log missing binding-change warning: %q", logs)
+	}
+}
+
 func TestAgentUsesReturnedACPSessionIDWhenConfiguredSessionIDDiffers(t *testing.T) {
 	const sessionID = "tg-2317500-0"
 	const acpSessionID = "session-1"
@@ -853,8 +1158,8 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 		t.Fatalf("expected turn complete event")
 	}
 	got := accumulatedText.String()
-	if got != "session-1:hello" {
-		t.Fatalf("accumulated text = %q, want %q", got, "session-1:hello")
+	if got != testSessionOneHello {
+		t.Fatalf("accumulated text = %q, want %q", got, testSessionOneHello)
 	}
 }
 
@@ -1197,7 +1502,9 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedSessionMode := os.Getenv("GO_EXPECT_SESSION_MODE")
 	expectedMCPServers := os.Getenv("GO_EXPECT_MCP_SERVERS")
 	expectedMCPServersRaw := os.Getenv("GO_EXPECT_MCP_SERVERS_RAW")
+	expectedSessionCWD := os.Getenv("GO_EXPECT_SESSION_CWD")
 	expectedNewSessionMetaSessionID := os.Getenv("GO_EXPECT_NEW_SESSION_META_SESSION_ID")
+	expectedNewSessionMetaRaw := os.Getenv("GO_EXPECT_NEW_SESSION_META_RAW")
 	forceNewSessionID := os.Getenv("GO_FORCE_NEW_SESSION_ID")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
 	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
@@ -1230,6 +1537,14 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 		case acp.AgentMethodSessionNew:
 			var req helperNewSessionRequest
 			must(json.Unmarshal(msg.Params, &req))
+			if expectedSessionCWD != "" && req.Cwd != expectedSessionCWD {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected session cwd: %q, want %q", req.Cwd, expectedSessionCWD)},
+				})
+				continue
+			}
 			if expectedMCPServersRaw != "" {
 				var reqRaw struct {
 					McpServers json.RawMessage `json:"mcpServers"`
@@ -1273,6 +1588,22 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 						})
 						continue
 					}
+				}
+			}
+			if expectedNewSessionMetaRaw != "" {
+				var reqRaw struct {
+					Meta json.RawMessage `json:"_meta"`
+				}
+				must(json.Unmarshal(msg.Params, &reqRaw))
+				gotRaw := compactJSONForCompare(reqRaw.Meta)
+				wantRaw := compactJSONForCompare([]byte(expectedNewSessionMetaRaw))
+				if gotRaw != wantRaw {
+					writeEnvelope(stdout, helperEnvelope{
+						JSONRPC: "2.0",
+						ID:      msg.ID,
+						Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected raw session/new _meta payload: %q, want %q", gotRaw, wantRaw)},
+					})
+					continue
 				}
 			}
 			if expectedNewSessionMetaSessionID != "" {

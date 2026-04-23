@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -39,7 +41,13 @@ type Config struct {
 	ClientVersion string
 	// Command is the argv array used to start the ACP subprocess.
 	Command []string
-	// WorkingDir is the directory where the ACP subprocess is executed.
+	// WorkingDir is the default directory for ACP execution:
+	//   - the ACP subprocess is started with this directory as cmd.Dir.
+	//   - ACP session/new uses this as cwd unless overridden per ADK session
+	//     via session state key [SessionStateKey].cwd.
+	//
+	// When session state override is present, the override takes precedence for
+	// ACP session cwd selection.
 	WorkingDir string
 	// Stderr is an optional writer for the ACP subprocess's standard error.
 	Stderr io.Writer
@@ -67,8 +75,20 @@ type Agent struct {
 	systemInstructions string
 	logger             zerolog.Logger
 	sessionMu          sync.Mutex
-	remoteByADK        map[string]string
+	bindingByADK       map[string]acpSessionBinding
 	mcpServers         []acp.McpServer
+}
+
+type acpSessionBinding struct {
+	remoteSessionID string
+	cwd             string
+	metaJSON        string
+}
+
+type acpSessionConfig struct {
+	cwd      string
+	meta     map[string]any
+	metaJSON string
 }
 
 const (
@@ -81,11 +101,34 @@ const (
 	acpTypeResource = "resource"
 )
 
+// SessionStateKey is the reserved ADK session-state key for ACP per-session
+// overrides in this package.
+//
+// The value at this key must be an object with optional fields:
+//   - "cwd" (string): overrides ACP session/new cwd
+//   - "meta" (object): forwarded to ACP session/new._meta
+//
+// Set it before the first invocation in a given ADK session; once that ADK
+// session is bound to an ACP session, later changes do not rebind.
+const SessionStateKey = "acp_session"
+
 var _ adkagent.Agent = (*Agent)(nil)
 
-// New creates an ADK agent backed by an ACP client process. It starts the process
-// and performs protocol initialization. The caller is responsible for calling
-// Close() to shut down the subprocess.
+// New creates an ADK agent backed by an ACP client process.
+//
+// It starts the ACP process, performs ACP initialization, and creates ACP
+// sessions lazily per ADK session.
+//
+// Per ADK session, callers may provide session-state overrides using key
+// [SessionStateKey] with optional fields:
+//   - "cwd" (string): override ACP session/new cwd
+//   - "meta" (object): forwarded to ACP session/new._meta
+//
+// If no override is provided, Config.WorkingDir is used as ACP session cwd.
+// The first ACP session created for an ADK session is reused for subsequent
+// invocations in that same ADK session.
+//
+// The caller is responsible for calling Close() to shut down the subprocess.
 func New(cfg Config) (*Agent, error) {
 	ctx := cfg.Context
 	if ctx == nil {
@@ -139,7 +182,7 @@ func New(cfg Config) (*Agent, error) {
 		sessionID:          strings.TrimSpace(cfg.SessionID),
 		systemInstructions: strings.TrimSpace(cfg.SystemInstructions),
 		logger:             l,
-		remoteByADK:        make(map[string]string),
+		bindingByADK:       make(map[string]acpSessionBinding),
 		mcpServers:         mcpServers,
 	}
 	base, err := adkagent.New(adkagent.Config{
@@ -321,22 +364,48 @@ func mapACPUsageToUsageMetadata(usage map[string]any) *genai.GenerateContentResp
 	return m
 }
 
-func (a *Agent) ensureRemoteSession(ctx context.Context, logger zerolog.Logger, adkSessionID string) (string, error) {
+func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerolog.Logger, adkSessionID string) (string, error) {
 	a.sessionMu.Lock()
 	defer a.sessionMu.Unlock()
-	if sessionID := a.remoteByADK[adkSessionID]; sessionID != "" {
-		logger.Debug().Str("adk_session_id", adkSessionID).Str("acp_session_id", sessionID).Msg("reusing acp session for adk session")
-		return sessionID, nil
+
+	cfg, err := a.resolveSessionConfig(ctx)
+	if err != nil {
+		return "", err
 	}
-	resp, err := a.client.CreateSession(ctx, a.workingDir, a.sessionModel, a.sessionMode, a.mcpServers)
+
+	if binding, ok := a.bindingByADK[adkSessionID]; ok && binding.remoteSessionID != "" {
+		if binding.cwd != cfg.cwd || binding.metaJSON != cfg.metaJSON {
+			logger.Warn().
+				Str("adk_session_id", adkSessionID).
+				Str("acp_session_id", binding.remoteSessionID).
+				Str("bound_cwd", binding.cwd).
+				Str("requested_cwd", cfg.cwd).
+				RawJSON("bound_meta", []byte(binding.metaJSON)).
+				RawJSON("requested_meta", []byte(cfg.metaJSON)).
+				Msg("acp session config changed for existing adk session; keeping existing acp session binding")
+		}
+		logger.Debug().
+			Str("adk_session_id", adkSessionID).
+			Str("acp_session_id", binding.remoteSessionID).
+			Msg("reusing acp session for adk session")
+		return binding.remoteSessionID, nil
+	}
+
+	resp, err := a.client.CreateSessionWithMeta(ctx, cfg.cwd, a.sessionModel, a.sessionMode, a.mcpServers, cfg.meta)
 	if err != nil {
 		return "", err
 	}
 	sessionID := string(resp.SessionId)
-	a.remoteByADK[adkSessionID] = sessionID
+	a.bindingByADK[adkSessionID] = acpSessionBinding{
+		remoteSessionID: sessionID,
+		cwd:             cfg.cwd,
+		metaJSON:        cfg.metaJSON,
+	}
 	event := logger.Debug().
 		Str("adk_session_id", adkSessionID).
-		Str("acp_session_id", sessionID)
+		Str("acp_session_id", sessionID).
+		Str("cwd", cfg.cwd).
+		RawJSON("meta", []byte(cfg.metaJSON))
 	if a.sessionModel != "" {
 		event = event.Str("model", a.sessionModel)
 	}
@@ -345,6 +414,70 @@ func (a *Agent) ensureRemoteSession(ctx context.Context, logger zerolog.Logger, 
 	}
 	event.Msg("created new acp session for adk session")
 	return sessionID, nil
+}
+
+func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSessionConfig, error) {
+	cfg := acpSessionConfig{
+		cwd: strings.TrimSpace(a.workingDir),
+	}
+
+	rawState, err := ctx.Session().State().Get(SessionStateKey)
+	if err != nil {
+		if errors.Is(err, session.ErrStateKeyNotExist) {
+			return normalizeACPConfigCWD(cfg)
+		}
+		return acpSessionConfig{}, fmt.Errorf("read %q from adk session state: %w", SessionStateKey, err)
+	}
+
+	state, ok := rawState.(map[string]any)
+	if !ok {
+		return acpSessionConfig{}, fmt.Errorf("adk session state %q must be an object; got %T", SessionStateKey, rawState)
+	}
+	if rawCWD, ok := state["cwd"]; ok {
+		cwd, ok := rawCWD.(string)
+		if !ok {
+			return acpSessionConfig{}, fmt.Errorf("adk session state %q.cwd must be a string; got %T", SessionStateKey, rawCWD)
+		}
+		cfg.cwd = strings.TrimSpace(cwd)
+	}
+	if rawMeta, ok := state["meta"]; ok {
+		meta, ok := rawMeta.(map[string]any)
+		if !ok {
+			return acpSessionConfig{}, fmt.Errorf("adk session state %q.meta must be an object; got %T", SessionStateKey, rawMeta)
+		}
+		cfg.meta = cloneAnyMap(meta)
+	}
+
+	return normalizeACPConfigCWD(cfg)
+}
+
+func normalizeACPConfigCWD(cfg acpSessionConfig) (acpSessionConfig, error) {
+	if cfg.meta == nil {
+		cfg.metaJSON = "{}"
+	} else {
+		metaJSON, err := json.Marshal(cfg.meta)
+		if err != nil {
+			return acpSessionConfig{}, fmt.Errorf("marshal acp session meta: %w", err)
+		}
+		cfg.metaJSON = string(metaJSON)
+	}
+
+	if cfg.cwd == "" {
+		return acpSessionConfig{}, fmt.Errorf("acp session cwd is empty")
+	}
+	absCWD, err := filepath.Abs(cfg.cwd)
+	if err != nil {
+		return acpSessionConfig{}, fmt.Errorf("resolve acp session cwd %q: %w", cfg.cwd, err)
+	}
+	info, err := os.Stat(absCWD)
+	if err != nil {
+		return acpSessionConfig{}, fmt.Errorf("stat acp session cwd %q: %w", absCWD, err)
+	}
+	if !info.IsDir() {
+		return acpSessionConfig{}, fmt.Errorf("acp session cwd %q is not a directory", absCWD)
+	}
+	cfg.cwd = absCWD
+	return cfg, nil
 }
 
 func extractPromptText(content *genai.Content) string {

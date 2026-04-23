@@ -50,7 +50,9 @@ type PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.
 type ClientConfig struct {
 	// Command is the argv array used to start the ACP subprocess.
 	Command []string
-	// WorkingDir is the directory where the ACP subprocess is executed.
+	// WorkingDir is the directory where the ACP subprocess is executed
+	// (cmd.Dir). It is independent from ACP session/new.cwd, which is provided
+	// per session creation call.
 	WorkingDir string
 	// ClientName is the name reported to the ACP server. Defaults to "norma-acpagent".
 	ClientName string
@@ -258,12 +260,16 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 }
 
 // NewSession creates a new ACP session in the provided working directory.
+//
+// The ACP protocol requires cwd to be an absolute path.
 func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []acp.McpServer) (acp.NewSessionResponse, error) {
 	return c.NewSessionWithMeta(ctx, cwd, mcpServers, nil)
 }
 
 // NewSessionWithMeta creates a new ACP session in the provided working
 // directory and sends optional _meta extensions with the session request.
+//
+// The ACP protocol requires cwd to be an absolute path.
 func (c *Client) NewSessionWithMeta(
 	ctx context.Context,
 	cwd string,
@@ -337,8 +343,28 @@ func cloneAnyMap(src map[string]any) map[string]any {
 // CreateSession creates a new ACP session and applies configured session
 // model/mode when requested.
 func (c *Client) CreateSession(ctx context.Context, cwd, model, mode string, mcpServers []acp.McpServer) (acp.NewSessionResponse, error) {
+	return c.CreateSessionWithMeta(ctx, cwd, model, mode, mcpServers, nil)
+}
+
+// CreateSessionWithMeta creates a new ACP session with optional session/new
+// _meta and applies configured session model/mode when requested.
+//
+// This helper is equivalent to:
+//  1. NewSessionWithMeta(ctx, cwd, mcpServers, meta)
+//  2. optionally SetSessionModel(...)
+//  3. optionally SetSessionMode(...)
+//
+// The ACP protocol requires cwd to be an absolute path.
+func (c *Client) CreateSessionWithMeta(
+	ctx context.Context,
+	cwd,
+	model,
+	mode string,
+	mcpServers []acp.McpServer,
+	meta map[string]any,
+) (acp.NewSessionResponse, error) {
 	l := c.loggerForContext(ctx)
-	resp, err := c.NewSession(ctx, cwd, mcpServers)
+	resp, err := c.NewSessionWithMeta(ctx, cwd, mcpServers, meta)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
