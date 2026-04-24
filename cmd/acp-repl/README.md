@@ -1,5 +1,7 @@
 # acp-repl
 
+Chat with any ACP server from a focused terminal REPL.
+
 `acp-repl` runs an interactive REPL against any stdio ACP server command.
 
 ## Installation

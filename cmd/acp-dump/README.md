@@ -1,5 +1,7 @@
 # acp-dump
 
+Inspect any ACP server before wiring it into your agent workflow.
+
 `acp-dump` inspects any stdio ACP server command and prints initialize/session details.
 
 ## Installation
