@@ -37,6 +37,16 @@ tasks:
     cmds:
       - go test -tags='integration,opencode' -count=1 ./pkg/runtime/acpagent
 
+  test:integration:codex:
+    desc: Run Codex ACP bridge integration tests for pkg/runtime/acpagent (requires npx, bridge package, and Codex auth/network)
+    cmds:
+      - go test -tags='integration,codex' -count=1 ./pkg/runtime/acpagent
+
+  test:integration:acp:
+    desc: Run all ACP integration tests for pkg/runtime/acpagent
+    cmds:
+      - go test -tags='integration,opencode,codex' -count=1 ./pkg/runtime/acpagent
+
   lint:
     desc: Run golangci-lint
     cmds:
