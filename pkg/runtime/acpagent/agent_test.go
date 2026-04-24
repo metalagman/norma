@@ -1217,6 +1217,7 @@ func TestAgentFailsFastOnMissingRemoteSessionDuringPrompt(t *testing.T) {
 func collectFinalText(t *testing.T, events iter.Seq2[*session.Event, error]) string {
 	t.Helper()
 	var fullText strings.Builder
+	finalText := ""
 	turnCompleteSeen := false
 	for ev, err := range events {
 		if err != nil {
@@ -1229,10 +1230,17 @@ func collectFinalText(t *testing.T, events iter.Seq2[*session.Event, error]) str
 			turnCompleteSeen = true
 		}
 		text := extractPromptText(ev.Content)
-		fullText.WriteString(text)
+		if ev.TurnComplete && !ev.Partial && text != "" {
+			finalText = text
+		} else {
+			fullText.WriteString(text)
+		}
 	}
 	if !turnCompleteSeen {
 		t.Fatalf("expected turn complete event")
+	}
+	if finalText != "" {
+		return finalText
 	}
 	return fullText.String()
 }
@@ -1262,8 +1270,40 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	var accumulatedText strings.Builder
-	turnCompleteSeen := false
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %q", got, testSessionOneHello)
+	}
+}
+
+func TestAgentRunTurnCompleteIncludesFinalContent(t *testing.T) {
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommand(t),
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	partialText := ""
+	finalText := ""
+	turnCompleteCount := 0
 	for ev, err := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
 		if err != nil {
 			t.Fatalf("runner event error = %v", err)
@@ -1271,18 +1311,54 @@ func TestAgentRunDoesNotDuplicatePartialInFinalEvent(t *testing.T) {
 		if ev == nil {
 			continue
 		}
-		if ev.TurnComplete {
-			turnCompleteSeen = true
-		}
 		text := extractPromptText(ev.Content)
-		accumulatedText.WriteString(text)
+		if ev.Partial {
+			partialText += text
+		}
+		if ev.TurnComplete {
+			turnCompleteCount++
+			finalText = text
+			if ev.Partial {
+				t.Fatal("turn complete event was partial")
+			}
+			if ev.FinishReason != genai.FinishReasonStop {
+				t.Fatalf("finish reason = %q, want %q", ev.FinishReason, genai.FinishReasonStop)
+			}
+		}
 	}
-	if !turnCompleteSeen {
-		t.Fatalf("expected turn complete event")
+	if partialText != testSessionOneHello {
+		t.Fatalf("partial text = %q, want %q", partialText, testSessionOneHello)
 	}
-	got := accumulatedText.String()
-	if got != testSessionOneHello {
-		t.Fatalf("accumulated text = %q, want %q", got, testSessionOneHello)
+	if finalText != testSessionOneHello {
+		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
+	}
+	if turnCompleteCount != 1 {
+		t.Fatalf("turnCompleteCount = %d, want 1", turnCompleteCount)
+	}
+}
+
+func TestMapACPUsageToUsageMetadata(t *testing.T) {
+	cached := 7
+	got := mapACPUsageToUsageMetadata(&acp.Usage{
+		InputTokens:      11,
+		OutputTokens:     13,
+		TotalTokens:      31,
+		CachedReadTokens: &cached,
+	})
+	if got == nil {
+		t.Fatal("usage metadata is nil")
+	}
+	if got.PromptTokenCount != 11 {
+		t.Fatalf("PromptTokenCount = %d, want 11", got.PromptTokenCount)
+	}
+	if got.CandidatesTokenCount != 13 {
+		t.Fatalf("CandidatesTokenCount = %d, want 13", got.CandidatesTokenCount)
+	}
+	if got.TotalTokenCount != 31 {
+		t.Fatalf("TotalTokenCount = %d, want 31", got.TotalTokenCount)
+	}
+	if got.CachedContentTokenCount != 7 {
+		t.Fatalf("CachedContentTokenCount = %d, want 7", got.CachedContentTokenCount)
 	}
 }
 

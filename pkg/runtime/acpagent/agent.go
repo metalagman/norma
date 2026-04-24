@@ -123,6 +123,7 @@ const (
 	acpTypeImage    = "image"
 	acpTypeAudio    = "audio"
 	acpTypeResource = "resource"
+	acpUsageUpdate  = "usage_update"
 )
 
 // SessionStateKey is the reserved ADK session-state key for ACP-specific
@@ -278,6 +279,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 
 		var promptResult *PromptResult
+		var finalText strings.Builder
 		for updates != nil || resultCh != nil {
 			select {
 			case <-ctx.Done():
@@ -291,6 +293,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 				ev, ok := mapACPUpdateToEvent(logger, ctx.InvocationID(), ext)
 				if !ok {
 					continue
+				}
+				if ext.Update.AgentMessageChunk != nil {
+					finalText.WriteString(contentVisibleText(ev.Content))
 				}
 				// We log but don't re-mark as partial here as mapACPUpdateToEvent
 				// already set the appropriate Partial flag.
@@ -322,6 +327,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		if promptResult != nil {
 			ev.FinishReason = mapACPStopReasonToFinishReason(promptResult.Response.StopReason)
 			ev.UsageMetadata = mapACPUsageToUsageMetadata(promptResult.Usage)
+		}
+		if finalText.Len() > 0 {
+			ev.Content = genai.NewContentFromText(finalText.String(), genai.RoleModel)
 		}
 		ev.TurnComplete = true
 		a.logADKEvent(logger, ev, "yielding final turn complete event")
@@ -366,14 +374,31 @@ func mapACPStopReasonToFinishReason(reason acp.StopReason) genai.FinishReason {
 		return genai.FinishReasonStop
 	case acp.StopReasonMaxTokens:
 		return genai.FinishReasonMaxTokens
-	case acp.StopReasonCancelled:
+	case acp.StopReasonRefusal:
+		return genai.FinishReasonProhibitedContent
+	case acp.StopReasonCancelled, acp.StopReasonMaxTurnRequests:
 		return genai.FinishReasonOther // No direct match for cancelled in genai.FinishReason
 	default:
 		return genai.FinishReasonUnspecified
 	}
 }
 
-func mapACPUsageToUsageMetadata(usage map[string]any) *genai.GenerateContentResponseUsageMetadata {
+func mapACPUsageToUsageMetadata(usage *acp.Usage) *genai.GenerateContentResponseUsageMetadata {
+	if usage == nil {
+		return nil
+	}
+	m := &genai.GenerateContentResponseUsageMetadata{
+		PromptTokenCount:     int32(usage.InputTokens),
+		CandidatesTokenCount: int32(usage.OutputTokens),
+		TotalTokenCount:      int32(usage.TotalTokens),
+	}
+	if usage.CachedReadTokens != nil {
+		m.CachedContentTokenCount = int32(*usage.CachedReadTokens)
+	}
+	return m
+}
+
+func mapACPLegacyUsageToUsageMetadata(usage map[string]any) *genai.GenerateContentResponseUsageMetadata {
 	if usage == nil {
 		return nil
 	}
@@ -804,6 +829,20 @@ func extractPromptText(content *genai.Content) string {
 	return strings.TrimSpace(builder.String())
 }
 
+func contentVisibleText(content *genai.Content) string {
+	if content == nil {
+		return ""
+	}
+	var builder strings.Builder
+	for _, part := range content.Parts {
+		if part == nil || part.Text == "" || part.Thought {
+			continue
+		}
+		builder.WriteString(part.Text)
+	}
+	return builder.String()
+}
+
 func convertMCPServers(configs map[string]MCPServerConfig) ([]acp.McpServer, error) {
 	if len(configs) == 0 {
 		return nil, nil
@@ -837,14 +876,16 @@ func convertMCPServers(configs map[string]MCPServerConfig) ([]acp.McpServer, err
 				svr.Stdio.Args = append(make([]string, 0, len(cfg.Args)), cfg.Args...)
 			}
 		case MCPServerTypeHTTP:
-			svr.Http = &acp.McpServerHttp{
+			svr.Http = &acp.McpServerHttpInline{
 				Name:    name,
+				Type:    "http",
 				Url:     cfg.URL,
 				Headers: headersToHttpHeaders(cfg.Headers),
 			}
 		case MCPServerTypeSSE:
-			svr.Sse = &acp.McpServerSse{
+			svr.Sse = &acp.McpServerSseInline{
 				Name:    name,
+				Type:    "sse",
 				Url:     cfg.URL,
 				Headers: headersToHttpHeaders(cfg.Headers),
 			}
@@ -907,13 +948,31 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext Extende
 			"currentModeId": update.CurrentModeUpdate.CurrentModeId,
 		})
 		return nil, false
+	case update.ConfigOptionUpdate != nil:
+		logIgnoredACPUpdate(logger, "config_option_update", map[string]any{
+			"configOptions": update.ConfigOptionUpdate.ConfigOptions,
+		})
+		return nil, false
+	case update.SessionInfoUpdate != nil:
+		logIgnoredACPUpdate(logger, "session_info_update", map[string]any{
+			"title":     update.SessionInfoUpdate.Title,
+			"updatedAt": update.SessionInfoUpdate.UpdatedAt,
+		})
+		return nil, false
+	case update.UsageUpdate != nil:
+		logIgnoredACPUpdate(logger, acpUsageUpdate, map[string]any{
+			"size": update.UsageUpdate.Size,
+			"used": update.UsageUpdate.Used,
+			"cost": update.UsageUpdate.Cost,
+		})
+		return nil, false
 	default:
 		// Check for recognized discriminators in raw JSON that are not in the SDK struct.
 		var raw map[string]any
 		if err := json.Unmarshal(ext.Raw, &raw); err == nil {
 			if u, ok := raw["update"].(map[string]any); ok {
-				if disc, ok := u["sessionUpdate"].(string); ok && disc == "usage_update" {
-					return mapACPUsageUpdate(logger, invocationID, u)
+				if disc, ok := u["sessionUpdate"].(string); ok && disc == acpUsageUpdate {
+					return mapACPLegacyUsageUpdate(logger, invocationID, u)
 				}
 			}
 		}
@@ -923,8 +982,8 @@ func mapACPUpdateToEvent(logger zerolog.Logger, invocationID string, ext Extende
 	}
 }
 
-func mapACPUsageUpdate(logger zerolog.Logger, invocationID string, update map[string]any) (*session.Event, bool) {
-	usage := mapACPUsageToUsageMetadata(update)
+func mapACPLegacyUsageUpdate(logger zerolog.Logger, invocationID string, update map[string]any) (*session.Event, bool) {
+	usage := mapACPLegacyUsageToUsageMetadata(update)
 	if usage == nil {
 		logger.Debug().Interface("update", update).Msg("ignoring usage_update with no token counts")
 		return nil, false
@@ -944,10 +1003,14 @@ func mapACPAgentMessageChunk(logger zerolog.Logger, invocationID string, chunk *
 	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
 	ev.Partial = true
 
-	if meta, ok := chunk.Meta.(map[string]any); ok {
-		if id, ok := meta["messageId"]; ok {
-			ev.CustomMetadata = map[string]any{"acp_message_id": id}
+	if id, ok := chunk.Meta["messageId"]; ok {
+		ev.CustomMetadata = map[string]any{"acp_message_id": id}
+	}
+	if chunk.MessageId != nil && *chunk.MessageId != "" {
+		if ev.CustomMetadata == nil {
+			ev.CustomMetadata = map[string]any{}
 		}
+		ev.CustomMetadata["acp_message_id"] = *chunk.MessageId
 	}
 	return ev, true
 }
@@ -1352,6 +1415,12 @@ func sessionUpdateType(update acp.SessionUpdate) string {
 		return "current_mode_update"
 	case update.AvailableCommandsUpdate != nil:
 		return "available_commands_update"
+	case update.ConfigOptionUpdate != nil:
+		return "config_option_update"
+	case update.SessionInfoUpdate != nil:
+		return "session_info_update"
+	case update.UsageUpdate != nil:
+		return acpUsageUpdate
 	default:
 		return unknownValue
 	}

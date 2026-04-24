@@ -256,35 +256,10 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			userContent:       genai.NewContentFromText(prompt, genai.RoleUser),
 		}
 
-		var accumulated strings.Builder
-		sawTurnComplete := false
-		totalEvents := 0
-		textEventCount := 0
-
-		for ev, err := range w.wrapped.Run(wrappedCtx) {
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if ev == nil {
-				continue
-			}
-			totalEvents++
-			text := eventText(ev)
-
-			if text != "" {
-				if accumulated.Len()+len(text) > w.maxAccumulatedOutputBytes {
-					yield(nil, fmt.Errorf("accumulated output exceeds limit: %d bytes", w.maxAccumulatedOutputBytes))
-					return
-				}
-				textEventCount++
-				accumulated.WriteString(text)
-			}
-
-			if ev.TurnComplete {
-				sawTurnComplete = true
-				break
-			}
+		accumulatedText, totalEvents, textEventCount, sawTurnComplete, err := w.collectWrappedOutput(wrappedCtx)
+		if err != nil {
+			yield(nil, err)
+			return
 		}
 		if !sawTurnComplete {
 			logger.Debug().
@@ -298,7 +273,6 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			Bool("saw_turn_complete", sawTurnComplete).
 			Msg("collected inner agent events")
 
-		accumulatedText := accumulated.String()
 		logger.Debug().
 			Str("invocation_id", ctx.InvocationID()).
 			Int("accumulated_output_len", len(accumulatedText)).
@@ -348,34 +322,7 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 					Str("validation_json_full", validationJSONForLog(accumulatedText)).
 					Msg("output schema validation failed, retrying")
 
-				accumulated.Reset()
-				totalEvents = 0
-				textEventCount = 0
-
-				for ev, err := range w.wrapped.Run(wrappedCtx) {
-					if err != nil {
-						lastOutputErr = err
-						break
-					}
-					if ev == nil {
-						continue
-					}
-					totalEvents++
-					text := eventText(ev)
-					if text != "" {
-						if accumulated.Len()+len(text) > w.maxAccumulatedOutputBytes {
-							lastOutputErr = fmt.Errorf("accumulated output exceeds limit: %d bytes", w.maxAccumulatedOutputBytes)
-							break
-						}
-						textEventCount++
-						accumulated.WriteString(text)
-					}
-					if ev.TurnComplete {
-						break
-					}
-				}
-
-				accumulatedText = accumulated.String()
+				accumulatedText, _, _, _, lastOutputErr = w.collectWrappedOutput(wrappedCtx)
 			}
 		}
 
@@ -404,6 +351,54 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			return
 		}
 	}
+}
+
+func (w *wrapperAgent) collectWrappedOutput(ctx adkagent.InvocationContext) (string, int, int, bool, error) {
+	var partialText strings.Builder
+	finalText := ""
+	sawFinalText := false
+	sawTurnComplete := false
+	totalEvents := 0
+	textEventCount := 0
+
+	for ev, err := range w.wrapped.Run(ctx) {
+		if err != nil {
+			return "", totalEvents, textEventCount, sawTurnComplete, err
+		}
+		if ev == nil {
+			continue
+		}
+		totalEvents++
+		text := eventText(ev)
+
+		if text != "" {
+			if ev.TurnComplete && !ev.Partial {
+				if len(text) > w.maxAccumulatedOutputBytes {
+					return "", totalEvents, textEventCount, sawTurnComplete,
+						fmt.Errorf("accumulated output exceeds limit: %d bytes", w.maxAccumulatedOutputBytes)
+				}
+				finalText = text
+				sawFinalText = true
+			} else {
+				if partialText.Len()+len(text) > w.maxAccumulatedOutputBytes {
+					return "", totalEvents, textEventCount, sawTurnComplete,
+						fmt.Errorf("accumulated output exceeds limit: %d bytes", w.maxAccumulatedOutputBytes)
+				}
+				partialText.WriteString(text)
+			}
+			textEventCount++
+		}
+
+		if ev.TurnComplete {
+			sawTurnComplete = true
+			break
+		}
+	}
+
+	if sawFinalText {
+		return finalText, totalEvents, textEventCount, sawTurnComplete, nil
+	}
+	return partialText.String(), totalEvents, textEventCount, sawTurnComplete, nil
 }
 
 type wrapperInvocationContext struct {

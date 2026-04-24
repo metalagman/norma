@@ -13,6 +13,8 @@ import (
 	"github.com/normahq/norma/pkg/runtime/acpagent"
 )
 
+const unknownValue = "unknown"
+
 // RunConfig describes how ACP inspection should run.
 type RunConfig struct {
 	Command      []string
@@ -110,8 +112,8 @@ func writeInspectHuman(stdout io.Writer, output *inspectOutput) error {
 		return err
 	}
 
-	agentName := "unknown"
-	agentVersion := "unknown"
+	agentName := unknownValue
+	agentVersion := unknownValue
 	agentTitle := ""
 	if output.Initialize.AgentInfo != nil {
 		if strings.TrimSpace(output.Initialize.AgentInfo.Name) != "" {
@@ -161,15 +163,36 @@ func writeAuthMethodSummary(stdout io.Writer, methods []acp.AuthMethod) error {
 		return err
 	}
 	for _, method := range methods {
-		line := fmt.Sprintf("- %s: %s", method.Id, strings.TrimSpace(method.Name))
-		if method.Description != nil && strings.TrimSpace(*method.Description) != "" {
-			line += ": " + strings.TrimSpace(*method.Description)
+		id, name, description := authMethodSummary(method)
+		line := fmt.Sprintf("- %s: %s", id, name)
+		if description != "" {
+			line += ": " + description
 		}
 		if _, err := fmt.Fprintln(stdout, line); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func authMethodSummary(method acp.AuthMethod) (string, string, string) {
+	switch {
+	case method.EnvVar != nil:
+		return method.EnvVar.Id, strings.TrimSpace(method.EnvVar.Name), trimOptionalString(method.EnvVar.Description)
+	case method.Terminal != nil:
+		return method.Terminal.Id, strings.TrimSpace(method.Terminal.Name), trimOptionalString(method.Terminal.Description)
+	case method.Agent != nil:
+		return method.Agent.Id, strings.TrimSpace(method.Agent.Name), trimOptionalString(method.Agent.Description)
+	default:
+		return unknownValue, unknownValue, ""
+	}
+}
+
+func trimOptionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 func writeSessionSummary(stdout io.Writer, session *acp.NewSessionResponse) error {

@@ -355,6 +355,9 @@ func renderACPToolEvent(accumulator *acpToolTurnAccumulator, ev *session.Event) 
 			if text == "" {
 				continue
 			}
+			if ev.TurnComplete && !ev.Partial && accumulator.hasVisibleOutput() {
+				continue
+			}
 			if part.Thought {
 				accumulator.appendThought(text)
 				continue
@@ -369,6 +372,13 @@ func renderACPToolEvent(accumulator *acpToolTurnAccumulator, ev *session.Event) 
 		accumulator.flushAll()
 	}
 	return partialCount
+}
+
+func (a *acpToolTurnAccumulator) hasVisibleOutput() bool {
+	if a == nil {
+		return false
+	}
+	return a.textOutputLen > 0 || a.textBuf.Len() > 0
 }
 
 func extractACPToolEventPartText(part *genai.Part) string {

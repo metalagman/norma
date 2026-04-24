@@ -121,7 +121,7 @@ type loggedACPChunk struct {
 // PromptResult contains the terminal Prompt RPC response, usage metadata, or an error.
 type PromptResult struct {
 	Response acp.PromptResponse
-	Usage    map[string]any
+	Usage    *acp.Usage
 	Err      error
 }
 
@@ -251,7 +251,7 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 	}
 	l := c.loggerForContext(ctx)
 	l.Debug().Str("method_id", methodID).Msg("sending acp authenticate")
-	_, err := c.conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: acp.AuthMethodId(methodID)})
+	_, err := c.conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: methodID})
 	if err != nil {
 		return err
 	}
@@ -418,9 +418,9 @@ func (c *Client) SetSessionModel(ctx context.Context, sessionID, model string) e
 		Str("session_id", sessionID).
 		Str("model", trimmedModel).
 		Msg("sending acp session/set_model")
-	_, err := c.conn.SetSessionModel(ctx, acp.SetSessionModelRequest{
+	_, err := c.conn.UnstableSetSessionModel(ctx, acp.UnstableSetSessionModelRequest{
 		SessionId: acp.SessionId(sessionID),
-		ModelId:   acp.ModelId(trimmedModel),
+		ModelId:   acp.UnstableModelId(trimmedModel),
 	})
 	if err != nil {
 		return err
@@ -531,16 +531,12 @@ func (c *Client) promptWithBlocks(
 			return
 		}
 
-		var usage map[string]any
-		if meta, ok := resp.Meta.(map[string]any); ok {
-			usage, _ = meta["usage"].(map[string]any)
-		}
 		l.Debug().
 			Str("session_id", sessionID).
 			Str("stop_reason", string(resp.StopReason)).
-			Interface("usage", usage).
+			Interface("usage", resp.Usage).
 			Msg("acp session/prompt completed")
-		resultCh <- PromptResult{Response: resp, Usage: usage}
+		resultCh <- PromptResult{Response: resp, Usage: resp.Usage}
 	}()
 
 	return updates, resultCh, nil
@@ -669,9 +665,9 @@ func (c *Client) CreateTerminal(_ context.Context, _ acp.CreateTerminalRequest) 
 	return acp.CreateTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalCreate)
 }
 
-// KillTerminalCommand reports unsupported terminal command control for this ACP client.
-func (c *Client) KillTerminalCommand(_ context.Context, _ acp.KillTerminalCommandRequest) (acp.KillTerminalCommandResponse, error) {
-	return acp.KillTerminalCommandResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalKill)
+// KillTerminal reports unsupported terminal command control for this ACP client.
+func (c *Client) KillTerminal(_ context.Context, _ acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
+	return acp.KillTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalKill)
 }
 
 // TerminalOutput reports unsupported terminal output streaming for this ACP client.
@@ -859,6 +855,12 @@ func sessionUpdateKind(update acp.SessionUpdate) string {
 		return "available_commands_update"
 	case update.CurrentModeUpdate != nil:
 		return "current_mode_update"
+	case update.ConfigOptionUpdate != nil:
+		return "config_option_update"
+	case update.SessionInfoUpdate != nil:
+		return "session_info_update"
+	case update.UsageUpdate != nil:
+		return "usage_update"
 	default:
 		return unknownValue
 	}

@@ -294,6 +294,24 @@ func TestRenderACPToolEvent_ThoughtToolThoughtThenSingleBlankBeforeUserText(t *t
 	}
 }
 
+func TestRenderACPToolEvent_SuppressesDuplicateFinalTurnText(t *testing.T) {
+	var stdout bytes.Buffer
+	ui := newACPToolTerminal(strings.NewReader(""), &stdout, &stdout)
+	accumulator := newACPToolTurnAccumulator(ui)
+
+	renderACPToolEvent(accumulator, testEvent(true, false, []*genai.Part{
+		{Text: "hello"},
+	}))
+	renderACPToolEvent(accumulator, testEvent(false, true, []*genai.Part{
+		{Text: "hello"},
+	}))
+
+	wantPlain := "hello\n"
+	if gotPlain := stripANSI(stdout.String()); gotPlain != wantPlain {
+		t.Fatalf("plain stdout = %q, want %q", gotPlain, wantPlain)
+	}
+}
+
 func testEvent(partial bool, turnComplete bool, parts []*genai.Part) *session.Event {
 	ev := session.NewEvent("inv-1")
 	if len(parts) > 0 {
