@@ -10,16 +10,24 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
+	"time"
+	"unicode"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/normahq/norma/pkg/runtime/sessionstate"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
+
+// InstructionProvider allows ACP instructions to be created dynamically using
+// invocation context, mirroring llmagent semantics.
+type InstructionProvider func(ctx adkagent.ReadonlyContext) (string, error)
 
 // Config configures an ACP-backed ADK agent.
 type Config struct {
@@ -33,7 +41,20 @@ type Config struct {
 	Model string
 	// Mode is the ACP session mode identifier to use.
 	Mode string
-	// SystemInstructions is an optional system-level instruction for the agent.
+	// Instruction is the optional instruction applied to each invocation.
+	Instruction string
+	// GlobalInstruction is the optional global instruction applied before
+	// Instruction.
+	GlobalInstruction string
+	// InstructionProvider dynamically provides [Config.Instruction] content.
+	// When set, this takes precedence over [Config.Instruction].
+	InstructionProvider InstructionProvider
+	// GlobalInstructionProvider dynamically provides
+	// [Config.GlobalInstruction] content. When set, this takes precedence over
+	// [Config.GlobalInstruction].
+	GlobalInstructionProvider InstructionProvider
+	// SystemInstructions is deprecated and kept for backward compatibility.
+	// Use Instruction instead.
 	SystemInstructions string
 	// ClientName is the name reported to the ACP server during initialization.
 	ClientName string
@@ -44,7 +65,7 @@ type Config struct {
 	// WorkingDir is the default directory for ACP execution:
 	//   - the ACP subprocess is started with this directory as cmd.Dir.
 	//   - ACP session/new uses this as cwd unless overridden per ADK session
-	//     via session state key [SessionStateKey].cwd.
+	//     via session state key [sessionstate.CWDKey].
 	//
 	// When session state override is present, the override takes precedence for
 	// ACP session cwd selection.
@@ -67,16 +88,19 @@ type Config struct {
 type Agent struct {
 	adkagent.Agent
 
-	client             *Client
-	workingDir         string
-	sessionModel       string
-	sessionMode        string
-	sessionID          string
-	systemInstructions string
-	logger             zerolog.Logger
-	sessionMu          sync.Mutex
-	bindingByADK       map[string]acpSessionBinding
-	mcpServers         []acp.McpServer
+	client                    *Client
+	workingDir                string
+	sessionModel              string
+	sessionMode               string
+	sessionID                 string
+	instruction               string
+	globalInstruction         string
+	instructionProvider       InstructionProvider
+	globalInstructionProvider InstructionProvider
+	logger                    zerolog.Logger
+	sessionMu                 sync.Mutex
+	bindingByADK              map[string]acpSessionBinding
+	mcpServers                []acp.McpServer
 }
 
 type acpSessionBinding struct {
@@ -101,11 +125,10 @@ const (
 	acpTypeResource = "resource"
 )
 
-// SessionStateKey is the reserved ADK session-state key for ACP per-session
-// overrides in this package.
+// SessionStateKey is the reserved ADK session-state key for ACP-specific
+// per-session settings.
 //
 // The value at this key must be an object with optional fields:
-//   - "cwd" (string): overrides ACP session/new cwd
 //   - "meta" (object): forwarded to ACP session/new._meta
 //
 // Set it before the first invocation in a given ADK session; once that ADK
@@ -114,15 +137,16 @@ const SessionStateKey = "acp_session"
 
 var _ adkagent.Agent = (*Agent)(nil)
 
+var placeholderRegex = regexp.MustCompile(`{+[^{}]*}+`)
+
 // New creates an ADK agent backed by an ACP client process.
 //
 // It starts the ACP process, performs ACP initialization, and creates ACP
 // sessions lazily per ADK session.
 //
-// Per ADK session, callers may provide session-state overrides using key
-// [SessionStateKey] with optional fields:
-//   - "cwd" (string): override ACP session/new cwd
-//   - "meta" (object): forwarded to ACP session/new._meta
+// Per ADK session, callers may provide state overrides:
+//   - [sessionstate.CWDKey] (string): override ACP session/new cwd
+//   - [SessionStateKey].meta (object): forwarded to ACP session/new._meta
 //
 // If no override is provided, Config.WorkingDir is used as ACP session cwd.
 // The first ACP session created for an ADK session is reused for subsequent
@@ -175,15 +199,18 @@ func New(cfg Config) (*Agent, error) {
 	}
 
 	a := &Agent{
-		client:             client,
-		workingDir:         cfg.WorkingDir,
-		sessionModel:       strings.TrimSpace(cfg.Model),
-		sessionMode:        strings.TrimSpace(cfg.Mode),
-		sessionID:          strings.TrimSpace(cfg.SessionID),
-		systemInstructions: strings.TrimSpace(cfg.SystemInstructions),
-		logger:             l,
-		bindingByADK:       make(map[string]acpSessionBinding),
-		mcpServers:         mcpServers,
+		client:                    client,
+		workingDir:                cfg.WorkingDir,
+		sessionModel:              strings.TrimSpace(cfg.Model),
+		sessionMode:               strings.TrimSpace(cfg.Mode),
+		sessionID:                 strings.TrimSpace(cfg.SessionID),
+		instruction:               normalizeInstruction(cfg.Instruction, cfg.SystemInstructions),
+		globalInstruction:         strings.TrimSpace(cfg.GlobalInstruction),
+		instructionProvider:       cfg.InstructionProvider,
+		globalInstructionProvider: cfg.GlobalInstructionProvider,
+		logger:                    l,
+		bindingByADK:              make(map[string]acpSessionBinding),
+		mcpServers:                mcpServers,
 	}
 	base, err := adkagent.New(adkagent.Config{
 		Name:        cfg.Name,
@@ -212,9 +239,19 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 	return func(yield func(*session.Event, error) bool) {
 		logger := a.invocationLogger(ctx)
 
+		instructions, err := a.resolveInstructions(ctx)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+
 		prompt := extractPromptText(ctx.UserContent())
-		if a.systemInstructions != "" {
-			prompt = a.systemInstructions + "\n\n" + prompt
+		if instructions != "" {
+			if prompt == "" {
+				prompt = instructions
+			} else {
+				prompt = instructions + "\n\n" + prompt
+			}
 		}
 
 		if strings.TrimSpace(prompt) == "" {
@@ -420,6 +457,18 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 	cfg := acpSessionConfig{
 		cwd: strings.TrimSpace(a.workingDir),
 	}
+	rawCWD, err := ctx.Session().State().Get(sessionstate.CWDKey)
+	if err != nil {
+		if !errors.Is(err, session.ErrStateKeyNotExist) {
+			return acpSessionConfig{}, fmt.Errorf("read %q from adk session state: %w", sessionstate.CWDKey, err)
+		}
+	} else {
+		cwd, ok := rawCWD.(string)
+		if !ok {
+			return acpSessionConfig{}, fmt.Errorf("adk session state %q must be a string; got %T", sessionstate.CWDKey, rawCWD)
+		}
+		cfg.cwd = strings.TrimSpace(cwd)
+	}
 
 	rawState, err := ctx.Session().State().Get(SessionStateKey)
 	if err != nil {
@@ -432,13 +481,6 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 	state, ok := rawState.(map[string]any)
 	if !ok {
 		return acpSessionConfig{}, fmt.Errorf("adk session state %q must be an object; got %T", SessionStateKey, rawState)
-	}
-	if rawCWD, ok := state["cwd"]; ok {
-		cwd, ok := rawCWD.(string)
-		if !ok {
-			return acpSessionConfig{}, fmt.Errorf("adk session state %q.cwd must be a string; got %T", SessionStateKey, rawCWD)
-		}
-		cfg.cwd = strings.TrimSpace(cwd)
 	}
 	if rawMeta, ok := state["meta"]; ok {
 		meta, ok := rawMeta.(map[string]any)
@@ -478,6 +520,274 @@ func normalizeACPConfigCWD(cfg acpSessionConfig) (acpSessionConfig, error) {
 	}
 	cfg.cwd = absCWD
 	return cfg, nil
+}
+
+func normalizeInstruction(primary, deprecated string) string {
+	inst := strings.TrimSpace(primary)
+	if inst != "" {
+		return inst
+	}
+	return strings.TrimSpace(deprecated)
+}
+
+func (a *Agent) resolveInstructions(ctx adkagent.InvocationContext) (string, error) {
+	readonlyCtx := readonlyInvocationContext{invocation: ctx}
+	instructions := make([]string, 0, 2)
+
+	globalInstruction, err := a.resolveSingleInstruction(
+		ctx,
+		readonlyCtx,
+		a.globalInstruction,
+		a.globalInstructionProvider,
+		"global instruction",
+	)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(globalInstruction) != "" {
+		instructions = append(instructions, globalInstruction)
+	}
+
+	instruction, err := a.resolveSingleInstruction(
+		ctx,
+		readonlyCtx,
+		a.instruction,
+		a.instructionProvider,
+		"instruction",
+	)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(instruction) != "" {
+		instructions = append(instructions, instruction)
+	}
+
+	return strings.Join(instructions, "\n\n"), nil
+}
+
+func (a *Agent) resolveSingleInstruction(
+	invocationCtx adkagent.InvocationContext,
+	ctx adkagent.ReadonlyContext,
+	templateInstruction string,
+	provider InstructionProvider,
+	kind string,
+) (string, error) {
+	if provider != nil {
+		instruction, err := provider(ctx)
+		if err != nil {
+			return "", fmt.Errorf("evaluate %s provider: %w", kind, err)
+		}
+		return instruction, nil
+	}
+
+	templateInstruction = strings.TrimSpace(templateInstruction)
+	if templateInstruction == "" {
+		return "", nil
+	}
+
+	instruction, err := injectSessionState(invocationCtx, templateInstruction)
+	if err != nil {
+		return "", fmt.Errorf("inject session state into %s: %w", kind, err)
+	}
+	return instruction, nil
+}
+
+func injectSessionState(ctx adkagent.InvocationContext, templateInstruction string) (string, error) {
+	var result strings.Builder
+	lastIndex := 0
+	matches := placeholderRegex.FindAllStringIndex(templateInstruction, -1)
+
+	for _, matchIndexes := range matches {
+		startIndex, endIndex := matchIndexes[0], matchIndexes[1]
+		result.WriteString(templateInstruction[lastIndex:startIndex])
+
+		replacement, err := replaceTemplateMatch(ctx, templateInstruction[startIndex:endIndex])
+		if err != nil {
+			return "", err
+		}
+		result.WriteString(replacement)
+
+		lastIndex = endIndex
+	}
+
+	result.WriteString(templateInstruction[lastIndex:])
+	return result.String(), nil
+}
+
+func replaceTemplateMatch(ctx adkagent.InvocationContext, match string) (string, error) {
+	varName := strings.TrimSpace(strings.Trim(match, "{}"))
+	optional := false
+	if strings.HasSuffix(varName, "?") {
+		optional = true
+		varName = strings.TrimSuffix(varName, "?")
+	}
+
+	if after, ok := strings.CutPrefix(varName, "artifact."); ok {
+		if ctx.Artifacts() == nil {
+			return "", fmt.Errorf("artifact service is not initialized")
+		}
+		resp, err := ctx.Artifacts().Load(ctx, after)
+		if err != nil {
+			if optional {
+				return "", nil
+			}
+			return "", fmt.Errorf("load artifact %q: %w", after, err)
+		}
+		if resp == nil || resp.Part == nil {
+			if optional {
+				return "", nil
+			}
+			return "", fmt.Errorf("artifact %q has no content", after)
+		}
+		return resp.Part.Text, nil
+	}
+
+	if !isValidStateName(varName) {
+		return match, nil
+	}
+
+	value, err := ctx.Session().State().Get(varName)
+	if err != nil {
+		if optional {
+			return "", nil
+		}
+		return "", err
+	}
+	if value == nil {
+		return "", nil
+	}
+	return fmt.Sprintf("%v", value), nil
+}
+
+func isValidStateName(varName string) bool {
+	parts := strings.Split(varName, ":")
+	if len(parts) == 1 {
+		return isIdentifier(varName)
+	}
+	if len(parts) != 2 {
+		return false
+	}
+	prefix := parts[0] + ":"
+	if prefix != "app:" && prefix != "user:" && prefix != "temp:" {
+		return false
+	}
+	return isIdentifier(parts[1])
+}
+
+func isIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, r := range value {
+		if i == 0 {
+			if !unicode.IsLetter(r) && r != '_' {
+				return false
+			}
+			continue
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+type readonlyInvocationContext struct {
+	invocation adkagent.InvocationContext
+}
+
+func (c readonlyInvocationContext) Deadline() (time.Time, bool) {
+	if c.invocation == nil {
+		return time.Time{}, false
+	}
+	return c.invocation.Deadline()
+}
+
+func (c readonlyInvocationContext) Done() <-chan struct{} {
+	if c.invocation == nil {
+		return nil
+	}
+	return c.invocation.Done()
+}
+
+func (c readonlyInvocationContext) Err() error {
+	if c.invocation == nil {
+		return nil
+	}
+	return c.invocation.Err()
+}
+
+func (c readonlyInvocationContext) Value(key any) any {
+	if c.invocation == nil {
+		return nil
+	}
+	return c.invocation.Value(key)
+}
+
+func (c readonlyInvocationContext) UserContent() *genai.Content {
+	if c.invocation == nil {
+		return nil
+	}
+	return c.invocation.UserContent()
+}
+
+func (c readonlyInvocationContext) InvocationID() string {
+	if c.invocation == nil {
+		return ""
+	}
+	return c.invocation.InvocationID()
+}
+
+func (c readonlyInvocationContext) AgentName() string {
+	if c.invocation == nil || c.invocation.Agent() == nil {
+		return ""
+	}
+	return c.invocation.Agent().Name()
+}
+
+func (c readonlyInvocationContext) ReadonlyState() session.ReadonlyState {
+	if c.invocation == nil || c.invocation.Session() == nil {
+		return emptyReadonlyState{}
+	}
+	return c.invocation.Session().State()
+}
+
+func (c readonlyInvocationContext) UserID() string {
+	if c.invocation == nil || c.invocation.Session() == nil {
+		return ""
+	}
+	return c.invocation.Session().UserID()
+}
+
+func (c readonlyInvocationContext) AppName() string {
+	if c.invocation == nil || c.invocation.Session() == nil {
+		return ""
+	}
+	return c.invocation.Session().AppName()
+}
+
+func (c readonlyInvocationContext) SessionID() string {
+	if c.invocation == nil || c.invocation.Session() == nil {
+		return ""
+	}
+	return c.invocation.Session().ID()
+}
+
+func (c readonlyInvocationContext) Branch() string {
+	if c.invocation == nil {
+		return ""
+	}
+	return c.invocation.Branch()
+}
+
+type emptyReadonlyState struct{}
+
+func (emptyReadonlyState) Get(string) (any, error) {
+	return nil, session.ErrStateKeyNotExist
+}
+
+func (emptyReadonlyState) All() iter.Seq2[string, any] {
+	return func(yield func(string, any) bool) {}
 }
 
 func extractPromptText(content *genai.Content) string {

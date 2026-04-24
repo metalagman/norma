@@ -103,11 +103,11 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 	}
 	factory := agentfactory.New(agentRegistry, mcpregistry.New(r.mcpServers), factoryOpts...)
 	innerAgent, err := factory.Build(l.WithContext(ctx), agentfactory.BuildRequest{
-		AgentID:            r.role.Name(),
-		Name:               "Norma" + toPascal(r.role.Name()) + "Agent",
-		Description:        "Norma " + r.role.Name() + " agent",
-		SystemInstructions: systemInstruction,
-		WorkingDirectory:   workingDir,
+		AgentID:          r.role.Name(),
+		Name:             "Norma" + toPascal(r.role.Name()) + "Agent",
+		Description:      "Norma " + r.role.Name() + " agent",
+		Instruction:      systemInstruction,
+		WorkingDirectory: workingDir,
 	})
 	if err != nil {
 		return nil, nil, 1, fmt.Errorf("create inner agent: %w", err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -15,19 +16,21 @@ import (
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/normahq/norma/pkg/runtime/poolagent"
+	"github.com/normahq/norma/pkg/runtime/sessionstate"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 )
 
 // BuildRequest defines the parameters for building a new agent instance.
 type BuildRequest struct {
-	AgentID            string   `json:"agent_id" validate:"required,min=1"`
-	Name               string   `json:"name,omitempty"`
-	Description        string   `json:"description,omitempty"`
-	SystemInstructions string   `json:"system_instructions,omitempty"`
-	WorkingDirectory   string   `json:"working_directory" validate:"required,min=1"`
-	MCPServerIDs       []string `json:"mcp_server_ids,omitempty"`
-	SessionID          string   `json:"session_id,omitempty"`
+	AgentID           string   `json:"agent_id" validate:"required,min=1"`
+	Name              string   `json:"name,omitempty"`
+	Description       string   `json:"description,omitempty"`
+	Instruction       string   `json:"instruction,omitempty"`
+	GlobalInstruction string   `json:"global_instruction,omitempty"`
+	WorkingDirectory  string   `json:"working_directory" validate:"required,min=1"`
+	MCPServerIDs      []string `json:"mcp_server_ids,omitempty"`
+	SessionID         string   `json:"session_id,omitempty"`
 }
 
 var buildRequestValidator = newBuildRequestValidator()
@@ -198,6 +201,49 @@ func (f *Factory) Build(ctx context.Context, req BuildRequest) (agent.Agent, err
 	return ag, nil
 }
 
+// BuildSessionState builds canonical ADK session state for runtime sessions.
+//
+// The returned state is backend-agnostic and currently always includes the
+// canonical per-session working directory at key [sessionstate.CWDKey].
+func (f *Factory) BuildSessionState(agentID, workspaceDir string) (map[string]any, error) {
+	trimmedAgentID := strings.TrimSpace(agentID)
+	if trimmedAgentID == "" {
+		return nil, fmt.Errorf("agent id is required")
+	}
+	if _, err := f.GetAgentConfig(trimmedAgentID); err != nil {
+		return nil, err
+	}
+
+	absCWD, err := normalizeSessionCWD(workspaceDir)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		sessionstate.CWDKey: absCWD,
+	}, nil
+}
+
+func normalizeSessionCWD(workspaceDir string) (string, error) {
+	cwd := strings.TrimSpace(workspaceDir)
+	if cwd == "" {
+		return "", fmt.Errorf("session cwd is empty")
+	}
+
+	absCWD, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve session cwd %q: %w", cwd, err)
+	}
+	info, err := os.Stat(absCWD)
+	if err != nil {
+		return "", fmt.Errorf("stat session cwd %q: %w", absCWD, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("session cwd %q is not a directory", absCWD)
+	}
+	return absCWD, nil
+}
+
 func (f *Factory) resolveMCPServers(agentID string, ids []string) (map[string]agentconfig.MCPServerConfig, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -304,12 +350,16 @@ func effectiveDescription(req BuildRequest, cfg agentconfig.ResolvedConfig) stri
 	return cfg.Description(req.AgentID)
 }
 
-func effectiveSystemInstruction(req BuildRequest, cfg agentconfig.ResolvedConfig) string {
-	override := strings.TrimSpace(req.SystemInstructions)
+func effectiveInstruction(req BuildRequest, cfg agentconfig.ResolvedConfig) string {
+	override := strings.TrimSpace(req.Instruction)
 	if override != "" {
 		return override
 	}
 	return strings.TrimSpace(cfg.SystemInstructions)
+}
+
+func effectiveGlobalInstruction(req BuildRequest) string {
+	return strings.TrimSpace(req.GlobalInstruction)
 }
 
 var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
@@ -321,19 +371,20 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 	}
 
 	return newACPAgent(acpagent.Config{
-		Context:            ctx,
-		Name:               effectiveName(req),
-		Description:        effectiveDescription(req, cfg),
-		Model:              cfg.Model,
-		Mode:               cfg.Mode,
-		SystemInstructions: effectiveSystemInstruction(req, cfg),
-		Command:            append([]string(nil), cfg.Command...),
-		WorkingDir:         req.WorkingDirectory,
-		Stderr:             f.stderrWriter,
-		PermissionHandler:  f.permissionHandler,
-		Logger:             loggerFromContext(ctx),
-		MCPServers:         toRuntimeMCPServers(resolvedMCP),
-		SessionID:          req.SessionID,
+		Context:           ctx,
+		Name:              effectiveName(req),
+		Description:       effectiveDescription(req, cfg),
+		Model:             cfg.Model,
+		Mode:              cfg.Mode,
+		Instruction:       effectiveInstruction(req, cfg),
+		GlobalInstruction: effectiveGlobalInstruction(req),
+		Command:           append([]string(nil), cfg.Command...),
+		WorkingDir:        req.WorkingDirectory,
+		Stderr:            f.stderrWriter,
+		PermissionHandler: f.permissionHandler,
+		Logger:            loggerFromContext(ctx),
+		MCPServers:        toRuntimeMCPServers(resolvedMCP),
+		SessionID:         req.SessionID,
 	})
 }
 
@@ -351,7 +402,7 @@ var poolConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, 
 	poolReq := poolagent.AgentRequest{
 		Name:               effectiveName(req),
 		Description:        effectiveDescription(req, cfg),
-		SystemInstructions: effectiveSystemInstruction(req, cfg),
+		SystemInstructions: effectiveInstruction(req, cfg),
 		WorkingDirectory:   req.WorkingDirectory,
 	}
 
@@ -365,11 +416,11 @@ type factoryAgentCreator struct {
 
 func (f *factoryAgentCreator) CreateAgent(ctx context.Context, name string, req poolagent.AgentRequest) (agent.Agent, error) {
 	buildReq := BuildRequest{
-		AgentID:            name,
-		Name:               req.Name,
-		Description:        req.Description,
-		SystemInstructions: req.SystemInstructions,
-		WorkingDirectory:   req.WorkingDirectory,
+		AgentID:          name,
+		Name:             req.Name,
+		Description:      req.Description,
+		Instruction:      req.SystemInstructions,
+		WorkingDirectory: req.WorkingDirectory,
 	}
 	return f.factory.Build(ctx, buildReq)
 }

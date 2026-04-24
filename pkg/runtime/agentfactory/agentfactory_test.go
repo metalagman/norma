@@ -6,12 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
+	"github.com/normahq/norma/pkg/runtime/sessionstate"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/adk/agent"
@@ -315,5 +318,102 @@ func TestFactoryBuild_UsesBuildRequestMCPServerIDsOverride(t *testing.T) {
 	}
 	if _, ok := capturedMCP["cfg"]; ok {
 		t.Fatalf("captured MCP unexpectedly contains cfg server: %#v", capturedMCP)
+	}
+}
+
+func TestFactoryBuildSessionState_UsesCanonicalCWDKey(t *testing.T) {
+	workingDir := t.TempDir()
+	f := New(map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"fake-acp", "serve"},
+			},
+		},
+	}, nil)
+
+	state, err := f.BuildSessionState("test-acp", workingDir)
+	if err != nil {
+		t.Fatalf("BuildSessionState() error = %v", err)
+	}
+	if len(state) != 1 {
+		t.Fatalf("len(state) = %d, want 1", len(state))
+	}
+	gotCWD, ok := state[sessionstate.CWDKey].(string)
+	if !ok {
+		t.Fatalf("state[%q] type = %T, want string", sessionstate.CWDKey, state[sessionstate.CWDKey])
+	}
+	wantCWD, err := filepath.Abs(workingDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs() error = %v", err)
+	}
+	if gotCWD != wantCWD {
+		t.Fatalf("state[%q] = %q, want %q", sessionstate.CWDKey, gotCWD, wantCWD)
+	}
+}
+
+func TestFactoryBuildSessionState_InvalidCWD(t *testing.T) {
+	f := New(map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"fake-acp", "serve"},
+			},
+		},
+	}, nil)
+
+	_, err := f.BuildSessionState("test-acp", filepath.Join(t.TempDir(), "missing"))
+	if err == nil {
+		t.Fatal("BuildSessionState() error = nil, want invalid cwd error")
+	}
+	if !strings.Contains(err.Error(), "stat session cwd") {
+		t.Fatalf("BuildSessionState() error = %q, want stat session cwd", err)
+	}
+}
+
+func TestFactoryBuildSessionState_UnknownAgent(t *testing.T) {
+	f := New(map[string]agentconfig.Config{}, nil)
+	_, err := f.BuildSessionState("unknown", t.TempDir())
+	if err == nil {
+		t.Fatal("BuildSessionState() error = nil, want unknown agent error")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("BuildSessionState() error = %q, want not found", err)
+	}
+}
+
+func TestACPConstructor_UsesInstructionAndGlobalInstruction(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedInstruction string
+	var capturedGlobalInstruction string
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedInstruction = cfg.Instruction
+		capturedGlobalInstruction = cfg.GlobalInstruction
+		return nil, nil
+	}
+
+	_, err := acpConstructor(context.Background(), agentconfig.ResolvedConfig{
+		Type:               agentconfig.AgentTypeGenericACP,
+		Command:            []string{"fake-acp", "serve"},
+		SystemInstructions: "from-config",
+	}, BuildRequest{
+		AgentID:           "test-acp",
+		Instruction:       "from-request",
+		GlobalInstruction: "global-request",
+		WorkingDirectory:  t.TempDir(),
+	}, New(map[string]agentconfig.Config{}, nil), nil)
+	if err != nil {
+		t.Fatalf("acpConstructor() error = %v", err)
+	}
+
+	if capturedInstruction != "from-request" {
+		t.Fatalf("cfg.Instruction = %q, want from-request", capturedInstruction)
+	}
+	if capturedGlobalInstruction != "global-request" {
+		t.Fatalf("cfg.GlobalInstruction = %q, want global-request", capturedGlobalInstruction)
 	}
 }

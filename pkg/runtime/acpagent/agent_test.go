@@ -766,9 +766,7 @@ func TestAgentUsesSessionStateCWDOverride(t *testing.T) {
 		AppName: "test-app",
 		UserID:  "test-user",
 		State: map[string]any{
-			"acp_session": map[string]any{
-				"cwd": overrideWorkingDir,
-			},
+			"cwd": overrideWorkingDir,
 		},
 	})
 	if err != nil {
@@ -778,6 +776,137 @@ func TestAgentUsesSessionStateCWDOverride(t *testing.T) {
 	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
 	if got != testSessionOneHello {
 		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentInjectsSessionStateIntoInstruction(t *testing.T) {
+	workingDir := t.TempDir()
+	a, err := New(Config{
+		Context:     context.Background(),
+		Command:     helperCommandWithEnv(t, map[string]string{"GO_EXPECT_SESSION_CWD": workingDir}),
+		WorkingDir:  workingDir,
+		Instruction: "project={project} cwd={cwd}",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd":     workingDir,
+			"project": "relay",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	want := "session-1:project=relay cwd=" + workingDir + "\n\nhello"
+	if got != want {
+		t.Fatalf("final text = %q, want %q", got, want)
+	}
+}
+
+func TestAgentInstructionProviderSkipsTemplateInjection(t *testing.T) {
+	workingDir := t.TempDir()
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommandWithEnv(t, map[string]string{"GO_EXPECT_SESSION_CWD": workingDir}),
+		WorkingDir: workingDir,
+		InstructionProvider: func(agent.ReadonlyContext) (string, error) {
+			return "provider {project}", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd":     workingDir,
+			"project": "relay",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	want := "session-1:provider {project}\n\nhello"
+	if got != want {
+		t.Fatalf("final text = %q, want %q", got, want)
+	}
+}
+
+func TestAgentFailsWhenInstructionTemplateRequiresMissingState(t *testing.T) {
+	workingDir := t.TempDir()
+	a, err := New(Config{
+		Context:     context.Background(),
+		Command:     helperCommandWithEnv(t, map[string]string{"GO_EXPECT_SESSION_CWD": workingDir}),
+		WorkingDir:  workingDir,
+		Instruction: "missing={not_set}",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	var runErr error
+	for _, err := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
+		if err != nil {
+			runErr = err
+		}
+	}
+	if runErr == nil {
+		t.Fatal("run error = nil, want missing state template error")
+	}
+	if !strings.Contains(runErr.Error(), "inject session state into instruction") {
+		t.Fatalf("run error = %q, want inject session state into instruction", runErr)
 	}
 }
 
@@ -821,9 +950,7 @@ func TestAgentNormalizesRelativeSessionStateCWDOverride(t *testing.T) {
 		AppName: "test-app",
 		UserID:  "test-user",
 		State: map[string]any{
-			"acp_session": map[string]any{
-				"cwd": relativeOverride,
-			},
+			"cwd": relativeOverride,
 		},
 	})
 	if err != nil {
@@ -862,9 +989,7 @@ func TestAgentFailsOnInvalidSessionStateCWDOverride(t *testing.T) {
 		AppName: "test-app",
 		UserID:  "test-user",
 		State: map[string]any{
-			"acp_session": map[string]any{
-				"cwd": missingWorkingDir,
-			},
+			"cwd": missingWorkingDir,
 		},
 	})
 	if err != nil {
@@ -923,8 +1048,8 @@ func TestAgentForwardsSessionStateMetaToSessionNew(t *testing.T) {
 		AppName: "test-app",
 		UserID:  "test-user",
 		State: map[string]any{
+			"cwd": workingDir,
 			"acp_session": map[string]any{
-				"cwd":  workingDir,
 				"meta": meta,
 			},
 		},
@@ -987,9 +1112,7 @@ func TestAgentWarnsAndKeepsBindingWhenSessionConfigChanges(t *testing.T) {
 		genai.NewContentFromText("two", genai.RoleUser),
 		agent.RunConfig{},
 		runnerpkg.WithStateDelta(map[string]any{
-			"acp_session": map[string]any{
-				"cwd": overrideWorkingDir,
-			},
+			"cwd": overrideWorkingDir,
 		}),
 	))
 
