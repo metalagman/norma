@@ -1,11 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "CheckRequest",
-  "properties": {
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
     "run": {
       "type": "object",
-      "title": "CheckRun",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
         "iteration": { "type": "integer" }
@@ -14,127 +15,75 @@
     },
     "task": {
       "type": "object",
-      "title": "CheckTask",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "acceptance_criteria": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "title": "CheckAcceptanceCriteria",
-            "properties": {
-              "id": { "type": "string" },
-              "text": { "type": "string" }
-            },
-            "required": ["id", "text"]
-          }
-        }
+        "goal": { "type": "string" }
       },
-      "required": ["id", "title", "description", "acceptance_criteria"]
+      "required": ["id", "goal"]
     },
     "step": {
       "type": "object",
-      "title": "CheckStep",
+      "additionalProperties": false,
       "properties": {
-        "index": { "type": "integer" },
-        "name": { "type": "string" }
+        "index": { "type": "integer" }
       },
-      "required": ["index", "name"]
+      "required": ["index"]
     },
     "paths": {
       "type": "object",
-      "title": "CheckPaths",
+      "additionalProperties": false,
       "properties": {
-        "workspace_dir": { "type": "string" },
-        "run_dir": { "type": "string" }
+        "workspace_dir": { "type": "string" }
       },
-      "required": ["workspace_dir", "run_dir"]
+      "required": ["workspace_dir"]
     },
-    "budgets": {
+    "do_step": {
       "type": "object",
-      "title": "CheckBudgets",
+      "additionalProperties": false,
       "properties": {
-        "max_iterations": { "type": "integer" },
-        "max_wall_time_minutes": { "type": "integer" },
-        "max_failed_checks": { "type": "integer" }
+        "id": { "type": "string" },
+        "text": { "type": "string" }
       },
-      "required": ["max_iterations"]
+      "required": ["id", "text"]
     },
-    "context": {
+    "check": {
       "type": "object",
-      "title": "CheckContext",
+      "additionalProperties": false,
       "properties": {
-        "facts": { "type": "object" },
-        "links": { "type": "array", "items": { "type": "string" } },
-        "attempt": { "type": "integer" }
-      }
+        "id": { "type": "string" },
+        "command": { "type": "string" },
+        "expected_exit_codes": { "type": "array", "items": { "type": "integer" } }
+      },
+      "required": ["id", "command", "expected_exit_codes"]
     },
-    "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
+    "acceptance_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "checks": { "type": "array", "items": { "$ref": "#/definitions/check" } }
+      },
+      "required": ["id", "text", "checks"]
+    },
     "check_input": {
       "type": "object",
-      "title": "CheckInput",
+      "additionalProperties": false,
       "properties": {
-        "work_plan": {
-          "type": "object",
-          "title": "CheckWorkPlan",
-          "properties": {
-            "timebox_minutes": { "type": "integer" },
-            "do_steps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "CheckDoStep",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" }
-                },
-                "required": ["id", "text"]
-              }
-            },
-            "check_steps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "CheckCheckStep",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" },
-                  "mode": { "type": "string" }
-                },
-                "required": ["id", "text", "mode"]
-              }
-            },
-            "stop_triggers": { "type": "array", "items": { "type": "string" } }
-          },
-          "required": ["timebox_minutes", "do_steps", "check_steps", "stop_triggers"]
-        },
-        "acceptance_criteria_effective": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "title": "CheckEffectiveAcceptanceCriteria",
-            "properties": {
-              "id": { "type": "string" },
-              "origin": { "type": "string" },
-              "text": { "type": "string" }
-            },
-            "required": ["id", "origin", "text"]
-          }
-        },
-        "do_execution": {
-          "type": "object",
-          "title": "CheckDoExecution",
-          "properties": {
-            "executed_step_ids": { "type": "array", "items": { "type": "string" } },
-            "skipped_step_ids": { "type": "array", "items": { "type": "string" } }
-          },
-          "required": ["executed_step_ids", "skipped_step_ids"]
-        }
+        "do_steps": { "type": "array", "items": { "$ref": "#/definitions/do_step" } },
+        "acceptance_criteria": { "type": "array", "items": { "$ref": "#/definitions/acceptance_criterion" } },
+        "executed_step_ids": { "type": "array", "items": { "type": "string" } }
       },
-      "required": ["work_plan", "acceptance_criteria_effective", "do_execution"]
+      "required": ["do_steps", "acceptance_criteria", "executed_step_ids"]
     }
+  },
+  "properties": {
+    "run": { "$ref": "#/definitions/run" },
+    "task": { "$ref": "#/definitions/task" },
+    "step": { "$ref": "#/definitions/step" },
+    "paths": { "$ref": "#/definitions/paths" },
+    "check_input": { "$ref": "#/definitions/check_input" }
   },
   "required": ["run", "task", "step", "paths", "check_input"]
 }

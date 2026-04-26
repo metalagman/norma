@@ -253,7 +253,6 @@ func (t *BeadsTracker) Task(ctx context.Context, id string) (Task, error) {
 func (t *BeadsTracker) MarkDone(ctx context.Context, id string) error {
 	allLabels := []string{
 		normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing,
-		"norma-has-plan", "norma-has-do", "norma-has-check",
 	}
 	args := make([]string, 0, 6+2*len(allLabels))
 	args = append(args, "update", id, "--status", statusClosed, "--json", "--quiet")
@@ -271,8 +270,6 @@ func (t *BeadsTracker) MarkStatus(ctx context.Context, id string, status string)
 	switch status {
 	case normaStatusTodo:
 		beadsStatus = statusOpen
-		// Also remove skip labels for a clean reset
-		removeLabels = append(removeLabels, "norma-has-plan", "norma-has-do", "norma-has-check")
 	case normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing:
 		// When using these granular statuses, we also update labels
 		return t.UpdateWorkflowState(ctx, id, status)
@@ -337,7 +334,6 @@ func (t *BeadsTracker) CloseWithReason(ctx context.Context, id string, reason st
 
 	allLabels := []string{
 		normaStatusPlanning, normaStatusDoing, normaStatusChecking, normaStatusActing,
-		"norma-has-plan", "norma-has-do", "norma-has-check",
 	}
 	for _, l := range allLabels {
 		_, _ = t.exec(ctx, "update", id, "--remove-label", l, "--json", "--quiet")

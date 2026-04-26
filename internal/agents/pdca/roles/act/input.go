@@ -6,91 +6,54 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 )
 
-// ActAcceptanceResult
-type ActAcceptanceResult struct {
+// AcceptanceResult
+type AcceptanceResult struct {
 	AcId   string `json:"ac_id"`
-	Notes  string `json:"notes,omitempty"`
+	Notes  string `json:"notes"`
 	Result string `json:"result"`
-}
-
-// ActBudgets
-type ActBudgets struct {
-	MaxFailedChecks    int64 `json:"max_failed_checks,omitempty"`
-	MaxIterations      int64 `json:"max_iterations"`
-	MaxWallTimeMinutes int64 `json:"max_wall_time_minutes,omitempty"`
-}
-
-// ActCheckVerdict
-type ActCheckVerdict struct {
-	Basis          *ActCheckVerdictBasis `json:"basis"`
-	Recommendation string                `json:"recommendation"`
-	Status         string                `json:"status"`
-}
-
-// ActCheckVerdictBasis
-type ActCheckVerdictBasis struct {
-	AllAcceptancePassed bool   `json:"all_acceptance_passed,omitempty"`
-	PlanMatch           string `json:"plan_match,omitempty"`
-}
-
-// ActContext
-type ActContext struct {
-	Attempt int64     `json:"attempt,omitempty"`
-	Facts   *ActFacts `json:"facts,omitempty"`
-	Links   []string  `json:"links,omitempty"`
-}
-
-// ActFacts
-type ActFacts struct {
 }
 
 // ActInput
 type ActInput struct {
-	AcceptanceResults []ActAcceptanceResult `json:"acceptance_results,omitempty"`
-	CheckVerdict      *ActCheckVerdict      `json:"check_verdict"`
-}
-
-// ActPaths
-type ActPaths struct {
-	RunDir       string `json:"run_dir"`
-	WorkspaceDir string `json:"workspace_dir"`
+	AcceptanceResults []AcceptanceResult `json:"acceptance_results,omitempty"`
+	Verdict           string             `json:"verdict"`
 }
 
 // ActRequest
 type ActRequest struct {
-	ActInput           *ActInput   `json:"act_input"`
-	Budgets            *ActBudgets `json:"budgets,omitempty"`
-	Context            *ActContext `json:"context,omitempty"`
-	Paths              *ActPaths   `json:"paths"`
-	Run                *ActRun     `json:"run"`
-	Step               *ActStep    `json:"step"`
-	StopReasonsAllowed []string    `json:"stop_reasons_allowed,omitempty"`
-	Task               *ActTask    `json:"task"`
+	ActInput *ActInput `json:"act_input"`
+	Paths    *Paths    `json:"paths"`
+	Run      *Run      `json:"run"`
+	Step     *Step     `json:"step"`
+	Task     *Task     `json:"task"`
 }
 
-// ActRun
-type ActRun struct {
+// Paths
+type Paths struct {
+	WorkspaceDir string `json:"workspace_dir"`
+}
+
+// Run
+type Run struct {
 	Id        string `json:"id"`
 	Iteration int64  `json:"iteration"`
 }
 
-// ActStep
-type ActStep struct {
-	Index int64  `json:"index"`
-	Name  string `json:"name"`
+// Step
+type Step struct {
+	Index int64 `json:"index"`
 }
 
-// ActTask
-type ActTask struct {
-	AcceptanceCriteria []interface{} `json:"acceptance_criteria"`
-	Description        string        `json:"description"`
-	Id                 string        `json:"id"`
-	Title              string        `json:"title"`
+// Task
+type Task struct {
+	Goal string `json:"goal"`
+	Id   string `json:"id"`
 }
 
-func (strct *ActAcceptanceResult) MarshalJSON() ([]byte, error) {
+func (strct *AcceptanceResult) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -107,6 +70,8 @@ func (strct *ActAcceptanceResult) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
+	// "Notes" field is required
+	// only required object types supported for marshal checking (for now)
 	// Marshal the "notes" field
 	if comma {
 		buf.WriteString(",")
@@ -137,8 +102,9 @@ func (strct *ActAcceptanceResult) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *ActAcceptanceResult) UnmarshalJSON(b []byte) error {
+func (strct *AcceptanceResult) UnmarshalJSON(b []byte) error {
 	ac_idReceived := false
+	notesReceived := false
 	resultReceived := false
 	var jsonMap map[string]json.RawMessage
 	if err := json.Unmarshal(b, &jsonMap); err != nil {
@@ -156,190 +122,27 @@ func (strct *ActAcceptanceResult) UnmarshalJSON(b []byte) error {
 			if err := json.Unmarshal([]byte(v), &strct.Notes); err != nil {
 				return err
 			}
+			notesReceived = true
 		case "result":
 			if err := json.Unmarshal([]byte(v), &strct.Result); err != nil {
 				return err
 			}
 			resultReceived = true
+		default:
+			return fmt.Errorf("additional property not allowed: %q", k)
 		}
 	}
 	// check if ac_id (a required property) was received
 	if !ac_idReceived {
 		return errors.New("\"ac_id\" is required but was not present")
 	}
+	// check if notes (a required property) was received
+	if !notesReceived {
+		return errors.New("\"notes\" is required but was not present")
+	}
 	// check if result (a required property) was received
 	if !resultReceived {
 		return errors.New("\"result\" is required but was not present")
-	}
-	return nil
-}
-
-func (strct *ActBudgets) MarshalJSON() ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0))
-	buf.WriteString("{")
-	comma := false
-	// Marshal the "max_failed_checks" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"max_failed_checks\": ")
-	if tmp, err := json.Marshal(strct.MaxFailedChecks); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// "MaxIterations" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "max_iterations" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"max_iterations\": ")
-	if tmp, err := json.Marshal(strct.MaxIterations); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// Marshal the "max_wall_time_minutes" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"max_wall_time_minutes\": ")
-	if tmp, err := json.Marshal(strct.MaxWallTimeMinutes); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-
-	buf.WriteString("}")
-	rv := buf.Bytes()
-	return rv, nil
-}
-
-func (strct *ActBudgets) UnmarshalJSON(b []byte) error {
-	max_iterationsReceived := false
-	var jsonMap map[string]json.RawMessage
-	if err := json.Unmarshal(b, &jsonMap); err != nil {
-		return err
-	}
-	// parse all the defined properties
-	for k, v := range jsonMap {
-		switch k {
-		case "max_failed_checks":
-			if err := json.Unmarshal([]byte(v), &strct.MaxFailedChecks); err != nil {
-				return err
-			}
-		case "max_iterations":
-			if err := json.Unmarshal([]byte(v), &strct.MaxIterations); err != nil {
-				return err
-			}
-			max_iterationsReceived = true
-		case "max_wall_time_minutes":
-			if err := json.Unmarshal([]byte(v), &strct.MaxWallTimeMinutes); err != nil {
-				return err
-			}
-		}
-	}
-	// check if max_iterations (a required property) was received
-	if !max_iterationsReceived {
-		return errors.New("\"max_iterations\" is required but was not present")
-	}
-	return nil
-}
-
-func (strct *ActCheckVerdict) MarshalJSON() ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0))
-	buf.WriteString("{")
-	comma := false
-	// "Basis" field is required
-	if strct.Basis == nil {
-		return nil, errors.New("basis is a required field")
-	}
-	// Marshal the "basis" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"basis\": ")
-	if tmp, err := json.Marshal(strct.Basis); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// "Recommendation" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "recommendation" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"recommendation\": ")
-	if tmp, err := json.Marshal(strct.Recommendation); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// "Status" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "status" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"status\": ")
-	if tmp, err := json.Marshal(strct.Status); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-
-	buf.WriteString("}")
-	rv := buf.Bytes()
-	return rv, nil
-}
-
-func (strct *ActCheckVerdict) UnmarshalJSON(b []byte) error {
-	basisReceived := false
-	recommendationReceived := false
-	statusReceived := false
-	var jsonMap map[string]json.RawMessage
-	if err := json.Unmarshal(b, &jsonMap); err != nil {
-		return err
-	}
-	// parse all the defined properties
-	for k, v := range jsonMap {
-		switch k {
-		case "basis":
-			if err := json.Unmarshal([]byte(v), &strct.Basis); err != nil {
-				return err
-			}
-			basisReceived = true
-		case "recommendation":
-			if err := json.Unmarshal([]byte(v), &strct.Recommendation); err != nil {
-				return err
-			}
-			recommendationReceived = true
-		case "status":
-			if err := json.Unmarshal([]byte(v), &strct.Status); err != nil {
-				return err
-			}
-			statusReceived = true
-		}
-	}
-	// check if basis (a required property) was received
-	if !basisReceived {
-		return errors.New("\"basis\" is required but was not present")
-	}
-	// check if recommendation (a required property) was received
-	if !recommendationReceived {
-		return errors.New("\"recommendation\" is required but was not present")
-	}
-	// check if status (a required property) was received
-	if !statusReceived {
-		return errors.New("\"status\" is required but was not present")
 	}
 	return nil
 }
@@ -359,16 +162,14 @@ func (strct *ActInput) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
-	// "CheckVerdict" field is required
-	if strct.CheckVerdict == nil {
-		return nil, errors.New("check_verdict is a required field")
-	}
-	// Marshal the "check_verdict" field
+	// "Verdict" field is required
+	// only required object types supported for marshal checking (for now)
+	// Marshal the "verdict" field
 	if comma {
 		buf.WriteString(",")
 	}
-	buf.WriteString("\"check_verdict\": ")
-	if tmp, err := json.Marshal(strct.CheckVerdict); err != nil {
+	buf.WriteString("\"verdict\": ")
+	if tmp, err := json.Marshal(strct.Verdict); err != nil {
 		return nil, err
 	} else {
 		buf.Write(tmp)
@@ -381,7 +182,7 @@ func (strct *ActInput) MarshalJSON() ([]byte, error) {
 }
 
 func (strct *ActInput) UnmarshalJSON(b []byte) error {
-	check_verdictReceived := false
+	verdictReceived := false
 	var jsonMap map[string]json.RawMessage
 	if err := json.Unmarshal(b, &jsonMap); err != nil {
 		return err
@@ -393,85 +194,18 @@ func (strct *ActInput) UnmarshalJSON(b []byte) error {
 			if err := json.Unmarshal([]byte(v), &strct.AcceptanceResults); err != nil {
 				return err
 			}
-		case "check_verdict":
-			if err := json.Unmarshal([]byte(v), &strct.CheckVerdict); err != nil {
+		case "verdict":
+			if err := json.Unmarshal([]byte(v), &strct.Verdict); err != nil {
 				return err
 			}
-			check_verdictReceived = true
+			verdictReceived = true
+		default:
+			return fmt.Errorf("additional property not allowed: %q", k)
 		}
 	}
-	// check if check_verdict (a required property) was received
-	if !check_verdictReceived {
-		return errors.New("\"check_verdict\" is required but was not present")
-	}
-	return nil
-}
-
-func (strct *ActPaths) MarshalJSON() ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0))
-	buf.WriteString("{")
-	comma := false
-	// "RunDir" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "run_dir" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"run_dir\": ")
-	if tmp, err := json.Marshal(strct.RunDir); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// "WorkspaceDir" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "workspace_dir" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"workspace_dir\": ")
-	if tmp, err := json.Marshal(strct.WorkspaceDir); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-
-	buf.WriteString("}")
-	rv := buf.Bytes()
-	return rv, nil
-}
-
-func (strct *ActPaths) UnmarshalJSON(b []byte) error {
-	run_dirReceived := false
-	workspace_dirReceived := false
-	var jsonMap map[string]json.RawMessage
-	if err := json.Unmarshal(b, &jsonMap); err != nil {
-		return err
-	}
-	// parse all the defined properties
-	for k, v := range jsonMap {
-		switch k {
-		case "run_dir":
-			if err := json.Unmarshal([]byte(v), &strct.RunDir); err != nil {
-				return err
-			}
-			run_dirReceived = true
-		case "workspace_dir":
-			if err := json.Unmarshal([]byte(v), &strct.WorkspaceDir); err != nil {
-				return err
-			}
-			workspace_dirReceived = true
-		}
-	}
-	// check if run_dir (a required property) was received
-	if !run_dirReceived {
-		return errors.New("\"run_dir\" is required but was not present")
-	}
-	// check if workspace_dir (a required property) was received
-	if !workspace_dirReceived {
-		return errors.New("\"workspace_dir\" is required but was not present")
+	// check if verdict (a required property) was received
+	if !verdictReceived {
+		return errors.New("\"verdict\" is required but was not present")
 	}
 	return nil
 }
@@ -490,28 +224,6 @@ func (strct *ActRequest) MarshalJSON() ([]byte, error) {
 	}
 	buf.WriteString("\"act_input\": ")
 	if tmp, err := json.Marshal(strct.ActInput); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// Marshal the "budgets" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"budgets\": ")
-	if tmp, err := json.Marshal(strct.Budgets); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// Marshal the "context" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"context\": ")
-	if tmp, err := json.Marshal(strct.Context); err != nil {
 		return nil, err
 	} else {
 		buf.Write(tmp)
@@ -562,17 +274,6 @@ func (strct *ActRequest) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
-	// Marshal the "stop_reasons_allowed" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"stop_reasons_allowed\": ")
-	if tmp, err := json.Marshal(strct.StopReasonsAllowed); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
 	// "Task" field is required
 	if strct.Task == nil {
 		return nil, errors.New("task is a required field")
@@ -612,14 +313,6 @@ func (strct *ActRequest) UnmarshalJSON(b []byte) error {
 				return err
 			}
 			act_inputReceived = true
-		case "budgets":
-			if err := json.Unmarshal([]byte(v), &strct.Budgets); err != nil {
-				return err
-			}
-		case "context":
-			if err := json.Unmarshal([]byte(v), &strct.Context); err != nil {
-				return err
-			}
 		case "paths":
 			if err := json.Unmarshal([]byte(v), &strct.Paths); err != nil {
 				return err
@@ -635,15 +328,13 @@ func (strct *ActRequest) UnmarshalJSON(b []byte) error {
 				return err
 			}
 			stepReceived = true
-		case "stop_reasons_allowed":
-			if err := json.Unmarshal([]byte(v), &strct.StopReasonsAllowed); err != nil {
-				return err
-			}
 		case "task":
 			if err := json.Unmarshal([]byte(v), &strct.Task); err != nil {
 				return err
 			}
 			taskReceived = true
+		default:
+			return fmt.Errorf("additional property not allowed: %q", k)
 		}
 	}
 	// check if act_input (a required property) was received
@@ -669,7 +360,55 @@ func (strct *ActRequest) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (strct *ActRun) MarshalJSON() ([]byte, error) {
+func (strct *Paths) MarshalJSON() ([]byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0))
+	buf.WriteString("{")
+	comma := false
+	// "WorkspaceDir" field is required
+	// only required object types supported for marshal checking (for now)
+	// Marshal the "workspace_dir" field
+	if comma {
+		buf.WriteString(",")
+	}
+	buf.WriteString("\"workspace_dir\": ")
+	if tmp, err := json.Marshal(strct.WorkspaceDir); err != nil {
+		return nil, err
+	} else {
+		buf.Write(tmp)
+	}
+	comma = true
+
+	buf.WriteString("}")
+	rv := buf.Bytes()
+	return rv, nil
+}
+
+func (strct *Paths) UnmarshalJSON(b []byte) error {
+	workspace_dirReceived := false
+	var jsonMap map[string]json.RawMessage
+	if err := json.Unmarshal(b, &jsonMap); err != nil {
+		return err
+	}
+	// parse all the defined properties
+	for k, v := range jsonMap {
+		switch k {
+		case "workspace_dir":
+			if err := json.Unmarshal([]byte(v), &strct.WorkspaceDir); err != nil {
+				return err
+			}
+			workspace_dirReceived = true
+		default:
+			return fmt.Errorf("additional property not allowed: %q", k)
+		}
+	}
+	// check if workspace_dir (a required property) was received
+	if !workspace_dirReceived {
+		return errors.New("\"workspace_dir\" is required but was not present")
+	}
+	return nil
+}
+
+func (strct *Run) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -705,7 +444,7 @@ func (strct *ActRun) MarshalJSON() ([]byte, error) {
 	return rv, nil
 }
 
-func (strct *ActRun) UnmarshalJSON(b []byte) error {
+func (strct *Run) UnmarshalJSON(b []byte) error {
 	idReceived := false
 	iterationReceived := false
 	var jsonMap map[string]json.RawMessage
@@ -725,6 +464,8 @@ func (strct *ActRun) UnmarshalJSON(b []byte) error {
 				return err
 			}
 			iterationReceived = true
+		default:
+			return fmt.Errorf("additional property not allowed: %q", k)
 		}
 	}
 	// check if id (a required property) was received
@@ -738,7 +479,7 @@ func (strct *ActRun) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (strct *ActStep) MarshalJSON() ([]byte, error) {
+func (strct *Step) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
@@ -755,28 +496,14 @@ func (strct *ActStep) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
-	// "Name" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "name" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"name\": ")
-	if tmp, err := json.Marshal(strct.Name); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
 
 	buf.WriteString("}")
 	rv := buf.Bytes()
 	return rv, nil
 }
 
-func (strct *ActStep) UnmarshalJSON(b []byte) error {
+func (strct *Step) UnmarshalJSON(b []byte) error {
 	indexReceived := false
-	nameReceived := false
 	var jsonMap map[string]json.RawMessage
 	if err := json.Unmarshal(b, &jsonMap); err != nil {
 		return err
@@ -789,49 +516,29 @@ func (strct *ActStep) UnmarshalJSON(b []byte) error {
 				return err
 			}
 			indexReceived = true
-		case "name":
-			if err := json.Unmarshal([]byte(v), &strct.Name); err != nil {
-				return err
-			}
-			nameReceived = true
+		default:
+			return fmt.Errorf("additional property not allowed: %q", k)
 		}
 	}
 	// check if index (a required property) was received
 	if !indexReceived {
 		return errors.New("\"index\" is required but was not present")
 	}
-	// check if name (a required property) was received
-	if !nameReceived {
-		return errors.New("\"name\" is required but was not present")
-	}
 	return nil
 }
 
-func (strct *ActTask) MarshalJSON() ([]byte, error) {
+func (strct *Task) MarshalJSON() ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteString("{")
 	comma := false
-	// "AcceptanceCriteria" field is required
+	// "Goal" field is required
 	// only required object types supported for marshal checking (for now)
-	// Marshal the "acceptance_criteria" field
+	// Marshal the "goal" field
 	if comma {
 		buf.WriteString(",")
 	}
-	buf.WriteString("\"acceptance_criteria\": ")
-	if tmp, err := json.Marshal(strct.AcceptanceCriteria); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
-	// "Description" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "description" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"description\": ")
-	if tmp, err := json.Marshal(strct.Description); err != nil {
+	buf.WriteString("\"goal\": ")
+	if tmp, err := json.Marshal(strct.Goal); err != nil {
 		return nil, err
 	} else {
 		buf.Write(tmp)
@@ -850,30 +557,15 @@ func (strct *ActTask) MarshalJSON() ([]byte, error) {
 		buf.Write(tmp)
 	}
 	comma = true
-	// "Title" field is required
-	// only required object types supported for marshal checking (for now)
-	// Marshal the "title" field
-	if comma {
-		buf.WriteString(",")
-	}
-	buf.WriteString("\"title\": ")
-	if tmp, err := json.Marshal(strct.Title); err != nil {
-		return nil, err
-	} else {
-		buf.Write(tmp)
-	}
-	comma = true
 
 	buf.WriteString("}")
 	rv := buf.Bytes()
 	return rv, nil
 }
 
-func (strct *ActTask) UnmarshalJSON(b []byte) error {
-	acceptance_criteriaReceived := false
-	descriptionReceived := false
+func (strct *Task) UnmarshalJSON(b []byte) error {
+	goalReceived := false
 	idReceived := false
-	titleReceived := false
 	var jsonMap map[string]json.RawMessage
 	if err := json.Unmarshal(b, &jsonMap); err != nil {
 		return err
@@ -881,43 +573,27 @@ func (strct *ActTask) UnmarshalJSON(b []byte) error {
 	// parse all the defined properties
 	for k, v := range jsonMap {
 		switch k {
-		case "acceptance_criteria":
-			if err := json.Unmarshal([]byte(v), &strct.AcceptanceCriteria); err != nil {
+		case "goal":
+			if err := json.Unmarshal([]byte(v), &strct.Goal); err != nil {
 				return err
 			}
-			acceptance_criteriaReceived = true
-		case "description":
-			if err := json.Unmarshal([]byte(v), &strct.Description); err != nil {
-				return err
-			}
-			descriptionReceived = true
+			goalReceived = true
 		case "id":
 			if err := json.Unmarshal([]byte(v), &strct.Id); err != nil {
 				return err
 			}
 			idReceived = true
-		case "title":
-			if err := json.Unmarshal([]byte(v), &strct.Title); err != nil {
-				return err
-			}
-			titleReceived = true
+		default:
+			return fmt.Errorf("additional property not allowed: %q", k)
 		}
 	}
-	// check if acceptance_criteria (a required property) was received
-	if !acceptance_criteriaReceived {
-		return errors.New("\"acceptance_criteria\" is required but was not present")
-	}
-	// check if description (a required property) was received
-	if !descriptionReceived {
-		return errors.New("\"description\" is required but was not present")
+	// check if goal (a required property) was received
+	if !goalReceived {
+		return errors.New("\"goal\" is required but was not present")
 	}
 	// check if id (a required property) was received
 	if !idReceived {
 		return errors.New("\"id\" is required but was not present")
-	}
-	// check if title (a required property) was received
-	if !titleReceived {
-		return errors.New("\"title\" is required but was not present")
 	}
 	return nil
 }

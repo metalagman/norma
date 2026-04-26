@@ -64,10 +64,13 @@ Inside PDCA agent execution:
 
 - Check step writes verdict into session state key `verdict`: `internal/agents/pdca/agent.go`
 - Act step writes decision into session state key `decision`: `internal/agents/pdca/agent.go`
+- Verdict literals are uppercase: `PASS`, `FAIL`
+- Decision literals are lowercase: `close`, `continue`, `replan`
+- Run status literals are lowercase: `passed`, `failed`, `stopped`
 
 Workflow finalization:
 
-- Reads `verdict` + `decision` from session with fallback from `task_state`
+- Reads `verdict` + `decision` from session with fallback from the live ADK session `task_state`
 - derives final status/verdict (`passed|failed|stopped`)
 - persists final run status to DB
 
@@ -77,25 +80,33 @@ Code: `internal/agents/pdca/factory.go`
 
 After workflow returns:
 
-- If verdict is `PASS`:
+- If `verdict=PASS` + `decision=close`:
   - apply workspace changes to main repo
   - create commit
   - mark task `done` in Beads
   - code: `internal/run/run.go`
-- For non-pass outcomes:
-  - returns failed/stopped status to caller
-  - loop may continue if `--continue` is set
-  - code: `cmd/norma/task.go`
+- If `verdict=FAIL` + `decision=continue`:
+  - keep the task open
+  - schedule an in-memory retry backoff for that task
+  - keep selecting other ready tasks while the retry backoff is active
+- If `verdict=FAIL` + `decision=replan`:
+  - create/link replacement work
+  - close the old task with a replan reason
+  - return final status `failed`
+- Invalid combinations such as `PASS` + `continue`, `PASS` + `replan`, `FAIL` + `close`, or any `rollback` decision are agent contract violations.
 
 ### 7) Pick next task
 
-- `runTasks(...)` loops back to `tracker.List(todo)` and repeats until no tasks or failure stop condition.
+- `norma loop` keeps running after task-run, tracker, DB, agent, finalize, and apply failures once startup has succeeded.
+- Runtime failures are logged and backed off instead of stopping the CLI process.
+- Failed tasks can be retried after their in-memory retry backoff expires.
+- Startup/preflight failures still stop the command before the loop starts.
 
 ## Data Boundaries
 
 - Beads (`bd`): task/backlog source of truth
 - SQLite (`.norma/norma.db`): run/step/event state
-- Filesystem (`.norma/runs/...`): per-step logs/workspaces, shared artifacts/
+- Filesystem (`.norma/runs/...`): per-step logs/artifacts plus one shared run workspace
 
 ## Related Files
 

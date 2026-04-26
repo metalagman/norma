@@ -1,11 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "DoRequest",
-  "properties": {
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
     "run": {
       "type": "object",
-      "title": "DoRun",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
         "iteration": { "type": "integer" }
@@ -14,135 +15,63 @@
     },
     "task": {
       "type": "object",
-      "title": "DoTask",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "acceptance_criteria": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "title": "DoAcceptanceCriteria",
-            "properties": {
-              "id": { "type": "string" },
-              "text": { "type": "string" },
-              "verify_hints": { "type": "array", "items": { "type": "string" } }
-            },
-            "required": ["id", "text"]
-          }
-        }
+        "goal": { "type": "string" }
       },
-      "required": ["id", "title", "description", "acceptance_criteria"]
+      "required": ["id", "goal"]
     },
     "step": {
       "type": "object",
-      "title": "DoStep",
+      "additionalProperties": false,
       "properties": {
-        "index": { "type": "integer" },
-        "name": { "type": "string" }
+        "index": { "type": "integer" }
       },
-      "required": ["index", "name"]
+      "required": ["index"]
     },
     "paths": {
       "type": "object",
-      "title": "DoPaths",
+      "additionalProperties": false,
       "properties": {
-        "workspace_dir": { "type": "string" },
-        "run_dir": { "type": "string" }
+        "workspace_dir": { "type": "string" }
       },
-      "required": ["workspace_dir", "run_dir"]
+      "required": ["workspace_dir"]
     },
-    "budgets": {
+    "do_step": {
       "type": "object",
-      "title": "DoBudgets",
+      "additionalProperties": false,
       "properties": {
-        "max_iterations": { "type": "integer" },
-        "max_wall_time_minutes": { "type": "integer" },
-        "max_failed_checks": { "type": "integer" }
+        "id": { "type": "string" },
+        "text": { "type": "string" }
       },
-      "required": ["max_iterations"]
+      "required": ["id", "text"]
     },
-    "context": {
+    "acceptance_criterion": {
       "type": "object",
-      "title": "DoContext",
+      "additionalProperties": false,
       "properties": {
-        "facts": { "type": "object" },
-        "links": { "type": "array", "items": { "type": "string" } },
-        "attempt": { "type": "integer" }
-      }
+        "id": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["id", "text"]
     },
-    "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
     "do_input": {
       "type": "object",
-      "title": "DoInput",
+      "additionalProperties": false,
       "properties": {
-        "work_plan": {
-          "type": "object",
-          "title": "DoWorkPlan",
-          "properties": {
-            "timebox_minutes": { "type": "integer" },
-            "do_steps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "DoDoStep",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" },
-                  "targets_ac_ids": { "type": "array", "items": { "type": "string" } }
-                },
-                "required": ["id", "text", "targets_ac_ids"]
-              }
-            },
-            "check_steps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "DoCheckStep",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" },
-                  "mode": { "type": "string" }
-                },
-                "required": ["id", "text", "mode"]
-              }
-            },
-            "stop_triggers": { "type": "array", "items": { "type": "string" } }
-          },
-          "required": ["timebox_minutes", "do_steps", "check_steps"]
-        },
-        "acceptance_criteria_effective": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "title": "DoEffectiveAcceptanceCriteria",
-            "properties": {
-              "id": { "type": "string" },
-              "origin": { "type": "string" },
-              "refines": { "type": "array", "items": { "type": "string" } },
-              "text": { "type": "string" },
-              "checks": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "title": "DoAcceptanceCriteriaCheck",
-                  "properties": {
-                    "id": { "type": "string" },
-                    "cmd": { "type": "string" },
-                    "expect_exit_codes": { "type": "array", "items": { "type": "integer" } }
-                  },
-                  "required": ["id", "cmd", "expect_exit_codes"]
-                }
-              },
-              "reason": { "type": "string" }
-            },
-            "required": ["id", "origin", "text", "checks"]
-          }
-        }
+        "do_steps": { "type": "array", "items": { "$ref": "#/definitions/do_step" } },
+        "acceptance_criteria": { "type": "array", "items": { "$ref": "#/definitions/acceptance_criterion" } }
       },
-      "required": ["work_plan", "acceptance_criteria_effective"]
+      "required": ["do_steps", "acceptance_criteria"]
     }
+  },
+  "properties": {
+    "run": { "$ref": "#/definitions/run" },
+    "task": { "$ref": "#/definitions/task" },
+    "step": { "$ref": "#/definitions/step" },
+    "paths": { "$ref": "#/definitions/paths" },
+    "do_input": { "$ref": "#/definitions/do_input" }
   },
   "required": ["run", "task", "step", "paths", "do_input"]
 }

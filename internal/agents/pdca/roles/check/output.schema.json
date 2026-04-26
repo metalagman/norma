@@ -1,64 +1,37 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "CheckResponse",
-  "properties": {
-    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
-    "stop_reason": { "type": "string" },
-    "summary": {
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "acceptance_result": {
       "type": "object",
-      "title": "CheckSummary",
+      "additionalProperties": false,
       "properties": {
-        "text": { "type": "string" }
+        "ac_id": { "type": "string" },
+        "result": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "notes": { "type": "string" }
       },
-      "required": ["text"]
-    },
-    "progress": {
-      "type": "object",
-      "title": "CheckProgress",
-      "properties": {
-        "title": { "type": "string" },
-        "details": { "type": "array", "items": { "type": "string" } }
-      },
-      "required": ["title", "details"]
+      "required": ["ac_id", "result", "notes"]
     },
     "check_output": {
       "type": "object",
-      "title": "CheckOutput",
+      "additionalProperties": false,
       "properties": {
         "acceptance_results": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "title": "CheckAcceptanceResult",
-            "properties": {
-              "ac_id": { "type": "string" },
-              "result": { "type": "string", "enum": ["PASS", "FAIL"] },
-              "notes": { "type": "string" }
-            },
-            "required": ["ac_id", "result"]
-          }
+          "items": { "$ref": "#/definitions/acceptance_result" }
         },
-        "verdict": {
-          "type": "object",
-          "title": "CheckVerdict",
-          "properties": {
-            "status": { "type": "string", "enum": ["PASS", "FAIL", "PARTIAL"] },
-            "recommendation": { "type": "string" },
-            "basis": {
-              "type": "object",
-              "title": "CheckVerdictBasis",
-              "properties": {
-                "plan_match": { "type": "string" },
-                "all_acceptance_passed": { "type": "boolean" }
-              }
-            }
-          },
-          "required": ["status", "recommendation", "basis"]
-        }
+        "verdict": { "type": "string", "enum": ["PASS", "FAIL"] }
       },
       "required": ["acceptance_results", "verdict"]
     }
   },
-  "required": ["status", "summary", "progress", "check_output"]
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
+    "stop_reason": { "type": "string" },
+    "summary": { "type": "string" },
+    "check_output": { "$ref": "#/definitions/check_output" }
+  },
+  "required": ["status", "summary", "check_output"]
 }

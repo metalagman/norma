@@ -145,7 +145,7 @@ func TestParseFinalState(t *testing.T) {
 				values: map[string]any{
 					"iteration": 5,
 					"task_state": &contracts.TaskState{
-						Check: []byte(`{"verdict":{"status":"PASS"}}`),
+						Check: []byte(`{"verdict":"PASS"}`),
 						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
@@ -162,7 +162,7 @@ func TestParseFinalState(t *testing.T) {
 					"decision":  "rollback",
 					"iteration": 6,
 					"task_state": &contracts.TaskState{
-						Check: []byte(`{"verdict":{"status":"PASS"}}`),
+						Check: []byte(`{"verdict":"PASS"}`),
 						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
@@ -211,14 +211,35 @@ func TestDeriveFinalOutcome(t *testing.T) {
 		wantEffectiveState string
 	}{
 		{
-			name:               "pass verdict",
+			name:               "pass verdict with close decision",
 			verdict:            "PASS",
-			decision:           "continue",
+			decision:           "close",
 			wantStatus:         "passed",
 			wantEffectiveState: "PASS",
 		},
 		{
-			name:               "fail verdict",
+			name:               "pass verdict with continue decision stops",
+			verdict:            "PASS",
+			decision:           "continue",
+			wantStatus:         "stopped",
+			wantEffectiveState: "PASS",
+		},
+		{
+			name:               "pass verdict with replan decision stops",
+			verdict:            "PASS",
+			decision:           "replan",
+			wantStatus:         "stopped",
+			wantEffectiveState: "PASS",
+		},
+		{
+			name:               "pass verdict with rollback decision stops",
+			verdict:            "PASS",
+			decision:           "rollback",
+			wantStatus:         "stopped",
+			wantEffectiveState: "PASS",
+		},
+		{
+			name:               "fail verdict with close decision",
 			verdict:            "FAIL",
 			decision:           "close",
 			wantStatus:         "failed",
@@ -228,8 +249,8 @@ func TestDeriveFinalOutcome(t *testing.T) {
 			name:               "close decision with missing verdict",
 			verdict:            "",
 			decision:           "close",
-			wantStatus:         "passed",
-			wantEffectiveState: "PASS",
+			wantStatus:         "stopped",
+			wantEffectiveState: "",
 		},
 		{
 			name:               "non-close decision with missing verdict",
@@ -279,7 +300,7 @@ func TestDecisionPropagation(t *testing.T) {
 			wantStatus:   "failed",
 		},
 		{
-			name: "close decision propagates to outcome",
+			name: "close decision without verdict stops",
 			state: stubState{
 				values: map[string]any{
 					"decision":  "close",
@@ -287,11 +308,11 @@ func TestDecisionPropagation(t *testing.T) {
 				},
 			},
 			wantDecision: "close",
-			wantVerdict:  "PASS",
-			wantStatus:   "passed",
+			wantVerdict:  "",
+			wantStatus:   "stopped",
 		},
 		{
-			name: "continue decision propagates to outcome",
+			name: "pass with continue decision stops",
 			state: stubState{
 				values: map[string]any{
 					"verdict":   "PASS",
@@ -301,7 +322,7 @@ func TestDecisionPropagation(t *testing.T) {
 			},
 			wantDecision: "continue",
 			wantVerdict:  "PASS",
-			wantStatus:   "passed",
+			wantStatus:   "stopped",
 		},
 		{
 			name: "decision from task_state propagates to outcome",
@@ -309,7 +330,7 @@ func TestDecisionPropagation(t *testing.T) {
 				values: map[string]any{
 					"iteration": 5,
 					"task_state": &contracts.TaskState{
-						Check: []byte(`{"verdict":{"status":"PASS"}}`),
+						Check: []byte(`{"verdict":"PASS"}`),
 						Act:   []byte(`{"decision":"close"}`),
 					},
 				},

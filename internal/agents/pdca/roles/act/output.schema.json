@@ -1,32 +1,33 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "ActResponse",
-  "properties": {
-    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
-    "stop_reason": { "type": "string" },
-    "summary": {
-      "type": "object",
-      "properties": {
-        "text": { "type": "string" }
-      },
-      "required": ["text"]
-    },
-    "progress": {
-      "type": "object",
-      "properties": {
-        "title": { "type": "string" },
-        "details": { "type": "array", "items": { "type": "string" } }
-      },
-      "required": ["title", "details"]
-    },
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
     "act_output": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "decision": { "type": "string", "enum": ["close", "replan", "rollback", "continue"] }
+        "decision": { "type": "string", "enum": ["close", "replan", "rollback", "continue"] },
+        "rationale": { "type": "string" },
+        "next": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "recommended": { "type": "boolean" },
+            "notes": { "type": "string" }
+          },
+          "required": ["recommended", "notes"]
+        }
       },
       "required": ["decision"]
     }
   },
-  "required": ["status", "summary", "progress", "act_output"]
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
+    "stop_reason": { "type": "string" },
+    "summary": { "type": "string" },
+    "act_output": { "$ref": "#/definitions/act_output" }
+  },
+  "required": ["status", "summary", "act_output"]
 }

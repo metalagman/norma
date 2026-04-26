@@ -38,44 +38,24 @@ func (r *planRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
 	}
 
-	acs := make([]plan.PlanAcceptanceCriteria, 0, len(contractReq.Task.AcceptanceCriteria))
+	acs := make([]plan.BaselineAcceptanceCriterion, 0, len(contractReq.Task.AcceptanceCriteria))
 	for _, ac := range contractReq.Task.AcceptanceCriteria {
 		hints := ac.VerifyHints
 		if hints == nil {
 			hints = []string{}
 		}
-		acs = append(acs, plan.PlanAcceptanceCriteria{
+		acs = append(acs, plan.BaselineAcceptanceCriterion{
 			Id:          ac.ID,
 			Text:        ac.Text,
 			VerifyHints: hints,
 		})
 	}
-	links := contractReq.Context.Links
-	if links == nil {
-		links = []string{}
-	}
 
-	// Plan reads task_id from TaskState.Plan if resuming, otherwise from Task.ID
-	taskID := contractReq.Task.ID
-	planInput := &plan.PlanInput{Task: &plan.PlanTaskID{Id: taskID}}
-
-	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &plan.PlanRequest{
-		Run:   &plan.PlanRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
-		Task:  &plan.PlanTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
-		Step:  &plan.PlanStep{Index: int64(contractReq.Step.Index), Name: contractReq.Step.Name},
-		Paths: &plan.PlanPaths{WorkspaceDir: contractReq.Paths.WorkspaceDir, RunDir: contractReq.Paths.RunDir},
-		Budgets: &plan.PlanBudgets{
-			MaxIterations:      int64(contractReq.Budgets.MaxIterations),
-			MaxWallTimeMinutes: int64(contractReq.Budgets.MaxWallTimeMinutes),
-			MaxFailedChecks:    int64(contractReq.Budgets.MaxFailedChecks),
-		},
-		Context: &plan.PlanContext{
-			Attempt: int64(contractReq.Context.Attempt),
-			Links:   links,
-		},
-		StopReasonsAllowed: contractReq.StopReasonsAllowed,
-		PlanInput:          planInput,
+		Run:   &plan.Run{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
+		Task:  &plan.Task{Id: contractReq.Task.ID, Goal: contractReq.Task.Goal, AcceptanceCriteria: acs},
+		Step:  &plan.Step{Index: int64(contractReq.Step.Index)},
+		Paths: &plan.Paths{WorkspaceDir: contractReq.Paths.WorkspaceDir},
 	}, nil
 }
 
@@ -88,12 +68,7 @@ func (r *planRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, err
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
-	if roleResp.Summary != nil {
-		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
-	}
-	if roleResp.Progress != nil {
-		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
-	}
+	res.Summary = roleResp.Summary
 	if roleResp.PlanOutput != nil {
 		if planBytes, err := json.Marshal(roleResp.PlanOutput); err == nil {
 			res.PlanOutput = planBytes
@@ -106,13 +81,14 @@ type doRole struct {
 	baseRole
 }
 
+//nolint:dupl // Role request mappers intentionally build parallel generated request types.
 func (r *doRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
 	}
 
-	// Do reads plan from TaskState
+	// Do reads plan from the live run's ephemeral TaskState.
 	var doInput *do.DoInput
 	if len(contractReq.TaskState.Plan) > 0 {
 		var planOutput plan.PlanOutput
@@ -124,41 +100,12 @@ func (r *doRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		return nil, fmt.Errorf("missing plan in task state for do step")
 	}
 
-	acs := make([]do.DoAcceptanceCriteria, 0, len(contractReq.Task.AcceptanceCriteria))
-	for _, ac := range contractReq.Task.AcceptanceCriteria {
-		hints := ac.VerifyHints
-		if hints == nil {
-			hints = []string{}
-		}
-		acs = append(acs, do.DoAcceptanceCriteria{
-			Id:          ac.ID,
-			Text:        ac.Text,
-			VerifyHints: hints,
-		})
-	}
-
-	links := contractReq.Context.Links
-	if links == nil {
-		links = []string{}
-	}
-
-	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &do.DoRequest{
-		Run:   &do.DoRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
-		Task:  &do.DoTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
-		Step:  &do.DoStep{Index: int64(contractReq.Step.Index), Name: contractReq.Step.Name},
-		Paths: &do.DoPaths{WorkspaceDir: contractReq.Paths.WorkspaceDir, RunDir: contractReq.Paths.RunDir},
-		Budgets: &do.DoBudgets{
-			MaxIterations:      int64(contractReq.Budgets.MaxIterations),
-			MaxWallTimeMinutes: int64(contractReq.Budgets.MaxWallTimeMinutes),
-			MaxFailedChecks:    int64(contractReq.Budgets.MaxFailedChecks),
-		},
-		Context: &do.DoContext{
-			Attempt: int64(contractReq.Context.Attempt),
-			Links:   links,
-		},
-		StopReasonsAllowed: contractReq.StopReasonsAllowed,
-		DoInput:            doInput,
+		Run:     &do.Run{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
+		Task:    &do.Task{Id: contractReq.Task.ID, Goal: contractReq.Task.Goal},
+		Step:    &do.Step{Index: int64(contractReq.Step.Index)},
+		Paths:   &do.Paths{WorkspaceDir: contractReq.Paths.WorkspaceDir},
+		DoInput: doInput,
 	}, nil
 }
 
@@ -171,12 +118,7 @@ func (r *doRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, error
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
-	if roleResp.Summary != nil {
-		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
-	}
-	if roleResp.Progress != nil {
-		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
-	}
+	res.Summary = roleResp.Summary
 	if roleResp.DoOutput != nil {
 		if doBytes, err := json.Marshal(roleResp.DoOutput); err == nil {
 			res.DoOutput = doBytes
@@ -195,7 +137,7 @@ func (r *checkRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
 	}
 
-	// Check reads plan and do from TaskState
+	// Check reads plan and do from the live run's ephemeral TaskState.
 	var checkInput *check.CheckInput
 	if len(contractReq.TaskState.Plan) > 0 && len(contractReq.TaskState.Do) > 0 {
 		var planOutput plan.PlanOutput
@@ -211,36 +153,12 @@ func (r *checkRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		return nil, fmt.Errorf("missing plan or do in task state for check step")
 	}
 
-	acs := make([]check.CheckAcceptanceCriteria, 0, len(contractReq.Task.AcceptanceCriteria))
-	for _, ac := range contractReq.Task.AcceptanceCriteria {
-		acs = append(acs, check.CheckAcceptanceCriteria{
-			Id:   ac.ID,
-			Text: ac.Text,
-		})
-	}
-
-	links := contractReq.Context.Links
-	if links == nil {
-		links = []string{}
-	}
-
-	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &check.CheckRequest{
-		Run:   &check.CheckRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
-		Task:  &check.CheckTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
-		Step:  &check.CheckStep{Index: int64(contractReq.Step.Index), Name: contractReq.Step.Name},
-		Paths: &check.CheckPaths{WorkspaceDir: contractReq.Paths.WorkspaceDir, RunDir: contractReq.Paths.RunDir},
-		Budgets: &check.CheckBudgets{
-			MaxIterations:      int64(contractReq.Budgets.MaxIterations),
-			MaxWallTimeMinutes: int64(contractReq.Budgets.MaxWallTimeMinutes),
-			MaxFailedChecks:    int64(contractReq.Budgets.MaxFailedChecks),
-		},
-		Context: &check.CheckContext{
-			Attempt: int64(contractReq.Context.Attempt),
-			Links:   links,
-		},
-		StopReasonsAllowed: contractReq.StopReasonsAllowed,
-		CheckInput:         checkInput,
+		Run:        &check.Run{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
+		Task:       &check.Task{Id: contractReq.Task.ID, Goal: contractReq.Task.Goal},
+		Step:       &check.Step{Index: int64(contractReq.Step.Index)},
+		Paths:      &check.Paths{WorkspaceDir: contractReq.Paths.WorkspaceDir},
+		CheckInput: checkInput,
 	}, nil
 }
 
@@ -253,12 +171,7 @@ func (r *checkRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, er
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
-	if roleResp.Summary != nil {
-		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
-	}
-	if roleResp.Progress != nil {
-		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
-	}
+	res.Summary = roleResp.Summary
 	if roleResp.CheckOutput != nil {
 		if checkBytes, err := json.Marshal(roleResp.CheckOutput); err == nil {
 			res.CheckOutput = checkBytes
@@ -271,13 +184,14 @@ type actRole struct {
 	baseRole
 }
 
+//nolint:dupl // Role request mappers intentionally build parallel generated request types.
 func (r *actRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 	var contractReq contracts.AgentRequest
 	if err := json.Unmarshal(req, &contractReq); err != nil {
 		return nil, fmt.Errorf("unmarshal request: %w", err)
 	}
 
-	// Act reads check from TaskState
+	// Act reads check from the live run's ephemeral TaskState.
 	var actInput *act.ActInput
 	if len(contractReq.TaskState.Check) > 0 {
 		var checkOutput check.CheckOutput
@@ -289,33 +203,12 @@ func (r *actRole) MapRequest(req contracts.RawAgentRequest) (any, error) {
 		return nil, fmt.Errorf("missing check in task state for act step")
 	}
 
-	acs := make([]any, 0, len(contractReq.Task.AcceptanceCriteria))
-	for _, ac := range contractReq.Task.AcceptanceCriteria {
-		acs = append(acs, ac)
-	}
-
-	links := contractReq.Context.Links
-	if links == nil {
-		links = []string{}
-	}
-
-	//nolint:dupl // Each role has structurally similar request building, but must return its own typed struct
 	return &act.ActRequest{
-		Run:   &act.ActRun{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
-		Task:  &act.ActTask{Id: contractReq.Task.ID, Title: contractReq.Task.Title, Description: contractReq.Task.Description, AcceptanceCriteria: acs},
-		Step:  &act.ActStep{Index: int64(contractReq.Step.Index), Name: contractReq.Step.Name},
-		Paths: &act.ActPaths{WorkspaceDir: contractReq.Paths.WorkspaceDir, RunDir: contractReq.Paths.RunDir},
-		Budgets: &act.ActBudgets{
-			MaxIterations:      int64(contractReq.Budgets.MaxIterations),
-			MaxWallTimeMinutes: int64(contractReq.Budgets.MaxWallTimeMinutes),
-			MaxFailedChecks:    int64(contractReq.Budgets.MaxFailedChecks),
-		},
-		Context: &act.ActContext{
-			Attempt: int64(contractReq.Context.Attempt),
-			Links:   links,
-		},
-		StopReasonsAllowed: contractReq.StopReasonsAllowed,
-		ActInput:           actInput,
+		Run:      &act.Run{Id: contractReq.Run.ID, Iteration: int64(contractReq.Run.Iteration)},
+		Task:     &act.Task{Id: contractReq.Task.ID, Goal: contractReq.Task.Goal},
+		Step:     &act.Step{Index: int64(contractReq.Step.Index)},
+		Paths:    &act.Paths{WorkspaceDir: contractReq.Paths.WorkspaceDir},
+		ActInput: actInput,
 	}, nil
 }
 
@@ -328,12 +221,7 @@ func (r *actRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, erro
 		Status:     roleResp.Status,
 		StopReason: roleResp.StopReason,
 	}
-	if roleResp.Summary != nil {
-		res.Summary = contracts.ResponseSummary{Text: roleResp.Summary.Text}
-	}
-	if roleResp.Progress != nil {
-		res.Progress = contracts.StepProgress{Title: roleResp.Progress.Title, Details: roleResp.Progress.Details}
-	}
+	res.Summary = roleResp.Summary
 	if roleResp.ActOutput != nil {
 		if actBytes, err := json.Marshal(roleResp.ActOutput); err == nil {
 			res.ActOutput = actBytes
@@ -342,7 +230,7 @@ func (r *actRole) MapResponse(outBytes []byte) (contracts.RawAgentResponse, erro
 	return res, nil
 }
 
-// Type conversion helpers - each role converts from its own types when reading TaskState.
+// Type conversion helpers - each role converts from its own types when reading ephemeral TaskState.
 
 func planOutputToDoInput(p *plan.PlanOutput) *do.DoInput {
 	if p == nil {
@@ -350,68 +238,22 @@ func planOutputToDoInput(p *plan.PlanOutput) *do.DoInput {
 	}
 
 	doInput := &do.DoInput{
-		AcceptanceCriteriaEffective: make([]do.DoEffectiveAcceptanceCriteria, 0),
+		AcceptanceCriteria: make([]do.AcceptanceCriterion, 0),
+		DoSteps:            make([]do.DoStep, 0),
 	}
 
-	if p.WorkPlan != nil {
-		doSteps := make([]do.DoDoStep, 0, len(p.WorkPlan.DoSteps))
-		for _, step := range p.WorkPlan.DoSteps {
-			targets := step.TargetsAcIds
-			if targets == nil {
-				targets = []string{}
-			}
-			doSteps = append(doSteps, do.DoDoStep{
-				Id:           step.Id,
-				TargetsAcIds: targets,
-				Text:         step.Text,
-			})
-		}
-
-		checkSteps := make([]do.DoCheckStep, 0, len(p.WorkPlan.CheckSteps))
-		for _, step := range p.WorkPlan.CheckSteps {
-			checkSteps = append(checkSteps, do.DoCheckStep{
-				Id:   step.Id,
-				Mode: step.Mode,
-				Text: step.Text,
-			})
-		}
-
-		stopTriggers := p.WorkPlan.StopTriggers
-		if stopTriggers == nil {
-			stopTriggers = []string{}
-		}
-
-		doInput.WorkPlan = &do.DoWorkPlan{
-			TimeboxMinutes: p.WorkPlan.TimeboxMinutes,
-			DoSteps:        doSteps,
-			CheckSteps:     checkSteps,
-			StopTriggers:   stopTriggers,
-		}
+	for _, step := range p.DoSteps {
+		doInput.DoSteps = append(doInput.DoSteps, do.DoStep{
+			Id:   step.Id,
+			Text: step.Text,
+		})
 	}
 
-	if p.AcceptanceCriteria != nil {
-		for _, ac := range p.AcceptanceCriteria.Effective {
-			refines := ac.Refines
-			if refines == nil {
-				refines = []string{}
-			}
-			checks := make([]do.DoAcceptanceCriteriaCheck, 0, len(ac.Checks))
-			for _, c := range ac.Checks {
-				checks = append(checks, do.DoAcceptanceCriteriaCheck{
-					Id:              c.Id,
-					Cmd:             c.Cmd,
-					ExpectExitCodes: c.ExpectExitCodes,
-				})
-			}
-			doInput.AcceptanceCriteriaEffective = append(doInput.AcceptanceCriteriaEffective, do.DoEffectiveAcceptanceCriteria{
-				Id:      ac.Id,
-				Origin:  ac.Origin,
-				Refines: refines,
-				Text:    ac.Text,
-				Checks:  checks,
-				Reason:  ac.Reason,
-			})
-		}
+	for _, ac := range p.AcceptanceCriteria {
+		doInput.AcceptanceCriteria = append(doInput.AcceptanceCriteria, do.AcceptanceCriterion{
+			Id:   ac.Id,
+			Text: ac.Text,
+		})
 	}
 
 	return doInput
@@ -420,49 +262,35 @@ func planOutputToDoInput(p *plan.PlanOutput) *do.DoInput {
 func planAndDoToCheckInput(p *plan.PlanOutput, d *do.DoOutput) *check.CheckInput {
 	input := &check.CheckInput{}
 
-	if p != nil && p.WorkPlan != nil {
-		doSteps := make([]check.CheckDoStep, 0, len(p.WorkPlan.DoSteps))
-		for _, step := range p.WorkPlan.DoSteps {
-			doSteps = append(doSteps, check.CheckDoStep{
-				Id:   step.Id,
-				Text: step.Text,
-			})
-		}
-
-		checkSteps := make([]check.CheckCheckStep, 0, len(p.WorkPlan.CheckSteps))
-		for _, step := range p.WorkPlan.CheckSteps {
-			checkSteps = append(checkSteps, check.CheckCheckStep{
-				Id:   step.Id,
-				Mode: step.Mode,
-				Text: step.Text,
-			})
-		}
-
-		input.WorkPlan = &check.CheckWorkPlan{
-			TimeboxMinutes: p.WorkPlan.TimeboxMinutes,
-			DoSteps:        doSteps,
-			CheckSteps:     checkSteps,
-			StopTriggers:   p.WorkPlan.StopTriggers,
+	if p != nil {
+		input.DoSteps = make([]check.DoStep, 0, len(p.DoSteps))
+		for _, step := range p.DoSteps {
+			input.DoSteps = append(input.DoSteps, check.DoStep{Id: step.Id, Text: step.Text})
 		}
 	}
 
-	if p != nil && p.AcceptanceCriteria != nil {
-		effective := make([]check.CheckEffectiveAcceptanceCriteria, 0, len(p.AcceptanceCriteria.Effective))
-		for _, ac := range p.AcceptanceCriteria.Effective {
-			effective = append(effective, check.CheckEffectiveAcceptanceCriteria{
+	if p != nil {
+		criteria := make([]check.AcceptanceCriterion, 0, len(p.AcceptanceCriteria))
+		for _, ac := range p.AcceptanceCriteria {
+			checks := make([]check.Check, 0, len(ac.Checks))
+			for _, c := range ac.Checks {
+				checks = append(checks, check.Check{
+					Id:                c.Id,
+					Command:           c.Command,
+					ExpectedExitCodes: c.ExpectedExitCodes,
+				})
+			}
+			criteria = append(criteria, check.AcceptanceCriterion{
 				Id:     ac.Id,
-				Origin: ac.Origin,
 				Text:   ac.Text,
+				Checks: checks,
 			})
 		}
-		input.AcceptanceCriteriaEffective = effective
+		input.AcceptanceCriteria = criteria
 	}
 
-	if d != nil && d.Execution != nil {
-		input.DoExecution = &check.CheckDoExecution{
-			ExecutedStepIds: d.Execution.ExecutedStepIds,
-			SkippedStepIds:  d.Execution.SkippedStepIds,
-		}
+	if d != nil {
+		input.ExecutedStepIds = d.ExecutedStepIds
 	}
 
 	return input
@@ -475,23 +303,12 @@ func checkOutputToActInput(c *check.CheckOutput) *act.ActInput {
 
 	input := &act.ActInput{}
 
-	if c.Verdict != nil {
-		input.CheckVerdict = &act.ActCheckVerdict{
-			Status:         c.Verdict.Status,
-			Recommendation: c.Verdict.Recommendation,
-		}
-		if c.Verdict.Basis != nil {
-			input.CheckVerdict.Basis = &act.ActCheckVerdictBasis{
-				PlanMatch:           c.Verdict.Basis.PlanMatch,
-				AllAcceptancePassed: c.Verdict.Basis.AllAcceptancePassed,
-			}
-		}
-	}
+	input.Verdict = c.Verdict
 
 	if c.AcceptanceResults != nil {
-		input.AcceptanceResults = make([]act.ActAcceptanceResult, 0, len(c.AcceptanceResults))
+		input.AcceptanceResults = make([]act.AcceptanceResult, 0, len(c.AcceptanceResults))
 		for _, ar := range c.AcceptanceResults {
-			input.AcceptanceResults = append(input.AcceptanceResults, act.ActAcceptanceResult{
+			input.AcceptanceResults = append(input.AcceptanceResults, act.AcceptanceResult{
 				AcId:   ar.AcId,
 				Result: ar.Result,
 				Notes:  ar.Notes,

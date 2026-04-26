@@ -81,7 +81,8 @@ func Command() *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "continue running ready tasks after a failure")
+	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "deprecated no-op; loop continues after runtime failures by default")
+	_ = cmd.Flags().MarkDeprecated("continue", "loop continues after runtime failures by default")
 	cmd.Flags().StringVar(&activeFeatureID, "active-feature", "", "prefer ready issues under this feature id")
 	cmd.Flags().StringVar(&activeEpicID, "active-epic", "", "prefer ready issues under this epic id")
 	return cmd

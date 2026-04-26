@@ -8,7 +8,7 @@
 
 norma bridges the gap between high-level task management and low-level code execution by enforcing a strict **Plan → Do → Check → Act (PDCA)** cycle.
 
-Built for transparency and reliability, norma ensures every agent action is logged, every change is isolated in a Git worktree, and the entire run state is persisted directly within your backlog.
+Built for transparency and reliability, norma ensures every agent action is logged, every change is isolated in a Git worktree, and durable implementation history lives on a task-scoped branch.
 
 ---
 
@@ -16,20 +16,20 @@ Built for transparency and reliability, norma ensures every agent action is logg
 
 - **Fixed PDCA Workflow:** A single, battle-tested loop: `Plan` the work, `Do` the implementation, `Check` the results, and `Act` on the verdict.
 - **Isolated Git Workspaces:** Every run operates in a dedicated Git worktree on a task-scoped branch (`norma/task/<id>`). No more messy working trees or accidental commits.
-- **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/gastownhall/beads). Task state, structured work plans, and full run journals are persisted in Beads `notes`, synchronized via Git.
-- **Intelligent Resumption:** Using granular labels like `norma-has-plan` and `norma-has-do`, norma can resume interrupted runs or skip already completed steps across different machines.
+- **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/gastownhall/beads). Task status and workflow phase labels stay in Beads; implementation progress stays in Git.
+- **Branch-First Recovery:** Interrupted runs are retried from the task branch (`norma/task/<id>`) instead of using persisted role state in Beads notes.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
 - **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`, `copilot_acp`, `claude_code_acp`).
-- **Ralph-Style Run Journal:** Persists structured per-step progress in task notes (`TaskState.journal`) for resumable run history.
+- **Inspectable Run Artifacts:** Persists step inputs, outputs, logs, and event streams under `.norma/runs/` for local debugging.
 
 ---
 
 ## 🛠️ The Norma Loop
 
-1.  **PLAN:** Refine the goal into a concrete `work_plan` and effective acceptance criteria.
+1.  **PLAN:** Refine the goal into concrete `do_steps` and acceptance criteria checks.
 2.  **DO:** Execute the plan. Agents modify code within the isolated workspace.
-3.  **CHECK:** Evaluate the workspace against acceptance criteria and produce a `PASS/FAIL` verdict.
-4.  **ACT:** If `PASS`, norma automatically merges and commits the changes to your main branch using **Conventional Commits**. If `FAIL`, the loop continues or prepares for a re-plan.
+3.  **CHECK:** Evaluate the workspace against acceptance criteria and produce a verdict: `PASS` or `FAIL`.
+4.  **ACT:** Choose the next action from that verdict. `PASS` must use `decision=close`, which lets Norma merge and commit changes using **Conventional Commits**. `FAIL` uses `decision=continue` to retry or `decision=replan` to create replacement work.
 
 ---
 
@@ -257,7 +257,8 @@ Publishing uses npm only.
 
 Norma ensures **Zero Data Loss**:
 - **authoritative run state**: Stored in `.norma/norma.db` (SQLite).
-- **Authoritative task state**: Serialized as a `TaskState` JSON object in Beads `notes`.
+- **authoritative task state**: Stored in Beads status and workflow phase labels.
+- **durable implementation history**: Stored in the task branch (`norma/task/<id>`).
 - **Artifacts**: Every step's `input.json`, `output.json`, and `logs/` are saved to disk under `.norma/runs/<run_id>/`.
 - **Agent output visibility**: Agent `stdout`/`stderr` is always captured in step logs and is mirrored to terminal only when running with `--debug`.
 

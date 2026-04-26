@@ -5,15 +5,16 @@ import (
 	"testing"
 
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
+	"github.com/xeipuuv/gojsonschema"
 )
 
-func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
+func TestDoRoleMapRequestOmitsVerificationFields(t *testing.T) {
 	role := Role(RoleDo)
 	if role == nil {
 		t.Fatal("Role(RoleDo) returned nil")
 	}
 
-	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[]},"step":{"index":2,"name":"do"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1,"max_wall_time_minutes":10,"max_failed_checks":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"plan":{"acceptance_criteria":{"effective":[{"id":"AC-1","origin":"baseline","text":"ok","checks":[{"id":"CHK-1","cmd":"true","expect_exit_codes":[0]}]}]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[],"stop_triggers":[]}}}}`)
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":2},"paths":{"workspace_dir":"/tmp"},"task_state":{"plan":{"acceptance_criteria":[{"id":"AC-1","text":"ok","checks":[{"id":"CHK-1","command":"true","expected_exit_codes":[0]}]}],"do_steps":[{"id":"DO-1","text":"do it"}]}}}`)
 
 	mapped, err := role.MapRequest(contracts.RawAgentRequest(reqJSON))
 	if err != nil {
@@ -34,33 +35,61 @@ func TestDoRoleMapRequestRefinesDefaultsToEmptySlice(t *testing.T) {
 	if !ok {
 		t.Fatalf("payload[\"do_input\"] type = %T, want map[string]any", payload["do_input"])
 	}
-	paths, ok := payload["paths"].(map[string]any)
+	criteriaAny, ok := doInput["acceptance_criteria"].([]any)
 	if !ok {
-		t.Fatalf("payload[\"paths\"] type = %T, want map[string]any", payload["paths"])
+		t.Fatalf("do_input[\"acceptance_criteria\"] type = %T, want []any", doInput["acceptance_criteria"])
 	}
-	if _, hasProgress := paths["progress"]; hasProgress {
-		t.Fatalf("payload[\"paths\"] unexpectedly contains progress")
+	if len(criteriaAny) != 1 {
+		t.Fatalf("len(criteriaAny) = %d, want 1", len(criteriaAny))
 	}
 
-	effectiveAny, ok := doInput["acceptance_criteria_effective"].([]any)
+	ac, ok := criteriaAny[0].(map[string]any)
 	if !ok {
-		t.Fatalf("do_input[\"acceptance_criteria_effective\"] type = %T, want []any", doInput["acceptance_criteria_effective"])
-	}
-	if len(effectiveAny) != 1 {
-		t.Fatalf("len(effectiveAny) = %d, want 1", len(effectiveAny))
+		t.Fatalf("criteriaAny[0] type = %T, want map[string]any", criteriaAny[0])
 	}
 
-	ac, ok := effectiveAny[0].(map[string]any)
-	if !ok {
-		t.Fatalf("effectiveAny[0] type = %T, want map[string]any", effectiveAny[0])
+	if _, hasChecks := ac["checks"]; hasChecks {
+		t.Fatalf("do_input.acceptance_criteria unexpectedly contains checks")
+	}
+}
+
+func TestCheckRoleMapRequestReceivesVerificationChecks(t *testing.T) {
+	role := Role(RoleCheck)
+	if role == nil {
+		t.Fatal("Role(RoleCheck) returned nil")
 	}
 
-	refines, ok := ac["refines"].([]any)
-	if !ok {
-		t.Fatalf("ac[\"refines\"] type = %T, want []any (array, not null)", ac["refines"])
+	reqJSON := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":3},"paths":{"workspace_dir":"/tmp"},"task_state":{"plan":{"acceptance_criteria":[{"id":"AC-1","text":"ok","checks":[{"id":"CHK-1","command":"true","expected_exit_codes":[0]}]}],"do_steps":[{"id":"DO-1","text":"do it"}]},"do":{"executed_step_ids":["DO-1"]}}}`)
+
+	mapped, err := role.MapRequest(contracts.RawAgentRequest(reqJSON))
+	if err != nil {
+		t.Fatalf("role.MapRequest() error = %v", err)
 	}
-	if len(refines) != 0 {
-		t.Fatalf("len(refines) = %d, want 0", len(refines))
+
+	data, err := json.Marshal(mapped)
+	if err != nil {
+		t.Fatalf("json.Marshal(mapped) error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(data) error = %v", err)
+	}
+	checkInput, ok := payload["check_input"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload[\"check_input\"] type = %T, want map[string]any", payload["check_input"])
+	}
+	criteriaAny, ok := checkInput["acceptance_criteria"].([]any)
+	if !ok || len(criteriaAny) != 1 {
+		t.Fatalf("check_input acceptance criteria = %#v, want one entry", checkInput["acceptance_criteria"])
+	}
+	ac, ok := criteriaAny[0].(map[string]any)
+	if !ok {
+		t.Fatalf("criteriaAny[0] type = %T, want map[string]any", criteriaAny[0])
+	}
+	checks, ok := ac["checks"].([]any)
+	if !ok || len(checks) != 1 {
+		t.Fatalf("ac[\"checks\"] = %#v, want one check", ac["checks"])
 	}
 }
 
@@ -110,6 +139,39 @@ func TestAllRolesReturnValidSchemas(t *testing.T) {
 	}
 }
 
+func TestCheckAndActSchemasRejectUnsupportedVerdicts(t *testing.T) {
+	t.Parallel()
+
+	checkRole := Role(RoleCheck)
+	if checkRole == nil {
+		t.Fatal("Role(check) returned nil")
+	}
+	checkOutput := `{"status":"ok","summary":"done","check_output":{"acceptance_results":[],"verdict":"UNKNOWN"}}`
+	assertSchemaInvalid(t, checkRole.Schemas().OutputSchema, checkOutput)
+
+	actRole := Role(RoleAct)
+	if actRole == nil {
+		t.Fatal("Role(act) returned nil")
+	}
+	actInput := `{"run":{"id":"run-1","iteration":1},"task":{"id":"norma-1","goal":"goal"},"step":{"index":4},"paths":{"workspace_dir":"/tmp/work"},"act_input":{"verdict":"UNKNOWN","acceptance_results":[]}}`
+	assertSchemaInvalid(t, actRole.Schemas().InputSchema, actInput)
+}
+
+func assertSchemaInvalid(t *testing.T, schema, payload string) {
+	t.Helper()
+
+	result, err := gojsonschema.Validate(
+		gojsonschema.NewStringLoader(schema),
+		gojsonschema.NewStringLoader(payload),
+	)
+	if err != nil {
+		t.Fatalf("validate schema: %v", err)
+	}
+	if result.Valid() {
+		t.Fatalf("schema unexpectedly accepted payload: %s", payload)
+	}
+}
+
 func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
 	t.Parallel()
 
@@ -117,10 +179,10 @@ func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
 		name     string
 		response string
 	}{
-		{"plan", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"plan done","details":["created plan"]},"plan_output":{"acceptance_criteria":{"effective":[]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[]}}}`},
-		{"do", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"do done","details":["executed"]},"do_output":{"execution":{"executed_step_ids":[],"skipped_step_ids":[]}}}`},
-		{"check", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"check done","details":["verified"]},"check_output":{"plan_match":{"do_steps":{"planned_ids":[],"executed_ids":[],"missing_ids":[],"unexpected_ids":[]},"commands":{"planned_ids":[],"executed_ids":[],"missing_ids":[],"unexpected_ids":[]}},"acceptance_results":[],"verdict":{"status":"PASS","recommendation":"standardize","basis":{"plan_match":"MATCH","all_acceptance_passed":true}}}}`},
-		{"act", `{"status":"ok","summary":{"text":"done"},"progress":{"title":"act done","details":["decided"]},"act_output":{"decision":"close","rationale":"completed"}}`},
+		{"plan", `{"status":"ok","summary":"done","plan_output":{"acceptance_criteria":[],"do_steps":[]}}`},
+		{"do", `{"status":"ok","summary":"done","do_output":{"executed_step_ids":[]}}`},
+		{"check", `{"status":"ok","summary":"done","check_output":{"acceptance_results":[],"verdict":"PASS"}}`},
+		{"act", `{"status":"ok","summary":"done","act_output":{"decision":"close"}}`},
 	}
 
 	for _, tc := range testCases {
@@ -138,11 +200,8 @@ func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
 			if resp.Status != "ok" {
 				t.Errorf("resp.Status = %q, want %q", resp.Status, "ok")
 			}
-			if resp.Summary.Text != "done" {
-				t.Errorf("resp.Summary.Text = %q, want %q", resp.Summary.Text, "done")
-			}
-			if resp.Progress.Title == "" {
-				t.Error("resp.Progress.Title is empty")
+			if resp.Summary != "done" {
+				t.Errorf("resp.Summary = %q, want %q", resp.Summary, "done")
 			}
 		})
 	}
@@ -151,17 +210,16 @@ func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
 func TestAllRolesMapRequestAcceptsValidJSON(t *testing.T) {
 	t.Parallel()
 
-	// Plan only needs task ID
-	planReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":1,"name":"plan"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{}}`)
+	planReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal","acceptance_criteria":[{"id":"AC1","text":"test","verify_hints":[]}]},"step":{"index":1},"paths":{"workspace_dir":"/tmp"},"task_state":{}}`)
 
 	// Do needs plan in task_state
-	doReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":2,"name":"do"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"plan":{"acceptance_criteria":{"effective":[{"id":"AC1","origin":"baseline","text":"test","checks":[]}]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[]}}}}`)
+	doReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":2},"paths":{"workspace_dir":"/tmp"},"task_state":{"plan":{"acceptance_criteria":[{"id":"AC1","text":"test","checks":[]}],"do_steps":[]}}}`)
 
 	// Check needs plan and do in task_state
-	checkReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":3,"name":"check"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"plan":{"acceptance_criteria":{"effective":[{"id":"AC1","origin":"baseline","text":"test","checks":[]}]},"work_plan":{"timebox_minutes":10,"do_steps":[],"check_steps":[]}},"do":{"execution":{"executed_step_ids":[],"skipped_step_ids":[]}}}}`)
+	checkReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":3},"paths":{"workspace_dir":"/tmp"},"task_state":{"plan":{"acceptance_criteria":[{"id":"AC1","text":"test","checks":[]}],"do_steps":[]},"do":{"executed_step_ids":[]}}}`)
 
 	// Act needs check in task_state
-	actReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","title":"title","description":"desc","acceptance_criteria":[{"id":"AC1","text":"test"}]},"step":{"index":4,"name":"act"},"paths":{"workspace_dir":"/tmp","run_dir":"/tmp"},"budgets":{"max_iterations":1},"context":{"facts":{},"links":[]},"stop_reasons_allowed":["budget_exceeded"],"task_state":{"check":{"verdict":{"status":"PASS","recommendation":"standardize","basis":{"plan_match":"MATCH","all_acceptance_passed":true}},"acceptance_results":[]}}}`)
+	actReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":4},"paths":{"workspace_dir":"/tmp"},"task_state":{"check":{"verdict":"PASS","acceptance_results":[]}}}`)
 
 	testCases := []struct {
 		name    string

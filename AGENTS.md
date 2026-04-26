@@ -3,7 +3,7 @@
 This document defines the **MVP agent interface** for `norma` (written in Go) and the **MVP storage model** using **SQLite without CGO** (pure-Go driver), while keeping **artifacts on disk** and **run/step state in DB**. **Task state and backlog are Beads-only** and must not be mirrored in Norma state.
 
 Single fixed workflow:
-> `plan → do → check → act` (loop until PASS or budgets exhausted)
+> `plan → do → check → act` (loop until `verdict=PASS` + `decision=close`, or until a stop condition triggers)
 
 ---
 
@@ -14,11 +14,11 @@ Single fixed workflow:
 - **Artifacts are files** (human-debuggable).
 - **Run/step state is in SQLite** (queryable, UI-friendly).
 - **Task state lives in Beads** (source of truth for progress and resumption).
-- **Task Notes as State Object:** The Beads `notes` field stores a comprehensive JSON object (`TaskState`) containing step outputs and a full run journal. This allows full state recovery and resumption across different environments.
-- **Workspaces (Git Worktrees):** Every role agent step run MUST operate in a dedicated Git worktree located inside its step directory (`<step_dir>/workspace`). Agents perform all work within this isolated workspace.
-- **Run Journal:** Step progress is stored in the task's `Journal` state object in Beads notes (`TaskState.journal`).
+- **Ephemeral TaskState:** `TaskState` is ADK session state for role-to-role handoff within one live run. Beads `notes` MUST NOT be used as Norma machine state.
+- **Workspaces (Git Worktrees):** Every PDCA run MUST operate in one shared Git worktree located at `<run_dir>/workspace`. Agents perform all workspace reads/writes within this isolated workspace.
+- **Step summaries:** Step summaries are stored in SQLite step records and step artifacts under `.norma/runs/`.
 - **Task-scoped Branches:** Workspaces use Git branches scoped to the task: `norma/task/<task_id>`. This allows progress to be restartable across multiple runs.
-- **Workflow State in Labels:** Granular states (`norma-has-plan`, `norma-has-do`, `norma-has-check`) are used to track completed steps and skip them during resumption.
+- **Workflow State in Labels:** Granular phase labels (`planning`, `doing`, `checking`, `acting`) are used for visibility only. Completed-step skip labels (`norma-has-plan`, `norma-has-do`, `norma-has-check`) MUST NOT be used.
 - **Git History as Source of Truth:** The orchestrator extracts changes from the workspace using Git (e.g., `git merge --squash`).
 - **Any agent** is supported through a **normalized JSON contract**.
 
@@ -62,11 +62,11 @@ Everything lives under the project root:
   locks/run.lock           # exclusive lock for "norma loop"
       runs/<run_id>/
       norma.md               # goal + AC + budgets (human readable)
+      workspace/              # shared Git worktree for this run
       steps/
         01-plan/
           input.json
           output.json
-          workspace/         # Git worktree for this specific step
           artifacts/
           logs/
             stdout.txt
@@ -74,7 +74,6 @@ Everything lives under the project root:
         02-do/
           input.json
           output.json
-          workspace/         # Git worktree for this specific step
           artifacts/
           logs/
             stdout.txt
@@ -89,10 +88,10 @@ Everything lives under the project root:
   - current iteration/cursor
   - step records
   - timeline events
-- **Workspaces:** Every role agent step run gets its own Git worktree in the `<step_dir>/workspace`. Agents perform all work within this isolated workspace. The orchestrator tracks changes by inspecting the Git history/diff of the workspace (primarily in Do and Act).
+- **Workspaces:** Every PDCA run gets one Git worktree in `<run_dir>/workspace`. Agents perform all workspace reads/writes inside this shared run workspace. The orchestrator tracks changes by inspecting the Git history/diff of the task branch.
 - **No task state in Norma DB:** task status, priority, dependencies, and selection are managed in Beads only.
 - **Artifacts:** The `artifacts/` directory contains all artifacts produced during the run. Agents MUST write their artifacts here and MAY read existing artifacts from here.
-- Agents MUST only write inside their current `step_dir` (for logs/metadata, and the `workspace/` subdir) and the shared `artifacts/` directory.
+- Agents MUST only write inside their current `step_dir` for logs/metadata, the shared run `workspace/`, and the shared `artifacts/` directory.
 
 ---
 
@@ -190,12 +189,12 @@ On `norma` start:
 
 ## 5) Fixed workflow (norma-loop)
 
-Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until **PASS** or a **stop condition** triggers.
+Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until `verdict=PASS` + `decision=close`, or until a **stop condition** triggers.
 
 ### Core invariants
 
 1. **One workflow only:** `plan -> do -> check -> act` (repeat).
-2. **Workspace exists before any agent runs:** the orchestrator creates `<step_dir>/workspace/` before each step. This workspace is a dedicated Git worktree.
+2. **Workspace exists before any agent runs:** the orchestrator creates `<run_dir>/workspace/` before the first role step. This workspace is a dedicated Git worktree shared by all PDCA roles in the run.
 3. **Agents never modify workspace or git directly except for file writes in Do:** all agents operate in **read-only** mode with respect to `workspace/` by default. Using `git` commands from within agents is **STRICTLY FORBIDDEN**.
 4. **Orchestrator commits changes in Do:** If the Do agent finishes with status `ok`, the orchestrator is responsible for staging and committing all changes in the `workspace/` Git repository.
 5. **Commits/changes in main repo happen outside agents:** the orchestrator extracts changes from the task branch and applies them to the main repository.
@@ -205,11 +204,11 @@ Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until
     - `steps/<n>-<role>/logs/stdout.txt`
     - `steps/<n>-<role>/logs/stderr.txt`
    - Agent `stdout`/`stderr` MUST be mirrored to terminal only when debug mode is enabled.
-9. **Run journal:** the orchestrator appends one entry after every step to `TaskState.journal` in Beads notes.
+9. **Step summaries:** the orchestrator records step summaries in SQLite events and step artifacts.
 10. **Acceptance criteria (AC):** baseline ACs are passed into Plan; Plan may extend them with traceability.
-11. **Check compares plan vs actual and verifies job done:** Check must compare the Plan work plan to Do execution and evaluate all effective ACs.
-12. **Verdict goes to Act:** Act receives Check verdict and decides next.
-13. **Agents are invoked with `<step_dir>` as their current working directory.**
+11. **Check compares plan vs actual and verifies job done:** Check must compare planned Do steps to executed Do step IDs and evaluate all acceptance criteria.
+12. **Verdict goes to Act:** Act receives Check verdict and emits a legal decision for that verdict.
+13. **Agents receive `<run_dir>/workspace` as their working directory through session state and `paths.workspace_dir`; step directories remain artifact/log locations.**
 
 ### Budgets and stop conditions
 
@@ -260,10 +259,7 @@ An issue is **Ready** if:
 
 (Spikes can use Verify = “unknown resolved + notes captured”.)
 
-**Workflow State in Labels:** Granular workflow states (`planning`, `doing`, `checking`, `acting`) are tracked using `bd` labels on the task.
-- `norma-has-plan`: Present if a valid work plan exists in task notes. Skips Plan step.
-- `norma-has-do`: Present if work has been implemented in the workspace. Skips Do step.
-- `norma-has-check`: Present if a verdict has been produced. Skips Check step.
+**Workflow State in Labels:** Granular workflow states (`planning`, `doing`, `checking`, `acting`) are tracked using `bd` labels on the task for visibility. Exactly one phase label should be present during a running step, and terminal outcomes clear all phase labels.
 
 ---
 
@@ -310,7 +306,7 @@ WIP:
 Input:
 - `bd show <selected_task_id>`
 - parent chain (optional): epic/feature context
-- current `TaskState.journal` from task notes (optional)
+- live ADK session `TaskState` from prior steps in the same run, if any
 Output: one of two results
 
 **A. READY**
@@ -342,20 +338,41 @@ Do agent rules:
 Input:
 - `Verify` field from the task
 Output:
-- PASS / FAIL / PARTIAL
+- `PASS` / `FAIL`
 - Evidence (test output summary, commands run, links to artifacts)
 
-### 4) ACT (Orchestrator)
-The orchestrator persists the entire `TaskState` (Plan, Do, Check outputs + Journal) to the Beads `notes` field after every step.
+### 4) ACT (Act Agent + Orchestrator)
+The Act agent emits the decision. The orchestrator keeps `TaskState` in ADK session state only for the live run and applies the decision. It does not persist Norma machine state to Beads notes.
 
-If PASS:
+Control literals:
+- Check verdicts are uppercase: `PASS`, `FAIL`.
+- Act decisions are lowercase: `close`, `continue`, `replan`.
+- Run statuses are lowercase: `passed`, `failed`, `stopped`.
+
+Legal verdict/decision pairs:
+- `PASS` + `close`: task is complete.
+- `FAIL` + `continue`: retry the next PDCA iteration from the task branch.
+- `FAIL` + `replan`: stop this task and create replacement/follow-up work.
+
+Invalid Act outputs:
+- `PASS` + `continue`
+- `PASS` + `replan`
+- `FAIL` + `close`
+- any `rollback` decision
+
+If `PASS` + `close`:
 - Close `next_task_id`.
 - Extract changes from `workspace/` and apply to main repository using `git merge --squash`.
 - Create a Conventional Commit.
 
-If FAIL or PARTIAL:
-- Keep task open (or reopen).
-- The PDCA loop continues to the next iteration or stops based on the `act` agent decision.
+If `FAIL` + `continue`:
+- Return the task to open for retry from the task branch.
+- The PDCA loop continues to the next iteration unless budgets are exhausted.
+
+If `FAIL` + `replan`:
+- Create and link replacement/follow-up work.
+- Close the old task with a replan reason.
+- End the current run with status `failed`.
 
 Then loop.
 
@@ -473,35 +490,16 @@ All agent inputs share a common structure, extended with role-specific fields.
   },
   "task": {
     "id": "norma-a3f2dd",
-    "title": "...",
-    "description": "...",
+    "goal": "...",
     "acceptance_criteria": [
       { "id": "AC-1", "text": "...", "verify_hints": ["..."] }
     ]
   },
   "step": {
-    "index": 1,
-    "name": "plan|do|check|act"
+    "index": 1
   },
   "paths": {
-    "workspace_dir": "workspace",
-    "run_dir": "./"
-  },
-  "budgets": {
-    "max_iterations": 5,
-    "max_wall_time_minutes": 30,
-    "max_failed_checks": 2
-  },
-  "stop_reasons_allowed": [
-    "budget_exceeded",
-    "dependency_blocked",
-    "verify_missing",
-    "replan_required"
-  ],
-  "context": {
-    "facts": {},
-    "links": [],
-    "attempt": 0
+    "workspace_dir": "workspace"
   }
 }
 ```
@@ -514,25 +512,7 @@ All agent outputs share a common structure, extended with role-specific fields.
 {
   "status": "ok|stop|error",
   "stop_reason": "none|budget_exceeded|dependency_blocked|verify_missing|replan_required",
-  "summary": {
-    "text": "short human summary",
-    "warnings": [],
-    "errors": []
-  },
-  "progress": {
-    "title": "short line for the run journal",
-    "details": [
-      "bullet 1",
-      "bullet 2"
-    ]
-  },
-  "logs": {
-    "stdout_path": "steps/<n>-<role>/logs/stdout.txt",
-    "stderr_path": "steps/<n>-<role>/logs/stderr.txt"
-  },
-  "timing": {
-    "wall_time_ms": 0
-  }
+  "summary": "short human summary"
 }
 ```
 
@@ -543,58 +523,26 @@ All agent outputs share a common structure, extended with role-specific fields.
 ### 8.1 Role: 01-plan
 
 Plan **must**:
-- produce `work_plan` (the iteration plan)
-- publish `acceptance_criteria.effective` (may extend baseline with traceability)
+- produce `do_steps` for the iteration
+- publish `acceptance_criteria` with verification checks
 
 Plan `output.json` must include:
 
 ```json
 {
   "plan_output": {
-    "task_id": "norma-a3f2dd",
-    "goal": "what success means for this iteration",
-    "constraints": ["..."],
-    "acceptance_criteria": {
-      "baseline": [
-        { "id": "AC-1", "text": "...", "verify_hints": ["..."] }
-      ],
-      "effective": [
-        {
-          "id": "AC-1",
-          "origin": "baseline",
-          "text": "Unit tests pass",
-          "checks": [
-            { "id": "CHK-AC-1-1", "cmd": "go test -race ./...", "expect_exit_codes": [0] }
-          ]
-        }
-      ]
-    },
-    "work_plan": {
-      "timebox_minutes": 30,
-      "do_steps": [
-        {
-          "id": "DO-1",
-          "text": "Run unit tests",
-          "commands": [
-            { "id": "CMD-1", "cmd": "go test -race ./...", "expect_exit_codes": [0] }
-          ],
-          "targets_ac_ids": ["AC-1"]
-        }
-      ],
-      "check_steps": [
-        {
-          "id": "VER-1",
-          "text": "Evaluate effective acceptance criteria",
-          "mode": "acceptance_criteria"
-        }
-      ],
-      "stop_triggers": [
-        "dependency_blocked",
-        "verify_missing",
-        "budget_exceeded",
-        "replan_required"
-      ]
-    }
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "text": "Unit tests pass",
+        "checks": [
+          { "id": "CHK-AC-1-1", "command": "go test -race ./...", "expected_exit_codes": [0] }
+        ]
+      }
+    ],
+    "do_steps": [
+      { "id": "DO-1", "text": "Run unit tests" }
+    ]
   }
 }
 ```
@@ -602,32 +550,19 @@ Plan `output.json` must include:
 ### 8.2 Role: 02-do
 
 Do **must**:
-- execute only `plan_output.work_plan.do_steps[*]`
+- execute only `plan_output.do_steps[*]`
 - record what was executed (actual work)
 
 Do `input.json` must include:
-- `do_input.work_plan`
-- `do_input.acceptance_criteria_effective`
+- `do_input.do_steps`
+- `do_input.acceptance_criteria`
 
 Do `output.json` must include:
 
 ```json
 {
   "do_output": {
-    "execution": {
-      "executed_step_ids": ["DO-1"],
-      "skipped_step_ids": [],
-      "commands": [
-        { "id": "CMD-1", "cmd": "go test -race ./...", "exit_code": 0 }
-      ]
-    },
-    "blockers": [
-      {
-        "kind": "dependency|env|unknown",
-        "text": "what blocked or surprised us",
-        "suggested_stop_reason": "dependency_blocked|replan_required"
-      }
-    ]
+    "executed_step_ids": ["DO-1"]
   }
 }
 ```
@@ -636,65 +571,35 @@ Do `output.json` must include:
 
 Check **must**:
 1) verify **plan match** (planned vs executed)
-2) verify **job done** (all effective ACs evaluated)
+2) verify **job done** (all acceptance criteria evaluated)
 3) emit a verdict used by Act
 
 Check `input.json` must include:
-- `check_input.work_plan`
-- `check_input.acceptance_criteria_effective`
-- `check_input.do_execution`
+- `check_input.do_steps`
+- `check_input.acceptance_criteria`
+- `check_input.executed_step_ids`
 
 Check `output.json` must include:
 
 ```json
 {
   "check_output": {
-    "plan_match": {
-      "do_steps": {
-        "planned_ids": ["DO-1"],
-        "executed_ids": ["DO-1"],
-        "missing_ids": [],
-        "unexpected_ids": []
-      },
-      "commands": {
-        "planned_ids": ["CMD-1"],
-        "executed_ids": ["CMD-1"],
-        "missing_ids": [],
-        "unexpected_ids": []
-      }
-    },
     "acceptance_results": [
       {
         "ac_id": "AC-1",
         "result": "PASS|FAIL",
-        "notes": "...",
-        "log_ref": "steps/03-check/logs/stdout.txt"
+        "notes": "..."
       }
     ],
-    "verdict": {
-      "status": "PASS|FAIL|PARTIAL",
-      "recommendation": "standardize|replan|rollback|continue",
-      "basis": {
-        "plan_match": "MATCH|MISMATCH",
-        "all_acceptance_passed": true
-      }
-    },
-    "process_notes": [
-      {
-        "kind": "plan_mismatch|missing_verification",
-        "severity": "warning|error",
-        "text": "...",
-        "suggested_stop_reason": "replan_required|none"
-      }
-    ]
+    "verdict": "PASS|FAIL"
   }
 }
 ```
 
 #### Verdict rules (enforceable)
-- If any `acceptance_results[*].result == "FAIL"` → `verdict.status = "FAIL"`.
-- Else if any `plan_match.*.missing_ids` or `plan_match.*.unexpected_ids` is non-empty → `verdict.status = "PARTIAL"`.
-- Else → `verdict.status = "PASS"`.
+- If any planned Do step was not executed → `verdict = "FAIL"`.
+- If any `acceptance_results[*].result == "FAIL"` → `verdict = "FAIL"`.
+- Else → `verdict = "PASS"`.
 
 ### 8.4 Role: 04-act
 
@@ -703,55 +608,29 @@ Act **must**:
 - decide what to do next
 
 Act `input.json` must include:
-- `act_input.check_verdict` (and optionally `act_input.acceptance_results`)
+- `act_input.verdict` (and optionally `act_input.acceptance_results`)
 
 Act `output.json` must include:
 
 ```json
 {
   "act_output": {
-    "decision": "close|replan|rollback|continue",
-    "rationale": "...",
-    "next": {
-      "recommended": true,
-      "notes": "what must change in the next Plan"
-    }
+    "decision": "close|continue|replan"
   }
 }
 ```
 
----
-
-## 8.5 Run journal (Ralph-style)
-
-The orchestrator maintains a `Journal` in the task's `TaskState` and appends one entry after each step. No file-based journal artifact is required.
-
-### Append template
-
-```md
-## <UTC timestamp> — <step_index> <STEP_NAME> — <status>/<stop_reason>
-**Task:** <task.id>  
-**Run:** <run.id> · **Iteration:** <run.iteration>
-
-**Title:** <progress.title>
-
-**Details:**
-- <progress.details[0]>
-- <progress.details[1]>
-```
-
-### Step progress expectations (minimum)
-- **Plan:** include goal + counts (`AC effective`, `do_steps`, `check_steps`).
-- **Do:** include executed vs skipped steps + command exit summary.
-- **Check:** include plan_match summary + acceptance pass/fail counts + verdict.
-- **Act:** include decision + what changes are required next.
+#### Decision rules (enforceable)
+- If `act_input.verdict == "PASS"` → `decision = "close"`.
+- If `act_input.verdict == "FAIL"` → `decision = "continue"` or `decision = "replan"`.
+- `decision = "rollback"` is not valid PDCA output.
 
 ---
 
 ## 9) Applying Changes (norma responsibility)
 
-norma extracts changes from the ephemeral workspace using Git:
-- When a run reaches a `PASS` verdict, norma extracts changes from `workspace/` (e.g., via `git diff HEAD`).
+norma extracts changes from the shared run workspace using Git:
+- When a run reaches `verdict=PASS` + `decision=close`, norma extracts changes from the task branch workspace (e.g., via `git diff HEAD`).
 - norma applies the captured changes to the main repository atomically:
   - record git status/hash "before"
   - apply changes
@@ -760,7 +639,7 @@ norma extracts changes from the ephemeral workspace using Git:
     - Include `run_id` and `step_index` in the commit footer
   - record git status/hash "after"
 - On apply failure:
-  - rollback to "before" (best-effort)
+  - restore to "before" (best-effort)
   - mark run failed and stop
 
 ---
@@ -787,12 +666,12 @@ Common types:
 
 - [x] `norma init` initializes .beads, .norma directory and default config.yaml
 - [x] `norma loop <task-id>` creates a run and DB entry in `.norma/norma.db`
-- [x] Each agent step run creates an isolated Git worktree at `<step_dir>/workspace/`
+- [x] Each run creates an isolated Git worktree at `<run_dir>/workspace/`
 - [x] Each run uses a task-scoped Git branch: `norma/task/<task_id>`
 - [x] Workflow states are tracked via `bd` labels on the task
-- [x] Each step appends structured progress entries to `TaskState.journal` in task notes
+- [x] Each step records structured summaries in SQLite events and step artifacts
 - [x] Each step creates artifacts (`input.json`, `output.json`, `logs/`) in `runs/<run_id>/steps/<n>-<role>/`
-- [x] Successful runs extract changes from the step workspace and apply them to the main repo
+- [x] Successful runs extract changes from the shared run workspace and apply them to the main repo
 - [x] Crash recovery cleans tmp dirs and reconciles missing DB step records
 
 ## Landing the Plane (Session Completion)

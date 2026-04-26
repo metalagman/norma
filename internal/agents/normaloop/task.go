@@ -43,8 +43,12 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 				return fmt.Errorf("task %s already running", id)
 			}
 		}
-		if err := w.tracker.MarkStatus(ctx, id, runpkg.StatusFailed); err != nil {
-			return err
+		if !hasNormaWorkflowPhaseLabel(item.Labels) {
+			return fmt.Errorf("task %s status is %s", id, item.Status)
+		}
+		w.logger.Info().Str("task_id", id).Msg("resetting stale workflow state before retry")
+		if err := w.tracker.MarkStatus(ctx, id, statusTodo); err != nil {
+			return fmt.Errorf("reset stale workflow state: %w", err)
 		}
 	default:
 		return fmt.Errorf("task %s status is %s", id, item.Status)
@@ -100,10 +104,6 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 		}
 	}
 
-	if err := w.tracker.SetRun(ctx, id, runID); err != nil {
-		w.logger.Warn().Err(err).Msg("failed to set run id in tracker")
-	}
-
 	if err := w.tracker.MarkStatus(ctx, id, statusPlanning); err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (w *loopRuntime) runTaskByID(ctx context.Context, id string) error {
 		return fmt.Errorf("finalize run: %w", err)
 	}
 
-	if outcome.Verdict != nil && *outcome.Verdict == "PASS" {
+	if outcome.Status == runpkg.StatusPassed {
 		w.logger.Info().Str("task_id", id).Str("run_id", runID).Msg("verdict is PASS, applying changes")
 		err = w.applyChanges(ctx, runID, item.Goal, id)
 		if err != nil {
@@ -460,14 +460,6 @@ func (w *loopRuntime) handleReplan(ctx context.Context, oldTaskID string, oldTas
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	staleLabels := []string{"norma-has-plan", "norma-has-do", "norma-has-check"}
-	for _, label := range staleLabels {
-		if err := w.tracker.RemoveLabel(ctx, oldTaskID, label); err != nil {
-			w.logger.Warn().Err(err).Str("label", label).Msg("failed to remove stale workflow label")
-		}
-	}
-	w.logger.Info().Str("task_id", oldTaskID).Int("removed", len(staleLabels)).Msg("removed stale workflow labels")
-
 	replanTitle := fmt.Sprintf("Replan: %s", oldTask.Title)
 	replanGoal := fmt.Sprintf("Replan required for task %s. Original goal: %s", oldTaskID, oldTask.Goal)
 
@@ -494,14 +486,20 @@ func (w *loopRuntime) handleReplan(ctx context.Context, oldTaskID string, oldTas
 		w.logger.Info().Int("rewired_count", len(blockedDependents)).Msg("rewired blocked dependents to new replanning task")
 	}
 
-	if err := w.tracker.AddLabel(ctx, oldTaskID, "replan-needed"); err != nil {
-		w.logger.Warn().Err(err).Msg("failed to add replan-needed label")
-	}
-
 	if err := w.tracker.CloseWithReason(ctx, oldTaskID, "wont do: replan needed"); err != nil {
 		return fmt.Errorf("close old task with reason: %w", err)
 	}
 
 	w.logger.Info().Str("old_task_id", oldTaskID).Msg("old task closed with replan reason")
 	return nil
+}
+
+func hasNormaWorkflowPhaseLabel(labels []string) bool {
+	for _, label := range labels {
+		switch strings.TrimSpace(label) {
+		case statusPlanning, statusDoing, statusChecking, statusActing:
+			return true
+		}
+	}
+	return false
 }

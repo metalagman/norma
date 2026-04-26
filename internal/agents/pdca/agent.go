@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
@@ -40,6 +41,105 @@ type runtime struct {
 	runInput      AgentInput
 	baseBranch    string
 	embeddedMCP   *embeddedMCPServers
+	workspaceOnce sync.Once
+	workspaceDir  string
+	workspaceErr  error
+}
+
+type roleAgent struct {
+	runtime     *runtime
+	role        contracts.Role
+	roleName    string
+	displayName string
+	workflow    string
+	runner      Runner
+	commitOnOK  bool
+	hasOutput   func(*contracts.RawAgentResponse) bool
+	persist     func(*contracts.TaskState, *contracts.RawAgentResponse)
+	afterOK     func(agent.InvocationContext, func(*session.Event, error) bool, *contracts.RawAgentResponse, int) bool
+}
+
+type roleAgentSpec struct {
+	roleName    string
+	displayName string
+	workflow    string
+	commitOnOK  bool
+	hasOutput   func(*contracts.RawAgentResponse) bool
+	persist     func(*contracts.TaskState, *contracts.RawAgentResponse)
+	afterOK     func(agent.InvocationContext, func(*session.Event, error) bool, *contracts.RawAgentResponse, int) bool
+}
+
+func planRoleAgentSpec() roleAgentSpec {
+	return roleAgentSpec{
+		roleName:    RolePlan,
+		displayName: "Plan",
+		workflow:    "planning",
+		hasOutput: func(resp *contracts.RawAgentResponse) bool {
+			return resp.PlanOutput != nil
+		},
+		persist: func(state *contracts.TaskState, resp *contracts.RawAgentResponse) {
+			persistRoleOutput("plan", resp.PlanOutput, &state.Plan)
+		},
+	}
+}
+
+func doRoleAgentSpec() roleAgentSpec {
+	return roleAgentSpec{
+		roleName:    RoleDo,
+		displayName: "Do",
+		workflow:    "doing",
+		commitOnOK:  true,
+		hasOutput: func(resp *contracts.RawAgentResponse) bool {
+			return resp.DoOutput != nil
+		},
+		persist: func(state *contracts.TaskState, resp *contracts.RawAgentResponse) {
+			persistRoleOutput("do", resp.DoOutput, &state.Do)
+		},
+	}
+}
+
+func checkRoleAgentSpec() roleAgentSpec {
+	return roleAgentSpec{
+		roleName:    RoleCheck,
+		displayName: "Check",
+		workflow:    "checking",
+		hasOutput: func(resp *contracts.RawAgentResponse) bool {
+			return resp.CheckOutput != nil
+		},
+		persist: func(state *contracts.TaskState, resp *contracts.RawAgentResponse) {
+			persistRoleOutput("check", resp.CheckOutput, &state.Check)
+		},
+		afterOK: setCheckVerdict,
+	}
+}
+
+func actRoleAgentSpec() roleAgentSpec {
+	return roleAgentSpec{
+		roleName:    RoleAct,
+		displayName: "Act",
+		workflow:    "acting",
+		hasOutput: func(resp *contracts.RawAgentResponse) bool {
+			return resp.ActOutput != nil
+		},
+		persist: func(state *contracts.TaskState, resp *contracts.RawAgentResponse) {
+			persistRoleOutput("act", resp.ActOutput, &state.Act)
+		},
+		afterOK: setActDecision,
+	}
+}
+
+func roleAgentSpecByName(roleName string) (roleAgentSpec, bool) {
+	for _, spec := range []roleAgentSpec{
+		planRoleAgentSpec(),
+		doRoleAgentSpec(),
+		checkRoleAgentSpec(),
+		actRoleAgentSpec(),
+	} {
+		if spec.roleName == roleName {
+			return spec, true
+		}
+	}
+	return roleAgentSpec{}, false
 }
 
 // NewLoopAgent creates and configures the PDCA loop agent with role subagents.
@@ -60,22 +160,22 @@ func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, track
 		embeddedMCP:   embeddedMCP,
 	}
 
-	planAgent, err := rt.createSubAgent(ctx, RolePlan, mcpServers)
+	planAgent, err := rt.newRoleAgent(ctx, planRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RolePlan, err)
 	}
-	doAgent, err := rt.createSubAgent(ctx, RoleDo, mcpServers)
+	doAgent, err := rt.newRoleAgent(ctx, doRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleDo, err)
 	}
-	checkAgent, err := rt.createSubAgent(ctx, RoleCheck, mcpServers)
+	checkAgent, err := rt.newRoleAgent(ctx, checkRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleCheck, err)
 	}
-	actAgent, err := rt.createSubAgent(ctx, RoleAct, mcpServers)
+	actAgent, err := rt.newRoleAgent(ctx, actRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleAct, err)
@@ -96,27 +196,35 @@ func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, track
 	return ag, nil
 }
 
-func (a *runtime) createSubAgent(ctx context.Context, roleName string, mcpServers map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
-	pascalName := ""
-	switch roleName {
-	case RolePlan:
-		pascalName = "Plan"
-	case RoleDo:
-		pascalName = "Do"
-	case RoleCheck:
-		pascalName = "Check"
-	case RoleAct:
-		pascalName = "Act"
-	default:
-		// Simple manual title case to avoid deprecated strings.Title
-		if len(roleName) > 0 {
-			pascalName = strings.ToUpper(roleName[:1]) + roleName[1:]
-		}
+func (a *runtime) newRoleAgent(ctx context.Context, spec roleAgentSpec, mcpServers map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	role := Role(spec.roleName)
+	if role == nil {
+		return nil, fmt.Errorf("unknown role %q", spec.roleName)
+	}
+	agentCfg, err := resolvedAgentForRole(a.cfg.Runtime.Providers, a.cfg.RoleIDs, spec.roleName)
+	if err != nil {
+		return nil, err
+	}
+	runner, err := NewRunner(agentCfg, role, mcpServers)
+	if err != nil {
+		return nil, fmt.Errorf("create runner for role %q: %w", spec.roleName, err)
+	}
+	roleRuntime := &roleAgent{
+		runtime:     a,
+		role:        role,
+		roleName:    spec.roleName,
+		displayName: spec.displayName,
+		workflow:    spec.workflow,
+		runner:      runner,
+		commitOnOK:  spec.commitOnOK,
+		hasOutput:   spec.hasOutput,
+		persist:     spec.persist,
+		afterOK:     spec.afterOK,
 	}
 	ag, err := agent.New(agent.Config{
-		Name:        pascalName,
-		Description: fmt.Sprintf("Norma %s agent", pascalName),
-		Run:         a.runRoleLoop(ctx, roleName, mcpServers),
+		Name:        spec.displayName,
+		Description: fmt.Sprintf("Norma %s agent", spec.displayName),
+		Run:         roleRuntime.run(ctx),
 	})
 	if err != nil {
 		return nil, err
@@ -124,7 +232,7 @@ func (a *runtime) createSubAgent(ctx context.Context, roleName string, mcpServer
 	return ag, nil
 }
 
-func (a *runtime) runRoleLoop(ctx context.Context, roleName string, mcpServers map[string]agentconfig.MCPServerConfig) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (r *roleAgent) run(ctx context.Context) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		l := log.With().
 			Str("component", "pdca").
@@ -133,7 +241,7 @@ func (a *runtime) runRoleLoop(ctx context.Context, roleName string, mcpServers m
 			Logger()
 
 		return func(yield func(*session.Event, error) bool) {
-			if ctx.Ended() || a.shouldStop(ctx) {
+			if ctx.Ended() || r.runtime.shouldStop(ctx) {
 				return
 			}
 
@@ -144,13 +252,13 @@ func (a *runtime) runRoleLoop(ctx context.Context, roleName string, mcpServers m
 			}
 
 			l.Info().Int("iteration", itNum).Msg("starting step")
-			resp, err := a.runStep(ctx, itNum, roleName, mcpServers)
+			resp, err := r.runStep(ctx, itNum)
 			if err != nil {
 				l.Error().Err(err).Msg("step failed")
 				yield(nil, err)
 				return
 			}
-			if err := validateStepResponse(roleName, resp); err != nil {
+			if err := r.validateResponse(resp); err != nil {
 				l.Error().Err(err).Msg("invalid step response")
 				yield(nil, err)
 				return
@@ -158,56 +266,25 @@ func (a *runtime) runRoleLoop(ctx context.Context, roleName string, mcpServers m
 
 			l.Debug().Str("status", resp.Status).Msg("step completed")
 
-			a.processRoleResult(ctx, yield, roleName, resp, itNum)
+			r.processResult(ctx, yield, resp, itNum)
 		}
 	}
 }
 
-func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*session.Event, error) bool, roleName string, resp *contracts.RawAgentResponse, itNum int) {
+func (r *roleAgent) processResult(ctx agent.InvocationContext, yield func(*session.Event, error) bool, resp *contracts.RawAgentResponse, itNum int) {
 	l := log.With().
 		Str("component", "pdca").
 		Str("agent_name", ctx.Agent().Name()).
 		Str("invocation_id", ctx.InvocationID()).
 		Logger()
 
-	// Communicate results via session state
-	if roleName == RoleCheck && resp.CheckOutput != nil {
-		var checkOut check.CheckOutput
-		if err := json.Unmarshal(resp.CheckOutput, &checkOut); err == nil {
-			l.Debug().Str("verdict", checkOut.Verdict.Status).Msg("setting check verdict in state")
-			if err := ctx.Session().State().Set("verdict", checkOut.Verdict.Status); err != nil {
-				yield(nil, fmt.Errorf("set verdict in session state: %w", err))
-				return
-			}
-		}
-	}
-	if roleName == RoleAct && resp.ActOutput != nil {
-		var actOut act.ActOutput
-		if err := json.Unmarshal(resp.ActOutput, &actOut); err == nil {
-			l.Debug().Str("decision", actOut.Decision).Msg("setting act decision in state")
-			if err := ctx.Session().State().Set("decision", actOut.Decision); err != nil {
-				yield(nil, fmt.Errorf("set decision in session state: %w", err))
-				return
-			}
-			if actOut.Decision == "close" {
-				l.Info().Msg("act decision is close, stopping loop")
-				if err := ctx.Session().State().Set("stop", true); err != nil {
-					yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
-					return
-				}
-				ev := session.NewEvent(ctx.InvocationID())
-				ev.Actions.Escalate = true
-				_ = yield(ev, nil)
-				return
-			}
-			if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
-				yield(nil, fmt.Errorf("update iteration in session state: %w", err))
-				return
-			}
+	if resp.Status == "ok" && r.afterOK != nil {
+		if keepGoing := r.afterOK(ctx, yield, resp, itNum); !keepGoing {
+			return
 		}
 	}
 	if resp.Status != "ok" {
-		l.Warn().Str("role", roleName).Str("status", resp.Status).Msg("non-ok status, stopping loop")
+		l.Warn().Str("role", r.roleName).Str("status", resp.Status).Msg("non-ok status, stopping loop")
 		if err := ctx.Session().State().Set("stop", true); err != nil {
 			yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 			return
@@ -217,6 +294,55 @@ func (a *runtime) processRoleResult(ctx agent.InvocationContext, yield func(*ses
 		_ = yield(ev, nil)
 		return
 	}
+}
+
+func setCheckVerdict(ctx agent.InvocationContext, yield func(*session.Event, error) bool, resp *contracts.RawAgentResponse, _ int) bool {
+	if resp.CheckOutput == nil {
+		return true
+	}
+	var checkOut check.CheckOutput
+	if err := json.Unmarshal(resp.CheckOutput, &checkOut); err != nil {
+		log.Warn().Err(err).Msg("unmarshal check output for verdict")
+		return true
+	}
+	log.Debug().Str("verdict", checkOut.Verdict).Msg("setting check verdict in state")
+	if err := ctx.Session().State().Set("verdict", checkOut.Verdict); err != nil {
+		yield(nil, fmt.Errorf("set verdict in session state: %w", err))
+		return false
+	}
+	return true
+}
+
+func setActDecision(ctx agent.InvocationContext, yield func(*session.Event, error) bool, resp *contracts.RawAgentResponse, itNum int) bool {
+	if resp.ActOutput == nil {
+		return true
+	}
+	var actOut act.ActOutput
+	if err := json.Unmarshal(resp.ActOutput, &actOut); err != nil {
+		log.Warn().Err(err).Msg("unmarshal act output for decision")
+		return true
+	}
+	log.Debug().Str("decision", actOut.Decision).Msg("setting act decision in state")
+	if err := ctx.Session().State().Set("decision", actOut.Decision); err != nil {
+		yield(nil, fmt.Errorf("set decision in session state: %w", err))
+		return false
+	}
+	if actOut.Decision == actDecisionClose {
+		log.Info().Msg("act decision is close, stopping loop")
+		if err := ctx.Session().State().Set("stop", true); err != nil {
+			yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
+			return false
+		}
+		ev := session.NewEvent(ctx.InvocationID())
+		ev.Actions.Escalate = true
+		_ = yield(ev, nil)
+		return false
+	}
+	if err := ctx.Session().State().Set("iteration", itNum+1); err != nil {
+		yield(nil, fmt.Errorf("update iteration in session state: %w", err))
+		return false
+	}
+	return true
 }
 
 func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
@@ -234,120 +360,10 @@ func (a *runtime) shouldStop(ctx agent.InvocationContext) bool {
 	return false
 }
 
-func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName string, mcpServers map[string]agentconfig.MCPServerConfig) (*contracts.RawAgentResponse, error) {
-	if a.tracker != nil {
-		workflowState := ""
-		switch roleName {
-		case RolePlan:
-			workflowState = "planning"
-		case RoleDo:
-			workflowState = "doing"
-		case RoleCheck:
-			workflowState = "checking"
-		case RoleAct:
-			workflowState = "acting"
-		}
-
-		if workflowState != "" {
-			if err := a.tracker.UpdateWorkflowState(ctx, a.runInput.TaskID, workflowState); err != nil {
-				log.Warn().Err(err).Str("task_id", a.runInput.TaskID).Str("state", workflowState).Msg("failed to update workflow state in tracker")
-			}
-		}
-
-		// Check for skip labels
-		skipLabel := ""
-		switch roleName {
-		case RolePlan:
-			skipLabel = "norma-has-plan"
-		case RoleDo:
-			skipLabel = "norma-has-do"
-		case RoleCheck:
-			skipLabel = "norma-has-check"
-		}
-		if skipLabel != "" {
-			item, err := a.tracker.Task(ctx, a.runInput.TaskID)
-			if err == nil {
-				hasLabel := false
-				for _, l := range item.Labels {
-					if l == skipLabel {
-						hasLabel = true
-						break
-					}
-				}
-				if hasLabel {
-					log.Info().Str("task_id", a.runInput.TaskID).Str("role", roleName).Msg("skipping step due to label")
-					state := a.getTaskState(ctx)
-					resp := &contracts.RawAgentResponse{
-						Status: "ok",
-						Summary: contracts.ResponseSummary{
-							Text: fmt.Sprintf("Skipped %s step: already completed (label %s found)", roleName, skipLabel),
-						},
-						Progress: contracts.StepProgress{
-							Title:   fmt.Sprintf("%s skipped (resumed)", roleName),
-							Details: []string{fmt.Sprintf("Label %s is present on task", skipLabel)},
-						},
-					}
-					// Restore state from task notes if possible
-					if state.Plan != nil {
-						if data, err := json.Marshal(state.Plan); err == nil {
-							resp.PlanOutput = data
-						}
-					}
-					if state.Do != nil {
-						if data, err := json.Marshal(state.Do); err == nil {
-							resp.DoOutput = data
-						}
-					}
-					if state.Check != nil {
-						if data, err := json.Marshal(state.Check); err == nil {
-							resp.CheckOutput = data
-						}
-					}
-					if state.Act != nil {
-						if data, err := json.Marshal(state.Act); err == nil {
-							resp.ActOutput = data
-						}
-					}
-
-					// Increment step index
-					idxVal, _ := ctx.Session().State().Get("current_step_index")
-					index := 0
-					if idxVal != nil {
-						if i, ok := idxVal.(int); ok {
-							index = i
-						}
-					}
-					index++
-					_ = ctx.Session().State().Set("current_step_index", index)
-
-					// Commit a "skipped" step record to DB
-					if a.store != nil {
-						now := time.Now().UTC().Format(time.RFC3339)
-						stepRec := db.StepRecord{
-							RunID:     a.runInput.RunID,
-							StepIndex: index,
-							Role:      roleName,
-							Iteration: iteration,
-							Status:    "skipped",
-							StepDir:   "", // No directory for skipped step
-							StartedAt: now,
-							EndedAt:   now,
-							Summary:   resp.Summary.Text,
-						}
-						update := db.Update{
-							CurrentStepIndex: index,
-							Iteration:        iteration,
-							Status:           "running",
-						}
-						_ = a.store.CommitStep(ctx, stepRec, nil, update)
-					}
-
-					// Update journal
-					_ = a.updateTaskState(ctx, resp, roleName, iteration, index)
-
-					return resp, nil
-				}
-			}
+func (r *roleAgent) runStep(ctx agent.InvocationContext, iteration int) (*contracts.RawAgentResponse, error) {
+	if r.runtime.tracker != nil && r.workflow != "" {
+		if err := r.runtime.tracker.UpdateWorkflowState(ctx, r.runtime.runInput.TaskID, r.workflow); err != nil {
+			log.Warn().Err(err).Str("task_id", r.runtime.runInput.TaskID).Str("state", r.workflow).Msg("failed to update workflow state in tracker")
 		}
 	}
 
@@ -364,20 +380,15 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		return nil, fmt.Errorf("set current_step_index in session state: %w", err)
 	}
 
-	role := Role(roleName)
-	if role == nil {
-		return nil, fmt.Errorf("unknown role %q", roleName)
-	}
-
-	req := a.baseRequest(iteration, index, roleName)
+	req := r.runtime.baseRequest(iteration, index, r.roleName)
 
 	// Pass TaskState to all roles - each role reads what it needs
-	state := a.getTaskState(ctx)
+	state := r.runtime.getTaskState(ctx)
 	req.TaskState = *state
 
-	// Prepare step directory and workspace
-	stepsDir := filepath.Join(a.runInput.RunDir, "steps")
-	stepDirName := fmt.Sprintf("%03d-%s", index, roleName)
+	// Prepare step directory. The git workspace is shared for the whole run.
+	stepsDir := filepath.Join(r.runtime.runInput.RunDir, "steps")
+	stepDirName := fmt.Sprintf("%03d-%s", index, r.roleName)
 	stepDir := filepath.Join(stepsDir, stepDirName)
 	if err := os.MkdirAll(filepath.Join(stepDir, "logs"), 0o700); err != nil {
 		return nil, err
@@ -389,31 +400,13 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		Str("invocation_id", ctx.InvocationID()).
 		Logger()
 
-	workspaceDir := filepath.Join(stepDir, "workspace")
-	branchName := fmt.Sprintf("norma/task/%s", a.runInput.TaskID)
-	l.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("mounting worktree")
-	if _, err := git.MountWorktree(ctx, a.runInput.WorkingDir, workspaceDir, branchName, a.baseBranch); err != nil {
-		return nil, fmt.Errorf("mount worktree: %w", err)
-	}
-	defer func() {
-		l.Debug().Str("workspace", workspaceDir).Msg("removing worktree")
-		if err := git.RemoveWorktree(ctx, a.runInput.WorkingDir, workspaceDir); err != nil {
-			l.Warn().Err(err).Str("workspace", workspaceDir).Msg("failed to remove worktree")
-		}
-	}()
-
-	absStepDir, err := filepath.Abs(stepDir)
+	workspaceDir, err := r.runtime.sharedWorkspace(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("resolve step dir path: %w", err)
-	}
-	absWorkspaceDir, err := filepath.Abs(workspaceDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve workspace dir path: %w", err)
+		return nil, err
 	}
 
 	req.Paths = contracts.RequestPaths{
-		WorkspaceDir: absWorkspaceDir,
-		RunDir:       absStepDir,
+		WorkspaceDir: workspaceDir,
 	}
 
 	// Create input.json
@@ -425,16 +418,7 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		return nil, fmt.Errorf("write input.json: %w", err)
 	}
 
-	// Create runner for this step
-	agentCfg, err := resolvedAgentForRole(a.cfg.Runtime.Providers, a.cfg.RoleIDs, roleName)
-	if err != nil {
-		return nil, err
-	}
-	runner, err := NewRunner(agentCfg, role, mcpServers)
-	if err != nil {
-		return nil, fmt.Errorf("create runner for role %q: %w", roleName, err)
-	}
-	l.Debug().Str("role", roleName).Str("agent_type", agentCfg.Type).Msg("running step runner")
+	l.Debug().Str("role", r.roleName).Msg("running step runner")
 
 	// Prepare log files
 	stdoutFile, err := os.OpenFile(filepath.Join(stepDir, "logs", "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -463,17 +447,11 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 	}
 
 	startTime := time.Now()
-	lastOut, _, exitCode, err := runner.Run(ctx, reqBytes, multiStdout, multiStderr, eventsFile)
+	resp, exitCode, err := r.runner.Run(ctx, reqBytes, multiStdout, multiStderr, eventsFile)
 	if err != nil {
-		return a.persistStepFailure(ctx, roleName, iteration, index, stepDir, startTime, fmt.Errorf("run role %q agent (exit code %d): %w", roleName, exitCode, err), exitCode)
+		return r.persistStepFailure(ctx, iteration, index, stepDir, startTime, fmt.Errorf("run role %q agent (exit code %d): %w", r.roleName, exitCode, err), exitCode)
 	}
 	endTime := time.Now()
-
-	// Parse response
-	resp, err := role.MapResponse(lastOut)
-	if err != nil {
-		return a.persistStepFailure(ctx, roleName, iteration, index, stepDir, startTime, fmt.Errorf("map response: %w", err), 0)
-	}
 
 	// Persist output.json
 	respJSON, err := json.MarshalIndent(resp, "", "  ")
@@ -484,62 +462,49 @@ func (a *runtime) runStep(ctx agent.InvocationContext, iteration int, roleName s
 		return nil, fmt.Errorf("write output.json: %w", err)
 	}
 
-	// Persist Do workspace changes before worktree cleanup.
-	if roleName == RoleDo && resp.Status == "ok" {
-		if err := commitWorkspaceChanges(ctx, workspaceDir, a.runInput.RunID, a.runInput.TaskID, index); err != nil {
-			return a.persistStepFailure(ctx, roleName, iteration, index, stepDir, startTime, err, 0)
+	if !r.commitOnOK {
+		if err := ensureWorkspaceClean(ctx, workspaceDir, r.roleName); err != nil {
+			return r.persistStepFailure(ctx, iteration, index, stepDir, startTime, err, 0)
+		}
+	}
+
+	if r.commitOnOK && resp.Status == "ok" {
+		if err := commitWorkspaceChanges(ctx, workspaceDir, r.runtime.runInput.RunID, r.runtime.runInput.TaskID, index); err != nil {
+			return r.persistStepFailure(ctx, iteration, index, stepDir, startTime, err, 0)
 		}
 	}
 
 	// Commit to DB
 	stepRec := db.StepRecord{
-		RunID:     a.runInput.RunID,
+		RunID:     r.runtime.runInput.RunID,
 		StepIndex: index,
-		Role:      roleName,
+		Role:      r.roleName,
 		Iteration: iteration,
 		Status:    resp.Status,
 		StepDir:   stepDir,
 		StartedAt: startTime.UTC().Format(time.RFC3339),
 		EndedAt:   endTime.UTC().Format(time.RFC3339),
-		Summary:   resp.Summary.Text,
+		Summary:   resp.Summary,
 	}
 	update := db.Update{
 		CurrentStepIndex: index,
 		Iteration:        iteration,
 		Status:           "running",
 	}
-	if err := a.store.CommitStep(ctx, stepRec, nil, update); err != nil {
-		return nil, fmt.Errorf("commit step %d (%s): %w", index, roleName, err)
+	if err := r.runtime.store.CommitStep(ctx, stepRec, nil, update); err != nil {
+		return nil, fmt.Errorf("commit step %d (%s): %w", index, r.roleName, err)
 	}
 
-	// Update Task State and persist to Beads.
-	if err := a.updateTaskState(ctx, &resp, roleName, iteration, index); err != nil {
+	// Update ephemeral task state for the remaining roles in this run.
+	if err := r.updateTaskState(ctx, &resp, iteration, index); err != nil {
 		return nil, err
-	}
-
-	if a.tracker != nil && resp.Status == "ok" {
-		label := ""
-		switch roleName {
-		case RolePlan:
-			label = "norma-has-plan"
-		case RoleDo:
-			label = "norma-has-do"
-		case RoleCheck:
-			label = "norma-has-check"
-		}
-		if label != "" {
-			if err := a.tracker.AddLabel(ctx, a.runInput.TaskID, label); err != nil {
-				log.Warn().Err(err).Str("task_id", a.runInput.TaskID).Str("label", label).Msg("failed to add label to task")
-			}
-		}
 	}
 
 	return &resp, nil
 }
 
-func (a *runtime) persistStepFailure(
+func (r *roleAgent) persistStepFailure(
 	ctx agent.InvocationContext,
-	roleName string,
 	iteration int,
 	index int,
 	stepDir string,
@@ -547,7 +512,7 @@ func (a *runtime) persistStepFailure(
 	runErr error,
 	exitCode int,
 ) (*contracts.RawAgentResponse, error) {
-	resp := stepFailureResponse(roleName, runErr, exitCode)
+	resp := stepFailureResponse(r.roleName, runErr, exitCode)
 
 	respJSON, err := json.MarshalIndent(resp, "", "  ")
 	if err != nil {
@@ -557,30 +522,30 @@ func (a *runtime) persistStepFailure(
 		return nil, fmt.Errorf("write fallback output.json: %w", err)
 	}
 
-	if a.store != nil {
+	if r.runtime.store != nil {
 		endTime := time.Now()
 		stepRec := db.StepRecord{
-			RunID:     a.runInput.RunID,
+			RunID:     r.runtime.runInput.RunID,
 			StepIndex: index,
-			Role:      roleName,
+			Role:      r.roleName,
 			Iteration: iteration,
 			Status:    "fail",
 			StepDir:   stepDir,
 			StartedAt: startTime.UTC().Format(time.RFC3339),
 			EndedAt:   endTime.UTC().Format(time.RFC3339),
-			Summary:   resp.Summary.Text,
+			Summary:   resp.Summary,
 		}
 		update := db.Update{
 			CurrentStepIndex: index,
 			Iteration:        iteration,
 			Status:           "running",
 		}
-		if err := a.store.CommitStep(ctx, stepRec, nil, update); err != nil {
-			return nil, fmt.Errorf("commit failed step %d (%s): %w", index, roleName, err)
+		if err := r.runtime.store.CommitStep(ctx, stepRec, nil, update); err != nil {
+			return nil, fmt.Errorf("commit failed step %d (%s): %w", index, r.roleName, err)
 		}
 	}
 
-	if err := a.updateTaskState(ctx, resp, roleName, iteration, index); err != nil {
+	if err := r.updateTaskState(ctx, resp, iteration, index); err != nil {
 		return nil, err
 	}
 
@@ -588,24 +553,15 @@ func (a *runtime) persistStepFailure(
 }
 
 func stepFailureResponse(roleName string, runErr error, exitCode int) *contracts.RawAgentResponse {
-	details := []string{
-		fmt.Sprintf("error: %s", compactErrorText(runErr, 800)),
-	}
-	if exitCode > 0 {
-		details = append(details, fmt.Sprintf("exit_code=%d", exitCode))
-	}
-
 	stopReason := stepFailureStopReason(runErr)
+	summary := fmt.Sprintf("%s step failed: %s", roleName, compactErrorText(runErr, 240))
+	if exitCode > 0 {
+		summary = fmt.Sprintf("%s (exit_code=%d)", summary, exitCode)
+	}
 	return &contracts.RawAgentResponse{
 		Status:     "error",
 		StopReason: stopReason,
-		Summary: contracts.ResponseSummary{
-			Text: fmt.Sprintf("%s step failed: %s", roleName, compactErrorText(runErr, 240)),
-		},
-		Progress: contracts.StepProgress{
-			Title:   fmt.Sprintf("%s step failed", roleName),
-			Details: details,
-		},
+		Summary:    summary,
 	}
 }
 
@@ -656,6 +612,28 @@ func agentOutputWriters(debugEnabled bool, stdoutLog io.Writer, stderrLog io.Wri
 	return io.MultiWriter(os.Stdout, stdoutLog), io.MultiWriter(os.Stderr, stderrLog)
 }
 
+func (a *runtime) sharedWorkspace(ctx context.Context) (string, error) {
+	a.workspaceOnce.Do(func() {
+		workspaceDir := filepath.Join(a.runInput.RunDir, "workspace")
+		branchName := fmt.Sprintf("norma/task/%s", a.runInput.TaskID)
+		log.Debug().Str("workspace", workspaceDir).Str("branch", branchName).Msg("mounting shared PDCA worktree")
+		if _, err := git.MountWorktree(ctx, a.runInput.WorkingDir, workspaceDir, branchName, a.baseBranch); err != nil {
+			a.workspaceErr = fmt.Errorf("mount shared worktree: %w", err)
+			return
+		}
+		absWorkspaceDir, err := filepath.Abs(workspaceDir)
+		if err != nil {
+			a.workspaceErr = fmt.Errorf("resolve shared workspace dir path: %w", err)
+			return
+		}
+		a.workspaceDir = absWorkspaceDir
+	})
+	if a.workspaceErr != nil {
+		return "", a.workspaceErr
+	}
+	return a.workspaceDir, nil
+}
+
 func (a *runtime) baseRequest(iteration, index int, role string) contracts.AgentRequest {
 	return contracts.AgentRequest{
 		Run: contracts.RunInfo{
@@ -664,61 +642,39 @@ func (a *runtime) baseRequest(iteration, index int, role string) contracts.Agent
 		},
 		Task: contracts.TaskInfo{
 			ID:                 a.runInput.TaskID,
-			Title:              a.runInput.Goal,
-			Description:        a.runInput.Goal,
+			Goal:               a.runInput.Goal,
 			AcceptanceCriteria: a.runInput.AcceptanceCriteria,
 		},
 		Step: contracts.StepInfo{
 			Index: index,
-			Name:  role,
-		},
-		Budgets: contracts.Budgets{
-			MaxIterations: a.maxIterations,
-		},
-		StopReasonsAllowed: []string{
-			"budget_exceeded",
-			"dependency_blocked",
-			"verify_missing",
-			"replan_required",
 		},
 	}
 }
 
 func validateStepResponse(roleName string, resp *contracts.RawAgentResponse) error {
+	spec, ok := roleAgentSpecByName(roleName)
+	if !ok {
+		return fmt.Errorf("unknown role %q", roleName)
+	}
+	return (&roleAgent{roleName: spec.roleName, hasOutput: spec.hasOutput}).validateResponse(resp)
+}
+
+func (r *roleAgent) validateResponse(resp *contracts.RawAgentResponse) error {
 	if resp == nil {
-		return fmt.Errorf("nil response for role %q", roleName)
+		return fmt.Errorf("nil response for role %q", r.roleName)
 	}
 
 	switch resp.Status {
 	case "ok", "stop", "error":
 	default:
-		return fmt.Errorf("%s step returned non-ok status %q", roleName, resp.Status)
+		return fmt.Errorf("%s step returned non-ok status %q", r.roleName, resp.Status)
 	}
 	if resp.Status == "stop" || resp.Status == "error" {
 		return nil
 	}
-
-	switch roleName {
-	case RolePlan:
-		if resp.PlanOutput == nil {
-			return fmt.Errorf("plan step returned status ok without plan output")
-		}
-	case RoleDo:
-		if resp.DoOutput == nil {
-			return fmt.Errorf("do step returned status ok without do output")
-		}
-	case RoleCheck:
-		if resp.CheckOutput == nil {
-			return fmt.Errorf("check step returned status ok without check output")
-		}
-	case RoleAct:
-		if resp.ActOutput == nil {
-			return fmt.Errorf("act step returned status ok without act output")
-		}
-	default:
-		return fmt.Errorf("unknown role %q", roleName)
+	if r.hasOutput == nil || !r.hasOutput(resp) {
+		return fmt.Errorf("%s step returned status ok without %s output", r.roleName, r.roleName)
 	}
-
 	return nil
 }
 
@@ -770,74 +726,41 @@ func coerceTaskState(value any) *contracts.TaskState {
 	}
 }
 
-func (a *runtime) updateTaskState(ctx agent.InvocationContext, resp *contracts.RawAgentResponse, role string, iteration, index int) error {
+func (r *roleAgent) updateTaskState(ctx agent.InvocationContext, resp *contracts.RawAgentResponse, _, _ int) error {
 	if resp == nil {
-		return fmt.Errorf("nil agent response for role %q", role)
+		return fmt.Errorf("nil agent response for role %q", r.roleName)
 	}
 
-	state := a.getTaskState(ctx)
-	applyAgentResponseToTaskState(state, resp, role, a.runInput.RunID, iteration, index, time.Now())
+	state := r.runtime.getTaskState(ctx)
+	if r.persist != nil {
+		r.persist(state, resp)
+	}
 
 	if err := ctx.Session().State().Set("task_state", state); err != nil {
 		return fmt.Errorf("set task state in session: %w", err)
 	}
 
-	if a.tracker != nil {
-		data, err := json.MarshalIndent(state, "", "  ")
-		if err != nil {
-			return fmt.Errorf("marshal task state: %w", err)
-		}
-		if err := a.tracker.SetNotes(ctx, a.runInput.TaskID, string(data)); err != nil {
-			return fmt.Errorf("persist task state to beads: %w", err)
-		}
-	}
-
 	return nil
 }
 
-func applyAgentResponseToTaskState(state *contracts.TaskState, resp *contracts.RawAgentResponse, role, runID string, iteration, index int, now time.Time) {
-	switch role {
-	case RolePlan:
-		if resp.PlanOutput != nil {
-			if err := json.Unmarshal(resp.PlanOutput, &state.Plan); err != nil {
-				log.Warn().Err(err).Msg("unmarshal plan output to task state")
-			}
-		}
-	case RoleDo:
-		if resp.DoOutput != nil {
-			if err := json.Unmarshal(resp.DoOutput, &state.Do); err != nil {
-				log.Warn().Err(err).Msg("unmarshal do output to task state")
-			}
-		}
-	case RoleCheck:
-		if resp.CheckOutput != nil {
-			if err := json.Unmarshal(resp.CheckOutput, &state.Check); err != nil {
-				log.Warn().Err(err).Msg("unmarshal check output to task state")
-			}
-		}
-	case RoleAct:
-		if resp.ActOutput != nil {
-			if err := json.Unmarshal(resp.ActOutput, &state.Act); err != nil {
-				log.Warn().Err(err).Msg("unmarshal act output to task state")
-			}
-		}
+func applyAgentResponseToTaskState(state *contracts.TaskState, resp *contracts.RawAgentResponse, role string) {
+	spec, ok := roleAgentSpecByName(role)
+	if !ok || spec.persist == nil {
+		return
 	}
+	spec.persist(state, resp)
+}
 
-	entry := contracts.JournalEntry{
-		Timestamp:  now.UTC().Format(time.RFC3339),
-		RunID:      runID,
-		Iteration:  iteration,
-		StepIndex:  index,
-		Role:       role,
-		Status:     resp.Status,
-		StopReason: resp.StopReason,
-		Title:      resp.Progress.Title,
-		Details:    resp.Progress.Details,
+func persistRoleOutput(roleName string, output json.RawMessage, target *json.RawMessage) {
+	if output == nil {
+		return
 	}
-	if entry.Title == "" {
-		entry.Title = fmt.Sprintf("%s step completed", role)
+	var decoded json.RawMessage
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		log.Warn().Err(err).Str("role", roleName).Msg("unmarshal role output to task state")
+		return
 	}
-	state.Journal = append(state.Journal, entry)
+	*target = output
 }
 
 func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID string, stepIndex int) error {
@@ -860,4 +783,16 @@ func commitWorkspaceChanges(ctx context.Context, workspaceDir, runID, taskID str
 	}
 
 	return nil
+}
+
+func ensureWorkspaceClean(ctx context.Context, workspaceDir, roleName string) error {
+	statusOut, err := git.GitRunCmdOutput(ctx, workspaceDir, "git", "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("read workspace status after %s step: %w", roleName, err)
+	}
+	status := strings.TrimSpace(statusOut)
+	if status == "" {
+		return nil
+	}
+	return fmt.Errorf("%s step modified workspace; only do may leave workspace changes", roleName)
 }

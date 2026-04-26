@@ -1,93 +1,63 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "PlanRequest",
-  "properties": {
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
     "run": {
       "type": "object",
-      "title": "PlanRun",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
         "iteration": { "type": "integer" }
       },
       "required": ["id", "iteration"]
     },
-    "task": {
+    "baseline_acceptance_criterion": {
       "type": "object",
-      "title": "PlanTask",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
+        "text": { "type": "string" },
+        "verify_hints": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "text", "verify_hints"]
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "goal": { "type": "string" },
         "acceptance_criteria": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "title": "PlanAcceptanceCriteria",
-            "properties": {
-              "id": { "type": "string" },
-              "text": { "type": "string" },
-              "verify_hints": { "type": "array", "items": { "type": "string" } }
-            },
-            "required": ["id", "text"]
-          }
+          "items": { "$ref": "#/definitions/baseline_acceptance_criterion" }
         }
       },
-      "required": ["id", "title", "description", "acceptance_criteria"]
+      "required": ["id", "goal", "acceptance_criteria"]
     },
     "step": {
       "type": "object",
-      "title": "PlanStep",
+      "additionalProperties": false,
       "properties": {
-        "index": { "type": "integer" },
-        "name": { "type": "string" }
+        "index": { "type": "integer" }
       },
-      "required": ["index", "name"]
+      "required": ["index"]
     },
     "paths": {
       "type": "object",
-      "title": "PlanPaths",
+      "additionalProperties": false,
       "properties": {
-        "workspace_dir": { "type": "string" },
-        "run_dir": { "type": "string" }
+        "workspace_dir": { "type": "string" }
       },
-      "required": ["workspace_dir", "run_dir"]
-    },
-    "budgets": {
-      "type": "object",
-      "title": "PlanBudgets",
-      "properties": {
-        "max_iterations": { "type": "integer" },
-        "max_wall_time_minutes": { "type": "integer" },
-        "max_failed_checks": { "type": "integer" }
-      },
-      "required": ["max_iterations"]
-    },
-    "context": {
-      "type": "object",
-      "title": "PlanContext",
-      "properties": {
-        "facts": { "type": "object", "title": "PlanFacts" },
-        "links": { "type": "array", "items": { "type": "string" } },
-        "attempt": { "type": "integer" }
-      }
-    },
-    "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
-    "plan_input": {
-      "type": "object",
-      "title": "PlanInput",
-      "properties": {
-        "task": {
-          "type": "object",
-          "title": "PlanTaskID",
-          "properties": {
-            "id": { "type": "string" }
-          },
-          "required": ["id"]
-        }
-      },
-      "required": ["task"]
+      "required": ["workspace_dir"]
     }
   },
-  "required": ["run", "task", "step", "paths", "plan_input"]
+  "properties": {
+    "run": { "$ref": "#/definitions/run" },
+    "task": { "$ref": "#/definitions/task" },
+    "step": { "$ref": "#/definitions/step" },
+    "paths": { "$ref": "#/definitions/paths" }
+  },
+  "required": ["run", "task", "step", "paths"]
 }

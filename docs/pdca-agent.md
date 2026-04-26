@@ -4,7 +4,7 @@ This document describes Norma's fixed execution loop:
 
 `plan -> do -> check -> act`
 
-The loop repeats until the task is completed (`PASS` + `act.decision=close`) or a stop condition is reached.
+The loop repeats until the task is completed (`verdict=PASS` + `decision=close`) or a stop condition is reached.
 
 ## Scope
 
@@ -12,43 +12,161 @@ The loop repeats until the task is completed (`PASS` + `act.decision=close`) or 
 - One task at a time per run.
 - Each step is contract-driven: `input.json -> output.json`.
 
+## Control Semantics
+
+PDCA has three separate control concepts. They are intentionally not interchangeable.
+
+| Concept | Emitted by | Question answered | Valid literals |
+| --- | --- | --- | --- |
+| Check verdict | Check agent | Is the task complete? | `PASS`, `FAIL` |
+| Act decision | Act agent | What should Norma do with that verdict? | `close`, `continue`, `replan` |
+| Run status | Norma orchestrator | How did this run end? | `passed`, `failed`, `stopped` |
+
+Casing is part of the contract:
+- Verdict literals are uppercase: `PASS`, `FAIL`.
+- Decision literals are lowercase: `close`, `continue`, `replan`.
+- Run status literals are lowercase: `passed`, `failed`, `stopped`.
+- Prose may say pass/fail/close/replan, but JSON examples and contract tables MUST use exact literal casing.
+
+### Decision Matrix
+
+| Check verdict | Legal Act decision | Norma behavior | Final run status |
+| --- | --- | --- | --- |
+| `PASS` | `close` | Apply task-branch changes, create the final commit, close the task. | `passed` |
+| `FAIL` | `continue` | Keep the task open and run the next PDCA iteration from the task branch. | Still running; if the loop exhausts, `failed` |
+| `FAIL` | `replan` | Stop this task, create/link replacement work, close the old task with a replan reason. | `failed` |
+
+### Invalid Combinations
+
+These are agent contract violations. Norma must fail the Act step, stop the run, and must not apply workspace changes.
+
+| Invalid output | Why invalid |
+| --- | --- |
+| `PASS` + `continue` | A passed task is complete; it must close. |
+| `PASS` + `replan` | A passed task does not need replacement work. |
+| `FAIL` + `close` | A failed task is not complete and cannot be closed as done. |
+| Any `rollback` decision | `rollback` is not a PDCA Act decision. |
+
+Human reading guide:
+- Check answers: “is the task complete?”
+- Act answers: “what should Norma do with that result?”
+- Run status records: “how did this run end?”
+
+## Target Simplified Sequence
+
+This target keeps the four PDCA roles, but simplifies durable state:
+
+- Beads stores task/backlog status and visible workflow labels only.
+- The ADK session holds ephemeral `task_state` for role-to-role handoff during one live run.
+- SQLite and `.norma/runs` store same-machine run, step, event, and artifact history.
+- The task branch `norma/task/<task_id>` is the durable implementation history.
+- Beads notes are not used as Norma machine state.
+- `norma-has-plan`, `norma-has-do`, and `norma-has-check` are not used for resume.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CLI as norma loop
+    participant BD as Beads
+    participant DB as SQLite
+    participant FS as .norma/runs
+    participant Git as Git task branch
+    participant ADK as ADK session
+    participant Plan as Plan agent
+    participant Do as Do agent
+    participant Check as Check agent
+    participant Act as Act agent
+
+    CLI->>BD: Select ready leaf task
+    BD-->>CLI: Task is open and ready
+    CLI->>BD: Set status in_progress, label planning
+    CLI->>DB: Insert run with status running
+    CLI->>FS: Create run directory, shared workspace, and first step directory
+    CLI->>Git: Mount shared worktree on norma/task/{task_id}
+    CLI->>ADK: Start run with empty ephemeral task_state
+
+    CLI->>Plan: Run plan with input.json
+    Plan->>FS: Write plan output.json and logs
+    Plan-->>ADK: Store plan output in session task_state
+    CLI->>DB: Commit plan step and event
+    CLI->>BD: Transition label planning to doing
+
+    CLI->>FS: Create do step directory
+    CLI->>Do: Run do with plan from session task_state
+    Do->>FS: Write do output.json, logs, and artifacts
+    Do->>Git: Write implementation changes in worktree
+    CLI->>Git: Commit do changes with run_id, step_index, role, task_id
+    Do-->>ADK: Store do output in session task_state
+    CLI->>DB: Commit do step and event
+    CLI->>BD: Transition label doing to checking
+
+    CLI->>FS: Create check step directory
+    CLI->>Check: Run check with plan and do outputs from session task_state
+    Check->>FS: Write check output.json and logs
+    Check-->>ADK: Store verdict in session task_state
+    CLI->>DB: Commit check step and verdict event
+    CLI->>BD: Transition label checking to acting
+
+    CLI->>FS: Create act step directory
+    CLI->>Act: Run act with check verdict from session task_state
+    Act->>FS: Write act output.json and logs
+    Act-->>ADK: Store decision in session task_state
+    CLI->>DB: Commit act step and final run event
+
+    alt PASS + close
+        CLI->>Git: Squash merge task branch into base branch
+        CLI->>Git: Create Conventional Commit with run and task footers
+        CLI->>BD: Close task as done and remove workflow labels
+        CLI->>DB: Update run status passed
+    else FAIL + continue
+        CLI->>BD: Keep task open and advance to next PDCA iteration
+        CLI->>DB: Keep run status running until next iteration or budget exhaustion
+    else FAIL + replan
+        CLI->>BD: Create follow-up task and link it to the old task
+        CLI->>BD: Close old task with replan reason and remove workflow labels
+        CLI->>DB: Update run status failed
+    else stop/error
+        CLI->>BD: Remove workflow labels and leave task open or deferred by policy
+        CLI->>DB: Update run status stopped or failed
+    end
+```
+
 ## Iteration Flow
 
 ### 1) Plan
 
 Purpose:
 - refine the selected task into an executable plan for this iteration
-- define effective acceptance criteria and verification checks
+- define acceptance criteria and verification checks
 
 Expected output:
-- `plan_output.acceptance_criteria.effective`
-- `plan_output.work_plan.do_steps`
-- `plan_output.work_plan.check_steps`
+- `plan_output.acceptance_criteria`
+- `plan_output.do_steps`
 
 ### 2) Do
 
 Purpose:
 - execute only planned implementation steps
-- produce artifacts and code changes inside step workspace
+- produce artifacts and code changes inside the shared run workspace
 
 Expected output:
-- `do_output.execution.executed_step_ids`
-- `do_output.execution.skipped_step_ids`
+- `do_output.executed_step_ids`
 
 ### 3) Check
 
 Purpose:
 - verify plan-vs-execution match
-- verify effective acceptance criteria
+- verify acceptance criteria
 - produce verdict
 
 Expected output:
 - `check_output.acceptance_results`
-- `check_output.verdict.status` (`PASS|FAIL|PARTIAL`)
+- `check_output.verdict` (`PASS|FAIL`)
 
 Verdict rules:
 - Any failed acceptance result -> `FAIL`
-- Otherwise verdict is derived by the Check agent and recorded in `check_output.verdict`.
+- Any plan mismatch, missing verification, or incomplete acceptance evaluation -> `FAIL`
+- Otherwise -> `PASS`
 
 Current schema note:
 - `check_output.plan_match` is not part of the current `check/output.schema.json`.
@@ -60,19 +178,26 @@ Purpose:
 - decide what happens next from check verdict
 
 Expected output:
-- `act_output.decision` (`close|replan|rollback|continue`)
+- `act_output.decision` (`close|continue|replan`)
+
+Agent rules:
+- If `act_input.verdict == "PASS"`, Act MUST return `decision="close"`.
+- If `act_input.verdict == "FAIL"`, Act MUST return `decision="continue"` or `decision="replan"`.
+- Act MUST NOT return `decision="rollback"`.
+- Act MUST NOT apply changes. Norma applies changes only after valid `PASS` + `close`.
 
 Act behavior:
-- `close` with effective `PASS`: task is closed and changes are applied to main repo.
-- `replan|continue`: task remains open and loop may continue or stop by policy.
-- `rollback` (loop mode): Norma drops the task branch `norma/task/<task_id>`, resets task workflow state to `todo`, then continues with normal scheduler selection.
+- `close`: legal only with `PASS`; Norma applies changes and closes the task.
+- `continue`: legal only with `FAIL`; Norma runs another PDCA iteration from the task branch.
+- `replan`: legal only with `FAIL`; Norma creates replacement work and ends the current run as `failed`.
 
 ## Workspaces and Artifacts
 
 - Every step runs in its own step directory:
   - `.norma/runs/<run_id>/steps/<NNN-role>/`
-- Every step has isolated git worktree:
-  - `<step_dir>/workspace`
+- Every run has one shared git worktree:
+  - `.norma/runs/<run_id>/workspace`
+- Every role receives that shared path as `paths.workspace_dir`.
 - Step files:
   - `input.json`
   - `output.json`
@@ -83,13 +208,12 @@ Act behavior:
 ## State Model
 
 Authoritative state split:
-- Backlog/task state: Beads (`bd`) + task `notes` (`TaskState` JSON)
+- Backlog/task state: Beads (`bd`) status and visible workflow labels
 - Run/step timeline: SQLite (`.norma/norma.db`)
 - Human-readable artifacts: filesystem under `.norma/runs/`
+- Durable implementation history: git branch `norma/task/<task_id>`
 
-`TaskState` persists:
-- latest Plan/Do/Check/Act outputs
-- run journal entries captured from each step's `output.progress`
+`TaskState` is ephemeral ADK session state for one live run. Beads notes are not used for Norma machine state.
 
 ## Stop Conditions
 
@@ -98,7 +222,7 @@ Norma stops the loop when any applies:
 - dependency blocked
 - verification missing/unrunnable
 - replan required
-- explicit terminal decision (`act.decision=close`)
+- explicit terminal decision (`decision=close` or `decision=replan`)
 
 Stop reason must be represented in step output (`status=stop` with concrete `stop_reason`) when applicable.
 

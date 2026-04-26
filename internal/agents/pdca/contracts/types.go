@@ -15,24 +15,13 @@ type SchemaPair struct {
 	OutputSchema string
 }
 
-// Budgets defines run budgets.
-type Budgets struct {
-	MaxIterations      int `json:"max_iterations"`
-	MaxWallTimeMinutes int `json:"max_wall_time_minutes,omitempty"`
-	MaxFailedChecks    int `json:"max_failed_checks,omitempty"`
-}
-
 // AgentRequest is the normalized request passed to agents.
 // Each role reads what it needs from TaskState.
 type AgentRequest struct {
-	Run     RunInfo        `json:"run"`
-	Task    TaskInfo       `json:"task"`
-	Step    StepInfo       `json:"step"`
-	Paths   RequestPaths   `json:"paths"`
-	Budgets Budgets        `json:"budgets"`
-	Context RequestContext `json:"context"`
-
-	StopReasonsAllowed []string `json:"stop_reasons_allowed"`
+	Run   RunInfo      `json:"run"`
+	Task  TaskInfo     `json:"task"`
+	Step  StepInfo     `json:"step"`
+	Paths RequestPaths `json:"paths"`
 
 	// TaskState contains outputs from all previous roles.
 	// Each role reads what it needs from this shared state.
@@ -48,36 +37,25 @@ type RunInfo struct {
 // TaskInfo contains identification and description info for an issue.
 type TaskInfo struct {
 	ID                 string                     `json:"id"`
-	Title              string                     `json:"title"`
-	Description        string                     `json:"description"`
+	Goal               string                     `json:"goal"`
 	AcceptanceCriteria []task.AcceptanceCriterion `json:"acceptance_criteria"`
 }
 
 // StepInfo identifies the step in the run.
 type StepInfo struct {
-	Index int    `json:"index"`
-	Name  string `json:"name"` // "plan", "do", "check", "act"
+	Index int `json:"index"`
 }
 
 // RequestPaths are absolute paths for agent execution.
 type RequestPaths struct {
 	WorkspaceDir string `json:"workspace_dir"`
-	RunDir       string `json:"run_dir"`
-}
-
-// RequestContext supplies artifacts from previous steps and optional notes.
-type RequestContext struct {
-	Facts   map[string]any `json:"facts"`
-	Links   []string       `json:"links"`
-	Attempt int            `json:"attempt,omitempty"`
 }
 
 // RawAgentResponse is the response with json.RawMessage fields used by role MapResponse implementations.
 type RawAgentResponse struct {
-	Status     string          `json:"status"`
-	StopReason string          `json:"stop_reason,omitempty"`
-	Summary    ResponseSummary `json:"summary"`
-	Progress   StepProgress    `json:"progress"`
+	Status     string `json:"status"`
+	StopReason string `json:"stop_reason,omitempty"`
+	Summary    string `json:"summary"`
 
 	PlanOutput  json.RawMessage `json:"plan_output,omitempty"`
 	DoOutput    json.RawMessage `json:"do_output,omitempty"`
@@ -85,36 +63,11 @@ type RawAgentResponse struct {
 	ActOutput   json.RawMessage `json:"act_output,omitempty"`
 }
 
-// ResponseSummary captures the outcome of an agent's task.
-type ResponseSummary struct {
-	Text string `json:"text"`
-}
-
-// StepProgress captures highlights for the run journal.
-type StepProgress struct {
-	Title   string   `json:"title"`
-	Details []string `json:"details"`
-}
-
-// TaskState is stored in task notes to persist step outputs and journal across runs.
+// TaskState is ephemeral ADK session state for role handoff within one live run.
 // Each role reads/writes its own output field.
 type TaskState struct {
-	Plan    json.RawMessage `json:"plan,omitempty"`
-	Do      json.RawMessage `json:"do,omitempty"`
-	Check   json.RawMessage `json:"check,omitempty"`
-	Act     json.RawMessage `json:"act,omitempty"`
-	Journal []JournalEntry  `json:"journal,omitempty"`
-}
-
-// JournalEntry records detailed progress for a single step.
-type JournalEntry struct {
-	Timestamp  string   `json:"timestamp"`
-	RunID      string   `json:"run_id,omitempty"`
-	Iteration  int      `json:"iteration,omitempty"`
-	StepIndex  int      `json:"step_index"`
-	Role       string   `json:"role"`
-	Status     string   `json:"status"`
-	StopReason string   `json:"stop_reason"`
-	Title      string   `json:"title"`
-	Details    []string `json:"details"`
+	Plan  json.RawMessage `json:"plan,omitempty"`
+	Do    json.RawMessage `json:"do,omitempty"`
+	Check json.RawMessage `json:"check,omitempty"`
+	Act   json.RawMessage `json:"act,omitempty"`
 }

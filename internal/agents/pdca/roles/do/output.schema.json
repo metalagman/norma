@@ -1,43 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "DoResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "do_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "executed_step_ids": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["executed_step_ids"]
+    }
+  },
   "properties": {
     "status": { "type": "string", "enum": ["ok", "stop", "error"] },
     "stop_reason": { "type": "string" },
-    "summary": {
-      "type": "object",
-      "title": "DoSummary",
-      "properties": {
-        "text": { "type": "string" }
-      },
-      "required": ["text"]
-    },
-    "progress": {
-      "type": "object",
-      "title": "DoProgress",
-      "properties": {
-        "title": { "type": "string" },
-        "details": { "type": "array", "items": { "type": "string" } }
-      },
-      "required": ["title", "details"]
-    },
-    "do_output": {
-      "type": "object",
-      "title": "DoOutput",
-      "properties": {
-        "execution": {
-          "type": "object",
-          "title": "DoExecution",
-          "properties": {
-            "executed_step_ids": { "type": "array", "items": { "type": "string" } },
-            "skipped_step_ids": { "type": "array", "items": { "type": "string" } }
-          },
-          "required": ["executed_step_ids", "skipped_step_ids"]
-        }
-      },
-      "required": ["execution"]
-    }
+    "summary": { "type": "string" },
+    "do_output": { "$ref": "#/definitions/do_output" }
   },
-  "required": ["status", "summary", "progress", "do_output"]
+  "required": ["status", "summary", "do_output"]
 }

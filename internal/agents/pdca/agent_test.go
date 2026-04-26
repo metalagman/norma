@@ -12,11 +12,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/normahq/norma/pkg/runtime/structuredagent"
 )
 
@@ -102,22 +102,17 @@ func TestAgentOutputWritersDebug(t *testing.T) {
 	}
 }
 
-func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) {
+func TestApplyAgentResponseToTaskStateActPersistsOutput(t *testing.T) {
 	t.Parallel()
 
 	state := &contracts.TaskState{}
 	resp := &contracts.RawAgentResponse{
 		Status:     "ok",
 		StopReason: "none",
-		Progress: contracts.StepProgress{
-			Title:   "Act decision applied",
-			Details: []string{"Decision close"},
-		},
-		ActOutput: []byte(`{"decision":"close"}`),
+		ActOutput:  []byte(`{"decision":"close"}`),
 	}
 
-	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
-	applyAgentResponseToTaskState(state, resp, RoleAct, "run-1", 2, 4, ts)
+	applyAgentResponseToTaskState(state, resp, RoleAct)
 
 	if state.Act == nil {
 		t.Fatalf("state.Act = nil, want persisted act output")
@@ -130,53 +125,6 @@ func TestApplyAgentResponseToTaskStateActPersistsOutputAndJournal(t *testing.T) 
 	}
 	if actOutput.Decision != "close" {
 		t.Fatalf("act decision = %q, want %q", actOutput.Decision, "close")
-	}
-
-	if len(state.Journal) != 1 {
-		t.Fatalf("len(state.Journal) = %d, want 1", len(state.Journal))
-	}
-	entry := state.Journal[0]
-	if entry.Role != RoleAct {
-		t.Fatalf("journal role = %q, want %q", entry.Role, RoleAct)
-	}
-	if entry.StepIndex != 4 {
-		t.Fatalf("journal step index = %d, want 4", entry.StepIndex)
-	}
-	if entry.RunID != "run-1" {
-		t.Fatalf("journal run id = %q, want %q", entry.RunID, "run-1")
-	}
-	if entry.Iteration != 2 {
-		t.Fatalf("journal iteration = %d, want %d", entry.Iteration, 2)
-	}
-	if entry.Title != "Act decision applied" {
-		t.Fatalf("journal title = %q, want %q", entry.Title, "Act decision applied")
-	}
-	if entry.Timestamp != "2026-02-12T13:14:15Z" {
-		t.Fatalf("journal timestamp = %q, want %q", entry.Timestamp, "2026-02-12T13:14:15Z")
-	}
-}
-
-func TestApplyAgentResponseToTaskStateDefaultsJournalTitle(t *testing.T) {
-	t.Parallel()
-
-	state := &contracts.TaskState{}
-	resp := &contracts.RawAgentResponse{
-		Status:     "ok",
-		StopReason: "none",
-		Progress: contracts.StepProgress{
-			Details: []string{"no explicit title"},
-		},
-		ActOutput: []byte(`{"decision":"replan"}`),
-	}
-
-	ts := time.Date(2026, time.February, 12, 13, 14, 15, 0, time.UTC)
-	applyAgentResponseToTaskState(state, resp, RoleAct, "run-2", 3, 5, ts)
-
-	if len(state.Journal) != 1 {
-		t.Fatalf("len(state.Journal) = %d, want 1", len(state.Journal))
-	}
-	if state.Journal[0].Title != "act step completed" {
-		t.Fatalf("journal title = %q, want %q", state.Journal[0].Title, "act step completed")
 	}
 }
 
@@ -217,7 +165,7 @@ func TestCoerceTaskStateHandlesUnexpectedType(t *testing.T) {
 	if got == nil {
 		t.Fatalf("coerceTaskState(unexpected) returned nil")
 	}
-	if got.Plan != nil || got.Do != nil || got.Check != nil || got.Act != nil || len(got.Journal) != 0 {
+	if got.Plan != nil || got.Do != nil || got.Check != nil || got.Act != nil {
 		t.Fatalf("coerceTaskState(unexpected) should return empty state")
 	}
 }
@@ -432,14 +380,8 @@ func TestStepFailureResponseIncludesSummaryAndExitCode(t *testing.T) {
 	if resp.Status != statusError {
 		t.Fatalf("resp.Status = %q, want %q", resp.Status, "error")
 	}
-	if resp.Progress.Title != "check step failed" {
-		t.Fatalf("resp.Progress.Title = %q, want %q", resp.Progress.Title, "check step failed")
-	}
-	if len(resp.Progress.Details) < 2 {
-		t.Fatalf("len(resp.Progress.Details) = %d, want at least 2", len(resp.Progress.Details))
-	}
-	if !strings.Contains(resp.Progress.Details[1], "exit_code=2") {
-		t.Fatalf("resp.Progress.Details[1] = %q, want contains %q", resp.Progress.Details[1], "exit_code=2")
+	if !strings.Contains(resp.Summary, "exit_code=2") {
+		t.Fatalf("resp.Summary = %q, want contains %q", resp.Summary, "exit_code=2")
 	}
 }
 
@@ -448,7 +390,7 @@ func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 
 	loopAgent, err := NewLoopAgent(
 		context.Background(),
-		config.Config{},
+		pdcaTestConfig(),
 		nil,
 		nil,
 		AgentInput{WorkingDir: t.TempDir()},
@@ -473,6 +415,75 @@ func TestNewLoopAgentRegistersRoleSubAgents(t *testing.T) {
 		if !slices.Contains(gotNames, want) {
 			t.Fatalf("missing subagent %q, got %v", want, gotNames)
 		}
+	}
+}
+
+func TestRuntimeSharedWorkspaceUsesRunScopedTaskBranchWorktree(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	initTestRepo(t, ctx, workingDir)
+	writeTestFile(t, filepath.Join(workingDir, "base.txt"), "base\n")
+	runGit(t, ctx, workingDir, "add", "base.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: seed repo")
+
+	runDir := filepath.Join(workingDir, ".norma", "runs", "run-1")
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatalf("mkdir run dir: %v", err)
+	}
+
+	rt := &runtime{
+		runInput: AgentInput{
+			RunDir:     runDir,
+			WorkingDir: workingDir,
+			TaskID:     "norma-shared",
+		},
+	}
+
+	got, err := rt.sharedWorkspace(ctx)
+	if err != nil {
+		t.Fatalf("sharedWorkspace() error = %v", err)
+	}
+	want := filepath.Join(runDir, "workspace")
+	if got != want {
+		t.Fatalf("shared workspace = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(got, "base.txt")); err != nil {
+		t.Fatalf("shared workspace missing base file: %v", err)
+	}
+	if branch := strings.TrimSpace(runGit(t, ctx, got, "branch", "--show-current")); branch != "norma/task/norma-shared" {
+		t.Fatalf("workspace branch = %q, want %q", branch, "norma/task/norma-shared")
+	}
+
+	again, err := rt.sharedWorkspace(ctx)
+	if err != nil {
+		t.Fatalf("sharedWorkspace() second call error = %v", err)
+	}
+	if again != got {
+		t.Fatalf("shared workspace second call = %q, want %q", again, got)
+	}
+}
+
+func pdcaTestConfig() config.Config {
+	agentID := "agent-1"
+	return config.Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]config.AgentConfig{
+				agentID: {
+					Type: config.AgentTypeGenericACP,
+					GenericACP: &agentconfig.ACPConfig{
+						Cmd: []string{"custom-acp", "--stdio"},
+					},
+				},
+			},
+		},
+		RoleIDs: map[string]string{
+			RolePlan:  agentID,
+			RoleDo:    agentID,
+			RoleCheck: agentID,
+			RoleAct:   agentID,
+		},
 	}
 }
 
@@ -551,6 +562,43 @@ func TestCommitWorkspaceChangesReturnsErrorWhenStatusFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "read workspace status") {
 		t.Fatalf("error = %q, want read workspace status context", err)
+	}
+}
+
+func TestEnsureWorkspaceCleanAcceptsCleanWorkspace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	initTestRepo(t, ctx, workingDir)
+
+	writeTestFile(t, filepath.Join(workingDir, "a.txt"), "one\n")
+	runGit(t, ctx, workingDir, "add", "a.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: initial")
+
+	if err := ensureWorkspaceClean(ctx, workingDir, RoleCheck); err != nil {
+		t.Fatalf("ensureWorkspaceClean() error = %v", err)
+	}
+}
+
+func TestEnsureWorkspaceCleanRejectsDirtyWorkspace(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workingDir := t.TempDir()
+	initTestRepo(t, ctx, workingDir)
+
+	writeTestFile(t, filepath.Join(workingDir, "a.txt"), "one\n")
+	runGit(t, ctx, workingDir, "add", "a.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: initial")
+	writeTestFile(t, filepath.Join(workingDir, "a.txt"), "one\ntwo\n")
+
+	err := ensureWorkspaceClean(ctx, workingDir, RoleAct)
+	if err == nil {
+		t.Fatal("ensureWorkspaceClean() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "only do may leave workspace changes") {
+		t.Fatalf("error = %q, want role mutation guard", err)
 	}
 }
 

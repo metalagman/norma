@@ -1,10 +1,10 @@
 {{ .CommonPrompt }}
 
-Role requirements: produce 'plan_output' containing 'work_plan' and 'acceptance_criteria.effective'.
+Role requirements: produce 'plan_output' containing 'do_steps' and 'acceptance_criteria'.
 - Focus on creating a clear, actionable plan for the immediate iteration. Think about HOW to achieve the goal through code changes.
 - Limit observations and research to what is strictly necessary for planning value. STAY WITHIN THE WORKSPACE for all code exploration.
 - Avoid making a lot of observations without producing actual changes in the subsequent 'do' step.
-- Keep the work_plan focused and small.
+- Keep do_steps focused and small.
 - Task management interface is MCP tasks tools (`norma.tasks.*`) only.
 - Use `norma.tasks.get`, `norma.tasks.children`, `norma.tasks.leaf`, `norma.tasks.list`, and other `norma.tasks.*` tools whenever task graph/state access is needed.
 - Do not call `bd` directly and do not suggest direct Beads CLI commands.

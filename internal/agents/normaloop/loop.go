@@ -18,20 +18,27 @@ import (
 )
 
 const (
-	statusDoing    = "doing"
-	statusTodo     = "todo"
-	statusPlanning = "planning"
+	statusDoing               = "doing"
+	statusTodo                = "todo"
+	statusPlanning            = "planning"
+	statusChecking            = "checking"
+	statusActing              = "acting"
+	verdictPass               = "PASS"
+	selectorBackoffStepKey    = "selector_backoff_step"
+	failedTaskBackoffStepKey  = "failed_task_backoff_step"
+	failedTaskBackoffUntilKey = "failed_task_backoff_until"
 )
 
 const maxLoopIterations uint = 1_000_000
 
 type Config struct {
-	Logger         zerolog.Logger
-	Cfg            config.Config
-	WorkingDir     string
-	Tracker        task.Tracker
-	RunStore       runStatusStore
-	Factory        runpkg.AgentFactory
+	Logger     zerolog.Logger
+	Cfg        config.Config
+	WorkingDir string
+	Tracker    task.Tracker
+	RunStore   runStatusStore
+	Factory    runpkg.AgentFactory
+	// ContinueOnFail is kept for CLI compatibility. Runtime loop failures continue by default.
 	ContinueOnFail bool
 	Policy         task.SelectionPolicy
 }
@@ -51,7 +58,6 @@ type loopRuntime struct {
 	tracker              task.Tracker
 	runStore             runStatusStore
 	factory              runpkg.AgentFactory
-	continueOnFail       bool
 	policy               task.SelectionPolicy
 	overrideBackoffSteps []time.Duration
 }
@@ -64,15 +70,14 @@ func New(cfg Config) (agent.Agent, error) {
 	}
 
 	w := &loopRuntime{
-		logger:         cfg.Logger.With().Str("component", "normaloop").Logger(),
-		cfg:            cfg.Cfg,
-		workingDir:     absWorkingDir,
-		normaDir:       filepath.Join(absWorkingDir, ".norma"),
-		tracker:        cfg.Tracker,
-		runStore:       cfg.RunStore,
-		factory:        cfg.Factory,
-		continueOnFail: cfg.ContinueOnFail,
-		policy:         cfg.Policy,
+		logger:     cfg.Logger.With().Str("component", "normaloop").Logger(),
+		cfg:        cfg.Cfg,
+		workingDir: absWorkingDir,
+		normaDir:   filepath.Join(absWorkingDir, ".norma"),
+		tracker:    cfg.Tracker,
+		runStore:   cfg.RunStore,
+		factory:    cfg.Factory,
+		policy:     cfg.Policy,
 	}
 
 	iterationAgent, err := w.newIterationAgent()

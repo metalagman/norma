@@ -1,11 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "ActRequest",
-  "properties": {
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
     "run": {
       "type": "object",
-      "title": "ActRun",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
         "iteration": { "type": "integer" }
@@ -14,90 +15,58 @@
     },
     "task": {
       "type": "object",
-      "title": "ActTask",
+      "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "acceptance_criteria": { "type": "array" }
+        "goal": { "type": "string" }
       },
-      "required": ["id", "title", "description", "acceptance_criteria"]
+      "required": ["id", "goal"]
     },
     "step": {
       "type": "object",
-      "title": "ActStep",
+      "additionalProperties": false,
       "properties": {
-        "index": { "type": "integer" },
-        "name": { "type": "string" }
+        "index": { "type": "integer" }
       },
-      "required": ["index", "name"]
+      "required": ["index"]
     },
     "paths": {
       "type": "object",
-      "title": "ActPaths",
+      "additionalProperties": false,
       "properties": {
-        "workspace_dir": { "type": "string" },
-        "run_dir": { "type": "string" }
+        "workspace_dir": { "type": "string" }
       },
-      "required": ["workspace_dir", "run_dir"]
+      "required": ["workspace_dir"]
     },
-    "budgets": {
+    "acceptance_result": {
       "type": "object",
-      "title": "ActBudgets",
+      "additionalProperties": false,
       "properties": {
-        "max_iterations": { "type": "integer" },
-        "max_wall_time_minutes": { "type": "integer" },
-        "max_failed_checks": { "type": "integer" }
+        "ac_id": { "type": "string" },
+        "result": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "notes": { "type": "string" }
       },
-      "required": ["max_iterations"]
+      "required": ["ac_id", "result", "notes"]
     },
-    "context": {
-      "type": "object",
-      "title": "ActContext",
-      "properties": {
-        "facts": { "type": "object", "title": "ActFacts" },
-        "links": { "type": "array", "items": { "type": "string" } },
-        "attempt": { "type": "integer" }
-      }
-    },
-    "stop_reasons_allowed": { "type": "array", "items": { "type": "string" } },
     "act_input": {
       "type": "object",
-      "title": "ActInput",
+      "additionalProperties": false,
       "properties": {
-        "check_verdict": {
-          "type": "object",
-          "title": "ActCheckVerdict",
-          "properties": {
-            "status": { "type": "string", "enum": ["PASS", "FAIL", "PARTIAL"] },
-            "recommendation": { "type": "string" },
-            "basis": {
-              "type": "object",
-              "title": "ActCheckVerdictBasis",
-              "properties": {
-                "plan_match": { "type": "string" },
-                "all_acceptance_passed": { "type": "boolean" }
-              }
-            }
-          },
-          "required": ["status", "recommendation", "basis"]
-        },
+        "verdict": { "type": "string", "enum": ["PASS", "FAIL"] },
         "acceptance_results": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "title": "ActAcceptanceResult",
-            "properties": {
-              "ac_id": { "type": "string" },
-              "result": { "type": "string", "enum": ["PASS", "FAIL"] },
-              "notes": { "type": "string" }
-            },
-            "required": ["ac_id", "result"]
-          }
+          "items": { "$ref": "#/definitions/acceptance_result" }
         }
       },
-      "required": ["check_verdict"]
+      "required": ["verdict"]
     }
+  },
+  "properties": {
+    "run": { "$ref": "#/definitions/run" },
+    "task": { "$ref": "#/definitions/task" },
+    "step": { "$ref": "#/definitions/step" },
+    "paths": { "$ref": "#/definitions/paths" },
+    "act_input": { "$ref": "#/definitions/act_input" }
   },
   "required": ["run", "task", "step", "paths", "act_input"]
 }

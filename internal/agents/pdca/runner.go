@@ -24,7 +24,7 @@ import (
 
 // Runner executes a single role step using an ADK agent.
 type Runner interface {
-	Run(ctx context.Context, req []byte, stdout, stderr, eventsLog io.Writer) (outBytes, errBytes []byte, exitCode int, err error)
+	Run(ctx context.Context, req []byte, stdout, stderr, eventsLog io.Writer) (contracts.RawAgentResponse, int, error)
 }
 
 // NewRunner creates a new Runner for the given role.
@@ -48,37 +48,35 @@ type requestFields struct {
 		Iteration int    `json:"iteration"`
 	} `json:"run"`
 	Step struct {
-		Index int    `json:"index"`
-		Name  string `json:"name"`
+		Index int `json:"index"`
 	} `json:"step"`
 	Paths struct {
 		WorkspaceDir string `json:"workspace_dir"`
-		RunDir       string `json:"run_dir"`
 	} `json:"paths"`
 }
 
-func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsLog io.Writer) ([]byte, []byte, int, error) {
+func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsLog io.Writer) (contracts.RawAgentResponse, int, error) {
 	_ = stdout
 
 	var fields requestFields
 	if err := json.Unmarshal(req, &fields); err != nil {
-		return nil, nil, 0, fmt.Errorf("unmarshal request fields: %w", err)
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("unmarshal request fields: %w", err)
 	}
 
 	// Map request through role
 	input, err := r.role.MapRequest(contracts.RawAgentRequest(req))
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("map request: %w", err)
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("map request: %w", err)
 	}
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("marshal input JSON: %w", err)
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("marshal input JSON: %w", err)
 	}
 
 	// Generate system instruction
 	systemInstruction, err := r.role.Prompt(contracts.RawAgentRequest(req))
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("generate role prompt: %w", err)
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("generate role prompt: %w", err)
 	}
 
 	// Create base agent using agentfactory
@@ -86,12 +84,11 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 		Str("role", r.role.Name()).
 		Str("run_id", fields.Run.ID).
 		Int("step_index", fields.Step.Index).
-		Str("step_name", fields.Step.Name).
 		Logger()
 
 	workingDir := strings.TrimSpace(fields.Paths.WorkspaceDir)
 	if workingDir == "" {
-		workingDir = strings.TrimSpace(fields.Paths.RunDir)
+		return contracts.RawAgentResponse{}, 1, fmt.Errorf("workspace_dir is required")
 	}
 
 	agentRegistry := map[string]agentconfig.Config{
@@ -102,6 +99,10 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 		factoryOpts = append(factoryOpts, agentfactory.WithStderrWriter(stderr))
 	}
 	factory := agentfactory.New(agentRegistry, mcpregistry.New(r.mcpServers), factoryOpts...)
+	sessionState, err := factory.BuildSessionState(r.role.Name(), workingDir)
+	if err != nil {
+		return contracts.RawAgentResponse{}, 1, fmt.Errorf("build session state: %w", err)
+	}
 	innerAgent, err := factory.Build(l.WithContext(ctx), agentfactory.BuildRequest{
 		AgentID:          r.role.Name(),
 		Name:             "Norma" + toPascal(r.role.Name()) + "Agent",
@@ -110,7 +111,7 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 		WorkingDirectory: workingDir,
 	})
 	if err != nil {
-		return nil, nil, 1, fmt.Errorf("create inner agent: %w", err)
+		return contracts.RawAgentResponse{}, 1, fmt.Errorf("create inner agent: %w", err)
 	}
 	if closer, ok := innerAgent.(interface{ Close() error }); ok {
 		defer func() {
@@ -123,12 +124,11 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 	// Wrap with structured I/O
 	schemas := r.role.Schemas()
 	ag, err := structuredagent.NewAgent(innerAgent,
-		structuredagent.WithSystemInstruction(systemInstruction),
 		structuredagent.WithInputSchema(schemas.InputSchema),
 		structuredagent.WithOutputSchema(schemas.OutputSchema),
 	)
 	if err != nil {
-		return nil, nil, 1, fmt.Errorf("wrap with structured IO: %w", err)
+		return contracts.RawAgentResponse{}, 1, fmt.Errorf("wrap with structured IO: %w", err)
 	}
 
 	// Run agent with ADK
@@ -140,16 +140,17 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 		SessionService: sessionService,
 	})
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("create adk runner: %w", err)
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("create adk runner: %w", err)
 	}
 
 	userID := "norma-user"
 	sess, err := sessionService.Create(ctx, &session.CreateRequest{
 		AppName: "norma",
 		UserID:  userID,
+		State:   sessionState,
 	})
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("create session: %w", err)
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("create session: %w", err)
 	}
 
 	userContent := genai.NewContentFromText(string(inputJSON), genai.RoleUser)
@@ -167,7 +168,7 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 			} else {
 				lastExitCode = 1
 			}
-			return nil, nil, lastExitCode, fmt.Errorf("agent execution error: %w", err)
+			return contracts.RawAgentResponse{}, lastExitCode, fmt.Errorf("agent execution error: %w", err)
 		}
 		if writeErr := eventWriter.WriteEvent(ev); writeErr != nil {
 			l.Warn().Err(writeErr).Msg("failed to write ADK event log")
@@ -177,22 +178,17 @@ func (r *adkRunner) Run(ctx context.Context, req []byte, stdout, stderr, eventsL
 
 	outputText := strings.TrimSpace(accumulatedOutput.String())
 	if outputText == "" {
-		return nil, nil, 0, fmt.Errorf("no output from agent")
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("no output from agent")
 	}
 	rawOutput := []byte(outputText)
 
 	// Map response through role
 	agentResp, err := r.role.MapResponse(rawOutput)
 	if err != nil {
-		return rawOutput, nil, 0, fmt.Errorf("map agent response: %w", err)
+		return contracts.RawAgentResponse{}, 0, fmt.Errorf("map agent response: %w", err)
 	}
 
-	normalized, err := json.Marshal(agentResp)
-	if err != nil {
-		return rawOutput, nil, 0, fmt.Errorf("marshal normalized response: %w", err)
-	}
-
-	return normalized, nil, 0, nil
+	return agentResp, 0, nil
 }
 
 func appendVisibleTextFromEvent(out *strings.Builder, ev *session.Event) {

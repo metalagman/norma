@@ -257,7 +257,7 @@ func TestRunTaskByIDPass(t *testing.T) {
 		},
 	}
 	tmp := t.TempDir()
-	v := "PASS"
+	v := verdictPass
 	w := &loopRuntime{
 		logger:     zerolog.Nop(),
 		workingDir: "", // skip git
@@ -277,8 +277,8 @@ func TestRunTaskByIDPass(t *testing.T) {
 	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
 		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
 	}
-	if len(tracker.setRunCalls) != 1 {
-		t.Fatalf("set run calls = %v, want 1 call", tracker.setRunCalls)
+	if len(tracker.setRunCalls) != 0 {
+		t.Fatalf("set run calls = %v, want no calls", tracker.setRunCalls)
 	}
 }
 
@@ -318,6 +318,43 @@ func TestRunTaskByIDRunnerErrorMarksFailed(t *testing.T) {
 	}
 }
 
+func TestRunTaskByIDStaleWorkflowStateResetsTodo(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-stale1"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:     taskID,
+				Status: statusDoing,
+				Goal:   "test goal",
+				Labels: []string{statusChecking},
+			},
+		},
+	}
+	tmp := t.TempDir()
+	v := verdictPass
+	w := &loopRuntime{
+		logger:     zerolog.Nop(),
+		workingDir: "",
+		normaDir:   tmp,
+		tracker:    tracker,
+		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
+		factory: &mockFactory{
+			outcome: runpkg.AgentOutcome{Status: "passed", Verdict: &v},
+		},
+	}
+
+	if err := w.runTaskByID(context.Background(), taskID); err != nil {
+		t.Fatalf("runTaskByID() error = %v", err)
+	}
+
+	wantCalls := []string{statusTodo, statusPlanning, "done"}
+	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
+		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
+	}
+}
+
 type mockInvocationContext struct {
 	agent.InvocationContext
 	ctx     context.Context
@@ -326,7 +363,12 @@ type mockInvocationContext struct {
 }
 
 func (m *mockInvocationContext) Context() context.Context { return m.ctx }
+func (m *mockInvocationContext) Deadline() (time.Time, bool) {
+	return m.ctx.Deadline()
+}
 func (m *mockInvocationContext) Done() <-chan struct{}    { return m.ctx.Done() }
+func (m *mockInvocationContext) Err() error               { return m.ctx.Err() }
+func (m *mockInvocationContext) Value(key any) any        { return m.ctx.Value(key) }
 func (m *mockInvocationContext) Session() session.Session { return m.session }
 func (m *mockInvocationContext) Agent() agent.Agent       { return m.agent }
 func (m *mockInvocationContext) InvocationID() string     { return "test-id" }
@@ -398,6 +440,290 @@ func TestRunSelectorBackoff(t *testing.T) {
 	}
 }
 
+func TestRunSelectorSkipsTaskUntilRetryBackoffExpires(t *testing.T) {
+	t.Parallel()
+
+	taskA := task.Task{ID: "norma-a", Type: "task", Goal: "Objective: a\nArtifact: a\nVerify: a", Priority: 0}
+	taskB := task.Task{ID: "norma-b", Type: "task", Goal: "Objective: b\nArtifact: b\nVerify: b", Priority: 1}
+	tracker := &mockTracker{
+		leafTasks: []task.Task{taskA, taskB},
+		children:  map[string][]task.Task{},
+	}
+	w := &loopRuntime{logger: zerolog.Nop(), tracker: tracker}
+
+	sessionService := session.InMemoryService()
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test",
+		UserID:  "test-user",
+	})
+	if err != nil {
+		t.Fatalf("sessionService.Create() error = %v", err)
+	}
+
+	now := time.Now()
+	scheduleTaskRetry(sess.Session.State(), taskA.ID, []time.Duration{time.Hour}, now)
+
+	selected, _, err := w.selectNextTaskForSession(context.Background(), sess.Session.State(), now)
+	if err != nil {
+		t.Fatalf("selectNextTaskForSession() error = %v", err)
+	}
+	if selected.ID != taskB.ID {
+		t.Fatalf("selected ID = %q, want %q", selected.ID, taskB.ID)
+	}
+
+	selected, _, err = w.selectNextTaskForSession(context.Background(), sess.Session.State(), now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("selectNextTaskForSession() after deadline error = %v", err)
+	}
+	if selected.ID != taskA.ID {
+		t.Fatalf("selected ID after deadline = %q, want %q", selected.ID, taskA.ID)
+	}
+}
+
+func TestRunIterationTaskErrorSchedulesRetryWithoutYieldingError(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-iterfail"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:     taskID,
+				Status: statusTodo,
+				Goal:   "test goal",
+			},
+		},
+	}
+	w := &loopRuntime{
+		logger:               zerolog.Nop(),
+		workingDir:           "",
+		normaDir:             t.TempDir(),
+		tracker:              tracker,
+		runStore:             &mockRunStore{statusByRunID: map[string]string{}},
+		factory:              &mockFactory{err: errors.New("runner failed")},
+		overrideBackoffSteps: []time.Duration{time.Hour},
+	}
+
+	sessionService := session.InMemoryService()
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test",
+		UserID:  "test-user",
+		State: map[string]any{
+			"selected_task_id": taskID,
+			"iteration":        1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sessionService.Create() error = %v", err)
+	}
+
+	ag, _ := w.newIterationAgent()
+	mctx := &mockInvocationContext{
+		ctx:     context.Background(),
+		session: sess.Session,
+		agent:   ag,
+	}
+
+	for _, err := range w.runIteration(mctx) {
+		if err != nil {
+			t.Fatalf("runIteration yielded error = %v, want none", err)
+		}
+	}
+
+	selectedID, _ := sess.Session.State().Get("selected_task_id")
+	if selectedID != "" {
+		t.Fatalf("selected_task_id = %v, want empty", selectedID)
+	}
+	iteration, _ := sess.Session.State().Get("iteration")
+	if iteration != 2 {
+		t.Fatalf("iteration = %v, want 2", iteration)
+	}
+	if _, ok := taskRetryUntil(sess.Session.State(), taskID); !ok {
+		t.Fatalf("task retry deadline missing for %s", taskID)
+	}
+
+	wantCalls := []string{statusPlanning, runpkg.StatusFailed}
+	if !slices.Equal(tracker.markStatusCalls, wantCalls) {
+		t.Fatalf("mark status calls = %v, want %v", tracker.markStatusCalls, wantCalls)
+	}
+}
+
+func TestRunIterationSuccessClearsTaskRetry(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-iterpass"
+	tracker := &mockTracker{
+		tasksByID: map[string]task.Task{
+			taskID: {
+				ID:     taskID,
+				Status: statusTodo,
+				Goal:   "test goal",
+			},
+		},
+	}
+	v := verdictPass
+	w := &loopRuntime{
+		logger:     zerolog.Nop(),
+		workingDir: "",
+		normaDir:   t.TempDir(),
+		tracker:    tracker,
+		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
+		factory:    &mockFactory{outcome: runpkg.AgentOutcome{Status: runpkg.StatusPassed, Verdict: &v}},
+	}
+
+	sessionService := session.InMemoryService()
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test",
+		UserID:  "test-user",
+		State: map[string]any{
+			"selected_task_id": taskID,
+			"iteration":        1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sessionService.Create() error = %v", err)
+	}
+	scheduleTaskRetry(sess.Session.State(), taskID, []time.Duration{time.Hour}, time.Now())
+
+	ag, _ := w.newIterationAgent()
+	mctx := &mockInvocationContext{
+		ctx:     context.Background(),
+		session: sess.Session,
+		agent:   ag,
+	}
+
+	for _, err := range w.runIteration(mctx) {
+		if err != nil {
+			t.Fatalf("runIteration yielded error = %v, want none", err)
+		}
+	}
+
+	if _, ok := taskRetryUntil(sess.Session.State(), taskID); ok {
+		t.Fatalf("task retry deadline still present for %s; mark status calls = %v", taskID, tracker.markStatusCalls)
+	}
+}
+
+func TestRunIterationPanicClearsSelectedTaskWithoutYieldingError(t *testing.T) {
+	t.Parallel()
+
+	taskID := "norma-panic"
+	w := &loopRuntime{
+		logger:               zerolog.Nop(),
+		tracker:              nil,
+		overrideBackoffSteps: []time.Duration{time.Hour},
+	}
+
+	sessionService := session.InMemoryService()
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test",
+		UserID:  "test-user",
+		State: map[string]any{
+			"selected_task_id": taskID,
+			"iteration":        1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sessionService.Create() error = %v", err)
+	}
+
+	ag, _ := w.newIterationAgent()
+	mctx := &mockInvocationContext{
+		ctx:     context.Background(),
+		session: sess.Session,
+		agent:   ag,
+	}
+
+	for _, err := range w.runIteration(mctx) {
+		if err != nil {
+			t.Fatalf("runIteration yielded error = %v, want none", err)
+		}
+	}
+
+	selectedID, _ := sess.Session.State().Get("selected_task_id")
+	if selectedID != "" {
+		t.Fatalf("selected_task_id = %v, want empty", selectedID)
+	}
+	if _, ok := taskRetryUntil(sess.Session.State(), taskID); !ok {
+		t.Fatalf("task retry deadline missing for %s", taskID)
+	}
+}
+
+func TestRunSelectorTrackerErrorBacksOffWithoutYieldingError(t *testing.T) {
+	t.Parallel()
+
+	tracker := &mockTracker{leafErr: errors.New("tracker down")}
+	w := &loopRuntime{
+		logger:               zerolog.Nop(),
+		tracker:              tracker,
+		overrideBackoffSteps: []time.Duration{time.Millisecond},
+	}
+
+	sessionService := session.InMemoryService()
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test",
+		UserID:  "test-user",
+	})
+	if err != nil {
+		t.Fatalf("sessionService.Create() error = %v", err)
+	}
+
+	ag, _ := w.newSelectorAgent()
+	mctx := &mockInvocationContext{
+		ctx:     context.Background(),
+		session: sess.Session,
+		agent:   ag,
+	}
+
+	events := 0
+	for _, err := range w.runSelector(mctx) {
+		if err != nil {
+			t.Fatalf("runSelector yielded error = %v, want none", err)
+		}
+		events++
+		break
+	}
+	if events == 0 {
+		t.Fatalf("runSelector yielded no backoff event")
+	}
+}
+
+func TestRunSelectorPanicBacksOffWithoutYieldingError(t *testing.T) {
+	t.Parallel()
+
+	w := &loopRuntime{
+		logger:               zerolog.Nop(),
+		tracker:              nil,
+		overrideBackoffSteps: []time.Duration{time.Millisecond},
+	}
+
+	sessionService := session.InMemoryService()
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test",
+		UserID:  "test-user",
+	})
+	if err != nil {
+		t.Fatalf("sessionService.Create() error = %v", err)
+	}
+
+	ag, _ := w.newSelectorAgent()
+	mctx := &mockInvocationContext{
+		ctx:     context.Background(),
+		session: sess.Session,
+		agent:   ag,
+	}
+
+	events := 0
+	for _, err := range w.runSelector(mctx) {
+		if err != nil {
+			t.Fatalf("runSelector yielded error = %v, want none", err)
+		}
+		events++
+		break
+	}
+	if events == 0 {
+		t.Fatalf("runSelector yielded no backoff event")
+	}
+}
+
 func TestRunTaskByIDReplanDecision(t *testing.T) {
 	t.Parallel()
 
@@ -422,7 +748,7 @@ func TestRunTaskByIDReplanDecision(t *testing.T) {
 		tracker:    tracker,
 		runStore:   &mockRunStore{statusByRunID: map[string]string{}},
 		factory: &mockFactory{
-			outcome: runpkg.AgentOutcome{Status: "passed", Decision: &replanDecision},
+			outcome: runpkg.AgentOutcome{Status: runpkg.StatusStopped, Decision: &replanDecision},
 		},
 	}
 
@@ -531,7 +857,7 @@ func TestHandleRollbackResetsTodoAndDeletesTaskBranch(t *testing.T) {
 	}
 }
 
-func TestHandleReplanRemovesStaleLabels(t *testing.T) {
+func TestHandleReplanDoesNotTouchSkipLabels(t *testing.T) {
 	t.Parallel()
 
 	taskID := "norma-stale-1"
@@ -562,22 +888,8 @@ func TestHandleReplanRemovesStaleLabels(t *testing.T) {
 		t.Fatalf("handleReplan() error = %v", err)
 	}
 
-	expectedLabels := []string{"norma-has-plan", "norma-has-do", "norma-has-check"}
-	if len(tracker.removeLabelCalls) != len(expectedLabels) {
-		t.Fatalf("removeLabelCalls = %d, want %d", len(tracker.removeLabelCalls), len(expectedLabels))
-	}
-
-	removedLabels := make(map[string]bool)
-	for _, call := range tracker.removeLabelCalls {
-		if call.id != taskID {
-			t.Errorf("removeLabel id = %v, want %s", call.id, taskID)
-		}
-		removedLabels[call.label] = true
-	}
-	for _, label := range expectedLabels {
-		if !removedLabels[label] {
-			t.Errorf("expected label %q to be removed", label)
-		}
+	if len(tracker.removeLabelCalls) != 0 {
+		t.Fatalf("removeLabelCalls = %v, want none", tracker.removeLabelCalls)
 	}
 }
 
@@ -629,7 +941,7 @@ func TestHandleReplanWiresBlockedDependents(t *testing.T) {
 	}
 }
 
-func TestHandleReplanAddsReplanLabel(t *testing.T) {
+func TestHandleReplanDoesNotAddReplanLabel(t *testing.T) {
 	t.Parallel()
 
 	taskID := "norma-replan-label-1"
@@ -660,15 +972,10 @@ func TestHandleReplanAddsReplanLabel(t *testing.T) {
 		t.Fatalf("handleReplan() error = %v", err)
 	}
 
-	found := false
 	for _, call := range tracker.addLabelCalls {
 		if call.id == taskID && call.label == "replan-needed" {
-			found = true
-			break
+			t.Fatalf("unexpected replan-needed label added to task %s", taskID)
 		}
-	}
-	if !found {
-		t.Errorf("expected replan-needed label to be added to task %s", taskID)
 	}
 }
 

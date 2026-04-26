@@ -1,104 +1,59 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "title": "PlanResponse",
-  "properties": {
-    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
-    "stop_reason": { "type": "string" },
-    "summary": {
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "check": {
       "type": "object",
-      "title": "PlanSummary",
+      "additionalProperties": false,
       "properties": {
+        "id": { "type": "string" },
+        "command": { "type": "string" },
+        "expected_exit_codes": { "type": "array", "items": { "type": "integer" } }
+      },
+      "required": ["id", "command", "expected_exit_codes"]
+    },
+    "planned_acceptance_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "checks": { "type": "array", "items": { "$ref": "#/definitions/check" } }
+      },
+      "required": ["id", "text", "checks"]
+    },
+    "do_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
         "text": { "type": "string" }
       },
-      "required": ["text"]
-    },
-    "progress": {
-      "type": "object",
-      "title": "PlanProgress",
-      "properties": {
-        "title": { "type": "string" },
-        "details": { "type": "array", "items": { "type": "string" } }
-      },
-      "required": ["title", "details"]
+      "required": ["id", "text"]
     },
     "plan_output": {
       "type": "object",
-      "title": "PlanOutput",
+      "additionalProperties": false,
       "properties": {
         "acceptance_criteria": {
-          "type": "object",
-          "title": "PlanOutputAcceptanceCriteria",
-          "properties": {
-            "effective": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "EffectiveAcceptanceCriteria",
-                "properties": {
-                  "id": { "type": "string" },
-                  "origin": { "type": "string" },
-                  "refines": { "type": "array", "items": { "type": "string" } },
-                  "text": { "type": "string" },
-                  "checks": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "title": "CriterionCheck",
-                      "properties": {
-                        "id": { "type": "string" },
-                        "cmd": { "type": "string" },
-                        "expect_exit_codes": { "type": "array", "items": { "type": "integer" } }
-                      },
-                      "required": ["id", "cmd", "expect_exit_codes"]
-                    }
-                  },
-                  "reason": { "type": "string" }
-                },
-                "required": ["id", "origin", "text", "checks"]
-              }
-            }
-          },
-          "required": ["effective"]
+          "type": "array",
+          "items": { "$ref": "#/definitions/planned_acceptance_criterion" }
         },
-        "work_plan": {
-          "type": "object",
-          "title": "PlanWorkPlan",
-          "properties": {
-            "timebox_minutes": { "type": "integer" },
-            "do_steps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "PlanDoStep",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" },
-                  "targets_ac_ids": { "type": "array", "items": { "type": "string" } }
-                },
-                "required": ["id", "text", "targets_ac_ids"]
-              }
-            },
-            "check_steps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "title": "PlanCheckStep",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" },
-                  "mode": { "type": "string" }
-                },
-                "required": ["id", "text", "mode"]
-              }
-            },
-            "stop_triggers": { "type": "array", "items": { "type": "string" } }
-          },
-          "required": ["timebox_minutes", "do_steps", "check_steps"]
+        "do_steps": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/do_step" }
         }
       },
-      "required": ["acceptance_criteria", "work_plan"]
+      "required": ["acceptance_criteria", "do_steps"]
     }
   },
-  "required": ["status", "summary", "progress", "plan_output"]
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "stop", "error"] },
+    "stop_reason": { "type": "string" },
+    "summary": { "type": "string" },
+    "plan_output": { "$ref": "#/definitions/plan_output" }
+  },
+  "required": ["status", "summary", "plan_output"]
 }

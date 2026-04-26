@@ -60,17 +60,7 @@ func (w *Factory) Build(ctx context.Context, meta runpkg.RunMeta, task runpkg.Ta
 		return runpkg.AgentBuild{}, err
 	}
 
-	taskItem, err := w.tracker.Task(ctx, input.TaskID)
-	if err != nil {
-		return runpkg.AgentBuild{}, err
-	}
-
 	state := contracts.TaskState{}
-	if taskItem.Notes != "" {
-		if err := json.Unmarshal([]byte(taskItem.Notes), &state); err != nil {
-			return runpkg.AgentBuild{}, fmt.Errorf("parse task notes state: %w", err)
-		}
-	}
 
 	// Create the pdca loop agent with plan/do/check/act as direct subagents.
 	la, err := NewLoopAgent(ctx, w.cfg, w.store, w.tracker, input, input.BaseBranch, w.maxIterations)
@@ -108,19 +98,6 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 	}
 
 	l := log.With().Str("component", "pdca").Logger()
-
-	// Persist final task state to tracker from session.
-	taskStateVal, err := stateAny(finalSession.State(), "task_state")
-	if err == nil {
-		data, err := json.MarshalIndent(taskStateVal, "", "  ")
-		if err == nil {
-			if err := w.tracker.SetNotes(ctx, payload.ID, string(data)); err != nil {
-				l.Warn().Err(err).Str("task_id", payload.ID).Msg("failed to persist task state to tracker in finalize")
-			}
-		}
-	} else if !errors.Is(err, session.ErrStateKeyNotExist) {
-		l.Warn().Err(err).Msg("failed to read task_state from session")
-	}
 
 	verdict, decision, finalIteration, err := parseFinalState(finalSession.State())
 	if err != nil {
@@ -195,12 +172,10 @@ func parseFinalState(state session.State) (string, string, int, error) {
 		coerced := coerceTaskState(taskState)
 		if verdict == "" && len(coerced.Check) > 0 {
 			var checkOutput struct {
-				Verdict *struct {
-					Status string `json:"status"`
-				} `json:"verdict"`
+				Verdict string `json:"verdict"`
 			}
-			if err := json.Unmarshal(coerced.Check, &checkOutput); err == nil && checkOutput.Verdict != nil {
-				verdict = strings.TrimSpace(checkOutput.Verdict.Status)
+			if err := json.Unmarshal(coerced.Check, &checkOutput); err == nil {
+				verdict = strings.TrimSpace(checkOutput.Verdict)
 			}
 		}
 		if decision == "" && len(coerced.Act) > 0 {
@@ -220,14 +195,12 @@ func deriveFinalOutcome(verdict, decision string) (status string, effectiveVerdi
 	effectiveVerdict = strings.ToUpper(strings.TrimSpace(verdict))
 	normalizedDecision := strings.ToLower(strings.TrimSpace(decision))
 
-	if effectiveVerdict == "" && normalizedDecision == actDecisionClose {
-		effectiveVerdict = "PASS"
-	}
-
 	status = "stopped"
 	switch effectiveVerdict {
 	case "PASS":
-		status = "passed"
+		if normalizedDecision == actDecisionClose {
+			status = "passed"
+		}
 	case "FAIL":
 		status = "failed"
 	}
