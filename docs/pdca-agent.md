@@ -308,6 +308,8 @@ Norma supports configuring **MCP (Model Context Protocol) servers** that can be 
 
 MCP servers are defined in `norma.mcp_servers`, and agents reference them by name:
 
+The selected config file is env-expanded before YAML parsing, so both `$VAR` and `${VAR}` placeholders work anywhere in the file. For `stdio` MCP servers, the launched child process inherits Norma's full process environment by default, and `env` overrides individual variables.
+
 ```yaml
 norma:
   mcp_servers:

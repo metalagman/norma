@@ -271,14 +271,19 @@ func TestFactoryBuild_WithStderrWriterOverridesACPStderr(t *testing.T) {
 
 func TestFactoryBuild_UsesBuildRequestMCPServerIDsOverride(t *testing.T) {
 	origNewACPAgent := newACPAgent
+	origProcessEnv := processEnv
 	t.Cleanup(func() {
 		newACPAgent = origNewACPAgent
+		processEnv = origProcessEnv
 	})
 
 	var capturedMCP map[string]acpagent.MCPServerConfig
 	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
 		capturedMCP = cfg.MCPServers
 		return nil, nil
+	}
+	processEnv = func() []string {
+		return []string{"BASE_TOKEN=from-process", "UNCHANGED=process-value"}
 	}
 
 	agents := map[string]agentconfig.Config{
@@ -296,8 +301,13 @@ func TestFactoryBuild_UsesBuildRequestMCPServerIDsOverride(t *testing.T) {
 			URL:  "http://cfg.example/mcp",
 		},
 		"override": {
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  "http://override.example/mcp",
+			Type: agentconfig.MCPServerTypeStdio,
+			Cmd:  []string{"override-server"},
+			Env: map[string]string{
+				"BASE_TOKEN": "from-config",
+				"LOCAL_ONLY": "config-value",
+				"EMPTY":      "",
+			},
 		},
 	})
 	f := New(agents, reg)
@@ -318,6 +328,27 @@ func TestFactoryBuild_UsesBuildRequestMCPServerIDsOverride(t *testing.T) {
 	}
 	if _, ok := capturedMCP["cfg"]; ok {
 		t.Fatalf("captured MCP unexpectedly contains cfg server: %#v", capturedMCP)
+	}
+	override := capturedMCP["override"]
+	if got := override.Env["BASE_TOKEN"]; got != "from-config" {
+		t.Fatalf("override BASE_TOKEN = %q, want from-config", got)
+	}
+	if got := override.Env["LOCAL_ONLY"]; got != "config-value" {
+		t.Fatalf("override LOCAL_ONLY = %q, want config-value", got)
+	}
+	if got := override.Env["UNCHANGED"]; got != "process-value" {
+		t.Fatalf("override UNCHANGED = %q, want process-value", got)
+	}
+	if got := override.Env["EMPTY"]; got != "" {
+		t.Fatalf("override EMPTY = %q, want empty string", got)
+	}
+
+	original, ok := reg.Get("override")
+	if !ok {
+		t.Fatal("registry missing override MCP server")
+	}
+	if got := original.Env["UNCHANGED"]; got != "" {
+		t.Fatalf("registry env mutated, UNCHANGED = %q, want empty string", got)
 	}
 }
 

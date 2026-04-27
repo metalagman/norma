@@ -127,13 +127,17 @@ func loadConfigViper(configPath string, defaultsYAML []byte) (*viper.Viper, erro
 	if err != nil {
 		return nil, fmt.Errorf("read config file %q: %w", configPath, err)
 	}
+	expandedContent, err := ExpandEnv(string(content))
+	if err != nil {
+		return nil, fmt.Errorf("expand config file %q: %w", configPath, err)
+	}
 
 	if len(defaultsYAML) > 0 {
-		if err := v.MergeConfig(bytes.NewReader(content)); err != nil {
+		if err := v.MergeConfig(bytes.NewReader([]byte(expandedContent))); err != nil {
 			return nil, fmt.Errorf("parse config file %q: %w", configPath, err)
 		}
 	} else {
-		if err := v.ReadConfig(bytes.NewReader(content)); err != nil {
+		if err := v.ReadConfig(bytes.NewReader([]byte(expandedContent))); err != nil {
 			return nil, fmt.Errorf("parse config file %q: %w", configPath, err)
 		}
 	}

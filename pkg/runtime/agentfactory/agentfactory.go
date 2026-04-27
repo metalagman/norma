@@ -261,9 +261,60 @@ func (f *Factory) resolveMCPServers(agentID string, ids []string) (map[string]ag
 		if !ok {
 			return nil, fmt.Errorf("agent %q references unknown mcp server %q", agentID, trimmed)
 		}
-		resolved[trimmed] = cfg
+		resolved[trimmed] = hydrateMCPServerConfig(cfg)
 	}
 	return resolved, nil
+}
+
+var processEnv = os.Environ
+
+func hydrateMCPServerConfig(cfg agentconfig.MCPServerConfig) agentconfig.MCPServerConfig {
+	hydrated := agentconfig.MCPServerConfig{
+		Type:       cfg.Type,
+		Cmd:        append([]string(nil), cfg.Cmd...),
+		Args:       append([]string(nil), cfg.Args...),
+		Env:        cloneStringMap(cfg.Env),
+		WorkingDir: cfg.WorkingDir,
+		URL:        cfg.URL,
+		Headers:    cloneStringMap(cfg.Headers),
+	}
+	if hydrated.Type != agentconfig.MCPServerTypeStdio {
+		return hydrated
+	}
+	hydrated.Env = mergeStringMaps(envMapFromSlice(processEnv()), hydrated.Env)
+	return hydrated
+}
+
+func envMapFromSlice(entries []string) map[string]string {
+	if len(entries) == 0 {
+		return nil
+	}
+	env := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		env[key] = value
+	}
+	return env
+}
+
+func mergeStringMaps(base, override map[string]string) map[string]string {
+	switch {
+	case len(base) == 0 && len(override) == 0:
+		return nil
+	case len(base) == 0:
+		return cloneStringMap(override)
+	case len(override) == 0:
+		return cloneStringMap(base)
+	}
+
+	merged := cloneStringMap(base)
+	for key, value := range override {
+		merged[key] = value
+	}
+	return merged
 }
 
 func toRuntimeMCPServers(configs map[string]agentconfig.MCPServerConfig) map[string]acpagent.MCPServerConfig {

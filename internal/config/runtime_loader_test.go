@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/normahq/norma/pkg/runtime/appconfig"
@@ -140,6 +141,78 @@ profiles:
 	}
 	if got := doc.App.SystemInstructions; got != "app-override" {
 		t.Fatalf("app.system_instructions = %q, want app-override", got)
+	}
+}
+
+func TestLoadConfigDocument_ExpandsConfigFileEnvBeforeYAMLParse(t *testing.T) {
+	workingDir := t.TempDir()
+	t.Setenv("NORMA_TEST_MCP_CMD", "agent-from-env")
+	t.Setenv("NORMA_TEST_MCP_TOKEN", "secret-token")
+
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "app", "config.yaml"), `runtime:
+  providers:
+    agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["agent"]
+  mcp_servers:
+    stdio_env:
+      type: stdio
+      cmd: ["${NORMA_TEST_MCP_CMD}"]
+      env:
+        TOKEN: $NORMA_TEST_MCP_TOKEN
+app:
+  root_agent: from_envsubst
+`); err != nil {
+		t.Fatalf("write app config: %v", err)
+	}
+
+	var doc appConfigDocumentForTest
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
+		appconfig.AppLoadOptions{AppName: "app", UseDotConfigAppDir: true},
+		&doc,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigDocument: %v", err)
+	}
+
+	mcpCfg, ok := doc.Runtime.MCPServers["stdio_env"]
+	if !ok {
+		t.Fatal("runtime.mcp_servers.stdio_env not loaded")
+	}
+	if len(mcpCfg.Cmd) != 1 || mcpCfg.Cmd[0] != "agent-from-env" {
+		t.Fatalf("mcp cmd = %#v, want [\"agent-from-env\"]", mcpCfg.Cmd)
+	}
+	if got := mcpCfg.Env["token"]; got != "secret-token" {
+		t.Fatalf("mcp env token = %q, want secret-token", got)
+	}
+}
+
+func TestLoadConfigDocument_RejectsMissingConfigEnvVar(t *testing.T) {
+	workingDir := t.TempDir()
+
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".config", "app", "config.yaml"), `runtime:
+  providers:
+    agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["${NORMA_TEST_MISSING_CMD}"]
+`); err != nil {
+		t.Fatalf("write app config: %v", err)
+	}
+
+	var doc appConfigDocumentForTest
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
+		appconfig.AppLoadOptions{AppName: "app", UseDotConfigAppDir: true},
+		&doc,
+	)
+	if err == nil {
+		t.Fatal("LoadConfigDocument() error = nil, want missing env var error")
+	}
+	if !strings.Contains(err.Error(), "NORMA_TEST_MISSING_CMD") {
+		t.Fatalf("LoadConfigDocument() error = %q, want missing variable name", err)
 	}
 }
 
