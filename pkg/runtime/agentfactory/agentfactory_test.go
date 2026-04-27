@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"iter"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,11 +14,13 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/hostedagent"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/normahq/norma/pkg/runtime/sessionstate"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/model"
 )
 
 func TestFactory_CreateAgent(t *testing.T) {
@@ -446,5 +449,172 @@ func TestACPConstructor_UsesInstructionAndGlobalInstruction(t *testing.T) {
 	}
 	if capturedGlobalInstruction != "global-request" {
 		t.Fatalf("cfg.GlobalInstruction = %q, want global-request", capturedGlobalInstruction)
+	}
+}
+
+type fakeHostedModel struct {
+	name string
+}
+
+func (m fakeHostedModel) Name() string {
+	return m.name
+}
+
+func (m fakeHostedModel) GenerateContent(context.Context, *model.LLMRequest, bool) iter.Seq2[*model.LLMResponse, error] {
+	return func(func(*model.LLMResponse, error) bool) {}
+}
+
+func TestFactoryBuild_OpenAIProvider(t *testing.T) {
+	origNewOpenAIModel := newOpenAIModel
+	origNewHostedAgent := newHostedAgent
+	t.Cleanup(func() {
+		newOpenAIModel = origNewOpenAIModel
+		newHostedAgent = origNewHostedAgent
+	})
+
+	var capturedAPIKey string
+	var capturedModelName string
+	newOpenAIModel = func(apiKey, modelName string) (model.LLM, error) {
+		capturedAPIKey = apiKey
+		capturedModelName = modelName
+		return fakeHostedModel{name: "remote-openai"}, nil
+	}
+
+	var capturedCfg hostedagent.Config
+	newHostedAgent = func(cfg hostedagent.Config) (agent.Agent, error) {
+		capturedCfg = cfg
+		return nil, nil
+	}
+
+	f := New(map[string]agentconfig.Config{
+		"openai": {
+			Type: agentconfig.AgentTypeOpenAI,
+			OpenAI: &agentconfig.LocalAPIConfig{
+				APIKey: "openai-test-key",
+				Model:  "gpt-5",
+			},
+			SystemInstructions: "from-config",
+		},
+	}, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:           "openai",
+		Name:              "shell-openai",
+		Description:       "OpenAI shell agent",
+		Instruction:       "from-request",
+		GlobalInstruction: "global-request",
+		WorkingDirectory:  t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if capturedAPIKey != "openai-test-key" {
+		t.Fatalf("openai api key = %q, want openai-test-key", capturedAPIKey)
+	}
+	if capturedModelName != "gpt-5" {
+		t.Fatalf("openai model name = %q, want gpt-5", capturedModelName)
+	}
+	if capturedCfg.Name != "shell-openai" {
+		t.Fatalf("hosted agent name = %q, want shell-openai", capturedCfg.Name)
+	}
+	if capturedCfg.Description != "OpenAI shell agent" {
+		t.Fatalf("hosted agent description = %q, want OpenAI shell agent", capturedCfg.Description)
+	}
+	if capturedCfg.Instruction != "from-request" {
+		t.Fatalf("hosted agent instruction = %q, want from-request", capturedCfg.Instruction)
+	}
+	if capturedCfg.GlobalInstruction != "global-request" {
+		t.Fatalf("hosted agent global instruction = %q, want global-request", capturedCfg.GlobalInstruction)
+	}
+	if capturedCfg.Model == nil || capturedCfg.Model.Name() != "remote-openai" {
+		t.Fatalf("hosted agent model = %#v, want remote-openai", capturedCfg.Model)
+	}
+}
+
+func TestFactoryBuild_AIStudioProvider(t *testing.T) {
+	origNewAIStudioModel := newAIStudioModel
+	origNewHostedAgent := newHostedAgent
+	t.Cleanup(func() {
+		newAIStudioModel = origNewAIStudioModel
+		newHostedAgent = origNewHostedAgent
+	})
+
+	var capturedCtx context.Context
+	var capturedAPIKey string
+	var capturedModelName string
+	newAIStudioModel = func(ctx context.Context, apiKey, modelName string) (model.LLM, error) {
+		capturedCtx = ctx
+		capturedAPIKey = apiKey
+		capturedModelName = modelName
+		return fakeHostedModel{name: "remote-aistudio"}, nil
+	}
+
+	var capturedCfg hostedagent.Config
+	newHostedAgent = func(cfg hostedagent.Config) (agent.Agent, error) {
+		capturedCfg = cfg
+		return nil, nil
+	}
+
+	ctx := context.WithValue(context.Background(), "provider", "aistudio")
+	f := New(map[string]agentconfig.Config{
+		"aistudio": {
+			Type: agentconfig.AgentTypeAIStudio,
+			AIStudio: &agentconfig.LocalAPIConfig{
+				APIKey: "aistudio-test-key",
+				Model:  "gemini-2.5-flash",
+			},
+		},
+	}, mcpregistry.New(nil))
+
+	_, err := f.Build(ctx, BuildRequest{
+		AgentID:          "aistudio",
+		WorkingDirectory: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if capturedCtx != ctx {
+		t.Fatal("aistudio constructor did not pass the request context through to model creation")
+	}
+	if capturedAPIKey != "aistudio-test-key" {
+		t.Fatalf("aistudio api key = %q, want aistudio-test-key", capturedAPIKey)
+	}
+	if capturedModelName != "gemini-2.5-flash" {
+		t.Fatalf("aistudio model name = %q, want gemini-2.5-flash", capturedModelName)
+	}
+	if capturedCfg.Name != "aistudio" {
+		t.Fatalf("hosted agent name = %q, want aistudio", capturedCfg.Name)
+	}
+	if capturedCfg.Model == nil || capturedCfg.Model.Name() != "remote-aistudio" {
+		t.Fatalf("hosted agent model = %#v, want remote-aistudio", capturedCfg.Model)
+	}
+}
+
+func TestValidatePoolMembers_AcceptsMixedACPAndHostedProviders(t *testing.T) {
+	members, err := validatePoolMembers("pool", []string{"codex", "openai"}, map[string]agentconfig.Config{
+		"codex": {
+			Type: agentconfig.AgentTypeCodexACP,
+			CodexACP: &agentconfig.ACPConfig{
+				Model: "gpt-5-codex",
+			},
+		},
+		"openai": {
+			Type: agentconfig.AgentTypeOpenAI,
+			OpenAI: &agentconfig.LocalAPIConfig{
+				APIKey: "test-key",
+				Model:  "gpt-5",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("validatePoolMembers() error = %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("len(members) = %d, want 2", len(members))
+	}
+	if members[0].Name != "codex" || members[1].Name != "openai" {
+		t.Fatalf("pool members = %#v, want codex then openai", members)
 	}
 }

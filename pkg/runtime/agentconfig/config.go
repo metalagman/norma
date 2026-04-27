@@ -40,6 +40,12 @@ type ACPConfig struct {
 	Mode      string   `json:"mode,omitempty"       mapstructure:"mode"       validate:"omitempty,notblank"`
 }
 
+// LocalAPIConfig is a local API-backed runtime configuration block.
+type LocalAPIConfig struct {
+	APIKey string `json:"api_key,omitempty" mapstructure:"api_key"`
+	Model  string `json:"model,omitempty"   mapstructure:"model"   validate:"omitempty,notblank"`
+}
+
 // PoolConfig is the pool runtime configuration block.
 type PoolConfig struct {
 	Members []string `json:"members,omitempty" mapstructure:"members" validate:"omitempty,dive,notblank"`
@@ -53,7 +59,7 @@ type PoolConfig struct {
 //	<agent_type>:
 //	  ...type-specific config...
 type Config struct {
-	Type               string   `json:"type"                           mapstructure:"type"               validate:"required,oneof=generic_acp gemini_acp codex_acp opencode_acp copilot_acp claude_code_acp pool,agent_blocks"`
+	Type               string   `json:"type"                           mapstructure:"type"               validate:"required,oneof=generic_acp gemini_acp codex_acp opencode_acp copilot_acp claude_code_acp openai aistudio pool,agent_blocks"`
 	MCPServers         []string `json:"mcp_servers,omitempty"          mapstructure:"mcp_servers"        validate:"omitempty,dive,notblank"`
 	SystemInstructions string   `json:"system_instructions,omitempty"  mapstructure:"system_instructions" validate:"omitempty,notblank"`
 
@@ -63,7 +69,9 @@ type Config struct {
 	OpenCodeACP   *ACPConfig  `json:"opencode_acp,omitempty"    mapstructure:"opencode_acp"`
 	CopilotACP    *ACPConfig  `json:"copilot_acp,omitempty"     mapstructure:"copilot_acp"`
 	ClaudeCodeACP *ACPConfig  `json:"claude_code_acp,omitempty" mapstructure:"claude_code_acp"`
-	PoolConfig    *PoolConfig `json:"pool,omitempty"            mapstructure:"pool"`
+	OpenAI        *LocalAPIConfig `json:"openai,omitempty"      mapstructure:"openai"`
+	AIStudio      *LocalAPIConfig `json:"aistudio,omitempty"    mapstructure:"aistudio"`
+	PoolConfig    *PoolConfig     `json:"pool,omitempty"        mapstructure:"pool"`
 }
 
 // ResolvedConfig is a runtime-ready agent configuration produced from Config normalization.
@@ -73,6 +81,7 @@ type ResolvedConfig struct {
 	SystemInstructions string
 
 	Command     []string
+	APIKey      string
 	Model       string
 	Mode        string
 	PoolMembers []string
@@ -91,6 +100,11 @@ func (c Config) Description(name string) string {
 		}
 		if spec.Mode != "" {
 			parts = append(parts, fmt.Sprintf("mode=%s", spec.Mode))
+		}
+	}
+	if spec, ok := c.selectedLocalAPIBlock(); ok {
+		if spec.Model != "" {
+			parts = append(parts, fmt.Sprintf("model=%s", spec.Model))
 		}
 	}
 	if len(parts) == 0 {
@@ -152,6 +166,12 @@ func (c Config) Validate() error {
 	}
 
 	if len(errs) == 0 {
+		if err := validateAgentConfigSemantics(c); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+
+	if len(errs) == 0 {
 		return nil
 	}
 	sort.Strings(errs)
@@ -193,6 +213,10 @@ const (
 	AgentTypeCopilotACP = "copilot_acp"
 	// AgentTypeClaudeCodeACP is the alias for Claude Code ACP mode.
 	AgentTypeClaudeCodeACP = "claude_code_acp"
+	// AgentTypeOpenAI is the type for local OpenAI-backed providers.
+	AgentTypeOpenAI = "openai"
+	// AgentTypeAIStudio is the type for local Google AI Studio-backed providers.
+	AgentTypeAIStudio = "aistudio"
 	// AgentTypePool is the pool type with ordered failover.
 	AgentTypePool = "pool"
 )
@@ -206,6 +230,8 @@ func SupportedAgentTypes() []string {
 		AgentTypeOpenCodeACP,
 		AgentTypeCopilotACP,
 		AgentTypeClaudeCodeACP,
+		AgentTypeOpenAI,
+		AgentTypeAIStudio,
 		AgentTypePool,
 	}
 }
@@ -328,6 +354,12 @@ func validateAgentBlocks(fl validator.FieldLevel) bool {
 	if cfg.ClaudeCodeACP != nil {
 		present++
 	}
+	if cfg.OpenAI != nil {
+		present++
+	}
+	if cfg.AIStudio != nil {
+		present++
+	}
 	if cfg.PoolConfig != nil {
 		present++
 	}
@@ -348,6 +380,10 @@ func validateAgentBlocks(fl validator.FieldLevel) bool {
 		return cfg.CopilotACP != nil && len(cfg.CopilotACP.Cmd) == 0
 	case AgentTypeClaudeCodeACP:
 		return cfg.ClaudeCodeACP != nil && len(cfg.ClaudeCodeACP.Cmd) == 0
+	case AgentTypeOpenAI:
+		return cfg.OpenAI != nil
+	case AgentTypeAIStudio:
+		return cfg.AIStudio != nil
 	case AgentTypePool:
 		return cfg.PoolConfig != nil && len(cfg.PoolConfig.Members) > 0
 	default:
@@ -363,6 +399,8 @@ func explainAgentBlocksError(cfg Config) string {
 		AgentTypeOpenCodeACP:   cfg.OpenCodeACP != nil,
 		AgentTypeCopilotACP:    cfg.CopilotACP != nil,
 		AgentTypeClaudeCodeACP: cfg.ClaudeCodeACP != nil,
+		AgentTypeOpenAI:        cfg.OpenAI != nil,
+		AgentTypeAIStudio:      cfg.AIStudio != nil,
 		AgentTypePool:          cfg.PoolConfig != nil,
 	}
 	selectedCount := 0
@@ -410,6 +448,14 @@ func explainAgentBlocksError(cfg Config) string {
 	case AgentTypeClaudeCodeACP:
 		if cfg.ClaudeCodeACP != nil && len(cfg.ClaudeCodeACP.Cmd) > 0 {
 			return fmt.Sprintf("cmd must be omitted for type %s", AgentTypeClaudeCodeACP)
+		}
+	case AgentTypeOpenAI:
+		if cfg.OpenAI == nil {
+			return fmt.Sprintf("openai block is required for type %s", AgentTypeOpenAI)
+		}
+	case AgentTypeAIStudio:
+		if cfg.AIStudio == nil {
+			return fmt.Sprintf("aistudio block is required for type %s", AgentTypeAIStudio)
 		}
 	case AgentTypePool:
 		if cfg.PoolConfig == nil || len(cfg.PoolConfig.Members) == 0 {
@@ -494,6 +540,22 @@ func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) 
 			return ResolvedConfig{}, fmt.Errorf("generic_acp block is required")
 		}
 		return resolveACPConfig(resolved, AgentTypeGenericACP, *cfg.GenericACP), nil
+	case AgentTypeOpenAI:
+		if cfg.OpenAI == nil {
+			return ResolvedConfig{}, fmt.Errorf("openai block is required")
+		}
+		resolved.Type = AgentTypeOpenAI
+		resolved.APIKey = cfg.OpenAI.APIKey
+		resolved.Model = cfg.OpenAI.Model
+		return resolved, nil
+	case AgentTypeAIStudio:
+		if cfg.AIStudio == nil {
+			return ResolvedConfig{}, fmt.Errorf("aistudio block is required")
+		}
+		resolved.Type = AgentTypeAIStudio
+		resolved.APIKey = cfg.AIStudio.APIKey
+		resolved.Model = cfg.AIStudio.Model
+		return resolved, nil
 	case AgentTypePool:
 		if cfg.PoolConfig == nil {
 			return ResolvedConfig{}, fmt.Errorf("pool block is required")
@@ -580,4 +642,26 @@ func (c Config) selectedACPBlock() (*ACPConfig, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func (c Config) selectedLocalAPIBlock() (*LocalAPIConfig, bool) {
+	switch strings.TrimSpace(c.Type) {
+	case AgentTypeOpenAI:
+		return c.OpenAI, c.OpenAI != nil
+	case AgentTypeAIStudio:
+		return c.AIStudio, c.AIStudio != nil
+	default:
+		return nil, false
+	}
+}
+
+func validateAgentConfigSemantics(cfg Config) error {
+	switch strings.TrimSpace(cfg.Type) {
+	case AgentTypeOpenAI, AgentTypeAIStudio:
+		if len(cfg.MCPServers) > 0 {
+			return fmt.Errorf("mcp_servers is not supported for type %s", strings.TrimSpace(cfg.Type))
+		}
+	}
+
+	return nil
 }

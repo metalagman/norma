@@ -83,6 +83,36 @@ func TestConfigValidate(t *testing.T) {
 			},
 			wantErr: "extra_args[1] must have at least 1 character",
 		},
+		{
+			name: "valid_openai",
+			cfg: Config{
+				Type: AgentTypeOpenAI,
+				OpenAI: &LocalAPIConfig{
+					APIKey: "test-key",
+					Model:  "gpt-5",
+				},
+			},
+		},
+		{
+			name: "openai_rejects_mcp_servers",
+			cfg: Config{
+				Type:       AgentTypeOpenAI,
+				MCPServers: []string{"workspace"},
+				OpenAI: &LocalAPIConfig{
+					Model: "gpt-5",
+				},
+			},
+			wantErr: "mcp_servers is not supported for type openai",
+		},
+		{
+			name: "valid_aistudio",
+			cfg: Config{
+				Type: AgentTypeAIStudio,
+				AIStudio: &LocalAPIConfig{
+					Model: "gemini-2.5-flash",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -224,6 +254,38 @@ func TestNormalizeConfig(t *testing.T) {
 			want: ResolvedConfig{
 				Type:        AgentTypePool,
 				PoolMembers: []string{"a", "b"},
+			},
+		},
+		{
+			name: "openai",
+			cfg: Config{
+				Type: AgentTypeOpenAI,
+				OpenAI: &LocalAPIConfig{
+					APIKey: "test-key",
+					Model:  "gpt-5",
+				},
+			},
+			exec: execPath,
+			want: ResolvedConfig{
+				Type:   AgentTypeOpenAI,
+				APIKey: "test-key",
+				Model:  "gpt-5",
+			},
+		},
+		{
+			name: "aistudio",
+			cfg: Config{
+				Type: AgentTypeAIStudio,
+				AIStudio: &LocalAPIConfig{
+					APIKey: "test-key",
+					Model:  "gemini-2.5-flash",
+				},
+			},
+			exec: execPath,
+			want: ResolvedConfig{
+				Type:   AgentTypeAIStudio,
+				APIKey: "test-key",
+				Model:  "gemini-2.5-flash",
 			},
 		},
 	}

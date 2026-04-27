@@ -14,11 +14,13 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/hostedagent"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/normahq/norma/pkg/runtime/poolagent"
 	"github.com/normahq/norma/pkg/runtime/sessionstate"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/model"
 )
 
 // BuildRequest defines the parameters for building a new agent instance.
@@ -364,11 +366,25 @@ func cloneStringMap(src map[string]string) map[string]string {
 // constructors registry.
 var constructors = map[string]constructor{
 	agentconfig.AgentTypeGenericACP: acpConstructor,
+	agentconfig.AgentTypeOpenAI:     openAIConstructor,
+	agentconfig.AgentTypeAIStudio:   aistudioConstructor,
 	agentconfig.AgentTypePool:       poolConstructor,
 }
 
 var newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
 	return acpagent.New(cfg)
+}
+
+var newHostedAgent = func(cfg hostedagent.Config) (agent.Agent, error) {
+	return hostedagent.New(cfg)
+}
+
+var newOpenAIModel = func(apiKey, modelName string) (model.LLM, error) {
+	return hostedagent.NewOpenAIModel(apiKey, modelName)
+}
+
+var newAIStudioModel = func(ctx context.Context, apiKey, modelName string) (model.LLM, error) {
+	return hostedagent.NewAIStudioModel(ctx, apiKey, modelName)
 }
 
 func loggerFromContext(ctx context.Context) *zerolog.Logger {
@@ -459,6 +475,50 @@ var poolConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, 
 
 	creator := &factoryAgentCreator{factory: f}
 	return poolagent.NewPoolAgent(ctx, req.AgentID, poolMembers, poolReq, creator)
+}
+
+var openAIConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	if cfg.Type != agentconfig.AgentTypeOpenAI {
+		return nil, fmt.Errorf("unknown openai agent type %q", cfg.Type)
+	}
+	if len(resolvedMCP) > 0 {
+		return nil, fmt.Errorf("openai agent does not support mcp servers")
+	}
+
+	llmModel, err := newOpenAIModel(cfg.APIKey, cfg.Model)
+	if err != nil {
+		return nil, err
+	}
+
+	return newHostedAgent(hostedagent.Config{
+		Name:              effectiveName(req),
+		Description:       effectiveDescription(req, cfg),
+		Instruction:       effectiveInstruction(req, cfg),
+		GlobalInstruction: effectiveGlobalInstruction(req),
+		Model:             llmModel,
+	})
+}
+
+var aistudioConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	if cfg.Type != agentconfig.AgentTypeAIStudio {
+		return nil, fmt.Errorf("unknown aistudio agent type %q", cfg.Type)
+	}
+	if len(resolvedMCP) > 0 {
+		return nil, fmt.Errorf("aistudio agent does not support mcp servers")
+	}
+
+	llmModel, err := newAIStudioModel(ctx, cfg.APIKey, cfg.Model)
+	if err != nil {
+		return nil, err
+	}
+
+	return newHostedAgent(hostedagent.Config{
+		Name:              effectiveName(req),
+		Description:       effectiveDescription(req, cfg),
+		Instruction:       effectiveInstruction(req, cfg),
+		GlobalInstruction: effectiveGlobalInstruction(req),
+		Model:             llmModel,
+	})
 }
 
 type factoryAgentCreator struct {
