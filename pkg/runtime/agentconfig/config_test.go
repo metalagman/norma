@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestConfigValidate(t *testing.T) {
@@ -397,5 +399,45 @@ func TestNormalizeConfigs(t *testing.T) {
 	}
 	if len(actCfg.Command) < 3 || actCfg.Command[0] != "npx" || actCfg.Command[1] != "-y" || actCfg.Command[2] != "@zed-industries/claude-code-acp@latest" {
 		t.Fatalf("act command = %v, want npx -y @zed-industries/claude-code-acp@latest", actCfg.Command)
+	}
+}
+
+func TestConfigYAMLTags(t *testing.T) {
+	t.Parallel()
+
+	data, err := yaml.Marshal(Config{
+		Type:               AgentTypeCodexACP,
+		MCPServers:         []string{"workspace"},
+		SystemInstructions: "system",
+		CodexACP: &ACPConfig{
+			ExtraArgs: []string{"--trace"},
+			Model:     "gpt-5-codex",
+		},
+	})
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+
+	text := string(data)
+	for _, want := range []string{
+		"mcp_servers:",
+		"system_instructions:",
+		"codex_acp:",
+		"extra_args:",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("yaml output missing %q:\n%s", want, text)
+		}
+	}
+
+	for _, unwanted := range []string{
+		"mcpservers:",
+		"systeminstructions:",
+		"codexacp:",
+		"extraargs:",
+	} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("yaml output unexpectedly contains %q:\n%s", unwanted, text)
+		}
 	}
 }

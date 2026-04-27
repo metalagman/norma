@@ -55,7 +55,7 @@ func LoadConfigDocument(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions, out
 		return "", fmt.Errorf("app name is required")
 	}
 
-	settings, selectedProfile, err := loadResolvedSettings(runtimeOpts, opts)
+	settings, selectedProfile, err := LoadResolvedSettings(runtimeOpts, opts)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +74,9 @@ func LoadConfigDocument(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions, out
 	return selectedProfile, nil
 }
 
-func loadResolvedSettings(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (map[string]any, string, error) {
+// LoadResolvedSettings loads config defaults, merges the selected file, applies
+// profile overlays and env overrides, and returns the final settings map.
+func LoadResolvedSettings(runtimeOpts RuntimeLoadOptions, opts AppLoadOptions) (map[string]any, string, error) {
 	appName := strings.TrimSpace(opts.AppName)
 	if appName == "" {
 		return nil, "", fmt.Errorf("app name is required")
