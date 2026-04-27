@@ -1,5 +1,7 @@
 # PDCA Loop
 
+Swarm is a separate workflow. PDCA uses structured role contracts and explicit verdict/decision semantics. Swarm uses freeform task text and Beads-state outcome inference. See [Swarm Harness](swarm.md).
+
 This document describes Norma's fixed execution loop:
 
 `plan -> do -> check -> act`

@@ -2,6 +2,8 @@
 
 This document describes how the loop command orchestrates tasks with the PDCA workflow agent.
 
+Swarm is a separate workflow. `norma loop` remains the strict PDCA path for one selected task at a time. See [Swarm Harness](swarm.md) for the assignee-routed multi-role workflow.
+
 ## Config env substitution
 
 `norma loop` uses the same config env substitution behavior as the rest of norma config loading.
