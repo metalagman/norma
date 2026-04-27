@@ -16,6 +16,29 @@ type Config struct {
 	RoleIDs map[string]string           `json:"-"                  mapstructure:"-"`
 }
 
+// SwarmConfig defines config for assignee-routed swarm execution.
+type SwarmConfig struct {
+	PrimaryRole     string                     `json:"primary_role,omitempty"     mapstructure:"primary_role"     validate:"omitempty,min=1"`
+	DefaultProvider string                     `json:"default_provider,omitempty" mapstructure:"default_provider" validate:"omitempty,min=1"`
+	Roles           map[string]SwarmRoleConfig `json:"roles,omitempty"            mapstructure:"roles"`
+}
+
+// SwarmRoleConfig defines one swarm role worker.
+type SwarmRoleConfig struct {
+	Assignee    string `json:"assignee,omitempty"    mapstructure:"assignee"    validate:"omitempty,min=1"`
+	Instruction string `json:"instruction,omitempty" mapstructure:"instruction" validate:"omitempty,min=1"`
+	Provider    string `json:"provider,omitempty"    mapstructure:"provider"    validate:"omitempty,min=1"`
+}
+
+// ResolvedSwarmRoleConfig is a swarm role with its effective provider.
+type ResolvedSwarmRoleConfig struct {
+	Key           string
+	Assignee      string
+	Instruction   string
+	ProviderID    string
+	IsPrimaryRole bool
+}
+
 // Budgets defines run limits (optional, defaults to 5 iterations if not set).
 type Budgets struct {
 	MaxIterations int `json:"max_iterations,omitempty" mapstructure:"max_iterations" validate:"omitempty,min=1"`
@@ -101,6 +124,70 @@ func (c Config) ResolveRoleIDs(cli CLISettings) (map[string]string, error) {
 	if cli.Planner != "" {
 		if err := resolve("planner", cli.Planner); err != nil {
 			return nil, err
+		}
+	}
+
+	return resolved, nil
+}
+
+// ResolveSwarmRoles validates and resolves swarm roles from CLI settings.
+func (c Config) ResolveSwarmRoles(cli CLISettings) (map[string]ResolvedSwarmRoleConfig, error) {
+	if len(c.Runtime.Providers) == 0 {
+		return nil, fmt.Errorf("missing global agents configuration")
+	}
+	swarm := cli.Swarm
+	if len(swarm.Roles) == 0 {
+		return nil, fmt.Errorf("cli.swarm.roles is required")
+	}
+
+	primaryRole := strings.TrimSpace(swarm.PrimaryRole)
+	if primaryRole == "" {
+		return nil, fmt.Errorf("cli.swarm.primary_role is required")
+	}
+	if _, ok := swarm.Roles[primaryRole]; !ok {
+		return nil, fmt.Errorf("cli.swarm.primary_role %q does not exist in cli.swarm.roles", primaryRole)
+	}
+
+	defaultProvider := strings.TrimSpace(swarm.DefaultProvider)
+	if defaultProvider == "" {
+		return nil, fmt.Errorf("cli.swarm.default_provider is required")
+	}
+	if _, ok := c.Runtime.Providers[defaultProvider]; !ok {
+		return nil, fmt.Errorf("cli.swarm.default_provider %q is not defined in runtime.providers", defaultProvider)
+	}
+
+	resolved := make(map[string]ResolvedSwarmRoleConfig, len(swarm.Roles))
+	seenAssignees := make(map[string]string, len(swarm.Roles))
+	for key, role := range swarm.Roles {
+		roleKey := strings.TrimSpace(key)
+		if roleKey == "" {
+			return nil, fmt.Errorf("cli.swarm.roles contains an empty role key")
+		}
+		assignee := strings.TrimSpace(role.Assignee)
+		if assignee == "" {
+			return nil, fmt.Errorf("cli.swarm.roles.%s.assignee is required", roleKey)
+		}
+		instruction := strings.TrimSpace(role.Instruction)
+		if instruction == "" {
+			return nil, fmt.Errorf("cli.swarm.roles.%s.instruction is required", roleKey)
+		}
+		providerID := strings.TrimSpace(role.Provider)
+		if providerID == "" {
+			providerID = defaultProvider
+		}
+		if _, ok := c.Runtime.Providers[providerID]; !ok {
+			return nil, fmt.Errorf("cli.swarm.roles.%s.provider %q is not defined in runtime.providers", roleKey, providerID)
+		}
+		if prev, exists := seenAssignees[assignee]; exists {
+			return nil, fmt.Errorf("cli.swarm.roles.%s.assignee duplicates cli.swarm.roles.%s.assignee (%q)", roleKey, prev, assignee)
+		}
+		seenAssignees[assignee] = roleKey
+		resolved[roleKey] = ResolvedSwarmRoleConfig{
+			Key:           roleKey,
+			Assignee:      assignee,
+			Instruction:   instruction,
+			ProviderID:    providerID,
+			IsPrimaryRole: roleKey == primaryRole,
 		}
 	}
 

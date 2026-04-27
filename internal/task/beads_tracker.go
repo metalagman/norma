@@ -115,16 +115,11 @@ func (t *BeadsTracker) AddEpic(ctx context.Context, title, goal string) (string,
 }
 
 // AddFeature creates a feature via bd create with parent epic.
-func (t *BeadsTracker) AddFeature(ctx context.Context, epicID, title string) (string, error) {
-	return t.AddFeatureDetailed(ctx, epicID, title, "")
-}
-
-// AddFeatureDetailed creates a feature via bd create with parent epic.
-func (t *BeadsTracker) AddFeatureDetailed(ctx context.Context, epicID, title, description string) (string, error) {
+func (t *BeadsTracker) AddFeature(ctx context.Context, epicID, title, goal string) (string, error) {
 	// Using type feature
 	args := []string{"create", "--title", title, "--type", "feature", "--parent", epicID, "--json", "--quiet"}
-	if strings.TrimSpace(description) != "" {
-		args = append(args, "--description", strings.TrimSpace(description))
+	if strings.TrimSpace(goal) != "" {
+		args = append(args, "--description", strings.TrimSpace(goal))
 	}
 	out, err := t.exec(ctx, args...)
 	if err != nil {
@@ -319,6 +314,12 @@ func (t *BeadsTracker) RemoveLabel(ctx context.Context, id string, label string)
 	return err
 }
 
+// SetAssignee updates the assignee field of a task.
+func (t *BeadsTracker) SetAssignee(ctx context.Context, id string, assignee string) error {
+	_, err := t.exec(ctx, "update", id, "--assignee", strings.TrimSpace(assignee), "--json", "--quiet")
+	return err
+}
+
 // SetNotes updates the notes field of a task.
 func (t *BeadsTracker) SetNotes(ctx context.Context, id string, notes string) error {
 	_, err := t.exec(ctx, "update", id, "--notes", notes, "--json", "--quiet")
@@ -501,11 +502,6 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 		issueType = issue.Type
 	}
 
-	assignee := issue.Assignee
-	if assignee == "" {
-		assignee = issue.Owner
-	}
-
 	return Task{
 		ID:        issue.ID,
 		Type:      issueType,
@@ -516,7 +512,8 @@ func (t *BeadsTracker) toTask(issue BeadsIssue) Task {
 		Status:    status,
 		RunID:     runID,
 		Priority:  issue.Priority,
-		Assignee:  assignee,
+		Assignee:  strings.TrimSpace(issue.Assignee),
+		Owner:     strings.TrimSpace(issue.Owner),
 		Labels:    issue.Labels,
 		Notes:     issue.Notes,
 		CreatedAt: issue.CreatedAt,

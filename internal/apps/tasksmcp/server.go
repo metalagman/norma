@@ -173,6 +173,7 @@ func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.update", Description: "Update an issue title and goal."}, s.updateTask)
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.delete", Description: "Delete one issue from Beads."}, s.deleteTask)
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.set_run", Description: "Attach an external run ID to one issue."}, s.setRun)
+	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.set_assignee", Description: "Assign or reassign one issue to a Beads assignee string."}, s.setAssignee)
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.set_notes", Description: "Replace the notes field for one issue."}, s.setNotes)
 	mcp.AddTool(server, &mcp.Tool{Name: "norma.tasks.close_with_reason", Description: "Close one issue and store an explicit close reason."}, s.closeWithReason)
 
@@ -225,7 +226,7 @@ func (s *service) addFeature(ctx context.Context, _ *mcp.CallToolRequest, in add
 		return result, addFeatureOutput{ToolOutcome: out}, nil
 	}
 
-	id, err := s.tracker.AddFeature(ctx, epicID, title)
+	id, err := s.tracker.AddFeature(ctx, epicID, title, strings.TrimSpace(in.Goal))
 	if err != nil {
 		result, out := backendFailure("norma.tasks.add_feature", err)
 		return result, addFeatureOutput{ToolOutcome: out}, nil
@@ -388,6 +389,25 @@ func (s *service) setRun(ctx context.Context, _ *mcp.CallToolRequest, in setRunI
 
 	if err := s.tracker.SetRun(ctx, id, runID); err != nil {
 		result, out := backendFailure("norma.tasks.set_run", err)
+		return result, basicOutput{ToolOutcome: out}, nil
+	}
+	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
+}
+
+func (s *service) setAssignee(ctx context.Context, _ *mcp.CallToolRequest, in setAssigneeInput) (*mcp.CallToolResult, basicOutput, error) {
+	id := strings.TrimSpace(in.ID)
+	if id == "" {
+		result, out := validationFailure("norma.tasks.set_assignee", "id is required")
+		return result, basicOutput{ToolOutcome: out}, nil
+	}
+	assignee := strings.TrimSpace(in.Assignee)
+	if assignee == "" {
+		result, out := validationFailure("norma.tasks.set_assignee", "assignee is required")
+		return result, basicOutput{ToolOutcome: out}, nil
+	}
+
+	if err := s.tracker.SetAssignee(ctx, id, assignee); err != nil {
+		result, out := backendFailure("norma.tasks.set_assignee", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -599,6 +619,7 @@ func toTaskRecord(item task.Task) taskRecord {
 		RunID:     item.RunID,
 		Priority:  item.Priority,
 		Assignee:  item.Assignee,
+		Owner:     item.Owner,
 		Labels:    labels,
 		Notes:     item.Notes,
 		CreatedAt: item.CreatedAt,

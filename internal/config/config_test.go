@@ -133,3 +133,66 @@ func TestIsPlannerSupportedType(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSwarmRoles_UsesDefaultAndOverrideProviders(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				"codex":  {Type: AgentTypeCodexACP, CodexACP: &agentconfig.ACPConfig{Model: "codex"}},
+				"open":   {Type: AgentTypeOpenCodeACP, OpenCodeACP: &agentconfig.ACPConfig{Model: "open"}},
+				"gemini": {Type: AgentTypeGeminiACP, GeminiACP: &agentconfig.ACPConfig{Model: "gemini"}},
+			},
+		},
+	}
+
+	roles, err := cfg.ResolveSwarmRoles(CLISettings{
+		Swarm: SwarmConfig{
+			PrimaryRole:     "coordinator",
+			DefaultProvider: "codex",
+			Roles: map[string]SwarmRoleConfig{
+				"coordinator": {Assignee: "norma-coordinator", Instruction: "coordinate"},
+				"planner":     {Assignee: "norma-planner", Instruction: "plan", Provider: "gemini"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveSwarmRoles returned error: %v", err)
+	}
+	if got := roles["coordinator"].ProviderID; got != "codex" {
+		t.Fatalf("coordinator provider = %q, want codex", got)
+	}
+	if got := roles["planner"].ProviderID; got != "gemini" {
+		t.Fatalf("planner provider = %q, want gemini", got)
+	}
+	if !roles["coordinator"].IsPrimaryRole {
+		t.Fatal("coordinator IsPrimaryRole = false, want true")
+	}
+}
+
+func TestResolveSwarmRoles_ReturnsErrorForDuplicateAssignee(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				"codex": {Type: AgentTypeCodexACP, CodexACP: &agentconfig.ACPConfig{Model: "codex"}},
+			},
+		},
+	}
+
+	_, err := cfg.ResolveSwarmRoles(CLISettings{
+		Swarm: SwarmConfig{
+			PrimaryRole:     "coordinator",
+			DefaultProvider: "codex",
+			Roles: map[string]SwarmRoleConfig{
+				"coordinator": {Assignee: "norma-role", Instruction: "coordinate"},
+				"planner":     {Assignee: "norma-role", Instruction: "plan"},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("ResolveSwarmRoles returned nil error, want duplicate assignee error")
+	}
+}

@@ -59,6 +59,7 @@ func TestTasksServerListsAllTrackerParityTools(t *testing.T) {
 		"norma.tasks.mark_done",
 		"norma.tasks.mark_status",
 		"norma.tasks.remove_label",
+		"norma.tasks.set_assignee",
 		"norma.tasks.set_notes",
 		"norma.tasks.set_run",
 		"norma.tasks.update",
@@ -118,7 +119,7 @@ func TestTasksToolsSuccess(t *testing.T) {
 	}{
 		{name: "add", toolName: "norma.tasks.add", args: map[string]any{"title": "T", "goal": "G"}, assertKey: "task_id"},
 		{name: "add epic", toolName: "norma.tasks.add_epic", args: map[string]any{"title": "E", "goal": "G"}, assertKey: "task_id"},
-		{name: "add feature", toolName: "norma.tasks.add_feature", args: map[string]any{"epic_id": "norma-epic.1", "title": "F"}, assertKey: "task_id"},
+		{name: "add feature", toolName: "norma.tasks.add_feature", args: map[string]any{"epic_id": "norma-epic.1", "title": "F", "goal": "feature goal"}, assertKey: "task_id"},
 		{name: "add followup", toolName: "norma.tasks.add_follow_up", args: map[string]any{"parent_id": "norma-parent.1", "title": "FU", "goal": "G"}, assertKey: "task_id"},
 		{name: "list", toolName: "norma.tasks.list", args: map[string]any{"status": "doing"}, assertKey: "tasks"},
 		{name: "list features", toolName: "norma.tasks.list_features", args: map[string]any{"epic_id": "norma-epic.1"}, assertKey: "tasks"},
@@ -129,6 +130,7 @@ func TestTasksToolsSuccess(t *testing.T) {
 		{name: "update", toolName: "norma.tasks.update", args: map[string]any{"id": "norma-task.1", "title": "new", "goal": "new goal"}},
 		{name: "delete", toolName: "norma.tasks.delete", args: map[string]any{"id": "norma-task.1"}},
 		{name: "set run", toolName: "norma.tasks.set_run", args: map[string]any{"id": "norma-task.1", "run_id": "run-1"}},
+		{name: "set assignee", toolName: "norma.tasks.set_assignee", args: map[string]any{"id": "norma-task.1", "assignee": "norma-planner"}},
 		{name: "add dependency", toolName: "norma.tasks.add_dependency", args: map[string]any{"task_id": "norma-task.1", "depends_on_id": "norma-task.2"}},
 		{name: "leaf", toolName: "norma.tasks.leaf", args: map[string]any{}, assertKey: "tasks"},
 		{name: "workflow state", toolName: "norma.tasks.update_workflow_state", args: map[string]any{"id": "norma-task.1", "state": "planning"}},
@@ -219,11 +221,11 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 		t.Fatalf("mcp task_id = %v, want %q", mcpEpic["task_id"], directEpicID)
 	}
 
-	directFeatureID, err := tracker.AddFeature(ctx, "norma-epic.1", "Feature")
+	directFeatureID, err := tracker.AddFeature(ctx, "norma-epic.1", "Feature", "feature goal")
 	if err != nil {
 		t.Fatalf("direct AddFeature error = %v", err)
 	}
-	mcpFeature := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.add_feature", map[string]any{"epic_id": "norma-epic.1", "title": "Feature"}))
+	mcpFeature := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.add_feature", map[string]any{"epic_id": "norma-epic.1", "title": "Feature", "goal": "feature goal"}))
 	if mcpFeature["task_id"] != directFeatureID {
 		t.Fatalf("mcp task_id = %v, want %q", mcpFeature["task_id"], directFeatureID)
 	}
@@ -273,6 +275,14 @@ func TestDirectAndMCPParityCoreWorkflows(t *testing.T) {
 	mcpNotes := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.set_notes", map[string]any{"id": "norma-task.1", "notes": "notes"}))
 	if mcpNotes["ok"] != true {
 		t.Fatalf("mcp set notes ok = %v, want true", mcpNotes["ok"])
+	}
+
+	if err := tracker.SetAssignee(ctx, "norma-task.1", "norma-planner"); err != nil {
+		t.Fatalf("direct SetAssignee error = %v", err)
+	}
+	mcpAssignee := structuredResultMap(t, callTool(t, ctx, session, "norma.tasks.set_assignee", map[string]any{"id": "norma-task.1", "assignee": "norma-planner"}))
+	if mcpAssignee["ok"] != true {
+		t.Fatalf("mcp set assignee ok = %v, want true", mcpAssignee["ok"])
 	}
 
 	if err := tracker.MarkStatus(ctx, "norma-task.1", "done"); err != nil {
@@ -401,7 +411,7 @@ func (m *mockTracker) AddEpic(_ context.Context, _, _ string) (string, error) {
 	return "norma-epic.1", nil
 }
 
-func (m *mockTracker) AddFeature(_ context.Context, _, _ string) (string, error) {
+func (m *mockTracker) AddFeature(_ context.Context, _, _, _ string) (string, error) {
 	if err := m.fail("AddFeature"); err != nil {
 		return "", err
 	}
@@ -458,6 +468,10 @@ func (m *mockTracker) Delete(_ context.Context, _ string) error {
 
 func (m *mockTracker) SetRun(_ context.Context, _, _ string) error {
 	return m.fail("SetRun")
+}
+
+func (m *mockTracker) SetAssignee(_ context.Context, _, _ string) error {
+	return m.fail("SetAssignee")
 }
 
 func (m *mockTracker) AddDependency(_ context.Context, _, _ string) error {
@@ -522,6 +536,7 @@ func sampleTask(id, status string) task.Task {
 		RunID:    &runID,
 		Priority: 1,
 		Assignee: "agent",
+		Owner:    "owner",
 		Labels:   []string{"norma"},
 		Notes:    "{}",
 	}

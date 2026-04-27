@@ -55,7 +55,7 @@ func (m *mockTracker) Add(context.Context, string, string, []task.AcceptanceCrit
 	return "", nil
 }
 func (m *mockTracker) AddEpic(context.Context, string, string) (string, error) { return "", nil }
-func (m *mockTracker) AddFeature(context.Context, string, string) (string, error) {
+func (m *mockTracker) AddFeature(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
 func (m *mockTracker) List(_ context.Context, _ *string) ([]task.Task, error) {
@@ -104,6 +104,7 @@ func (m *mockTracker) SetRun(_ context.Context, _ string, runID string) error {
 	m.setRunCalls = append(m.setRunCalls, runID)
 	return m.setRunErr
 }
+func (m *mockTracker) SetAssignee(context.Context, string, string) error   { return nil }
 func (m *mockTracker) AddDependency(context.Context, string, string) error { return nil }
 func (m *mockTracker) LeafTasks(_ context.Context) ([]task.Task, error) {
 	m.mu.RLock()

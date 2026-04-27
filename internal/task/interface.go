@@ -23,6 +23,7 @@ type Task struct {
 	RunID     *string
 	Priority  int
 	Assignee  string
+	Owner     string
 	Labels    []string
 	Notes     string
 	CreatedAt string
@@ -33,7 +34,7 @@ type Task struct {
 type Tracker interface {
 	Add(ctx context.Context, title, goal string, criteria []AcceptanceCriterion, runID *string) (string, error)
 	AddEpic(ctx context.Context, title, goal string) (string, error)
-	AddFeature(ctx context.Context, epicID, title string) (string, error)
+	AddFeature(ctx context.Context, epicID, title, goal string) (string, error)
 	List(ctx context.Context, status *string) ([]Task, error)
 	ListFeatures(ctx context.Context, epicID string) ([]Task, error)
 	Children(ctx context.Context, parentID string) ([]Task, error)
@@ -48,6 +49,7 @@ type Tracker interface {
 	UpdateWorkflowState(ctx context.Context, id string, state string) error
 	AddLabel(ctx context.Context, id string, label string) error
 	RemoveLabel(ctx context.Context, id string, label string) error
+	SetAssignee(ctx context.Context, id string, assignee string) error
 	SetNotes(ctx context.Context, id string, notes string) error
 	CloseWithReason(ctx context.Context, id string, reason string) error
 	AddRelatedLink(ctx context.Context, id1, id2 string) error

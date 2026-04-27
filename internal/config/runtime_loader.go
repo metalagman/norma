@@ -17,6 +17,7 @@ type RuntimeLoadOptions = appconfig.RuntimeLoadOptions
 type CLISettings struct {
 	PDCA      PDCAAgentRefs   `mapstructure:"pdca"    validate:"required"`
 	Planner   string          `mapstructure:"planner" validate:"omitempty,min=1"`
+	Swarm     SwarmConfig     `mapstructure:"swarm"`
 	Budgets   Budgets         `mapstructure:"budgets"`
 	Retention RetentionPolicy `mapstructure:"retention"`
 }
@@ -51,8 +52,8 @@ func LoadRuntime(opts RuntimeLoadOptions) (Config, error) {
 	return cfg, nil
 }
 
-// LoadRuntimeAndCLIConfig loads runtime config and CLI app settings.
-func LoadRuntimeAndCLIConfig(opts RuntimeLoadOptions) (Config, CLISettings, error) {
+// LoadRuntimeAndCLIConfigUnresolved loads runtime config and CLI settings without resolving PDCA role IDs.
+func LoadRuntimeAndCLIConfigUnresolved(opts RuntimeLoadOptions) (Config, CLISettings, error) {
 	var doc cliConfigDocument
 	selectedProfile, err := appconfig.LoadConfigDocument(opts, appconfig.AppLoadOptions{AppName: "cli"}, &doc)
 	if err != nil {
@@ -67,11 +68,21 @@ func LoadRuntimeAndCLIConfig(opts RuntimeLoadOptions) (Config, CLISettings, erro
 		cfg.Profile = defaultProfile
 	}
 
-	roleIDs, err := cfg.ResolveRoleIDs(doc.CLI)
+	return cfg, doc.CLI, nil
+}
+
+// LoadRuntimeAndCLIConfig loads runtime config and CLI app settings.
+func LoadRuntimeAndCLIConfig(opts RuntimeLoadOptions) (Config, CLISettings, error) {
+	cfg, cli, err := LoadRuntimeAndCLIConfigUnresolved(opts)
+	if err != nil {
+		return Config{}, CLISettings{}, err
+	}
+
+	roleIDs, err := cfg.ResolveRoleIDs(cli)
 	if err != nil {
 		return Config{}, CLISettings{}, fmt.Errorf("resolve role ids: %w", err)
 	}
 	cfg.RoleIDs = roleIDs
 
-	return cfg, doc.CLI, nil
+	return cfg, cli, nil
 }

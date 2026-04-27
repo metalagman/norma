@@ -25,6 +25,7 @@ type taskRecord struct {
 	RunID     *string         `json:"run_id,omitempty" jsonschema:"external run ID associated with the issue"`
 	Priority  int             `json:"priority,omitempty" jsonschema:"issue priority where lower numbers are more important"`
 	Assignee  string          `json:"assignee,omitempty" jsonschema:"assigned owner"`
+	Owner     string          `json:"owner,omitempty" jsonschema:"tracked owner from Beads"`
 	Labels    []string        `json:"labels,omitempty" jsonschema:"issue labels"`
 	Notes     string          `json:"notes,omitempty" jsonschema:"issue notes"`
 	CreatedAt string          `json:"created_at,omitempty" jsonschema:"creation timestamp"`
@@ -71,6 +72,7 @@ type addEpicOutput struct {
 type addFeatureInput struct {
 	EpicID string `json:"epic_id" jsonschema:"epic id"`
 	Title  string `json:"title" jsonschema:"feature title"`
+	Goal   string `json:"goal,omitempty" jsonschema:"feature goal"`
 }
 
 type addFeatureOutput struct {
@@ -144,6 +146,11 @@ type updateTaskInput struct {
 type setRunInput struct {
 	ID    string `json:"id" jsonschema:"task id"`
 	RunID string `json:"run_id" jsonschema:"external run id"`
+}
+
+type setAssigneeInput struct {
+	ID       string `json:"id" jsonschema:"task id"`
+	Assignee string `json:"assignee" jsonschema:"task assignee"`
 }
 
 type addDependencyInput struct {

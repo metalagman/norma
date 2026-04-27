@@ -20,6 +20,7 @@ import (
 	prunecmd "github.com/normahq/norma/cmd/norma/prune"
 	runcmd "github.com/normahq/norma/cmd/norma/run"
 	runscmd "github.com/normahq/norma/cmd/norma/runs"
+	swarmcmd "github.com/normahq/norma/cmd/norma/swarm"
 	toolcmd "github.com/normahq/norma/cmd/norma/tool"
 	"github.com/normahq/norma/internal/git"
 	"github.com/normahq/norma/internal/logging"
@@ -82,6 +83,7 @@ func Execute() error {
 	rootCmd.AddCommand(loopcmd.Command())
 	rootCmd.AddCommand(runcmd.Command())
 	rootCmd.AddCommand(runscmd.Command())
+	rootCmd.AddCommand(swarmcmd.Command())
 	rootCmd.AddCommand(plancmd.Command())
 	rootCmd.AddCommand(mcpcmd.Command())
 	rootCmd.AddCommand(toolcmd.Command())
