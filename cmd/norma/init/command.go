@@ -153,12 +153,26 @@ cli:
     do: gemini_acp_agent
     check: gemini_acp_agent
     act: gemini_acp_agent
-  planner: gemini_acp_agent
   budgets:
     max_iterations: 5
   retention:
     keep_last: 50
     keep_days: 30
+planner:
+  provider: gemini_acp_agent
+swarm:
+  primary_role: coordinator
+  default_provider: gemini_acp_agent
+  roles:
+    coordinator:
+      assignee: norma-coordinator
+      instruction: Decide routing, resolve bounced tasks, supervise swarm progress.
+    planner:
+      assignee: norma-planner
+      instruction: Break down work and assign tasks to roles.
+    implementer:
+      assignee: norma-implementer
+      instruction: Implement assigned tasks.
 profiles:
   default:
     cli:
@@ -167,7 +181,10 @@ profiles:
         do: gemini_acp_agent
         check: gemini_acp_agent
         act: gemini_acp_agent
-      planner: gemini_acp_agent
+    planner:
+      provider: gemini_acp_agent
+    swarm:
+      default_provider: gemini_acp_agent
   gemini:
     cli:
       pdca:
@@ -175,7 +192,10 @@ profiles:
         do: gemini_acp_agent
         check: gemini_acp_agent
         act: gemini_acp_agent
-      planner: gemini_acp_agent
+    planner:
+      provider: gemini_acp_agent
+    swarm:
+      default_provider: gemini_acp_agent
   opencode:
     cli:
       pdca:
@@ -183,7 +203,10 @@ profiles:
         do: opencode_acp_agent
         check: opencode_acp_agent
         act: opencode_acp_agent
-      planner: opencode_acp_agent
+    planner:
+      provider: opencode_acp_agent
+    swarm:
+      default_provider: opencode_acp_agent
   acp:
     cli:
       pdca:
@@ -191,7 +214,10 @@ profiles:
         do: opencode_acp_agent
         check: codex_acp_agent
         act: codex_acp_agent
-      planner: gemini_acp_agent
+    planner:
+      provider: gemini_acp_agent
+    swarm:
+      default_provider: codex_acp_agent
   copilot:
     cli:
       pdca:
@@ -199,7 +225,10 @@ profiles:
         do: copilot_acp
         check: copilot_acp
         act: copilot_acp
-      planner: copilot_acp
+    planner:
+      provider: copilot_acp
+    swarm:
+      default_provider: copilot_acp
   pool_fallback:
     cli:
       pdca:
@@ -207,5 +236,8 @@ profiles:
         do: fallback_pool
         check: fallback_pool
         act: fallback_pool
-      planner: fallback_pool
+    planner:
+      provider: fallback_pool
+    swarm:
+      default_provider: fallback_pool
 `

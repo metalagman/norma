@@ -16,8 +16,13 @@ type Config struct {
 	RoleIDs map[string]string           `json:"-"                  mapstructure:"-"`
 }
 
-// SwarmConfig defines config for assignee-routed swarm execution.
-type SwarmConfig struct {
+// PlannerSettings defines config for the interactive planner app.
+type PlannerSettings struct {
+	Provider string `json:"provider,omitempty" mapstructure:"provider" validate:"omitempty,min=1"`
+}
+
+// SwarmSettings defines config for assignee-routed swarm execution.
+type SwarmSettings struct {
 	PrimaryRole     string                     `json:"primary_role,omitempty"     mapstructure:"primary_role"     validate:"omitempty,min=1"`
 	DefaultProvider string                     `json:"default_provider,omitempty" mapstructure:"default_provider" validate:"omitempty,min=1"`
 	Roles           map[string]SwarmRoleConfig `json:"roles,omitempty"            mapstructure:"roles"`
@@ -87,14 +92,14 @@ func IsPlannerSupportedType(agentType string) bool {
 	return agentconfig.IsPlannerSupportedType(agentType)
 }
 
-// ResolveRoleIDs resolves role agent IDs from CLI app settings.
+// ResolveRoleIDs resolves PDCA role agent IDs from CLI app settings.
 func (c Config) ResolveRoleIDs(cli CLISettings) (map[string]string, error) {
 	if len(c.Runtime.Providers) == 0 {
 		return nil, fmt.Errorf("missing global agents configuration")
 	}
 
 	refs := cli.PDCA
-	resolved := make(map[string]string, 5)
+	resolved := make(map[string]string, 4)
 
 	resolve := func(role, agentName string) error {
 		name := strings.TrimSpace(agentName)
@@ -121,39 +126,48 @@ func (c Config) ResolveRoleIDs(cli CLISettings) (map[string]string, error) {
 		return nil, err
 	}
 
-	if cli.Planner != "" {
-		if err := resolve("planner", cli.Planner); err != nil {
-			return nil, err
-		}
-	}
-
 	return resolved, nil
 }
 
-// ResolveSwarmRoles validates and resolves swarm roles from CLI settings.
-func (c Config) ResolveSwarmRoles(cli CLISettings) (map[string]ResolvedSwarmRoleConfig, error) {
+// ResolvePlannerProvider validates and resolves planner provider settings.
+func (c Config) ResolvePlannerProvider(planner PlannerSettings) (string, error) {
+	if len(c.Runtime.Providers) == 0 {
+		return "", fmt.Errorf("missing global agents configuration")
+	}
+
+	providerID := strings.TrimSpace(planner.Provider)
+	if providerID == "" {
+		return "", fmt.Errorf("planner.provider is required")
+	}
+	if _, ok := c.Runtime.Providers[providerID]; !ok {
+		return "", fmt.Errorf("planner.provider %q is not defined in runtime.providers", providerID)
+	}
+	return providerID, nil
+}
+
+// ResolveSwarmRoles validates and resolves swarm roles from swarm settings.
+func (c Config) ResolveSwarmRoles(swarm SwarmSettings) (map[string]ResolvedSwarmRoleConfig, error) {
 	if len(c.Runtime.Providers) == 0 {
 		return nil, fmt.Errorf("missing global agents configuration")
 	}
-	swarm := cli.Swarm
 	if len(swarm.Roles) == 0 {
-		return nil, fmt.Errorf("cli.swarm.roles is required")
+		return nil, fmt.Errorf("swarm.roles is required")
 	}
 
 	primaryRole := strings.TrimSpace(swarm.PrimaryRole)
 	if primaryRole == "" {
-		return nil, fmt.Errorf("cli.swarm.primary_role is required")
+		return nil, fmt.Errorf("swarm.primary_role is required")
 	}
 	if _, ok := swarm.Roles[primaryRole]; !ok {
-		return nil, fmt.Errorf("cli.swarm.primary_role %q does not exist in cli.swarm.roles", primaryRole)
+		return nil, fmt.Errorf("swarm.primary_role %q does not exist in swarm.roles", primaryRole)
 	}
 
 	defaultProvider := strings.TrimSpace(swarm.DefaultProvider)
 	if defaultProvider == "" {
-		return nil, fmt.Errorf("cli.swarm.default_provider is required")
+		return nil, fmt.Errorf("swarm.default_provider is required")
 	}
 	if _, ok := c.Runtime.Providers[defaultProvider]; !ok {
-		return nil, fmt.Errorf("cli.swarm.default_provider %q is not defined in runtime.providers", defaultProvider)
+		return nil, fmt.Errorf("swarm.default_provider %q is not defined in runtime.providers", defaultProvider)
 	}
 
 	resolved := make(map[string]ResolvedSwarmRoleConfig, len(swarm.Roles))
@@ -161,25 +175,25 @@ func (c Config) ResolveSwarmRoles(cli CLISettings) (map[string]ResolvedSwarmRole
 	for key, role := range swarm.Roles {
 		roleKey := strings.TrimSpace(key)
 		if roleKey == "" {
-			return nil, fmt.Errorf("cli.swarm.roles contains an empty role key")
+			return nil, fmt.Errorf("swarm.roles contains an empty role key")
 		}
 		assignee := strings.TrimSpace(role.Assignee)
 		if assignee == "" {
-			return nil, fmt.Errorf("cli.swarm.roles.%s.assignee is required", roleKey)
+			return nil, fmt.Errorf("swarm.roles.%s.assignee is required", roleKey)
 		}
 		instruction := strings.TrimSpace(role.Instruction)
 		if instruction == "" {
-			return nil, fmt.Errorf("cli.swarm.roles.%s.instruction is required", roleKey)
+			return nil, fmt.Errorf("swarm.roles.%s.instruction is required", roleKey)
 		}
 		providerID := strings.TrimSpace(role.Provider)
 		if providerID == "" {
 			providerID = defaultProvider
 		}
 		if _, ok := c.Runtime.Providers[providerID]; !ok {
-			return nil, fmt.Errorf("cli.swarm.roles.%s.provider %q is not defined in runtime.providers", roleKey, providerID)
+			return nil, fmt.Errorf("swarm.roles.%s.provider %q is not defined in runtime.providers", roleKey, providerID)
 		}
 		if prev, exists := seenAssignees[assignee]; exists {
-			return nil, fmt.Errorf("cli.swarm.roles.%s.assignee duplicates cli.swarm.roles.%s.assignee (%q)", roleKey, prev, assignee)
+			return nil, fmt.Errorf("swarm.roles.%s.assignee duplicates swarm.roles.%s.assignee (%q)", roleKey, prev, assignee)
 		}
 		seenAssignees[assignee] = roleKey
 		resolved[roleKey] = ResolvedSwarmRoleConfig{

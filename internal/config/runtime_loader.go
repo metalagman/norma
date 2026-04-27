@@ -16,8 +16,6 @@ type RuntimeLoadOptions = appconfig.RuntimeLoadOptions
 // CLISettings are app-specific settings for norma CLI commands.
 type CLISettings struct {
 	PDCA      PDCAAgentRefs   `mapstructure:"pdca"    validate:"required"`
-	Planner   string          `mapstructure:"planner" validate:"omitempty,min=1"`
-	Swarm     SwarmConfig     `mapstructure:"swarm"`
 	Budgets   Budgets         `mapstructure:"budgets"`
 	Retention RetentionPolicy `mapstructure:"retention"`
 }
@@ -41,6 +39,16 @@ func (c CLISettings) EffectiveRetention() RetentionPolicy {
 type cliConfigDocument struct {
 	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
 	CLI     CLISettings             `mapstructure:"cli"`
+}
+
+type swarmConfigDocument struct {
+	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
+	Swarm   SwarmSettings           `mapstructure:"swarm"`
+}
+
+type plannerConfigDocument struct {
+	Runtime appconfig.RuntimeConfig `mapstructure:"runtime"`
+	Planner PlannerSettings         `mapstructure:"planner"`
 }
 
 // LoadRuntime loads and validates runtime core config for norma CLI commands.
@@ -85,4 +93,42 @@ func LoadRuntimeAndCLIConfig(opts RuntimeLoadOptions) (Config, CLISettings, erro
 	cfg.RoleIDs = roleIDs
 
 	return cfg, cli, nil
+}
+
+// LoadRuntimeAndSwarmConfig loads runtime config and swarm settings.
+func LoadRuntimeAndSwarmConfig(opts RuntimeLoadOptions) (Config, SwarmSettings, error) {
+	var doc swarmConfigDocument
+	selectedProfile, err := appconfig.LoadConfigDocument(opts, appconfig.AppLoadOptions{AppName: "swarm"}, &doc)
+	if err != nil {
+		return Config{}, SwarmSettings{}, err
+	}
+
+	cfg := Config{
+		Runtime: doc.Runtime,
+		Profile: strings.TrimSpace(selectedProfile),
+	}
+	if cfg.Profile == "" {
+		cfg.Profile = defaultProfile
+	}
+
+	return cfg, doc.Swarm, nil
+}
+
+// LoadRuntimeAndPlannerConfig loads runtime config and planner settings.
+func LoadRuntimeAndPlannerConfig(opts RuntimeLoadOptions) (Config, PlannerSettings, error) {
+	var doc plannerConfigDocument
+	selectedProfile, err := appconfig.LoadConfigDocument(opts, appconfig.AppLoadOptions{AppName: "planner"}, &doc)
+	if err != nil {
+		return Config{}, PlannerSettings{}, err
+	}
+
+	cfg := Config{
+		Runtime: doc.Runtime,
+		Profile: strings.TrimSpace(selectedProfile),
+	}
+	if cfg.Profile == "" {
+		cfg.Profile = defaultProfile
+	}
+
+	return cfg, doc.Planner, nil
 }

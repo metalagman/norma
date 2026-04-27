@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/normahq/norma/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -16,8 +15,7 @@ func TestPlannerREPLConfig_DoesNotConfigureStartupPrompt(t *testing.T) {
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
-	cfg := config.Config{}
-	got := plannerREPLConfig(cmd, t.TempDir(), cfg, "planner-id")
+	got := plannerREPLConfig(cmd, t.TempDir(), plannerRuntimeConfig{PlannerProviderID: "planner-id"})
 	if got.StartupPrompt != "" {
 		t.Fatalf("StartupPrompt = %q, want empty", got.StartupPrompt)
 	}

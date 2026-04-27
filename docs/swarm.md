@@ -24,25 +24,29 @@ Swarm is assignment- and state-driven.
 
 ## Config
 
-Swarm configuration lives under `cli.swarm` in `.norma/config.yaml`:
+Swarm configuration lives under the top-level `swarm` key in `.norma/config.yaml`:
 
 ```yaml
-cli:
-  swarm:
-    primary_role: coordinator
-    default_provider: codex_acp_agent
-    roles:
-      coordinator:
-        assignee: norma-coordinator
-        instruction: Decide routing, resolve bounced tasks, supervise swarm progress.
-      planner:
-        assignee: norma-planner
-        instruction: Break down work and assign tasks to roles.
-        provider: gemini_acp_agent
-      implementer:
-        assignee: norma-implementer
-        instruction: Implement assigned tasks.
-        provider: opencode_acp_agent
+swarm:
+  primary_role: coordinator
+  default_provider: codex_acp_agent
+  roles:
+    coordinator:
+      assignee: norma-coordinator
+      instruction: Decide routing, resolve bounced tasks, supervise swarm progress.
+    planner:
+      assignee: norma-planner
+      instruction: Break down work and assign tasks to roles.
+      provider: gemini_acp_agent
+    implementer:
+      assignee: norma-implementer
+      instruction: Implement assigned tasks.
+      provider: opencode_acp_agent
+
+profiles:
+  opencode:
+    swarm:
+      default_provider: opencode_acp_agent
 ```
 
 Rules:
@@ -127,7 +131,7 @@ norma swarm norma-phmp
 
 causes Norma to:
 
-1. load `cli.swarm`
+1. load `runtime` + `swarm`
 2. build one role agent instance per configured role
 3. start an embedded task MCP server
 4. scan ready leaf tasks

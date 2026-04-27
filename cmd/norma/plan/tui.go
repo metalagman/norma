@@ -29,14 +29,9 @@ func runTUI(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("current directory is not a git repository")
 	}
 
-	cfg, err := loadConfig(workingDir)
+	plannerCfg, err := loadPlannerRuntimeConfig(workingDir)
 	if err != nil {
 		return err
 	}
-
-	plannerID, ok := cfg.RoleIDs["planner"]
-	if !ok {
-		return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
-	}
-	return runAgentPlanner(cmd, workingDir, cfg.Runtime.Providers, cfg.Runtime.MCPServers, plannerID)
+	return runAgentPlanner(cmd, workingDir, plannerCfg)
 }

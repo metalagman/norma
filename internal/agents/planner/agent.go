@@ -11,10 +11,19 @@ import (
 	"google.golang.org/genai"
 )
 
+// Options configures planner-specific wrapper behavior.
+type Options struct {
+	CoordinatorAssignee string
+}
+
 // New wraps a base ADK agent with planner-specific prompt/identity behavior.
-func New(base adkagent.Agent) (adkagent.Agent, error) {
+func New(base adkagent.Agent, opts ...Options) (adkagent.Agent, error) {
 	if base == nil {
 		return nil, fmt.Errorf("base agent is required")
+	}
+	var cfg Options
+	if len(opts) > 0 {
+		cfg = opts[0]
 	}
 
 	desc := strings.TrimSpace(base.Description())
@@ -27,6 +36,7 @@ func New(base adkagent.Agent) (adkagent.Agent, error) {
 		base:        base,
 		name:        decoratedAgentName(base.Name()),
 		description: desc,
+		options:     cfg,
 	}, nil
 }
 
@@ -37,6 +47,7 @@ type wrappedAgent struct {
 	base        adkagent.Agent
 	name        string
 	description string
+	options     Options
 }
 
 func (w *wrappedAgent) Name() string {
@@ -52,7 +63,7 @@ func (w *wrappedAgent) SubAgents() []adkagent.Agent {
 }
 
 func (w *wrappedAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
-	userPrompt := buildPlannerPrompt(contentText(ctx.UserContent()))
+	userPrompt := buildPlannerPrompt(contentText(ctx.UserContent()), w.options)
 
 	wrappedCtx := plannerInvocationContext{
 		InvocationContext: ctx,
@@ -100,12 +111,13 @@ func decoratedAgentName(baseName string) string {
 	return name + "_planner"
 }
 
-func buildPlannerPrompt(userPrompt string) string {
+func buildPlannerPrompt(userPrompt string, opts Options) string {
 	userPrompt = strings.TrimSpace(userPrompt)
+	systemPrompt := plannerInstruction(opts)
 	if userPrompt == "" {
-		return plannerInstruction()
+		return systemPrompt
 	}
-	return plannerInstruction() + "\n\n" + userPrompt
+	return systemPrompt + "\n\n" + userPrompt
 }
 
 func contentText(content *genai.Content) string {

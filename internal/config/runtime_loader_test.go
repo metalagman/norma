@@ -259,6 +259,202 @@ cli:
 	}
 }
 
+func TestLoadRuntimeAndSwarmConfig_LoadsTopLevelSwarmFromCoreConfig(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
+  providers:
+    agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["agent"]
+swarm:
+  primary_role: coordinator
+  default_provider: agent
+  roles:
+    coordinator:
+      assignee: norma-coordinator
+      instruction: coordinate
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	cfg, swarmCfg, err := LoadRuntimeAndSwarmConfig(RuntimeLoadOptions{WorkingDir: workingDir})
+	if err != nil {
+		t.Fatalf("LoadRuntimeAndSwarmConfig returned error: %v", err)
+	}
+	if cfg.Profile != "default" {
+		t.Fatalf("profile = %q, want default", cfg.Profile)
+	}
+	if got := swarmCfg.PrimaryRole; got != "coordinator" {
+		t.Fatalf("swarm primary_role = %q, want coordinator", got)
+	}
+	if got := swarmCfg.DefaultProvider; got != "agent" {
+		t.Fatalf("swarm default_provider = %q, want agent", got)
+	}
+}
+
+func TestLoadRuntimeAndSwarmConfig_AppliesProfileSwarmOverrides(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
+  providers:
+    base-agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["base"]
+    profile-agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["profile"]
+swarm:
+  primary_role: coordinator
+  default_provider: base-agent
+  roles:
+    coordinator:
+      assignee: norma-coordinator
+      instruction: coordinate
+profiles:
+  alt:
+    swarm:
+      default_provider: profile-agent
+      roles:
+        coordinator:
+          instruction: coordinate with alt provider
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	_, swarmCfg, err := LoadRuntimeAndSwarmConfig(RuntimeLoadOptions{
+		WorkingDir: workingDir,
+		Profile:    "alt",
+	})
+	if err != nil {
+		t.Fatalf("LoadRuntimeAndSwarmConfig returned error: %v", err)
+	}
+	if got := swarmCfg.DefaultProvider; got != "profile-agent" {
+		t.Fatalf("swarm default_provider = %q, want profile-agent", got)
+	}
+	if got := swarmCfg.Roles["coordinator"].Instruction; got != "coordinate with alt provider" {
+		t.Fatalf("coordinator instruction = %q, want profile override", got)
+	}
+}
+
+func TestLoadRuntimeAndSwarmConfig_DoesNotDependOnCLISection(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
+  providers:
+    agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["agent"]
+swarm:
+  primary_role: coordinator
+  default_provider: agent
+  roles:
+    coordinator:
+      assignee: norma-coordinator
+      instruction: coordinate
+cli:
+  budgets:
+    max_iterations: 0
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	_, swarmCfg, err := LoadRuntimeAndSwarmConfig(RuntimeLoadOptions{WorkingDir: workingDir})
+	if err != nil {
+		t.Fatalf("LoadRuntimeAndSwarmConfig returned error: %v", err)
+	}
+	if got := swarmCfg.Roles["coordinator"].Assignee; got != "norma-coordinator" {
+		t.Fatalf("coordinator assignee = %q, want norma-coordinator", got)
+	}
+}
+
+func TestLoadRuntimeAndPlannerConfig_LoadsTopLevelPlannerFromCoreConfig(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
+  providers:
+    planner-agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["agent"]
+planner:
+  provider: planner-agent
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	cfg, plannerCfg, err := LoadRuntimeAndPlannerConfig(RuntimeLoadOptions{WorkingDir: workingDir})
+	if err != nil {
+		t.Fatalf("LoadRuntimeAndPlannerConfig returned error: %v", err)
+	}
+	if cfg.Profile != "default" {
+		t.Fatalf("profile = %q, want default", cfg.Profile)
+	}
+	if got := plannerCfg.Provider; got != "planner-agent" {
+		t.Fatalf("planner provider = %q, want planner-agent", got)
+	}
+}
+
+func TestLoadRuntimeAndPlannerConfig_AppliesProfilePlannerOverrides(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
+  providers:
+    base-agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["base"]
+    profile-agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["profile"]
+planner:
+  provider: base-agent
+profiles:
+  alt:
+    planner:
+      provider: profile-agent
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	_, plannerCfg, err := LoadRuntimeAndPlannerConfig(RuntimeLoadOptions{
+		WorkingDir: workingDir,
+		Profile:    "alt",
+	})
+	if err != nil {
+		t.Fatalf("LoadRuntimeAndPlannerConfig returned error: %v", err)
+	}
+	if got := plannerCfg.Provider; got != "profile-agent" {
+		t.Fatalf("planner provider = %q, want profile-agent", got)
+	}
+}
+
+func TestLoadRuntimeAndPlannerConfig_DoesNotDependOnCLISection(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeRuntimeFile(filepath.Join(workingDir, ".norma", "config.yaml"), `runtime:
+  providers:
+    planner-agent:
+      type: generic_acp
+      generic_acp:
+        cmd: ["agent"]
+planner:
+  provider: planner-agent
+cli:
+  budgets:
+    max_iterations: 0
+`); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	_, plannerCfg, err := LoadRuntimeAndPlannerConfig(RuntimeLoadOptions{WorkingDir: workingDir})
+	if err != nil {
+		t.Fatalf("LoadRuntimeAndPlannerConfig returned error: %v", err)
+	}
+	if got := plannerCfg.Provider; got != "planner-agent" {
+		t.Fatalf("planner provider = %q, want planner-agent", got)
+	}
+}
+
 func TestLoadRuntime_AllowsExtraOutOfScopeFields(t *testing.T) {
 	workingDir := t.TempDir()
 	content := "runtime:\n" +

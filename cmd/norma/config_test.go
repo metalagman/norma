@@ -23,9 +23,10 @@ cli:
     do: opencode
     check: opencode
     act: opencode
-  planner: opencode
   budgets:
     max_iterations: 7
+planner:
+  provider: opencode
 `); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

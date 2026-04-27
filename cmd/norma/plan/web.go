@@ -31,15 +31,11 @@ func webCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			cfg, err := loadConfig(workingDir)
+			plannerCfg, err := loadPlannerRuntimeConfig(workingDir)
 			if err != nil {
 				return err
 			}
-			plannerID, ok := cfg.RoleIDs["planner"]
-			if !ok {
-				return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
-			}
-			plannerDebugAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), workingDir, cfg.Runtime.Providers, cfg.Runtime.MCPServers, plannerID)
+			plannerDebugAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), workingDir, plannerCfg)
 			if err != nil {
 				return err
 			}

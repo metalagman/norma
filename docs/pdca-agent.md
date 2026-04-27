@@ -282,7 +282,8 @@ cli:
     do: my_pool
     check: my_pool
     act: my_pool
-  planner: my_pool
+planner:
+  provider: my_pool
 ```
 
 ### Observability

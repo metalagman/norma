@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
@@ -36,7 +37,6 @@ func TestResolveRoleIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
 			Check: opencodeACPAgentID,
 			Act:   opencodeACPAgentID,
 		},
-		Planner: opencodeACPAgentID,
 	})
 	if err != nil {
 		t.Fatalf("ResolveRoleIDs returned error: %v", err)
@@ -52,9 +52,6 @@ func TestResolveRoleIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {
 	}
 	if agentIDs["act"] != opencodeACPAgentID {
 		t.Fatalf("act agent ID = %q, want %q", agentIDs["act"], opencodeACPAgentID)
-	}
-	if agentIDs["planner"] != opencodeACPAgentID {
-		t.Fatalf("planner agent ID = %q, want %q", agentIDs["planner"], opencodeACPAgentID)
 	}
 }
 
@@ -80,6 +77,71 @@ func TestResolveRoleIDs_ReturnsErrorForUndefinedAgentReference(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("ResolveRoleIDs returned nil error, want error")
+	}
+}
+
+func TestResolvePlannerProvider_ResolvesConfiguredProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				opencodeACPAgentID: {
+					Type: opencodeACPType,
+					OpenCodeACP: &agentconfig.ACPConfig{
+						Model: "opencode/big-pickle",
+					},
+				},
+			},
+		},
+	}
+
+	providerID, err := cfg.ResolvePlannerProvider(PlannerSettings{Provider: opencodeACPAgentID})
+	if err != nil {
+		t.Fatalf("ResolvePlannerProvider returned error: %v", err)
+	}
+	if providerID != opencodeACPAgentID {
+		t.Fatalf("provider ID = %q, want %q", providerID, opencodeACPAgentID)
+	}
+}
+
+func TestResolvePlannerProvider_ReturnsErrorForMissingProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				"defined": {Type: "gemini_acp", GeminiACP: &agentconfig.ACPConfig{Model: "gemini-3-flash-preview"}},
+			},
+		},
+	}
+
+	_, err := cfg.ResolvePlannerProvider(PlannerSettings{})
+	if err == nil {
+		t.Fatal("ResolvePlannerProvider returned nil error, want error")
+	}
+	if !strings.Contains(err.Error(), "planner.provider is required") {
+		t.Fatalf("ResolvePlannerProvider error = %q, want missing planner.provider", err)
+	}
+}
+
+func TestResolvePlannerProvider_ReturnsErrorForUnknownProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				"defined": {Type: "gemini_acp", GeminiACP: &agentconfig.ACPConfig{Model: "gemini-3-flash-preview"}},
+			},
+		},
+	}
+
+	_, err := cfg.ResolvePlannerProvider(PlannerSettings{Provider: "missing"})
+	if err == nil {
+		t.Fatal("ResolvePlannerProvider returned nil error, want error")
+	}
+	if !strings.Contains(err.Error(), `planner.provider "missing" is not defined in runtime.providers`) {
+		t.Fatalf("ResolvePlannerProvider error = %q, want unknown planner.provider", err)
 	}
 }
 
@@ -147,14 +209,12 @@ func TestResolveSwarmRoles_UsesDefaultAndOverrideProviders(t *testing.T) {
 		},
 	}
 
-	roles, err := cfg.ResolveSwarmRoles(CLISettings{
-		Swarm: SwarmConfig{
-			PrimaryRole:     "coordinator",
-			DefaultProvider: "codex",
-			Roles: map[string]SwarmRoleConfig{
-				"coordinator": {Assignee: "norma-coordinator", Instruction: "coordinate"},
-				"planner":     {Assignee: "norma-planner", Instruction: "plan", Provider: "gemini"},
-			},
+	roles, err := cfg.ResolveSwarmRoles(SwarmSettings{
+		PrimaryRole:     "coordinator",
+		DefaultProvider: "codex",
+		Roles: map[string]SwarmRoleConfig{
+			"coordinator": {Assignee: "norma-coordinator", Instruction: "coordinate"},
+			"planner":     {Assignee: "norma-planner", Instruction: "plan", Provider: "gemini"},
 		},
 	})
 	if err != nil {
@@ -182,17 +242,92 @@ func TestResolveSwarmRoles_ReturnsErrorForDuplicateAssignee(t *testing.T) {
 		},
 	}
 
-	_, err := cfg.ResolveSwarmRoles(CLISettings{
-		Swarm: SwarmConfig{
-			PrimaryRole:     "coordinator",
-			DefaultProvider: "codex",
-			Roles: map[string]SwarmRoleConfig{
-				"coordinator": {Assignee: "norma-role", Instruction: "coordinate"},
-				"planner":     {Assignee: "norma-role", Instruction: "plan"},
-			},
+	_, err := cfg.ResolveSwarmRoles(SwarmSettings{
+		PrimaryRole:     "coordinator",
+		DefaultProvider: "codex",
+		Roles: map[string]SwarmRoleConfig{
+			"coordinator": {Assignee: "norma-role", Instruction: "coordinate"},
+			"planner":     {Assignee: "norma-role", Instruction: "plan"},
 		},
 	})
 	if err == nil {
 		t.Fatal("ResolveSwarmRoles returned nil error, want duplicate assignee error")
+	}
+}
+
+func TestResolveSwarmRoles_ReturnsErrorForMissingPrimaryRole(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				"codex": {Type: AgentTypeCodexACP, CodexACP: &agentconfig.ACPConfig{Model: "codex"}},
+			},
+		},
+	}
+
+	_, err := cfg.ResolveSwarmRoles(SwarmSettings{
+		DefaultProvider: "codex",
+		Roles: map[string]SwarmRoleConfig{
+			"coordinator": {Assignee: "norma-role", Instruction: "coordinate"},
+		},
+	})
+	if err == nil {
+		t.Fatal("ResolveSwarmRoles returned nil error, want missing primary role error")
+	}
+	if !strings.Contains(err.Error(), "swarm.primary_role is required") {
+		t.Fatalf("ResolveSwarmRoles error = %q, want missing swarm.primary_role", err)
+	}
+}
+
+func TestResolveSwarmRoles_ReturnsErrorForMissingDefaultProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				"codex": {Type: AgentTypeCodexACP, CodexACP: &agentconfig.ACPConfig{Model: "codex"}},
+			},
+		},
+	}
+
+	_, err := cfg.ResolveSwarmRoles(SwarmSettings{
+		PrimaryRole: "coordinator",
+		Roles: map[string]SwarmRoleConfig{
+			"coordinator": {Assignee: "norma-role", Instruction: "coordinate"},
+		},
+	})
+	if err == nil {
+		t.Fatal("ResolveSwarmRoles returned nil error, want missing default provider error")
+	}
+	if !strings.Contains(err.Error(), "swarm.default_provider is required") {
+		t.Fatalf("ResolveSwarmRoles error = %q, want missing swarm.default_provider", err)
+	}
+}
+
+func TestResolveSwarmRoles_ReturnsErrorForUnknownProviderReference(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Runtime: runtimeconfig.RuntimeConfig{
+			Providers: map[string]AgentConfig{
+				"codex": {Type: AgentTypeCodexACP, CodexACP: &agentconfig.ACPConfig{Model: "codex"}},
+			},
+		},
+	}
+
+	_, err := cfg.ResolveSwarmRoles(SwarmSettings{
+		PrimaryRole:     "coordinator",
+		DefaultProvider: "codex",
+		Roles: map[string]SwarmRoleConfig{
+			"coordinator": {Assignee: "norma-role", Instruction: "coordinate"},
+			"planner":     {Assignee: "norma-planner", Instruction: "plan", Provider: "missing"},
+		},
+	})
+	if err == nil {
+		t.Fatal("ResolveSwarmRoles returned nil error, want unknown provider error")
+	}
+	if !strings.Contains(err.Error(), `swarm.roles.planner.provider "missing" is not defined in runtime.providers`) {
+		t.Fatalf("ResolveSwarmRoles error = %q, want unknown provider message", err)
 	}
 }

@@ -78,6 +78,27 @@ func TestPlannerWrapperInjectsInstructionPrompt(t *testing.T) {
 	}
 }
 
+func TestPlannerWrapperInjectsCoordinatorRoutingPrompt(t *testing.T) {
+	t.Parallel()
+
+	var seenPrompt string
+	base := mustNewTestAgent(t, "opencode_acp_agent", "base agent", func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+		seenPrompt = contentText(ctx.UserContent())
+		return turnComplete(ctx.InvocationID())
+	})
+
+	wrapped, err := New(base, Options{CoordinatorAssignee: "norma-coordinator"})
+	if err != nil {
+		t.Fatalf("New(base) error = %v", err)
+	}
+
+	runAgentOnce(t, wrapped, "plan the epic")
+
+	if !strings.Contains(seenPrompt, "automatically assigned to the swarm coordinator assignee 'norma-coordinator'") {
+		t.Fatalf("wrapped prompt missing coordinator routing guidance: %q", seenPrompt)
+	}
+}
+
 func TestPlannerWrapperCloseDelegatesToBase(t *testing.T) {
 	t.Parallel()
 

@@ -28,11 +28,11 @@ func Command() *cobra.Command {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
 
-			runtimeCfg, cliCfg, err := loadRuntimeAndCLIConfigUnresolved(workingDir)
+			runtimeCfg, swarmCfg, err := loadRuntimeAndSwarmConfig(workingDir)
 			if err != nil {
 				return err
 			}
-			roles, err := runtimeCfg.ResolveSwarmRoles(cliCfg)
+			roles, err := runtimeCfg.ResolveSwarmRoles(swarmCfg)
 			if err != nil {
 				return err
 			}

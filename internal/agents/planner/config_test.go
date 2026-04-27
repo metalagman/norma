@@ -46,3 +46,17 @@ func TestPlannerInstruction_ContainsNormaPlannerPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestPlannerInstruction_ContainsCoordinatorRoutingGuidance(t *testing.T) {
+	t.Parallel()
+
+	got := plannerInstruction(Options{CoordinatorAssignee: "norma-coordinator"})
+	for _, mustContain := range []string{
+		"automatically assigned to the swarm coordinator assignee 'norma-coordinator'",
+		"Use 'norma.tasks.set_assignee' only for deliberate rerouting after creation.",
+	} {
+		if !strings.Contains(got, mustContain) {
+			t.Fatalf("plannerInstruction() missing %q: %q", mustContain, got)
+		}
+	}
+}

@@ -385,6 +385,12 @@ func structuredResultMap(t *testing.T, result *mcp.CallToolResult) map[string]an
 
 type mockTracker struct {
 	failByMethod map[string]error
+	setAssignees []setAssigneeCall
+}
+
+type setAssigneeCall struct {
+	ID       string
+	Assignee string
 }
 
 func (m *mockTracker) fail(method string) error {
@@ -470,8 +476,12 @@ func (m *mockTracker) SetRun(_ context.Context, _, _ string) error {
 	return m.fail("SetRun")
 }
 
-func (m *mockTracker) SetAssignee(_ context.Context, _, _ string) error {
-	return m.fail("SetAssignee")
+func (m *mockTracker) SetAssignee(_ context.Context, id, assignee string) error {
+	if err := m.fail("SetAssignee"); err != nil {
+		return err
+	}
+	m.setAssignees = append(m.setAssignees, setAssigneeCall{ID: id, Assignee: assignee})
+	return nil
 }
 
 func (m *mockTracker) AddDependency(_ context.Context, _, _ string) error {

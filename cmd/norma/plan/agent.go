@@ -36,11 +36,9 @@ const (
 func runAgentPlanner(
 	cmd *cobra.Command,
 	workingDir string,
-	registry map[string]config.AgentConfig,
-	mcpRegistry map[string]config.MCPServerConfig,
-	plannerID string,
+	cfg plannerRuntimeConfig,
 ) error {
-	plannerAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), workingDir, registry, mcpRegistry, plannerID)
+	plannerAgent, closePlannerAgent, err := createPlannerAgent(cmd.Context(), workingDir, cfg)
 	if err != nil {
 		return err
 	}
@@ -306,11 +304,9 @@ func toTrimmedString(v any) string {
 func createPlannerAgent(
 	ctx context.Context,
 	workingDir string,
-	registry map[string]config.AgentConfig,
-	mcpRegistry map[string]config.MCPServerConfig,
-	plannerID string,
+	cfg plannerRuntimeConfig,
 ) (adkagent.Agent, func() error, error) {
-	return createPlannerAgentWithOptions(ctx, workingDir, registry, mcpRegistry, plannerID, plannerAgentCreateOptions{})
+	return createPlannerAgentWithOptions(ctx, workingDir, cfg, plannerAgentCreateOptions{})
 }
 
 type plannerAgentCreateOptions struct {
@@ -321,24 +317,26 @@ type plannerAgentCreateOptions struct {
 func createPlannerAgentWithOptions(
 	ctx context.Context,
 	workingDir string,
-	registry map[string]config.AgentConfig,
-	mcpRegistry map[string]config.MCPServerConfig,
-	plannerID string,
+	cfg plannerRuntimeConfig,
 	options plannerAgentCreateOptions,
 ) (adkagent.Agent, func() error, error) {
-	plannerID = strings.TrimSpace(plannerID)
+	plannerID := strings.TrimSpace(cfg.PlannerProviderID)
 	if plannerID == "" {
 		return nil, nil, fmt.Errorf("planner agent id is required")
+	}
+	coordinatorAssignee := strings.TrimSpace(cfg.CoordinatorAssignee)
+	if coordinatorAssignee == "" {
+		return nil, nil, fmt.Errorf("planner coordinator assignee is required")
 	}
 	stderr := options.Stderr
 
 	// Start embedded tasks MCP server over HTTP
-	taskServer, err := startEmbeddedTaskServer(ctx, workingDir)
+	taskServer, err := startEmbeddedTaskServer(ctx, workingDir, coordinatorAssignee)
 	if err != nil {
 		return nil, nil, fmt.Errorf("start embedded tasks MCP server: %w", err)
 	}
 
-	plannerMCP, err := plannerMCPServers(workingDir, mcpRegistry, taskServer.Addr)
+	plannerMCP, err := plannerMCPServers(workingDir, cfg.Runtime.Runtime.MCPServers, taskServer.Addr)
 	if err != nil {
 		_ = taskServer.Close()
 		return nil, nil, err
@@ -350,7 +348,7 @@ func createPlannerAgentWithOptions(
 		factoryOpts = append(factoryOpts, agentfactory.WithStderrWriter(stderr))
 	}
 	factory := agentfactory.New(
-		registry,
+		cfg.Runtime.Runtime.Providers,
 		mcpregistry.New(plannerMCP),
 		factoryOpts...,
 	)
@@ -365,7 +363,7 @@ func createPlannerAgentWithOptions(
 		return nil, nil, fmt.Errorf("create planner base agent %q: %w", plannerID, err)
 	}
 
-	plannerAgent, err := planner.New(baseAgent)
+	plannerAgent, err := planner.New(baseAgent, planner.Options{CoordinatorAssignee: coordinatorAssignee})
 	if err != nil {
 		if closer, ok := baseAgent.(interface{ Close() error }); ok {
 			_ = closer.Close()
@@ -390,7 +388,7 @@ func createPlannerAgentWithOptions(
 }
 
 // startEmbeddedTaskServer starts an embedded tasks MCP server over HTTP with a random port.
-func startEmbeddedTaskServer(ctx context.Context, workingDir string) (*tasksmcp.HTTPServerResult, error) {
+func startEmbeddedTaskServer(ctx context.Context, workingDir string, coordinatorAssignee string) (*tasksmcp.HTTPServerResult, error) {
 	trimmedWorkingDir := strings.TrimSpace(workingDir)
 	if trimmedWorkingDir == "" {
 		return nil, fmt.Errorf("working directory is required")
@@ -403,7 +401,7 @@ func startEmbeddedTaskServer(ctx context.Context, workingDir string) (*tasksmcp.
 	tracker := task.NewBeadsTracker("")
 	tracker.WorkingDir = absoluteWorkingDir
 
-	return tasksmcp.StartHTTPServer(ctx, tracker, "127.0.0.1:0")
+	return tasksmcp.StartHTTPServer(ctx, tasksmcp.NewCoordinatorAssigningTracker(tracker, coordinatorAssignee), "127.0.0.1:0")
 }
 
 func plannerMCPServers(workingDir string, configured map[string]config.MCPServerConfig, tasksServerAddr string) (map[string]agentconfig.MCPServerConfig, error) {

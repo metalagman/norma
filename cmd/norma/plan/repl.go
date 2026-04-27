@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/normahq/norma/internal/apps/acprepl"
-	"github.com/normahq/norma/internal/config"
 	"github.com/normahq/norma/internal/git"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/agent"
@@ -39,20 +38,16 @@ func runREPL(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("current directory is not a git repository")
 	}
 
-	cfg, err := loadConfig(workingDir)
+	plannerCfg, err := loadPlannerRuntimeConfig(workingDir)
 	if err != nil {
 		return err
-	}
-	plannerID, ok := cfg.RoleIDs["planner"]
-	if !ok {
-		return fmt.Errorf("planner agent not configured in selected profile %q", cfg.Profile)
 	}
 
 	if err := printPlannerREPLIntro(cmd.OutOrStdout()); err != nil {
 		return err
 	}
 
-	return acprepl.RunAgentREPL(cmd.Context(), plannerREPLConfig(cmd, workingDir, cfg, plannerID))
+	return acprepl.RunAgentREPL(cmd.Context(), plannerREPLConfig(cmd, workingDir, plannerCfg))
 }
 
 func printPlannerREPLIntro(stdout io.Writer) error {
@@ -60,7 +55,7 @@ func printPlannerREPLIntro(stdout io.Writer) error {
 	return err
 }
 
-func plannerREPLConfig(cmd *cobra.Command, workingDir string, cfg config.Config, plannerID string) acprepl.AgentREPLConfig {
+func plannerREPLConfig(cmd *cobra.Command, workingDir string, cfg plannerRuntimeConfig) acprepl.AgentREPLConfig {
 	return acprepl.AgentREPLConfig{
 		AppName: plannerREPLAppName,
 		UserID:  plannerREPLUserID,
@@ -72,7 +67,7 @@ func plannerREPLConfig(cmd *cobra.Command, workingDir string, cfg config.Config,
 			permissionHandler acprepl.PermissionHandler,
 			stderr io.Writer,
 		) (adkagent.Agent, func() error, error) {
-			return createPlannerAgentWithOptions(ctx, workingDir, cfg.Runtime.Providers, cfg.Runtime.MCPServers, plannerID, plannerAgentCreateOptions{
+			return createPlannerAgentWithOptions(ctx, workingDir, cfg, plannerAgentCreateOptions{
 				Stderr:            stderr,
 				PermissionHandler: permissionHandler,
 			})

@@ -1,5 +1,7 @@
 package planner
 
+import "strings"
+
 // codexBaseInstruction is the stable baseline guidance exposed by Codex CLI runtime code.
 // We keep it as the base tone and apply planner-specific constraints below.
 const codexBaseInstruction = "You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI. You are expected to be precise, safe, and helpful."
@@ -41,6 +43,15 @@ Planning Rules:
 - Keep titles concise and action-oriented.
 `
 
-func plannerInstruction() string {
-	return codexBaseInstruction + "\n\n" + plannerPolicyInstruction
+func plannerInstruction(opts ...Options) string {
+	instruction := plannerPolicyInstruction
+	if len(opts) > 0 {
+		assignee := strings.TrimSpace(opts[0].CoordinatorAssignee)
+		if assignee != "" {
+			instruction += "\nCoordinator Routing:\n" +
+				"- Newly created issues are automatically assigned to the swarm coordinator assignee '" + assignee + "'.\n" +
+				"- Use 'norma.tasks.set_assignee' only for deliberate rerouting after creation.\n"
+		}
+	}
+	return codexBaseInstruction + "\n\n" + instruction
 }
