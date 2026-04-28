@@ -10,7 +10,7 @@ import (
 	"github.com/normahq/norma/internal/apps/sessionmcp"
 	"github.com/normahq/norma/internal/apps/tasksmcp"
 	"github.com/normahq/norma/internal/task"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/runtime/agentconfig"
 )
 
 const (

@@ -2,6 +2,8 @@ package mcpcmd
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -28,7 +30,11 @@ func setupMCPServer(t *testing.T) (context.Context, func(), *mcp.ClientSession) 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "ping",
 		Description: "Responds with pong and the original message",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input pingInput) (*mcp.CallToolResult, pingOutput, error) {
+	}, func(_ context.Context, req *mcp.CallToolRequest, input pingInput) (*mcp.CallToolResult, pingOutput, error) {
+		if !hasMessageArgumentForTest(req) {
+			return nil, pingOutput{}, errors.New(`"message" is required`)
+		}
+
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "pong: " + input.Message},
@@ -112,11 +118,17 @@ func TestPingToolMissingMessage(t *testing.T) {
 
 	_ = session.InitializeResult()
 
-	_, err := session.CallTool(ctx, &mcp.CallToolParams{
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "ping",
 		Arguments: map[string]any{},
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.Len(t, result.Content, 1)
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "missing properties")
+	assert.Contains(t, textContent.Text, `"message"`)
 }
 
 func TestServerProducesNoExtraStdout(t *testing.T) {
@@ -141,5 +153,20 @@ func TestServerHasCorrectIdentity(t *testing.T) {
 	result := session.InitializeResult()
 	assert.Equal(t, "norma-playground-ping-pong", result.ServerInfo.Name)
 	assert.Equal(t, "1.0.0", result.ServerInfo.Version)
-	assert.Equal(t, "2025-06-18", result.ProtocolVersion)
+	assert.NotEmpty(t, result.ProtocolVersion)
+}
+
+func hasMessageArgumentForTest(req *mcp.CallToolRequest) bool {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
+		return false
+	}
+
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+		return false
+	}
+
+	_, ok := args["message"]
+
+	return ok
 }

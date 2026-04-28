@@ -10,10 +10,10 @@ import (
 
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/agentfactory"
-	"github.com/normahq/norma/pkg/runtime/mcpregistry"
-	"github.com/normahq/norma/pkg/runtime/structuredagent"
+	"github.com/normahq/runtime/agentconfig"
+	"github.com/normahq/runtime/agentfactory"
+	"github.com/normahq/runtime/mcpregistry"
+	"github.com/normahq/runtime/structuredagent"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"

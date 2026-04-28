@@ -2,6 +2,8 @@ package mcpcmd
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"os"
 
@@ -40,7 +42,11 @@ func runPingPongServer(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "ping",
 		Description: "Responds with pong and the original message",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, input pingInput) (*mcp.CallToolResult, pingOutput, error) {
+	}, func(_ context.Context, req *mcp.CallToolRequest, input pingInput) (*mcp.CallToolResult, pingOutput, error) {
+		if !hasMessageArgument(req) {
+			return nil, pingOutput{}, errors.New(`"message" is required`)
+		}
+
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "pong: " + input.Message},
@@ -49,4 +55,19 @@ func runPingPongServer(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	})
 
 	return server.Run(ctx, &mcp.StdioTransport{})
+}
+
+func hasMessageArgument(req *mcp.CallToolRequest) bool {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
+		return false
+	}
+
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+		return false
+	}
+
+	_, ok := args["message"]
+
+	return ok
 }

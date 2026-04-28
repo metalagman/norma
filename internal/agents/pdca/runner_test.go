@@ -16,8 +16,8 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/structuredagent"
+	"github.com/normahq/runtime/agentconfig"
+	"github.com/normahq/runtime/structuredagent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

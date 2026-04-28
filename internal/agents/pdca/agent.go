@@ -22,8 +22,8 @@ import (
 	"github.com/normahq/norma/internal/git"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/normahq/norma/internal/task"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/structuredagent"
+	"github.com/normahq/runtime/agentconfig"
+	"github.com/normahq/runtime/structuredagent"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/agent"

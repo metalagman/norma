@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/runtime/appconfig"
 )
 
 // CoreConfigFileName is the fallback config filename.
