@@ -207,6 +207,17 @@ profiles:
       provider: opencode_acp_agent
     swarm:
       default_provider: opencode_acp_agent
+  codex:
+    cli:
+      pdca:
+        plan: codex_acp_agent
+        do: codex_acp_agent
+        check: codex_acp_agent
+        act: codex_acp_agent
+    planner:
+      provider: codex_acp_agent
+    swarm:
+      default_provider: codex_acp_agent
   acp:
     cli:
       pdca:
