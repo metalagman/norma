@@ -11,7 +11,6 @@ import (
 )
 
 type options struct {
-	model        string
 	bridgeBin    string
 	maxToolCalls int
 }
@@ -39,7 +38,6 @@ func Command() *cobra.Command {
 			return goalkeeper.Run(cmd.Context(), goalkeeper.Config{
 				Goal:         strings.Join(args, " "),
 				WorkingDir:   workingDir,
-				Model:        opts.model,
 				BridgeBin:    opts.bridgeBin,
 				MaxToolCalls: opts.maxToolCalls,
 				Stdout:       cmd.OutOrStdout(),
@@ -47,7 +45,6 @@ func Command() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&opts.model, "model", "", "Codex model name")
 	cmd.Flags().StringVar(&opts.bridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@latest)")
 	cmd.Flags().IntVar(&opts.maxToolCalls, "max-tool-calls", opts.maxToolCalls, "maximum scheduler calls to goalkeeper.run_job")
 	return cmd

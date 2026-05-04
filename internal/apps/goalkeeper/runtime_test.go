@@ -28,6 +28,17 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	}
 }
 
+func TestFixedACPConfig(t *testing.T) {
+	t.Parallel()
+
+	if defaultAgentType != "codex_acp" {
+		t.Fatalf("defaultAgentType = %q, want codex_acp", defaultAgentType)
+	}
+	if defaultModel != "gpt-5.3-codex" {
+		t.Fatalf("defaultModel = %q, want gpt-5.3-codex", defaultModel)
+	}
+}
+
 func TestRunJobToolDispatchesRole(t *testing.T) {
 	t.Parallel()
 
@@ -190,6 +201,10 @@ func runGoalkeeperACPHelper(stdin *os.File, stdout *os.File) {
 			sessionCount++
 			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(map[string]any{"sessionId": fmt.Sprintf("session-%d", sessionCount)})})
 		case "session/set_model":
+			if !strings.Contains(string(msg.Params), defaultModel) {
+				writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Error: &helperError{Code: -32602, Message: "unexpected model"}})
+				continue
+			}
 			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(map[string]any{})})
 		case "session/prompt":
 			var req helperPromptRequest

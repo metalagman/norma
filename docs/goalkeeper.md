@@ -17,6 +17,7 @@ The first playground CLI should be temporary and local. It should not use Tempor
 The first implementation is a fixed PDCA scheduler:
 
 - the root scheduler is a Codex ACP-backed agent
+- the Codex ACP backend is fixed to `codex_acp` with model `gpt-5.3-codex`
 - the scheduler receives one GOAL job
 - the scheduler has four Codex ACP-backed role agents: `plan`, `do`, `check`, and `act`
 - the scheduler can run role work only by calling the `goalkeeper.run_job` tool
@@ -33,12 +34,11 @@ Command flags:
 
 ```bash
 norma playground goalkeeper "ship the goal" \
-  --model gpt-5-codex \
   --bridge-bin /path/to/codex-acp-bridge \
   --max-tool-calls 8
 ```
 
-`--bridge-bin` is optional. When omitted, Goalkeeper uses:
+`--bridge-bin` is optional and only overrides the executable used for the fixed Codex ACP bridge. When omitted, Goalkeeper uses:
 
 ```bash
 npx -y @normahq/codex-acp-bridge@latest

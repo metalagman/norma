@@ -24,6 +24,8 @@ import (
 
 const (
 	defaultMaxToolCalls = 8
+	defaultAgentType    = "codex_acp"
+	defaultModel        = "gpt-5.3-codex"
 	schedulerName       = "GoalkeeperScheduler"
 )
 
@@ -38,7 +40,6 @@ var pdcaRoles = map[string]string{
 type Config struct {
 	Goal         string
 	WorkingDir   string
-	Model        string
 	BridgeBin    string
 	MaxToolCalls int
 	Stdout       io.Writer
@@ -77,11 +78,14 @@ func Run(ctx context.Context, cfg Config) error {
 	command := BuildCodexACPCommand(cfg.BridgeBin)
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: stderr, TimeFormat: time.RFC3339}).
 		Level(zerolog.InfoLevel).
-		With().Timestamp().Str("component", "playground.goalkeeper").Logger()
+		With().Timestamp().
+		Str("component", "playground.goalkeeper").
+		Str("agent_type", defaultAgentType).
+		Str("model", defaultModel).
+		Logger()
 
 	roleSet, err := newRoleSet(ctx, roleSetConfig{
 		Command:    command,
-		Model:      cfg.Model,
 		WorkingDir: workingDir,
 		Stderr:     stderr,
 		Logger:     logger,
@@ -102,7 +106,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Context:           ctx,
 		Name:              schedulerName,
 		Description:       "Goalkeeper root scheduler agent",
-		Model:             cfg.Model,
+		Model:             defaultModel,
 		Command:           command,
 		WorkingDir:        workingDir,
 		Stderr:            stderr,
@@ -165,7 +169,6 @@ func schedulerInstruction() string {
 
 type roleSetConfig struct {
 	Command    []string
-	Model      string
 	WorkingDir string
 	Stderr     io.Writer
 	Logger     zerolog.Logger
@@ -182,7 +185,6 @@ func newRoleSet(ctx context.Context, cfg roleSetConfig) (*roleSet, error) {
 			Role:        role,
 			Instruction: instruction,
 			Command:     cfg.Command,
-			Model:       cfg.Model,
 			WorkingDir:  cfg.WorkingDir,
 			Stderr:      cfg.Stderr,
 			Logger:      cfg.Logger,
@@ -217,7 +219,6 @@ type roleSessionConfig struct {
 	Role        string
 	Instruction string
 	Command     []string
-	Model       string
 	WorkingDir  string
 	Stderr      io.Writer
 	Logger      zerolog.Logger
@@ -239,7 +240,7 @@ func newRoleSession(ctx context.Context, cfg roleSessionConfig) (*roleSession, e
 		Context:           ctx,
 		Name:              name,
 		Description:       "Goalkeeper " + cfg.Role + " role agent",
-		Model:             cfg.Model,
+		Model:             defaultModel,
 		Command:           cfg.Command,
 		WorkingDir:        cfg.WorkingDir,
 		Stderr:            cfg.Stderr,
