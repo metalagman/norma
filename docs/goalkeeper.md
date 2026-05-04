@@ -7,10 +7,67 @@ The MVP is intentionally static: the scheduler agent runs once at the start, pro
 Future command surface:
 
 ```bash
-norma playground goalkeeper
+norma playground goalkeeper "ship the goal"
 ```
 
 The first playground CLI should be temporary and local. It should not use Temporal.io, Beads, or the production `norma swarm` assignee model.
+
+## PDCA Playground MVP
+
+The first implementation is a fixed PDCA scheduler:
+
+- the root scheduler is a Codex ACP-backed agent
+- the scheduler receives one GOAL job
+- the scheduler has four Codex ACP-backed role agents: `plan`, `do`, `check`, and `act`
+- the scheduler can run role work only by calling the `goalkeeper.run_job` tool
+- `goalkeeper.run_job` runs one prompt turn on exactly one role agent and returns the text result
+- each role agent keeps its ADK session for the command lifetime
+
+The scheduler chooses when to call the tool, but its instructions constrain the path to:
+
+```text
+plan -> do -> check -> act
+```
+
+Command flags:
+
+```bash
+norma playground goalkeeper "ship the goal" \
+  --model gpt-5-codex \
+  --bridge-bin /path/to/codex-acp-bridge \
+  --max-tool-calls 8
+```
+
+`--bridge-bin` is optional. When omitted, Goalkeeper uses:
+
+```bash
+npx -y @normahq/codex-acp-bridge@latest
+```
+
+### `goalkeeper.run_job`
+
+The scheduler receives this MCP tool:
+
+```json
+{
+  "job_id": "job-plan",
+  "role": "plan",
+  "task": "Plan how to satisfy the GOAL job."
+}
+```
+
+Tool output:
+
+```json
+{
+  "job_id": "job-plan",
+  "role": "plan",
+  "status": "completed",
+  "result": "..."
+}
+```
+
+The tool rejects unknown roles, empty job IDs, empty tasks, and calls beyond `--max-tool-calls`.
 
 ## Architecture
 

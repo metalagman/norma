@@ -32,8 +32,12 @@ const (
 
 func TestPlaygroundCommandRegistered(t *testing.T) {
 	cmd := Command()
-	if cmd.HasSubCommands() {
-		t.Fatalf("playground should not expose subcommands; got %d", len(cmd.Commands()))
+	sub, _, err := cmd.Find([]string{"goalkeeper"})
+	if err != nil {
+		t.Fatalf("find goalkeeper subcommand: %v", err)
+	}
+	if sub.Name() != "goalkeeper" {
+		t.Fatalf("subcommand = %q, want goalkeeper", sub.Name())
 	}
 }
 
