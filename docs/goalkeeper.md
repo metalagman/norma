@@ -44,7 +44,34 @@ norma playground goalkeeper "ship the goal" \
 npx -y @normahq/codex-acp-bridge@latest
 ```
 
-Stdout is reserved for the final scheduler answer. Scheduler lifecycle messages use structured zerolog at info level. Per-job dispatch/completion/error messages and role-agent output produced during job execution are emitted only at debug level.
+Stdout is reserved for the final scheduler answer. Scheduler lifecycle messages use structured zerolog at info level. Per-job send/receive envelopes and role-agent output produced during job execution are emitted only at debug level.
+
+Example send envelope:
+
+```json
+{
+  "level": "debug",
+  "direction": "send",
+  "job_id": "job-plan",
+  "role": "plan",
+  "task": "Plan how to satisfy the GOAL job.",
+  "message": "job envelope"
+}
+```
+
+Example receive envelope:
+
+```json
+{
+  "level": "debug",
+  "direction": "receive",
+  "job_id": "job-plan",
+  "role": "plan",
+  "status": "completed",
+  "result": "...",
+  "message": "job envelope"
+}
+```
 
 ### `goalkeeper.run_job`
 

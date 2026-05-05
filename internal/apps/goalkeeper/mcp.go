@@ -49,6 +49,15 @@ type runJobOutput struct {
 	Result string `json:"result"`
 }
 
+type jobEnvelope struct {
+	JobID     string `json:"job_id"`
+	Role      string `json:"role"`
+	Task      string `json:"task,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Result    string `json:"result,omitempty"`
+	Direction string `json:"direction"`
+}
+
 func newMCPServer(service *service) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion},
@@ -81,32 +90,52 @@ func (s *service) runJob(ctx context.Context, _ *mcp.CallToolRequest, input runJ
 		return toolError(out.Result, out), out, nil
 	}
 
-	s.logger.Debug().
-		Str("job_id", jobID).
-		Str("role", role).
-		Msg("job dispatch")
+	s.logEnvelope(jobEnvelope{
+		JobID:     jobID,
+		Role:      role,
+		Task:      task,
+		Direction: "send",
+	})
 	result, err := s.runner.RunJob(ctx, jobID, role, task)
 	if err != nil {
 		out := runJobOutput{JobID: jobID, Role: role, Status: "error", Result: err.Error()}
-		s.logger.Debug().
-			Err(err).
-			Str("job_id", jobID).
-			Str("role", role).
-			Str("status", out.Status).
-			Str("result", out.Result).
-			Msg("job error")
+		s.logEnvelope(jobEnvelope{
+			JobID:     jobID,
+			Role:      role,
+			Status:    out.Status,
+			Result:    out.Result,
+			Direction: "receive",
+		})
 		return toolError(out.Result, out), out, nil
 	}
 	out := runJobOutput{JobID: jobID, Role: role, Status: "completed", Result: strings.TrimSpace(result)}
-	s.logger.Debug().
-		Str("job_id", jobID).
-		Str("role", role).
-		Str("status", out.Status).
-		Str("result", out.Result).
-		Msg("job completed")
+	s.logEnvelope(jobEnvelope{
+		JobID:     jobID,
+		Role:      role,
+		Status:    out.Status,
+		Result:    out.Result,
+		Direction: "receive",
+	})
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: out.Result}},
 	}, out, nil
+}
+
+func (s *service) logEnvelope(envelope jobEnvelope) {
+	event := s.logger.Debug().
+		Str("direction", envelope.Direction).
+		Str("job_id", envelope.JobID).
+		Str("role", envelope.Role)
+	if envelope.Task != "" {
+		event = event.Str("task", envelope.Task)
+	}
+	if envelope.Status != "" {
+		event = event.Str("status", envelope.Status)
+	}
+	if envelope.Result != "" {
+		event = event.Str("result", envelope.Result)
+	}
+	event.Msg("job envelope")
 }
 
 func (s *service) reserveCall() bool {

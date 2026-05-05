@@ -75,9 +75,13 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 	gotLogs := logs.String()
 	if !strings.Contains(gotLogs, `"level":"debug"`) ||
 		!strings.Contains(gotLogs, `"job_id":"job-plan"`) ||
-		!strings.Contains(gotLogs, `"message":"job dispatch"`) ||
-		!strings.Contains(gotLogs, `"message":"job completed"`) {
-		t.Fatalf("logs = %q, want debug dispatch and completion entries", gotLogs)
+		!strings.Contains(gotLogs, `"message":"job envelope"`) ||
+		!strings.Contains(gotLogs, `"direction":"send"`) ||
+		!strings.Contains(gotLogs, `"task":"Plan the goal"`) ||
+		!strings.Contains(gotLogs, `"direction":"receive"`) ||
+		!strings.Contains(gotLogs, `"status":"completed"`) ||
+		!strings.Contains(gotLogs, `"result":"planned"`) {
+		t.Fatalf("logs = %q, want debug send and receive job envelopes", gotLogs)
 	}
 }
 
@@ -143,7 +147,9 @@ func TestRunJobToolMaxToolCalls(t *testing.T) {
 func TestRunJobToolRunnerError(t *testing.T) {
 	t.Parallel()
 
-	svc := newService(&fakeJobRunner{err: errors.New("role failed")}, zerolog.Nop(), 1)
+	var logs bytes.Buffer
+	logger := newTestLogger(&logs, zerolog.DebugLevel)
+	svc := newService(&fakeJobRunner{err: errors.New("role failed")}, logger, 1)
 	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-1", Role: "check", Task: "x"})
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
@@ -153,6 +159,14 @@ func TestRunJobToolRunnerError(t *testing.T) {
 	}
 	if out.Result != "role failed" {
 		t.Fatalf("out.Result = %q, want role failed", out.Result)
+	}
+	gotLogs := logs.String()
+	if !strings.Contains(gotLogs, `"message":"job envelope"`) ||
+		!strings.Contains(gotLogs, `"direction":"send"`) ||
+		!strings.Contains(gotLogs, `"direction":"receive"`) ||
+		!strings.Contains(gotLogs, `"status":"error"`) ||
+		!strings.Contains(gotLogs, `"result":"role failed"`) {
+		t.Fatalf("logs = %q, want send and error receive job envelopes", gotLogs)
 	}
 }
 
