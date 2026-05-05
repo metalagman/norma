@@ -209,6 +209,71 @@ func TestNotifyCoordinatorLogsDebugLifecycle(t *testing.T) {
 	}
 }
 
+func TestNotifyCoordinatorWaitsForTerminalSchedulerJob(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	schedulerRunner := &fakeNotifyRunner{
+		started: make(chan string, 1),
+		release: release,
+		onRun: func() {
+			// Mimic the scheduler calling goalkeeper.finish from inside the prompt turn.
+		},
+	}
+	coordinator, cleanup := startNotifyTestCoordinator(t, notifyTestRunners{
+		scheduler: schedulerRunner,
+		plan:      &fakeNotifyRunner{},
+		do:        &fakeNotifyRunner{},
+		check:     &fakeNotifyRunner{},
+		act:       &fakeNotifyRunner{},
+	})
+	defer cleanup()
+
+	if err := coordinator.enqueueInitialGoal("test goal"); err != nil {
+		t.Fatalf("enqueueInitialGoal() error = %v", err)
+	}
+	select {
+	case <-schedulerRunner.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduler job did not start")
+	}
+	if err := coordinator.finish("done"); err != nil {
+		t.Fatalf("finish() error = %v", err)
+	}
+
+	waitDone := make(chan notifyRunResult, 1)
+	waitErr := make(chan error, 1)
+	go func() {
+		result, err := coordinator.waitResult(context.Background())
+		if err != nil {
+			waitErr <- err
+			return
+		}
+		waitDone <- result
+	}()
+
+	select {
+	case result := <-waitDone:
+		t.Fatalf("waitResult() returned early with %+v", result)
+	case err := <-waitErr:
+		t.Fatalf("waitResult() returned error early: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case result := <-waitDone:
+		if result.Summary != "done" {
+			t.Fatalf("result.Summary = %q, want done", result.Summary)
+		}
+	case err := <-waitErr:
+		t.Fatalf("waitResult() error = %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("waitResult() did not return after scheduler job completed")
+	}
+}
+
 type notifyTestRunners struct {
 	scheduler *fakeNotifyRunner
 	plan      *fakeNotifyRunner
@@ -254,11 +319,15 @@ type fakeNotifyRunner struct {
 	err     error
 	started chan string
 	release chan struct{}
+	onRun   func()
 }
 
 func (r *fakeNotifyRunner) RunJob(ctx context.Context, _ string, task string) (string, error) {
 	if r.started != nil {
 		r.started <- task
+	}
+	if r.onRun != nil {
+		r.onRun()
 	}
 	if r.release != nil {
 		select {

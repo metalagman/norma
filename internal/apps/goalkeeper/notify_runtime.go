@@ -301,7 +301,6 @@ func (c *notifyCoordinator) finish(summary string) error {
 	}
 	c.terminal = true
 	c.finalSummary = summary
-	c.sendDoneLocked(notifyRunResult{Summary: summary})
 	return nil
 }
 
@@ -322,7 +321,7 @@ func (c *notifyCoordinator) waitResult(ctx context.Context) (notifyRunResult, er
 func (c *notifyCoordinator) setRunError(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.terminal {
+	if c.doneClosed {
 		return
 	}
 	c.terminal = true
@@ -398,9 +397,14 @@ func (c *notifyCoordinator) handleJobResult(job *notifyJob, output string, err e
 
 	if job.TargetAgentID == schedulerAgentID {
 		if err != nil {
+			c.finalErr = fmt.Errorf("scheduler job %q failed: %w", job.ID, err)
+			c.terminal = true
+			c.sendDoneLocked(notifyRunResult{})
 			c.mu.Unlock()
-			c.setRunError(fmt.Errorf("scheduler job %q failed: %w", job.ID, err))
 			return
+		}
+		if c.terminal {
+			c.sendDoneLocked(notifyRunResult{Summary: c.finalSummary})
 		}
 		c.mu.Unlock()
 		return
