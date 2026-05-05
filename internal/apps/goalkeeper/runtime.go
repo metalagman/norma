@@ -25,14 +25,26 @@ const (
 	defaultMaxToolCalls = 8
 	defaultAgentType    = "codex_acp"
 	defaultModel        = "gpt-5.3-codex"
-	schedulerName       = "GoalkeeperScheduler"
+	goalkeeperName      = "Goalkeeper"
 )
 
-var pdcaRoles = map[string]string{
+var childAgentInstructions = map[string]string{
 	"plan":  "Create a concise plan for the assigned JOB. Return only the useful planning result.",
 	"do":    "Execute the assigned JOB as far as possible. Return only the useful implementation result.",
 	"check": "Check the assigned JOB result against the goal. Return PASS or FAIL with concise evidence.",
 	"act":   "Decide the next action for the assigned JOB. Return close, continue, or replan with a concise reason.",
+}
+
+func childAgentIDs() []string {
+	return []string{"plan", "do", "check", "act"}
+}
+
+func isKnownRuntimeAgentID(id string) bool {
+	if id == goalkeeperAgentID {
+		return true
+	}
+	_, ok := childAgentInstructions[id]
+	return ok
 }
 
 // Config configures a Goalkeeper playground run.
@@ -106,8 +118,8 @@ func Run(ctx context.Context, cfg Config) error {
 
 	scheduler, err := acpagent.New(acpagent.Config{
 		Context:           ctx,
-		Name:              schedulerName,
-		Description:       "Goalkeeper root scheduler agent",
+		Name:              goalkeeperName,
+		Description:       "Goalkeeper root agent",
 		Model:             defaultModel,
 		Command:           command,
 		WorkingDir:        workingDir,
@@ -123,23 +135,23 @@ func Run(ctx context.Context, cfg Config) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create scheduler agent: %w", err)
+		return fmt.Errorf("create goalkeeper agent: %w", err)
 	}
 	defer func() { _ = scheduler.Close() }()
 
-	logger.Info().Str("goal", goal).Msg("scheduler started")
+	logger.Info().Str("goal", goal).Msg("goalkeeper started")
 	_, last, err := runOneTurn(ctx, runTurnInput{
-		AppName:   "goalkeeper-scheduler",
-		UserID:    "goalkeeper",
-		SessionID: "goalkeeper-scheduler",
+		AppName:   "goalkeeper-root",
+		UserID:    goalkeeperAgentID,
+		SessionID: "goalkeeper-root",
 		Agent:     scheduler,
 		Prompt:    "GOAL JOB:\n" + goal,
 	})
 	if err != nil {
-		return fmt.Errorf("run scheduler: %w", err)
+		return fmt.Errorf("run goalkeeper: %w", err)
 	}
 	final := strings.TrimSpace(last)
-	logger.Info().Bool("has_result", final != "").Str("result", final).Msg("scheduler completed")
+	logger.Info().Bool("has_result", final != "").Str("result", final).Msg("goalkeeper completed")
 	if final != "" {
 		if _, err := fmt.Fprintln(stdout, final); err != nil {
 			return err
@@ -158,14 +170,14 @@ func BuildCodexACPCommand(bridgeBin string) []string {
 
 func schedulerInstruction() string {
 	return strings.Join([]string{
-		"You are the Goalkeeper root scheduler.",
+		"You are the Goalkeeper root agent named goalkeeper.",
 		"You receive one GOAL JOB from the user.",
-		"Use only the goalkeeper.run_job tool to run PDCA role JOBS on subagents.",
-		"Available roles are plan, do, check, and act.",
-		"Choose the calls yourself, but keep the MVP path simple: plan first, then do, then check, then act.",
-		"Each tool call must include a stable job_id, the target role, and the task text for that role.",
-		"Use previous role results when writing the next role task.",
-		"After act returns, provide a concise final summary and stop.",
+		"Use only the goalkeeper.run_job tool to run JOBS on child agents.",
+		"Available child agents are plan, do, check, and act.",
+		"Each tool call must include a stable job_id, the target locator, and the task text for that agent.",
+		"Use previous job results when writing the next job task.",
+		"Decide yourself which child agent to call next until the goal is handled.",
+		"When the goal is handled, provide a concise final summary and stop.",
 	}, "\n")
 }
 
@@ -181,8 +193,8 @@ type roleSet struct {
 }
 
 func newRoleSet(ctx context.Context, cfg roleSetConfig) (*roleSet, error) {
-	roles := make(map[string]*roleSession, len(pdcaRoles))
-	for role, instruction := range pdcaRoles {
+	roles := make(map[string]*roleSession, len(childAgentInstructions))
+	for role, instruction := range childAgentInstructions {
 		roleSession, err := newRoleSession(ctx, roleSessionConfig{
 			Role:        role,
 			Instruction: instruction,
@@ -202,11 +214,11 @@ func newRoleSet(ctx context.Context, cfg roleSetConfig) (*roleSet, error) {
 	return &roleSet{roles: roles}, nil
 }
 
-func (r *roleSet) RunJob(ctx context.Context, jobID string, role string, task string) (string, error) {
-	role = strings.ToLower(strings.TrimSpace(role))
-	runner, ok := r.roles[role]
+func (r *roleSet) RunJob(ctx context.Context, jobID string, agentID string, task string) (string, error) {
+	agentID = strings.ToLower(strings.TrimSpace(agentID))
+	runner, ok := r.roles[agentID]
 	if !ok {
-		return "", fmt.Errorf("unknown role %q", role)
+		return "", fmt.Errorf("unknown agent %q", agentID)
 	}
 	return runner.run(ctx, jobID, task)
 }
@@ -238,11 +250,11 @@ type roleSession struct {
 
 func newRoleSession(ctx context.Context, cfg roleSessionConfig) (*roleSession, error) {
 	name := "Goalkeeper" + strings.ToUpper(cfg.Role[:1]) + cfg.Role[1:]
-	logger := cfg.Logger.With().Str("role", cfg.Role).Logger()
+	logger := cfg.Logger.With().Str("agent_id", cfg.Role).Logger()
 	agentRuntime, err := acpagent.New(acpagent.Config{
 		Context:           ctx,
 		Name:              name,
-		Description:       "Goalkeeper " + cfg.Role + " role agent",
+		Description:       "Goalkeeper " + cfg.Role + " child agent",
 		Model:             defaultModel,
 		Command:           cfg.Command,
 		WorkingDir:        cfg.WorkingDir,
@@ -252,7 +264,7 @@ func newRoleSession(ctx context.Context, cfg roleSessionConfig) (*roleSession, e
 		Instruction:       cfg.Instruction,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create %s role agent: %w", cfg.Role, err)
+		return nil, fmt.Errorf("create %s child agent: %w", cfg.Role, err)
 	}
 	appName := "goalkeeper-" + cfg.Role
 	sessionService := session.InMemoryService()
@@ -263,7 +275,7 @@ func newRoleSession(ctx context.Context, cfg roleSessionConfig) (*roleSession, e
 	})
 	if err != nil {
 		_ = agentRuntime.Close()
-		return nil, fmt.Errorf("create %s role runner: %w", cfg.Role, err)
+		return nil, fmt.Errorf("create %s child agent runner: %w", cfg.Role, err)
 	}
 	created, err := sessionService.Create(ctx, &session.CreateRequest{
 		AppName:   appName,
@@ -272,7 +284,7 @@ func newRoleSession(ctx context.Context, cfg roleSessionConfig) (*roleSession, e
 	})
 	if err != nil {
 		_ = agentRuntime.Close()
-		return nil, fmt.Errorf("create %s role session: %w", cfg.Role, err)
+		return nil, fmt.Errorf("create %s child agent session: %w", cfg.Role, err)
 	}
 	return &roleSession{
 		agent:          agentRuntime,

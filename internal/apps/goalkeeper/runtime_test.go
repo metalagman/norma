@@ -44,7 +44,7 @@ func TestFixedACPConfig(t *testing.T) {
 	}
 }
 
-func TestRunJobToolDispatchesRole(t *testing.T) {
+func TestRunJobToolDispatchesAgentLocator(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeJobRunner{result: "planned"}
@@ -53,9 +53,9 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 	svc := newService(runner, logger, 2)
 
 	_, out, err := svc.runJob(context.Background(), nil, runJobInput{
-		JobID: "job-plan",
-		Role:  "plan",
-		Task:  "Plan the goal",
+		JobID:   "job-plan",
+		Locator: newAgentLocator("plan"),
+		Task:    "Plan the goal",
 	})
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
@@ -66,8 +66,8 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 	if out.Result != "planned" {
 		t.Fatalf("out.Result = %q, want planned", out.Result)
 	}
-	if runner.role != "plan" || runner.task != "Plan the goal" {
-		t.Fatalf("runner got role=%q task=%q", runner.role, runner.task)
+	if runner.agentID != "plan" || runner.task != "Plan the goal" {
+		t.Fatalf("runner got agentID=%q task=%q", runner.agentID, runner.task)
 	}
 	if runner.jobID != "job-plan" {
 		t.Fatalf("runner got jobID=%q, want job-plan", runner.jobID)
@@ -77,6 +77,8 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 		!strings.Contains(gotLogs, `"job_id":"job-plan"`) ||
 		!strings.Contains(gotLogs, `"message":"job envelope"`) ||
 		!strings.Contains(gotLogs, `"direction":"send"`) ||
+		!strings.Contains(gotLogs, `"locator":{"type":"agent","id":"plan"}`) ||
+		!strings.Contains(gotLogs, `"reply_to":{"type":"agent","id":"goalkeeper"}`) ||
 		!strings.Contains(gotLogs, `"task":"Plan the goal"`) ||
 		!strings.Contains(gotLogs, `"direction":"receive"`) ||
 		!strings.Contains(gotLogs, `"status":"completed"`) ||
@@ -93,9 +95,9 @@ func TestRunJobToolSuppressesJobLogsAboveDebug(t *testing.T) {
 	svc := newService(&fakeJobRunner{result: "planned"}, logger, 1)
 
 	_, out, err := svc.runJob(context.Background(), nil, runJobInput{
-		JobID: "job-plan",
-		Role:  "plan",
-		Task:  "Plan the goal",
+		JobID:   "job-plan",
+		Locator: newAgentLocator("plan"),
+		Task:    "Plan the goal",
 	})
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
@@ -112,7 +114,7 @@ func TestRunJobToolValidation(t *testing.T) {
 	t.Parallel()
 
 	svc := newService(&fakeJobRunner{}, zerolog.Nop(), 1)
-	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-x", Role: "invalid", Task: "x"})
+	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-x", Locator: newAgentLocator("invalid"), Task: "x"})
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
 	}
@@ -128,11 +130,11 @@ func TestRunJobToolMaxToolCalls(t *testing.T) {
 	t.Parallel()
 
 	svc := newService(&fakeJobRunner{result: "ok"}, zerolog.Nop(), 1)
-	_, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-1", Role: "plan", Task: "x"})
+	_, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-1", Locator: newAgentLocator("plan"), Task: "x"})
 	if err != nil || out.Status != wantCompletedStatus {
 		t.Fatalf("first runJob() out=%+v err=%v, want completed", out, err)
 	}
-	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-2", Role: "do", Task: "x"})
+	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-2", Locator: newAgentLocator("do"), Task: "x"})
 	if err != nil {
 		t.Fatalf("second runJob() error = %v", err)
 	}
@@ -149,23 +151,23 @@ func TestRunJobToolRunnerError(t *testing.T) {
 
 	var logs bytes.Buffer
 	logger := newTestLogger(&logs, zerolog.DebugLevel)
-	svc := newService(&fakeJobRunner{err: errors.New("role failed")}, logger, 1)
-	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-1", Role: "check", Task: "x"})
+	svc := newService(&fakeJobRunner{err: errors.New("agent failed")}, logger, 1)
+	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-1", Locator: newAgentLocator("check"), Task: "x"})
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
 	}
 	if result == nil || !result.IsError {
 		t.Fatalf("result.IsError = false, want true")
 	}
-	if out.Result != "role failed" {
-		t.Fatalf("out.Result = %q, want role failed", out.Result)
+	if out.Result != "agent failed" {
+		t.Fatalf("out.Result = %q, want agent failed", out.Result)
 	}
 	gotLogs := logs.String()
 	if !strings.Contains(gotLogs, `"message":"job envelope"`) ||
 		!strings.Contains(gotLogs, `"direction":"send"`) ||
 		!strings.Contains(gotLogs, `"direction":"receive"`) ||
 		!strings.Contains(gotLogs, `"status":"error"`) ||
-		!strings.Contains(gotLogs, `"result":"role failed"`) {
+		!strings.Contains(gotLogs, `"result":"agent failed"`) {
 		t.Fatalf("logs = %q, want send and error receive job envelopes", gotLogs)
 	}
 }
@@ -195,12 +197,12 @@ func TestRunWithFakeACPBridge(t *testing.T) {
 		t.Fatalf("stdout = %q, want only final command output", got)
 	}
 	if !strings.Contains(got, "GOAL JOB:\ntest goal") {
-		t.Fatalf("stdout = %q, want goal in scheduler response", got)
+		t.Fatalf("stdout = %q, want goal in goalkeeper response", got)
 	}
 	gotLogs := logs.String()
-	if !strings.Contains(gotLogs, `"message":"scheduler started"`) ||
-		!strings.Contains(gotLogs, `"message":"scheduler completed"`) {
-		t.Fatalf("logs = %q, want scheduler lifecycle entries", gotLogs)
+	if !strings.Contains(gotLogs, `"message":"goalkeeper started"`) ||
+		!strings.Contains(gotLogs, `"message":"goalkeeper completed"`) {
+		t.Fatalf("logs = %q, want goalkeeper lifecycle entries", gotLogs)
 	}
 }
 
@@ -208,12 +210,12 @@ func TestRoleSessionLogsJobOutput(t *testing.T) {
 	wrapper := writeACPWrapper(t)
 	var stderr bytes.Buffer
 	var logs bytes.Buffer
-	logger := newTestLogger(&logs, zerolog.DebugLevel).With().Str("role", "plan").Logger()
+	logger := newTestLogger(&logs, zerolog.DebugLevel).With().Str("agent_id", "plan").Logger()
 	stderrWriter := &syncWriter{writer: &stderr}
 
 	role, err := newRoleSession(context.Background(), roleSessionConfig{
 		Role:        "plan",
-		Instruction: pdcaRoles["plan"],
+		Instruction: childAgentInstructions["plan"],
 		Command:     []string{wrapper},
 		WorkingDir:  t.TempDir(),
 		Stderr:      stderrWriter,
@@ -229,25 +231,25 @@ func TestRoleSessionLogsJobOutput(t *testing.T) {
 		}
 	}()
 
-	got, err := role.run(context.Background(), "job-plan", "role task")
+	got, err := role.run(context.Background(), "job-plan", "agent task")
 	if err != nil {
 		role.close()
 		closed = true
 		t.Fatalf("role.run() error = %v; stderr=%s", err, stderr.String())
 	}
-	if !strings.Contains(got, "role task") {
+	if !strings.Contains(got, "agent task") {
 		role.close()
 		closed = true
-		t.Fatalf("role.run() = %q, want echoed role task", got)
+		t.Fatalf("role.run() = %q, want echoed agent task", got)
 	}
 	role.close()
 	closed = true
 	gotLogs := logs.String()
 	if !strings.Contains(gotLogs, `"message":"job output"`) ||
 		!strings.Contains(gotLogs, `"job_id":"job-plan"`) ||
-		!strings.Contains(gotLogs, `"role":"plan"`) ||
+		!strings.Contains(gotLogs, `"agent_id":"plan"`) ||
 		!strings.Contains(gotLogs, `"output"`) ||
-		!strings.Contains(gotLogs, "role task") {
+		!strings.Contains(gotLogs, "agent task") {
 		t.Fatalf("logs = %q, want debug job output entry", gotLogs)
 	}
 }
@@ -257,16 +259,16 @@ func newTestLogger(writer io.Writer, level zerolog.Level) zerolog.Logger {
 }
 
 type fakeJobRunner struct {
-	jobID  string
-	role   string
-	task   string
-	result string
-	err    error
+	jobID   string
+	agentID string
+	task    string
+	result  string
+	err     error
 }
 
-func (r *fakeJobRunner) RunJob(_ context.Context, jobID string, role string, task string) (string, error) {
+func (r *fakeJobRunner) RunJob(_ context.Context, jobID string, agentID string, task string) (string, error) {
 	r.jobID = jobID
-	r.role = role
+	r.agentID = agentID
 	r.task = task
 	return r.result, r.err
 }

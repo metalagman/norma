@@ -26,16 +26,18 @@ type notifyService struct {
 }
 
 type scheduleJobInput struct {
-	JobID         string `json:"job_id"`
-	TargetAgentID string `json:"target_agent_id"`
-	Task          string `json:"task"`
+	JobID   string      `json:"job_id"`
+	Locator jobLocator  `json:"locator"`
+	ReplyTo *jobLocator `json:"reply_to,omitempty"`
+	Task    string      `json:"task"`
 }
 
 type scheduleJobOutput struct {
-	JobID         string `json:"job_id"`
-	TargetAgentID string `json:"target_agent_id"`
-	Status        string `json:"status"`
-	Message       string `json:"message,omitempty"`
+	JobID   string     `json:"job_id"`
+	Locator jobLocator `json:"locator"`
+	ReplyTo jobLocator `json:"reply_to"`
+	Status  string     `json:"status"`
+	Message string     `json:"message,omitempty"`
 }
 
 type finishInput struct {
@@ -57,11 +59,11 @@ func newNotifyService(logger zerolog.Logger, maxToolCalls int) *notifyService {
 func newNotifyMCPServer(service *notifyService) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion},
-		&mcp.ServerOptions{Instructions: "Use goalkeeper.schedule_job to enqueue one PDCA worker job and goalkeeper.finish to finish the Goalkeeper async run."},
+		&mcp.ServerOptions{Instructions: "Use goalkeeper.schedule_job to enqueue one child-agent job and goalkeeper.finish to finish the Goalkeeper async run."},
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        scheduleJobToolName,
-		Description: "Enqueue one worker JOB for plan, do, check, or act. Returns immediately after queueing.",
+		Description: "Enqueue one child-agent JOB addressed by locator. Returns immediately after queueing.",
 	}, service.scheduleJob)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        finishToolName,
@@ -78,29 +80,40 @@ func startNotifyHTTPServer(ctx context.Context, service *notifyService, addr str
 
 func (s *notifyService) scheduleJob(ctx context.Context, _ *mcp.CallToolRequest, input scheduleJobInput) (*mcp.CallToolResult, scheduleJobOutput, error) {
 	jobID := strings.TrimSpace(input.JobID)
-	targetAgentID := strings.ToLower(strings.TrimSpace(input.TargetAgentID))
+	locator, locatorErr := normalizeLocator(input.Locator)
+	replyTo, replyErr := normalizeReplyLocator(input.ReplyTo)
 	task := strings.TrimSpace(input.Task)
 	if !s.reserveCall() {
-		out := scheduleJobOutput{JobID: jobID, TargetAgentID: targetAgentID, Status: "error", Message: "max tool calls exceeded"}
+		out := scheduleJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: "max tool calls exceeded"}
 		return toolError(out.Message, runJobOutput{}), out, nil
 	}
 	if s.coordinator == nil {
-		out := scheduleJobOutput{JobID: jobID, TargetAgentID: targetAgentID, Status: "error", Message: "coordinator is not ready"}
+		out := scheduleJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: "coordinator is not ready"}
 		return toolError(out.Message, runJobOutput{}), out, nil
 	}
-	if err := s.coordinator.scheduleWorkerJob(jobID, targetAgentID, task); err != nil {
-		out := scheduleJobOutput{JobID: jobID, TargetAgentID: targetAgentID, Status: "error", Message: err.Error()}
+	if locatorErr != nil {
+		out := scheduleJobOutput{JobID: jobID, Status: "error", Message: locatorErr.Error()}
+		return toolError(out.Message, runJobOutput{}), out, nil
+	}
+	if replyErr != nil {
+		out := scheduleJobOutput{JobID: jobID, Locator: locator, Status: "error", Message: replyErr.Error()}
+		return toolError(out.Message, runJobOutput{}), out, nil
+	}
+	if err := s.coordinator.scheduleJob(jobID, locator, replyTo, task); err != nil {
+		out := scheduleJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: err.Error()}
 		return toolError(out.Message, runJobOutput{}), out, nil
 	}
 	out := scheduleJobOutput{
-		JobID:         jobID,
-		TargetAgentID: targetAgentID,
-		Status:        string(notifyJobStatusQueued),
-		Message:       "job queued",
+		JobID:   jobID,
+		Locator: locator,
+		ReplyTo: replyTo,
+		Status:  string(notifyJobStatusQueued),
+		Message: "job queued",
 	}
 	s.logger.Debug().
 		Str("job_id", jobID).
-		Str("target_agent_id", targetAgentID).
+		Interface("locator", locator).
+		Interface("reply_to", replyTo).
 		Msg("schedule_job accepted")
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: out.Message}},

@@ -21,8 +21,8 @@ type options struct {
 func Command() *cobra.Command {
 	return newGoalkeeperCommand(
 		"goalkeeper <goal>",
-		"Run the experimental Goalkeeper PDCA scheduler playground",
-		"maximum scheduler calls to goalkeeper.run_job",
+		"Run the experimental Goalkeeper root-agent playground",
+		"maximum goalkeeper calls to goalkeeper.run_job",
 		goalkeeper.Run,
 	)
 }

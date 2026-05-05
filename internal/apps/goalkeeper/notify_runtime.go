@@ -2,6 +2,7 @@ package goalkeeper
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,20 +18,17 @@ import (
 )
 
 const (
-	schedulerAgentID    = "scheduler"
-	defaultQueueDepth   = 32
-	initialGoalJobID    = "goal-job"
-	defaultMaxAttempts  = 1
-	notifySchedulerName = "GoalkeeperNotifyScheduler"
+	defaultQueueDepth    = 32
+	initialGoalJobID     = "goal-job"
+	defaultMaxAttempts   = 1
+	notifyGoalkeeperName = "GoalkeeperNotifyGoalkeeper"
 )
-
-var pdcaRoleOrder = []string{"plan", "do", "check", "act"}
 
 type notifyJobKind string
 
 const (
-	notifyJobKindAgent     notifyJobKind = "agent"
-	notifyJobKindScheduler notifyJobKind = "scheduler"
+	notifyJobKindAgent      notifyJobKind = "agent"
+	notifyJobKindGoalkeeper notifyJobKind = "goalkeeper"
 )
 
 type notifyJobStatus string
@@ -45,9 +43,11 @@ const (
 type notifyJob struct {
 	ID            string
 	Kind          notifyJobKind
-	TargetAgentID string
+	Locator       jobLocator
+	ReplyTo       jobLocator
+	SourceJobID   string
+	SourceLocator *jobLocator
 	Input         string
-	ReplyTo       string
 	Status        notifyJobStatus
 	Attempt       int
 	MaxAttempts   int
@@ -87,11 +87,11 @@ type schedulerSessionConfig struct {
 }
 
 func newSchedulerSession(ctx context.Context, cfg schedulerSessionConfig) (*schedulerSession, error) {
-	logger := cfg.Logger.With().Str("role", schedulerAgentID).Logger()
+	logger := cfg.Logger.With().Str("agent_id", goalkeeperAgentID).Logger()
 	agentRuntime, err := acpagent.New(acpagent.Config{
 		Context:           ctx,
-		Name:              notifySchedulerName,
-		Description:       "Goalkeeper async scheduler agent",
+		Name:              notifyGoalkeeperName,
+		Description:       "Goalkeeper async root agent",
 		Model:             defaultModel,
 		Command:           cfg.Command,
 		WorkingDir:        cfg.WorkingDir,
@@ -102,10 +102,10 @@ func newSchedulerSession(ctx context.Context, cfg schedulerSessionConfig) (*sche
 		MCPServers:        cfg.MCPServers,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create scheduler agent: %w", err)
+		return nil, fmt.Errorf("create goalkeeper agent: %w", err)
 	}
 	sessionService := session.InMemoryService()
-	const appName = "goalkeeper-notify-scheduler"
+	const appName = "goalkeeper-notify-goalkeeper"
 	runner, err := adkrunner.New(adkrunner.Config{
 		AppName:        appName,
 		Agent:          agentRuntime,
@@ -113,7 +113,7 @@ func newSchedulerSession(ctx context.Context, cfg schedulerSessionConfig) (*sche
 	})
 	if err != nil {
 		_ = agentRuntime.Close()
-		return nil, fmt.Errorf("create scheduler runner: %w", err)
+		return nil, fmt.Errorf("create goalkeeper runner: %w", err)
 	}
 	created, err := sessionService.Create(ctx, &session.CreateRequest{
 		AppName:   appName,
@@ -122,7 +122,7 @@ func newSchedulerSession(ctx context.Context, cfg schedulerSessionConfig) (*sche
 	})
 	if err != nil {
 		_ = agentRuntime.Close()
-		return nil, fmt.Errorf("create scheduler session: %w", err)
+		return nil, fmt.Errorf("create goalkeeper session: %w", err)
 	}
 	return &schedulerSession{
 		agent:          agentRuntime,
@@ -167,10 +167,12 @@ func (e *notifyExecutor) run(ctx context.Context) {
 			if job == nil {
 				continue
 			}
-			if job.Kind == notifyJobKindScheduler && job.ReplyTo != "" {
+			if job.Kind == notifyJobKindGoalkeeper && job.SourceJobID != "" {
 				e.logger.Debug().
 					Str("job_id", job.ID).
-					Str("reply_to", job.ReplyTo).
+					Str("source_job_id", job.SourceJobID).
+					Interface("source_locator", job.SourceLocator).
+					Interface("reply_to", job.ReplyTo).
 					Msg("notification job received")
 			}
 			e.coordinator.markJobStarted(job)
@@ -183,32 +185,29 @@ func (e *notifyExecutor) run(ctx context.Context) {
 type notifyCoordinator struct {
 	logger zerolog.Logger
 
-	mu               sync.Mutex
-	jobs             map[string]*notifyJob
-	queues           map[string]chan *notifyJob
-	expectedRoleIdx  int
-	workerInFlightID string
-	terminal         bool
-	finalSummary     string
-	finalErr         error
-	done             chan notifyRunResult
-	doneClosed       bool
+	mu           sync.Mutex
+	jobs         map[string]*notifyJob
+	queues       map[string]chan *notifyJob
+	terminal     bool
+	finalSummary string
+	finalErr     error
+	done         chan notifyRunResult
+	doneClosed   bool
 
 	wg sync.WaitGroup
 }
 
 func newNotifyCoordinator(logger zerolog.Logger, runners map[string]notifyJobRunner) (*notifyCoordinator, error) {
-	for _, agentID := range append([]string{schedulerAgentID}, pdcaRoleOrder...) {
+	for _, agentID := range append([]string{goalkeeperAgentID}, childAgentIDs()...) {
 		if runners[agentID] == nil {
 			return nil, fmt.Errorf("missing runner for agent %q", agentID)
 		}
 	}
 	c := &notifyCoordinator{
-		logger:          logger,
-		jobs:            make(map[string]*notifyJob),
-		queues:          make(map[string]chan *notifyJob),
-		expectedRoleIdx: 0,
-		done:            make(chan notifyRunResult, 1),
+		logger: logger,
+		jobs:   make(map[string]*notifyJob),
+		queues: make(map[string]chan *notifyJob),
+		done:   make(chan notifyRunResult, 1),
 	}
 	for agentID := range runners {
 		c.queues[agentID] = make(chan *notifyJob, defaultQueueDepth)
@@ -239,20 +238,20 @@ func (c *notifyCoordinator) wait() {
 
 func (c *notifyCoordinator) enqueueInitialGoal(goal string) error {
 	job := &notifyJob{
-		ID:            initialGoalJobID,
-		Kind:          notifyJobKindScheduler,
-		TargetAgentID: schedulerAgentID,
-		Input:         "GOAL JOB:\n" + strings.TrimSpace(goal),
-		Status:        notifyJobStatusQueued,
-		Attempt:       1,
-		MaxAttempts:   defaultMaxAttempts,
+		ID:          initialGoalJobID,
+		Kind:        notifyJobKindGoalkeeper,
+		Locator:     newAgentLocator(goalkeeperAgentID),
+		ReplyTo:     newAgentLocator(goalkeeperAgentID),
+		Input:       "GOAL JOB:\n" + strings.TrimSpace(goal),
+		Status:      notifyJobStatusQueued,
+		Attempt:     1,
+		MaxAttempts: defaultMaxAttempts,
 	}
 	return c.enqueueJob(job)
 }
 
-func (c *notifyCoordinator) scheduleWorkerJob(jobID string, targetAgentID string, task string) error {
+func (c *notifyCoordinator) scheduleJob(jobID string, locator jobLocator, replyTo jobLocator, task string) error {
 	jobID = strings.TrimSpace(jobID)
-	targetAgentID = strings.ToLower(strings.TrimSpace(targetAgentID))
 	task = strings.TrimSpace(task)
 	if jobID == "" {
 		return errors.New("job_id is required")
@@ -260,8 +259,17 @@ func (c *notifyCoordinator) scheduleWorkerJob(jobID string, targetAgentID string
 	if task == "" {
 		return errors.New("task is required")
 	}
-	if _, ok := pdcaRoles[targetAgentID]; !ok {
-		return fmt.Errorf("unknown target_agent_id %q", targetAgentID)
+	if locator.Type != locatorTypeAgent {
+		return fmt.Errorf("unsupported locator.type %q", locator.Type)
+	}
+	if _, ok := childAgentInstructions[locator.ID]; !ok {
+		return fmt.Errorf("unknown child agent locator.id %q", locator.ID)
+	}
+	if replyTo.Type != locatorTypeAgent {
+		return fmt.Errorf("unsupported reply_to.type %q", replyTo.Type)
+	}
+	if !isKnownRuntimeAgentID(replyTo.ID) {
+		return fmt.Errorf("unknown reply_to.id %q", replyTo.ID)
 	}
 
 	c.mu.Lock()
@@ -272,19 +280,7 @@ func (c *notifyCoordinator) scheduleWorkerJob(jobID string, targetAgentID string
 	if _, exists := c.jobs[jobID]; exists {
 		return fmt.Errorf("job %q already exists", jobID)
 	}
-	if c.workerInFlightID != "" {
-		return fmt.Errorf("job %q is still in flight; wait for notification", c.workerInFlightID)
-	}
-	if c.expectedRoleIdx >= len(pdcaRoleOrder) {
-		return errors.New("pdca workflow is already complete")
-	}
-	expectedRole := pdcaRoleOrder[c.expectedRoleIdx]
-	if targetAgentID != expectedRole {
-		return fmt.Errorf("expected next target_agent_id %q, got %q", expectedRole, targetAgentID)
-	}
-
-	job := c.newQueuedJobLocked(jobID, notifyJobKindAgent, targetAgentID, task, schedulerAgentID)
-	c.workerInFlightID = jobID
+	job := c.newQueuedJobLocked(jobID, notifyJobKindAgent, locator, replyTo, task)
 	return c.enqueueQueuedJobLocked(job)
 }
 
@@ -338,32 +334,34 @@ func (c *notifyCoordinator) enqueueJob(job *notifyJob) error {
 	if _, exists := c.jobs[job.ID]; exists {
 		return fmt.Errorf("job %q already exists", job.ID)
 	}
-	job = c.newQueuedJobLocked(job.ID, job.Kind, job.TargetAgentID, job.Input, job.ReplyTo)
-	return c.enqueueQueuedJobLocked(job)
+	queued := c.newQueuedJobLocked(job.ID, job.Kind, job.Locator, job.ReplyTo, job.Input)
+	queued.SourceJobID = job.SourceJobID
+	queued.SourceLocator = job.SourceLocator
+	return c.enqueueQueuedJobLocked(queued)
 }
 
-func (c *notifyCoordinator) newQueuedJobLocked(jobID string, kind notifyJobKind, targetAgentID string, input string, replyTo string) *notifyJob {
+func (c *notifyCoordinator) newQueuedJobLocked(jobID string, kind notifyJobKind, locator jobLocator, replyTo jobLocator, input string) *notifyJob {
 	now := time.Now().UTC()
 	job := &notifyJob{
-		ID:            jobID,
-		Kind:          kind,
-		TargetAgentID: targetAgentID,
-		Input:         input,
-		ReplyTo:       replyTo,
-		Status:        notifyJobStatusQueued,
-		Attempt:       1,
-		MaxAttempts:   defaultMaxAttempts,
-		CreatedAt:     now,
-		ScheduledAt:   now,
+		ID:          jobID,
+		Kind:        kind,
+		Locator:     locator,
+		ReplyTo:     replyTo,
+		Input:       input,
+		Status:      notifyJobStatusQueued,
+		Attempt:     1,
+		MaxAttempts: defaultMaxAttempts,
+		CreatedAt:   now,
+		ScheduledAt: now,
 	}
 	c.jobs[jobID] = job
 	return job
 }
 
 func (c *notifyCoordinator) enqueueQueuedJobLocked(job *notifyJob) error {
-	queue, ok := c.queues[job.TargetAgentID]
+	queue, ok := c.queues[job.Locator.ID]
 	if !ok {
-		return fmt.Errorf("unknown target_agent_id %q", job.TargetAgentID)
+		return fmt.Errorf("unknown locator.id %q", job.Locator.ID)
 	}
 	c.logJobEvent("job enqueued", job)
 	queue <- job
@@ -395,9 +393,9 @@ func (c *notifyCoordinator) handleJobResult(job *notifyJob, output string, err e
 		c.logJobEvent("job completed", job)
 	}
 
-	if job.TargetAgentID == schedulerAgentID {
+	if job.Locator.ID == goalkeeperAgentID {
 		if err != nil {
-			c.finalErr = fmt.Errorf("scheduler job %q failed: %w", job.ID, err)
+			c.finalErr = fmt.Errorf("goalkeeper job %q failed: %w", job.ID, err)
 			c.terminal = true
 			c.sendDoneLocked(notifyRunResult{})
 			c.mu.Unlock()
@@ -410,20 +408,17 @@ func (c *notifyCoordinator) handleJobResult(job *notifyJob, output string, err e
 		return
 	}
 
-	if c.workerInFlightID == job.ID {
-		c.workerInFlightID = ""
-	}
-	if err == nil && c.expectedRoleIdx < len(pdcaRoleOrder) && pdcaRoleOrder[c.expectedRoleIdx] == job.TargetAgentID {
-		c.expectedRoleIdx++
-	}
 	if !c.terminal {
+		sourceLocator := job.Locator
 		notification = c.newQueuedJobLocked(
 			job.ID+".notify",
-			notifyJobKindScheduler,
-			schedulerAgentID,
+			notifyJobKindGoalkeeper,
+			job.ReplyTo,
+			newAgentLocator(goalkeeperAgentID),
 			formatNotificationJobInput(job),
-			job.ID,
 		)
+		notification.SourceJobID = job.ID
+		notification.SourceLocator = &sourceLocator
 		c.logJobEvent("notification job created", notification)
 	}
 	c.mu.Unlock()
@@ -441,9 +436,9 @@ func (c *notifyCoordinator) enqueueNotification(job *notifyJob) error {
 	if c.terminal {
 		return errors.New("run already finished")
 	}
-	queue, ok := c.queues[job.TargetAgentID]
+	queue, ok := c.queues[job.Locator.ID]
 	if !ok {
-		return fmt.Errorf("unknown target_agent_id %q", job.TargetAgentID)
+		return fmt.Errorf("unknown locator.id %q", job.Locator.ID)
 	}
 	c.logJobEvent("job enqueued", job)
 	queue <- job
@@ -454,10 +449,14 @@ func (c *notifyCoordinator) logJobEvent(message string, job *notifyJob) {
 	event := c.logger.Debug().
 		Str("job_id", job.ID).
 		Str("kind", string(job.Kind)).
-		Str("target_agent_id", job.TargetAgentID).
+		Interface("locator", job.Locator).
+		Interface("reply_to", job.ReplyTo).
 		Str("status", string(job.Status))
-	if job.ReplyTo != "" {
-		event = event.Str("reply_to", job.ReplyTo)
+	if job.SourceJobID != "" {
+		event = event.Str("source_job_id", job.SourceJobID)
+	}
+	if job.SourceLocator != nil {
+		event = event.Interface("source_locator", job.SourceLocator)
 	}
 	if job.Output != "" {
 		event = event.Str("output", job.Output)
@@ -477,32 +476,46 @@ func (c *notifyCoordinator) sendDoneLocked(result notifyRunResult) {
 }
 
 func formatNotificationJobInput(job *notifyJob) string {
-	result := job.Output
-	if job.Error != "" {
-		result = job.Error
+	type completionEnvelope struct {
+		Type          string     `json:"type"`
+		SourceJobID   string     `json:"source_job_id"`
+		SourceLocator jobLocator `json:"source_locator"`
+		ReplyTo       jobLocator `json:"reply_to"`
+		Status        string     `json:"status"`
+		Result        string     `json:"result,omitempty"`
+		Error         string     `json:"error,omitempty"`
 	}
-	return strings.TrimSpace(fmt.Sprintf(
-		"JOB NOTIFICATION:\nsource_job_id: %s\nsource_agent_id: %s\nstatus: %s\nresult:\n%s",
-		job.ID,
-		job.TargetAgentID,
-		job.Status,
-		strings.TrimSpace(result),
-	))
+
+	envelope := completionEnvelope{
+		Type:          "job_completion",
+		SourceJobID:   job.ID,
+		SourceLocator: job.Locator,
+		ReplyTo:       job.ReplyTo,
+		Status:        string(job.Status),
+	}
+	if job.Error != "" {
+		envelope.Error = job.Error
+	} else {
+		envelope.Result = job.Output
+	}
+	payload, err := json.MarshalIndent(envelope, "", "  ")
+	if err != nil {
+		return strings.TrimSpace(fmt.Sprintf("JOB ENVELOPE:\n%s", job.ID))
+	}
+	return "JOB ENVELOPE:\n" + string(payload)
 }
 
 func notifySchedulerInstruction() string {
 	return strings.Join([]string{
-		"You are the Goalkeeper async root scheduler.",
-		"You receive scheduler jobs in one of two forms: GOAL JOB or JOB NOTIFICATION.",
-		"Use only the goalkeeper.schedule_job tool to enqueue PDCA worker jobs, and goalkeeper.finish to finish the run.",
-		"Keep the workflow fixed to plan, then do, then check, then act.",
-		"For a GOAL JOB, schedule exactly one plan job and stop.",
-		"For a successful plan notification, schedule exactly one do job and stop.",
-		"For a successful do notification, schedule exactly one check job and stop.",
-		"For a successful check notification, schedule exactly one act job and stop.",
-		"For a successful act notification, call goalkeeper.finish with a concise final summary and stop.",
-		"If a notification reports an error, call goalkeeper.finish with a concise failure summary and stop.",
-		"Do not try to enqueue work directly to another agent without using goalkeeper.schedule_job.",
+		"You are the Goalkeeper async root agent named goalkeeper.",
+		"You receive goalkeeper jobs in one of two forms: GOAL JOB or JOB ENVELOPE.",
+		"Use only the goalkeeper.schedule_job tool to enqueue child-agent jobs, and goalkeeper.finish to finish the run.",
+		"Each scheduled job must include a stable job_id, a locator, an optional reply_to, and task text.",
+		"The child agents available in this MVP are plan, do, check, and act.",
+		"Decide yourself which child agent to run next based on the goal and the job envelopes you receive.",
+		"If the goal is handled, call goalkeeper.finish with a concise final summary.",
+		"If a job envelope reports an error and you want to stop, call goalkeeper.finish with a concise failure summary.",
+		"Do not try to deliver work directly without using goalkeeper.schedule_job.",
 	}, "\n")
 }
 
@@ -583,11 +596,11 @@ func RunNotify(ctx context.Context, cfg Config) error {
 	defer scheduler.close()
 
 	runners := map[string]notifyJobRunner{
-		schedulerAgentID: scheduler,
-		"plan":           roleSet.roles["plan"],
-		"do":             roleSet.roles["do"],
-		"check":          roleSet.roles["check"],
-		"act":            roleSet.roles["act"],
+		goalkeeperAgentID: scheduler,
+		"plan":            roleSet.roles["plan"],
+		"do":              roleSet.roles["do"],
+		"check":           roleSet.roles["check"],
+		"act":             roleSet.roles["act"],
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)

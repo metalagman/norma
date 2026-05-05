@@ -38,9 +38,9 @@ func TestNotifyServiceScheduleJobQueuesImmediately(t *testing.T) {
 	}()
 
 	_, out, err := service.scheduleJob(context.Background(), nil, scheduleJobInput{
-		JobID:         "job-plan",
-		TargetAgentID: "plan",
-		Task:          "Plan the goal",
+		JobID:   "job-plan",
+		Locator: newAgentLocator("plan"),
+		Task:    "Plan the goal",
 	})
 	if err != nil {
 		t.Fatalf("scheduleJob() error = %v", err)
@@ -55,13 +55,13 @@ func TestNotifyServiceScheduleJobQueuesImmediately(t *testing.T) {
 	}
 	select {
 	case prompt := <-schedulerRunner.started:
-		t.Fatalf("scheduler got prompt %q before worker finished, want async scheduling", prompt)
+		t.Fatalf("goalkeeper got prompt %q before worker finished, want async scheduling", prompt)
 	default:
 	}
 	close(planRunner.release)
 }
 
-func TestNotifyCoordinatorCreatesSchedulerNotification(t *testing.T) {
+func TestNotifyCoordinatorCreatesGoalkeeperNotification(t *testing.T) {
 	t.Parallel()
 
 	schedulerRunner := &fakeNotifyRunner{started: make(chan string, 1)}
@@ -74,21 +74,24 @@ func TestNotifyCoordinatorCreatesSchedulerNotification(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.scheduleWorkerJob("job-plan", "plan", "Plan the goal"); err != nil {
-		t.Fatalf("scheduleWorkerJob() error = %v", err)
+	if err := coordinator.scheduleJob("job-plan", newAgentLocator("plan"), newAgentLocator(goalkeeperAgentID), "Plan the goal"); err != nil {
+		t.Fatalf("scheduleJob() error = %v", err)
 	}
 
 	select {
 	case prompt := <-schedulerRunner.started:
-		if !strings.Contains(prompt, "JOB NOTIFICATION:") ||
-			!strings.Contains(prompt, "source_job_id: job-plan") ||
-			!strings.Contains(prompt, "source_agent_id: plan") ||
-			!strings.Contains(prompt, "status: completed") ||
-			!strings.Contains(prompt, "planned") {
-			t.Fatalf("scheduler notification = %q, want completion payload", prompt)
+		if !strings.Contains(prompt, "JOB ENVELOPE:") ||
+			!strings.Contains(prompt, `"type": "job_completion"`) ||
+			!strings.Contains(prompt, `"source_job_id": "job-plan"`) ||
+			!strings.Contains(prompt, `"source_locator": {`) ||
+			!strings.Contains(prompt, `"id": "plan"`) ||
+			!strings.Contains(prompt, `"reply_to": {`) ||
+			!strings.Contains(prompt, `"status": "completed"`) ||
+			!strings.Contains(prompt, `"result": "planned"`) {
+			t.Fatalf("goalkeeper notification = %q, want completion envelope", prompt)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("scheduler did not receive notification job")
+		t.Fatal("goalkeeper did not receive notification job")
 	}
 }
 
@@ -108,10 +111,10 @@ func TestNotifyCoordinatorSerializesPerAgent(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.enqueueJob(&notifyJob{ID: "job-1", Kind: notifyJobKindAgent, TargetAgentID: "plan", Input: "first"}); err != nil {
+	if err := coordinator.enqueueJob(&notifyJob{ID: "job-1", Kind: notifyJobKindAgent, Locator: newAgentLocator("plan"), ReplyTo: newAgentLocator(goalkeeperAgentID), Input: "first"}); err != nil {
 		t.Fatalf("enqueueJob(first) error = %v", err)
 	}
-	if err := coordinator.enqueueJob(&notifyJob{ID: "job-2", Kind: notifyJobKindAgent, TargetAgentID: "plan", Input: "second"}); err != nil {
+	if err := coordinator.enqueueJob(&notifyJob{ID: "job-2", Kind: notifyJobKindAgent, Locator: newAgentLocator("plan"), ReplyTo: newAgentLocator(goalkeeperAgentID), Input: "second"}); err != nil {
 		t.Fatalf("enqueueJob(second) error = %v", err)
 	}
 
@@ -155,10 +158,10 @@ func TestNotifyCoordinatorRunsDifferentAgentsConcurrently(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.enqueueJob(&notifyJob{ID: "job-plan", Kind: notifyJobKindAgent, TargetAgentID: "plan", Input: "plan"}); err != nil {
+	if err := coordinator.enqueueJob(&notifyJob{ID: "job-plan", Kind: notifyJobKindAgent, Locator: newAgentLocator("plan"), ReplyTo: newAgentLocator(goalkeeperAgentID), Input: "plan"}); err != nil {
 		t.Fatalf("enqueueJob(plan) error = %v", err)
 	}
-	if err := coordinator.enqueueJob(&notifyJob{ID: "job-do", Kind: notifyJobKindAgent, TargetAgentID: "do", Input: "do"}); err != nil {
+	if err := coordinator.enqueueJob(&notifyJob{ID: "job-do", Kind: notifyJobKindAgent, Locator: newAgentLocator("do"), ReplyTo: newAgentLocator(goalkeeperAgentID), Input: "do"}); err != nil {
 		t.Fatalf("enqueueJob(do) error = %v", err)
 	}
 
@@ -190,8 +193,8 @@ func TestNotifyCoordinatorLogsDebugLifecycle(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.scheduleWorkerJob("job-plan", "plan", "Plan the goal"); err != nil {
-		t.Fatalf("scheduleWorkerJob() error = %v", err)
+	if err := coordinator.scheduleJob("job-plan", newAgentLocator("plan"), newAgentLocator(goalkeeperAgentID), "Plan the goal"); err != nil {
+		t.Fatalf("scheduleJob() error = %v", err)
 	}
 	waitForCondition(t, 2*time.Second, func() bool {
 		return strings.Contains(logs.String(), `"message":"notification job created"`)
@@ -207,6 +210,15 @@ func TestNotifyCoordinatorLogsDebugLifecycle(t *testing.T) {
 			t.Fatalf("logs = %q, want %s", got, want)
 		}
 	}
+	for _, want := range []string{
+		`"locator":{"type":"agent","id":"plan"}`,
+		`"reply_to":{"type":"agent","id":"goalkeeper"}`,
+		`"source_locator":{"type":"agent","id":"plan"}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("logs = %q, want %s", got, want)
+		}
+	}
 }
 
 func TestNotifyCoordinatorWaitsForTerminalSchedulerJob(t *testing.T) {
@@ -217,7 +229,7 @@ func TestNotifyCoordinatorWaitsForTerminalSchedulerJob(t *testing.T) {
 		started: make(chan string, 1),
 		release: release,
 		onRun: func() {
-			// Mimic the scheduler calling goalkeeper.finish from inside the prompt turn.
+			// Mimic the goalkeeper root agent calling goalkeeper.finish from inside the prompt turn.
 		},
 	}
 	coordinator, cleanup := startNotifyTestCoordinator(t, notifyTestRunners{
@@ -235,7 +247,7 @@ func TestNotifyCoordinatorWaitsForTerminalSchedulerJob(t *testing.T) {
 	select {
 	case <-schedulerRunner.started:
 	case <-time.After(2 * time.Second):
-		t.Fatal("scheduler job did not start")
+		t.Fatal("goalkeeper job did not start")
 	}
 	if err := coordinator.finish("done"); err != nil {
 		t.Fatalf("finish() error = %v", err)
@@ -270,7 +282,7 @@ func TestNotifyCoordinatorWaitsForTerminalSchedulerJob(t *testing.T) {
 	case err := <-waitErr:
 		t.Fatalf("waitResult() error = %v", err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("waitResult() did not return after scheduler job completed")
+		t.Fatal("waitResult() did not return after goalkeeper job completed")
 	}
 }
 
@@ -291,21 +303,21 @@ func startNotifyTestCoordinatorWithLogger(t *testing.T, logger zerolog.Logger, r
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	coordinator, err := newNotifyCoordinator(logger, map[string]notifyJobRunner{
-		schedulerAgentID: runners.scheduler,
-		"plan":           runners.plan,
-		"do":             runners.do,
-		"check":          runners.check,
-		"act":            runners.act,
+		goalkeeperAgentID: runners.scheduler,
+		"plan":            runners.plan,
+		"do":              runners.do,
+		"check":           runners.check,
+		"act":             runners.act,
 	})
 	if err != nil {
 		t.Fatalf("newNotifyCoordinator() error = %v", err)
 	}
 	coordinator.start(ctx, map[string]notifyJobRunner{
-		schedulerAgentID: runners.scheduler,
-		"plan":           runners.plan,
-		"do":             runners.do,
-		"check":          runners.check,
-		"act":            runners.act,
+		goalkeeperAgentID: runners.scheduler,
+		"plan":            runners.plan,
+		"do":              runners.do,
+		"check":           runners.check,
+		"act":             runners.act,
 	})
 	return coordinator, func() {
 		cancel()

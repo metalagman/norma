@@ -17,7 +17,7 @@ const (
 )
 
 type jobRunner interface {
-	RunJob(ctx context.Context, jobID string, role string, task string) (string, error)
+	RunJob(ctx context.Context, jobID string, agentID string, task string) (string, error)
 }
 
 type service struct {
@@ -37,81 +37,96 @@ func newService(runner jobRunner, logger zerolog.Logger, maxToolCalls int) *serv
 }
 
 type runJobInput struct {
-	JobID string `json:"job_id"`
-	Role  string `json:"role"`
-	Task  string `json:"task"`
+	JobID   string      `json:"job_id"`
+	Locator jobLocator  `json:"locator"`
+	ReplyTo *jobLocator `json:"reply_to,omitempty"`
+	Task    string      `json:"task"`
 }
 
 type runJobOutput struct {
-	JobID  string `json:"job_id"`
-	Role   string `json:"role"`
-	Status string `json:"status"`
-	Result string `json:"result"`
+	JobID   string     `json:"job_id"`
+	Locator jobLocator `json:"locator"`
+	ReplyTo jobLocator `json:"reply_to"`
+	Status  string     `json:"status"`
+	Result  string     `json:"result"`
 }
 
 type jobEnvelope struct {
-	JobID     string `json:"job_id"`
-	Role      string `json:"role"`
-	Task      string `json:"task,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Result    string `json:"result,omitempty"`
-	Direction string `json:"direction"`
+	JobID     string     `json:"job_id"`
+	Locator   jobLocator `json:"locator"`
+	ReplyTo   jobLocator `json:"reply_to"`
+	Task      string     `json:"task,omitempty"`
+	Status    string     `json:"status,omitempty"`
+	Result    string     `json:"result,omitempty"`
+	Direction string     `json:"direction"`
 }
 
 func newMCPServer(service *service) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion},
-		&mcp.ServerOptions{Instructions: "Use goalkeeper.run_job to run one PDCA JOB on a Goalkeeper subagent."},
+		&mcp.ServerOptions{Instructions: "Use goalkeeper.run_job to run one JOB on a Goalkeeper child agent."},
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        runJobToolName,
-		Description: "Run one JOB on a Goalkeeper PDCA subagent. Role must be plan, do, check, or act.",
+		Description: "Run one JOB on a Goalkeeper child agent. locator must reference plan, do, check, or act.",
 	}, service.runJob)
 	return server
 }
 
 func (s *service) runJob(ctx context.Context, _ *mcp.CallToolRequest, input runJobInput) (*mcp.CallToolResult, runJobOutput, error) {
 	jobID := strings.TrimSpace(input.JobID)
-	role := strings.ToLower(strings.TrimSpace(input.Role))
+	locator, locatorErr := normalizeLocator(input.Locator)
+	replyTo, replyErr := normalizeReplyLocator(input.ReplyTo)
 	task := strings.TrimSpace(input.Task)
 	if jobID == "" {
 		return toolError("job_id is required", runJobOutput{Status: "error"}), runJobOutput{Status: "error"}, nil
 	}
-	if _, ok := pdcaRoles[role]; !ok {
-		out := runJobOutput{JobID: jobID, Role: role, Status: "error", Result: fmt.Sprintf("unknown role %q", input.Role)}
+	if locatorErr != nil {
+		out := runJobOutput{JobID: jobID, Status: "error", Result: locatorErr.Error()}
+		return toolError(out.Result, out), out, nil
+	}
+	if replyErr != nil {
+		out := runJobOutput{JobID: jobID, Locator: locator, Status: "error", Result: replyErr.Error()}
+		return toolError(out.Result, out), out, nil
+	}
+	if _, ok := childAgentInstructions[locator.ID]; !ok {
+		out := runJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "error", Result: fmt.Sprintf("unknown agent locator.id %q", locator.ID)}
 		return toolError(out.Result, out), out, nil
 	}
 	if task == "" {
-		out := runJobOutput{JobID: jobID, Role: role, Status: "error", Result: "task is required"}
+		out := runJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "error", Result: "task is required"}
 		return toolError(out.Result, out), out, nil
 	}
 	if !s.reserveCall() {
-		out := runJobOutput{JobID: jobID, Role: role, Status: "error", Result: "max tool calls exceeded"}
+		out := runJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "error", Result: "max tool calls exceeded"}
 		return toolError(out.Result, out), out, nil
 	}
 
 	s.logEnvelope(jobEnvelope{
 		JobID:     jobID,
-		Role:      role,
+		Locator:   locator,
+		ReplyTo:   replyTo,
 		Task:      task,
 		Direction: "send",
 	})
-	result, err := s.runner.RunJob(ctx, jobID, role, task)
+	result, err := s.runner.RunJob(ctx, jobID, locator.ID, task)
 	if err != nil {
-		out := runJobOutput{JobID: jobID, Role: role, Status: "error", Result: err.Error()}
+		out := runJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "error", Result: err.Error()}
 		s.logEnvelope(jobEnvelope{
 			JobID:     jobID,
-			Role:      role,
+			Locator:   locator,
+			ReplyTo:   replyTo,
 			Status:    out.Status,
 			Result:    out.Result,
 			Direction: "receive",
 		})
 		return toolError(out.Result, out), out, nil
 	}
-	out := runJobOutput{JobID: jobID, Role: role, Status: "completed", Result: strings.TrimSpace(result)}
+	out := runJobOutput{JobID: jobID, Locator: locator, ReplyTo: replyTo, Status: "completed", Result: strings.TrimSpace(result)}
 	s.logEnvelope(jobEnvelope{
 		JobID:     jobID,
-		Role:      role,
+		Locator:   locator,
+		ReplyTo:   replyTo,
 		Status:    out.Status,
 		Result:    out.Result,
 		Direction: "receive",
@@ -125,7 +140,8 @@ func (s *service) logEnvelope(envelope jobEnvelope) {
 	event := s.logger.Debug().
 		Str("direction", envelope.Direction).
 		Str("job_id", envelope.JobID).
-		Str("role", envelope.Role)
+		Interface("locator", envelope.Locator).
+		Interface("reply_to", envelope.ReplyTo)
 	if envelope.Task != "" {
 		event = event.Str("task", envelope.Task)
 	}

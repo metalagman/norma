@@ -10,7 +10,7 @@ func NotifyCommand() *cobra.Command {
 	return newGoalkeeperCommand(
 		"goalkeeper-notify <goal>",
 		"Run the experimental Goalkeeper async notification playground",
-		"maximum scheduler calls to Goalkeeper MCP tools",
+		"maximum goalkeeper calls to Goalkeeper MCP tools",
 		goalkeeper.RunNotify,
 	)
 }
