@@ -30,7 +30,7 @@ For each cycle, `norma loop`:
 2. selects one task
 3. runs the PDCA workflow on that task
 4. checks verdict/decision from PDCA session state (inside workflow finalization)
-5. applies verdict effects (DB status, git apply on PASS, task close on PASS)
+5. applies verdict effects (DB status, git apply on pass, task close on pass)
 6. picks the next task and repeats
 
 ## Control Flow
@@ -66,7 +66,7 @@ Inside PDCA agent execution:
 
 - Check step writes verdict into session state key `verdict`: `internal/agents/pdca/agent.go`
 - Act step writes decision into session state key `decision`: `internal/agents/pdca/agent.go`
-- Verdict literals are uppercase: `PASS`, `FAIL`
+- Verdict literals are lowercase: `pass`, `fail`
 - Decision literals are lowercase: `close`, `continue`, `replan`
 - Run status literals are lowercase: `passed`, `failed`, `stopped`
 
@@ -82,20 +82,20 @@ Code: `internal/agents/pdca/factory.go`
 
 After workflow returns:
 
-- If `verdict=PASS` + `decision=close`:
+- If `verdict=pass` + `decision=close`:
   - apply workspace changes to main repo
   - create commit
   - mark task `done` in Beads
   - code: `internal/run/run.go`
-- If `verdict=FAIL` + `decision=continue`:
+- If `verdict=fail` + `decision=continue`:
   - keep the task open
   - schedule an in-memory retry backoff for that task
   - keep selecting other ready tasks while the retry backoff is active
-- If `verdict=FAIL` + `decision=replan`:
+- If `verdict=fail` + `decision=replan`:
   - create/link replacement work
   - close the old task with a replan reason
   - return final status `failed`
-- Invalid combinations such as `PASS` + `continue`, `PASS` + `replan`, `FAIL` + `close`, or any `rollback` decision are agent contract violations.
+- Invalid combinations such as `pass` + `continue`, `pass` + `replan`, `fail` + `close`, or any `rollback` decision are agent contract violations.
 
 ### 7) Pick next task
 

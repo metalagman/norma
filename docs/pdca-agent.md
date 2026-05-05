@@ -6,7 +6,7 @@ This document describes Norma's fixed execution loop:
 
 `plan -> do -> check -> act`
 
-The loop repeats until the task is completed (`verdict=PASS` + `decision=close`) or a stop condition is reached.
+The loop repeats until the task is completed (`verdict=pass` + `decision=close`) or a stop condition is reached.
 
 ## Scope
 
@@ -20,12 +20,12 @@ PDCA has three separate control concepts. They are intentionally not interchange
 
 | Concept | Emitted by | Question answered | Valid literals |
 | --- | --- | --- | --- |
-| Check verdict | Check agent | Is the task complete? | `PASS`, `FAIL` |
+| Check verdict | Check agent | Is the task complete? | `pass`, `fail` |
 | Act decision | Act agent | What should Norma do with that verdict? | `close`, `continue`, `replan` |
 | Run status | Norma orchestrator | How did this run end? | `passed`, `failed`, `stopped` |
 
 Casing is part of the contract:
-- Verdict literals are uppercase: `PASS`, `FAIL`.
+- Verdict literals are lowercase: `pass`, `fail`.
 - Decision literals are lowercase: `close`, `continue`, `replan`.
 - Run status literals are lowercase: `passed`, `failed`, `stopped`.
 - Prose may say pass/fail/close/replan, but JSON examples and contract tables MUST use exact literal casing.
@@ -34,9 +34,9 @@ Casing is part of the contract:
 
 | Check verdict | Legal Act decision | Norma behavior | Final run status |
 | --- | --- | --- | --- |
-| `PASS` | `close` | Apply task-branch changes, create the final commit, close the task. | `passed` |
-| `FAIL` | `continue` | Keep the task open and run the next PDCA iteration from the task branch. | Still running; if the loop exhausts, `failed` |
-| `FAIL` | `replan` | Stop this task, create/link replacement work, close the old task with a replan reason. | `failed` |
+| `pass` | `close` | Apply task-branch changes, create the final commit, close the task. | `passed` |
+| `fail` | `continue` | Keep the task open and run the next PDCA iteration from the task branch. | Still running; if the loop exhausts, `failed` |
+| `fail` | `replan` | Stop this task, create/link replacement work, close the old task with a replan reason. | `failed` |
 
 ### Invalid Combinations
 
@@ -44,9 +44,9 @@ These are agent contract violations. Norma must fail the Act step, stop the run,
 
 | Invalid output | Why invalid |
 | --- | --- |
-| `PASS` + `continue` | A passed task is complete; it must close. |
-| `PASS` + `replan` | A passed task does not need replacement work. |
-| `FAIL` + `close` | A failed task is not complete and cannot be closed as done. |
+| `pass` + `continue` | A passed task is complete; it must close. |
+| `pass` + `replan` | A passed task does not need replacement work. |
+| `fail` + `close` | A failed task is not complete and cannot be closed as done. |
 | Any `rollback` decision | `rollback` is not a PDCA Act decision. |
 
 Human reading guide:
@@ -115,15 +115,15 @@ sequenceDiagram
     Act-->>ADK: Store decision in session task_state
     CLI->>DB: Commit act step and final run event
 
-    alt PASS + close
+    alt pass + close
         CLI->>Git: Squash merge task branch into base branch
         CLI->>Git: Create Conventional Commit with run and task footers
         CLI->>BD: Close task as done and remove workflow labels
         CLI->>DB: Update run status passed
-    else FAIL + continue
+    else fail + continue
         CLI->>BD: Keep task open and advance to next PDCA iteration
         CLI->>DB: Keep run status running until next iteration or budget exhaustion
-    else FAIL + replan
+    else fail + replan
         CLI->>BD: Create follow-up task and link it to the old task
         CLI->>BD: Close old task with replan reason and remove workflow labels
         CLI->>DB: Update run status failed
@@ -163,12 +163,12 @@ Purpose:
 
 Expected output:
 - `check_output.acceptance_results`
-- `check_output.verdict` (`PASS|FAIL`)
+- `check_output.verdict` (`pass|fail`)
 
 Verdict rules:
-- Any failed acceptance result -> `FAIL`
-- Any plan mismatch, missing verification, or incomplete acceptance evaluation -> `FAIL`
-- Otherwise -> `PASS`
+- Any failed acceptance result -> `fail`
+- Any plan mismatch, missing verification, or incomplete acceptance evaluation -> `fail`
+- Otherwise -> `pass`
 
 Current schema note:
 - `check_output.plan_match` is not part of the current `check/output.schema.json`.
@@ -183,15 +183,15 @@ Expected output:
 - `act_output.decision` (`close|continue|replan`)
 
 Agent rules:
-- If `act_input.verdict == "PASS"`, Act MUST return `decision="close"`.
-- If `act_input.verdict == "FAIL"`, Act MUST return `decision="continue"` or `decision="replan"`.
+- If `act_input.verdict == "pass"`, Act MUST return `decision="close"`.
+- If `act_input.verdict == "fail"`, Act MUST return `decision="continue"` or `decision="replan"`.
 - Act MUST NOT return `decision="rollback"`.
-- Act MUST NOT apply changes. Norma applies changes only after valid `PASS` + `close`.
+- Act MUST NOT apply changes. Norma applies changes only after valid `pass` + `close`.
 
 Act behavior:
-- `close`: legal only with `PASS`; Norma applies changes and closes the task.
-- `continue`: legal only with `FAIL`; Norma runs another PDCA iteration from the task branch.
-- `replan`: legal only with `FAIL`; Norma creates replacement work and ends the current run as `failed`.
+- `close`: legal only with `pass`; Norma applies changes and closes the task.
+- `continue`: legal only with `fail`; Norma runs another PDCA iteration from the task branch.
+- `replan`: legal only with `fail`; Norma creates replacement work and ends the current run as `failed`.
 
 ## Workspaces and Artifacts
 

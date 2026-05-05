@@ -34,8 +34,8 @@ Built for transparency and reliability, norma ensures every agent action is logg
 
 1. **PLAN:** Refine the goal into concrete `do_steps` and acceptance criteria checks.
 2. **DO:** Execute the plan. Agents modify code within the isolated workspace.
-3. **CHECK:** Evaluate the workspace against acceptance criteria and produce a verdict: `PASS` or `FAIL`.
-4. **ACT:** Choose the next action from that verdict. `PASS` must use `decision=close`, which lets Norma merge and commit changes using **Conventional Commits**. `FAIL` uses `decision=continue` to retry or `decision=replan` to create replacement work.
+3. **CHECK:** Evaluate the workspace against acceptance criteria and produce a verdict: `pass` or `fail`.
+4. **ACT:** Choose the next action from that verdict. `pass` must use `decision=close`, which lets Norma merge and commit changes using **Conventional Commits**. `fail` uses `decision=continue` to retry or `decision=replan` to create replacement work.
 
 ### Swarm
 

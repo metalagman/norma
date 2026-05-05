@@ -9,15 +9,15 @@ func TestAgentOutcomeDecisionField(t *testing.T) {
 
 	outcome := AgentOutcome{
 		Status:   "passed",
-		Verdict:  strPtr("PASS"),
+		Verdict:  strPtr("pass"),
 		Decision: strPtr("close"),
 	}
 
 	if outcome.Status != "passed" {
 		t.Fatalf("Status = %q, want %q", outcome.Status, "passed")
 	}
-	if outcome.Verdict == nil || *outcome.Verdict != "PASS" {
-		t.Fatalf("Verdict = %v, want %q", outcome.Verdict, "PASS")
+	if outcome.Verdict == nil || *outcome.Verdict != "pass" {
+		t.Fatalf("Verdict = %v, want %q", outcome.Verdict, "pass")
 	}
 	if outcome.Decision == nil || *outcome.Decision != "close" {
 		t.Fatalf("Decision = %v, want %q", outcome.Decision, "close")

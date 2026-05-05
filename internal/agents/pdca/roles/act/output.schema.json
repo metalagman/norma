@@ -8,7 +8,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "decision": { "type": "string", "enum": ["close", "replan", "rollback", "continue"] },
+        "decision": { "type": "string", "enum": ["close", "continue", "replan"] },
         "rationale": { "type": "string" },
         "next": {
           "type": "object",

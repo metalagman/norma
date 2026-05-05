@@ -109,11 +109,12 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 		return runpkg.AgentOutcome{Status: "failed"}, fmt.Errorf("read final step index: %w", err)
 	}
 
-	status, effectiveVerdict := deriveFinalOutcome(verdict, decision)
+	status, effectiveVerdict, effectiveDecision := deriveFinalOutcome(verdict, decision)
 	l.Info().
 		Str("verdict", verdict).
 		Str("decision", decision).
 		Str("effective_verdict", effectiveVerdict).
+		Str("effective_decision", effectiveDecision).
 		Msg("final outcome")
 
 	if w.store != nil {
@@ -128,7 +129,7 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 		}
 		event := &db.Event{
 			Type:    "verdict",
-			Message: fmt.Sprintf("pdca agent run completed with status=%s verdict=%s decision=%s", status, effectiveVerdict, decision),
+			Message: fmt.Sprintf("pdca agent run completed with status=%s verdict=%s decision=%s", status, effectiveVerdict, effectiveDecision),
 		}
 		if err := w.store.UpdateRun(ctx, meta.RunID, update, event); err != nil {
 			return runpkg.AgentOutcome{}, fmt.Errorf("persist final run status: %w", err)
@@ -141,8 +142,8 @@ func (w *Factory) Finalize(ctx context.Context, meta runpkg.RunMeta, payload run
 	if effectiveVerdict != "" {
 		res.Verdict = &effectiveVerdict
 	}
-	if decision != "" {
-		res.Decision = &decision
+	if effectiveDecision != "" {
+		res.Decision = &effectiveDecision
 	}
 
 	return res, nil
@@ -191,21 +192,21 @@ func parseFinalState(state session.State) (string, string, int, error) {
 	return verdict, decision, iteration, nil
 }
 
-func deriveFinalOutcome(verdict, decision string) (status string, effectiveVerdict string) {
-	effectiveVerdict = strings.ToUpper(strings.TrimSpace(verdict))
-	normalizedDecision := strings.ToLower(strings.TrimSpace(decision))
+func deriveFinalOutcome(verdict, decision string) (status string, effectiveVerdict string, effectiveDecision string) {
+	effectiveVerdict = strings.ToLower(strings.TrimSpace(verdict))
+	effectiveDecision = strings.ToLower(strings.TrimSpace(decision))
 
 	status = "stopped"
 	switch effectiveVerdict {
-	case "PASS":
-		if normalizedDecision == actDecisionClose {
+	case "pass":
+		if effectiveDecision == actDecisionClose {
 			status = "passed"
 		}
-	case "FAIL":
+	case "fail":
 		status = "failed"
 	}
 
-	return status, effectiveVerdict
+	return status, effectiveVerdict, effectiveDecision
 }
 
 func stateString(state session.State, key string) (string, error) {

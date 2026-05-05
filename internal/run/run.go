@@ -174,7 +174,7 @@ func (r *Runner) Run(ctx context.Context, goal string, ac []task.AcceptanceCrite
 	res.Status = outcome.Status
 
 	if outcome.Status == StatusPassed {
-		log.Info().Msg("verdict is PASS, applying changes")
+		log.Info().Msg("verdict is pass, applying changes")
 		err = r.applyChanges(ctx, runID, goal, taskID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to apply changes")

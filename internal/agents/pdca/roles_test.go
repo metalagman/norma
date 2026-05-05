@@ -155,6 +155,24 @@ func TestCheckAndActSchemasRejectUnsupportedVerdicts(t *testing.T) {
 	}
 	actInput := `{"run":{"id":"run-1","iteration":1},"task":{"id":"norma-1","goal":"goal"},"step":{"index":4},"paths":{"workspace_dir":"/tmp/work"},"act_input":{"verdict":"UNKNOWN","acceptance_results":[]}}`
 	assertSchemaInvalid(t, actRole.Schemas().InputSchema, actInput)
+
+	uppercaseCheckOutput := `{"status":"ok","summary":"done","check_output":{"acceptance_results":[],"verdict":"PASS"}}`
+	assertSchemaInvalid(t, checkRole.Schemas().OutputSchema, uppercaseCheckOutput)
+
+	uppercaseActInput := `{"run":{"id":"run-1","iteration":1},"task":{"id":"norma-1","goal":"goal"},"step":{"index":4},"paths":{"workspace_dir":"/tmp/work"},"act_input":{"verdict":"FAIL","acceptance_results":[]}}`
+	assertSchemaInvalid(t, actRole.Schemas().InputSchema, uppercaseActInput)
+}
+
+func TestActSchemaRejectsRollbackDecision(t *testing.T) {
+	t.Parallel()
+
+	actRole := Role(RoleAct)
+	if actRole == nil {
+		t.Fatal("Role(act) returned nil")
+	}
+
+	actOutput := `{"status":"ok","summary":"done","act_output":{"decision":"rollback"}}`
+	assertSchemaInvalid(t, actRole.Schemas().OutputSchema, actOutput)
 }
 
 func assertSchemaInvalid(t *testing.T, schema, payload string) {
@@ -181,7 +199,7 @@ func TestAllRolesMapResponseReturnsAgentResponse(t *testing.T) {
 	}{
 		{"plan", `{"status":"ok","summary":"done","plan_output":{"acceptance_criteria":[],"do_steps":[]}}`},
 		{"do", `{"status":"ok","summary":"done","do_output":{"executed_step_ids":[]}}`},
-		{"check", `{"status":"ok","summary":"done","check_output":{"acceptance_results":[],"verdict":"PASS"}}`},
+		{"check", `{"status":"ok","summary":"done","check_output":{"acceptance_results":[],"verdict":"pass"}}`},
 		{"act", `{"status":"ok","summary":"done","act_output":{"decision":"close"}}`},
 	}
 
@@ -219,7 +237,7 @@ func TestAllRolesMapRequestAcceptsValidJSON(t *testing.T) {
 	checkReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":3},"paths":{"workspace_dir":"/tmp"},"task_state":{"plan":{"acceptance_criteria":[{"id":"AC1","text":"test","checks":[]}],"do_steps":[]},"do":{"executed_step_ids":[]}}}`)
 
 	// Act needs check in task_state
-	actReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":4},"paths":{"workspace_dir":"/tmp"},"task_state":{"check":{"verdict":"PASS","acceptance_results":[]}}}`)
+	actReq := []byte(`{"run":{"id":"run-1","iteration":1},"task":{"id":"task-1","goal":"goal"},"step":{"index":4},"paths":{"workspace_dir":"/tmp"},"task_state":{"check":{"verdict":"pass","acceptance_results":[]}}}`)
 
 	testCases := []struct {
 		name    string

@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "properties": {
         "ac_id": { "type": "string" },
-        "result": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "result": { "type": "string", "enum": ["pass", "fail"] },
         "notes": { "type": "string" }
       },
       "required": ["ac_id", "result", "notes"]
@@ -52,7 +52,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "verdict": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "verdict": { "type": "string", "enum": ["pass", "fail"] },
         "acceptance_results": {
           "type": "array",
           "items": { "$ref": "#/definitions/acceptance_result" }

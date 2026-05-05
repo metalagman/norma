@@ -3,7 +3,7 @@
 This document defines the **MVP agent interface** for `norma` (written in Go) and the **MVP storage model** using **SQLite without CGO** (pure-Go driver), while keeping **artifacts on disk** and **run/step state in DB**. **Task state and backlog are Beads-only** and must not be mirrored in Norma state.
 
 Single fixed workflow:
-> `plan → do → check → act` (loop until `verdict=PASS` + `decision=close`, or until a stop condition triggers)
+> `plan → do → check → act` (loop until `verdict=pass` + `decision=close`, or until a stop condition triggers)
 
 ---
 
@@ -130,7 +130,7 @@ Columns:
 - `status TEXT NOT NULL`              (`running|passed|failed|stopped`)
 - `iteration INTEGER NOT NULL DEFAULT 0`
 - `current_step_index INTEGER NOT NULL DEFAULT 0`
-- `verdict TEXT NULL`                 (`PASS|FAIL`)
+- `verdict TEXT NULL`                 (`pass|fail`)
 - `run_dir TEXT NOT NULL`             (absolute or repo-relative)
 
 ### 3.3 steps
@@ -189,7 +189,7 @@ On `norma` start:
 
 ## 5) Fixed workflow (norma-loop)
 
-Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until `verdict=PASS` + `decision=close`, or until a **stop condition** triggers.
+Run the **single fixed** Norma workflow: **Plan → Do → Check → Act** until `verdict=pass` + `decision=close`, or until a **stop condition** triggers.
 
 ### Core invariants
 
@@ -338,38 +338,38 @@ Do agent rules:
 Input:
 - `Verify` field from the task
 Output:
-- `PASS` / `FAIL`
+- `pass` / `fail`
 - Evidence (test output summary, commands run, links to artifacts)
 
 ### 4) ACT (Act Agent + Orchestrator)
 The Act agent emits the decision. The orchestrator keeps `TaskState` in ADK session state only for the live run and applies the decision. It does not persist Norma machine state to Beads notes.
 
 Control literals:
-- Check verdicts are uppercase: `PASS`, `FAIL`.
+- Check verdicts are lowercase: `pass`, `fail`.
 - Act decisions are lowercase: `close`, `continue`, `replan`.
 - Run statuses are lowercase: `passed`, `failed`, `stopped`.
 
 Legal verdict/decision pairs:
-- `PASS` + `close`: task is complete.
-- `FAIL` + `continue`: retry the next PDCA iteration from the task branch.
-- `FAIL` + `replan`: stop this task and create replacement/follow-up work.
+- `pass` + `close`: task is complete.
+- `fail` + `continue`: retry the next PDCA iteration from the task branch.
+- `fail` + `replan`: stop this task and create replacement/follow-up work.
 
 Invalid Act outputs:
-- `PASS` + `continue`
-- `PASS` + `replan`
-- `FAIL` + `close`
+- `pass` + `continue`
+- `pass` + `replan`
+- `fail` + `close`
 - any `rollback` decision
 
-If `PASS` + `close`:
+If `pass` + `close`:
 - Close `next_task_id`.
 - Extract changes from `workspace/` and apply to main repository using `git merge --squash`.
 - Create a Conventional Commit.
 
-If `FAIL` + `continue`:
+If `fail` + `continue`:
 - Return the task to open for retry from the task branch.
 - The PDCA loop continues to the next iteration unless budgets are exhausted.
 
-If `FAIL` + `replan`:
+If `fail` + `replan`:
 - Create and link replacement/follow-up work.
 - Close the old task with a replan reason.
 - End the current run with status `failed`.
@@ -587,19 +587,19 @@ Check `output.json` must include:
     "acceptance_results": [
       {
         "ac_id": "AC-1",
-        "result": "PASS|FAIL",
+        "result": "pass|fail",
         "notes": "..."
       }
     ],
-    "verdict": "PASS|FAIL"
+    "verdict": "pass|fail"
   }
 }
 ```
 
 #### Verdict rules (enforceable)
-- If any planned Do step was not executed → `verdict = "FAIL"`.
-- If any `acceptance_results[*].result == "FAIL"` → `verdict = "FAIL"`.
-- Else → `verdict = "PASS"`.
+- If any planned Do step was not executed → `verdict = "fail"`.
+- If any `acceptance_results[*].result == "fail"` → `verdict = "fail"`.
+- Else → `verdict = "pass"`.
 
 ### 8.4 Role: 04-act
 
@@ -621,8 +621,8 @@ Act `output.json` must include:
 ```
 
 #### Decision rules (enforceable)
-- If `act_input.verdict == "PASS"` → `decision = "close"`.
-- If `act_input.verdict == "FAIL"` → `decision = "continue"` or `decision = "replan"`.
+- If `act_input.verdict == "pass"` → `decision = "close"`.
+- If `act_input.verdict == "fail"` → `decision = "continue"` or `decision = "replan"`.
 - `decision = "rollback"` is not valid PDCA output.
 
 ---
@@ -630,7 +630,7 @@ Act `output.json` must include:
 ## 9) Applying Changes (norma responsibility)
 
 norma extracts changes from the shared run workspace using Git:
-- When a run reaches `verdict=PASS` + `decision=close`, norma extracts changes from the task branch workspace (e.g., via `git diff HEAD`).
+- When a run reaches `verdict=pass` + `decision=close`, norma extracts changes from the task branch workspace (e.g., via `git diff HEAD`).
 - norma applies the captured changes to the main repository atomically:
   - record git status/hash "before"
   - apply changes

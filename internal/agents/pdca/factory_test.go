@@ -54,12 +54,12 @@ func TestParseFinalState(t *testing.T) {
 			name: "ok values",
 			state: stubState{
 				values: map[string]any{
-					"verdict":   "PASS",
+					"verdict":   "pass",
 					"decision":  "close",
 					"iteration": 3,
 				},
 			},
-			wantVerdict:   "PASS",
+			wantVerdict:   "pass",
 			wantDecision:  "close",
 			wantIteration: 3,
 		},
@@ -78,12 +78,12 @@ func TestParseFinalState(t *testing.T) {
 			name: "missing iteration uses default",
 			state: stubState{
 				values: map[string]any{
-					"verdict":  "FAIL",
-					"decision": "rollback",
+					"verdict":  "fail",
+					"decision": "continue",
 				},
 			},
-			wantVerdict:   "FAIL",
-			wantDecision:  "rollback",
+			wantVerdict:   "fail",
+			wantDecision:  "continue",
 			wantIteration: 1,
 		},
 		{
@@ -100,7 +100,7 @@ func TestParseFinalState(t *testing.T) {
 			name: "invalid decision type",
 			state: stubState{
 				values: map[string]any{
-					"verdict":   "PASS",
+					"verdict":   "pass",
 					"decision":  true,
 					"iteration": 1,
 				},
@@ -111,7 +111,7 @@ func TestParseFinalState(t *testing.T) {
 			name: "invalid iteration type",
 			state: stubState{
 				values: map[string]any{
-					"verdict":   "PASS",
+					"verdict":   "pass",
 					"iteration": "2",
 				},
 			},
@@ -121,7 +121,7 @@ func TestParseFinalState(t *testing.T) {
 			name: "invalid iteration value",
 			state: stubState{
 				values: map[string]any{
-					"verdict":   "PASS",
+					"verdict":   "pass",
 					"iteration": 0,
 				},
 			},
@@ -131,7 +131,7 @@ func TestParseFinalState(t *testing.T) {
 			name: "iteration read error",
 			state: stubState{
 				values: map[string]any{
-					"verdict": "PASS",
+					"verdict": "pass",
 				},
 				errs: map[string]error{
 					"iteration": errors.New("storage failure"),
@@ -145,12 +145,12 @@ func TestParseFinalState(t *testing.T) {
 				values: map[string]any{
 					"iteration": 5,
 					"task_state": &contracts.TaskState{
-						Check: []byte(`{"verdict":"PASS"}`),
+						Check: []byte(`{"verdict":"pass"}`),
 						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
 			},
-			wantVerdict:   "PASS",
+			wantVerdict:   "pass",
 			wantDecision:  "close",
 			wantIteration: 5,
 		},
@@ -158,17 +158,17 @@ func TestParseFinalState(t *testing.T) {
 			name: "direct state takes precedence over task_state fallback",
 			state: stubState{
 				values: map[string]any{
-					"verdict":   "FAIL",
-					"decision":  "rollback",
+					"verdict":   "fail",
+					"decision":  "replan",
 					"iteration": 6,
 					"task_state": &contracts.TaskState{
-						Check: []byte(`{"verdict":"PASS"}`),
+						Check: []byte(`{"verdict":"pass"}`),
 						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
 			},
-			wantVerdict:   "FAIL",
-			wantDecision:  "rollback",
+			wantVerdict:   "fail",
+			wantDecision:  "replan",
 			wantIteration: 6,
 		},
 	}
@@ -209,41 +209,47 @@ func TestDeriveFinalOutcome(t *testing.T) {
 		decision           string
 		wantStatus         string
 		wantEffectiveState string
+		wantDecision       string
 	}{
 		{
 			name:               "pass verdict with close decision",
-			verdict:            "PASS",
+			verdict:            "pass",
 			decision:           "close",
 			wantStatus:         "passed",
-			wantEffectiveState: "PASS",
+			wantEffectiveState: "pass",
+			wantDecision:       "close",
+		},
+		{
+			name:               "mixed case protocol literals normalize to lowercase",
+			verdict:            " PASS ",
+			decision:           " Close ",
+			wantStatus:         "passed",
+			wantEffectiveState: "pass",
+			wantDecision:       "close",
 		},
 		{
 			name:               "pass verdict with continue decision stops",
-			verdict:            "PASS",
+			verdict:            "pass",
 			decision:           "continue",
 			wantStatus:         "stopped",
-			wantEffectiveState: "PASS",
+			wantEffectiveState: "pass",
+			wantDecision:       "continue",
 		},
 		{
 			name:               "pass verdict with replan decision stops",
-			verdict:            "PASS",
+			verdict:            "pass",
 			decision:           "replan",
 			wantStatus:         "stopped",
-			wantEffectiveState: "PASS",
-		},
-		{
-			name:               "pass verdict with rollback decision stops",
-			verdict:            "PASS",
-			decision:           "rollback",
-			wantStatus:         "stopped",
-			wantEffectiveState: "PASS",
+			wantEffectiveState: "pass",
+			wantDecision:       "replan",
 		},
 		{
 			name:               "fail verdict with close decision",
-			verdict:            "FAIL",
+			verdict:            "fail",
 			decision:           "close",
 			wantStatus:         "failed",
-			wantEffectiveState: "FAIL",
+			wantEffectiveState: "fail",
+			wantDecision:       "close",
 		},
 		{
 			name:               "close decision with missing verdict",
@@ -251,6 +257,7 @@ func TestDeriveFinalOutcome(t *testing.T) {
 			decision:           "close",
 			wantStatus:         "stopped",
 			wantEffectiveState: "",
+			wantDecision:       "close",
 		},
 		{
 			name:               "non-close decision with missing verdict",
@@ -258,6 +265,7 @@ func TestDeriveFinalOutcome(t *testing.T) {
 			decision:           "replan",
 			wantStatus:         "stopped",
 			wantEffectiveState: "",
+			wantDecision:       "replan",
 		},
 	}
 
@@ -265,12 +273,15 @@ func TestDeriveFinalOutcome(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotStatus, gotEffectiveVerdict := deriveFinalOutcome(tc.verdict, tc.decision)
+			gotStatus, gotEffectiveVerdict, gotDecision := deriveFinalOutcome(tc.verdict, tc.decision)
 			if gotStatus != tc.wantStatus {
 				t.Fatalf("status = %q, want %q", gotStatus, tc.wantStatus)
 			}
 			if gotEffectiveVerdict != tc.wantEffectiveState {
 				t.Fatalf("effectiveVerdict = %q, want %q", gotEffectiveVerdict, tc.wantEffectiveState)
+			}
+			if gotDecision != tc.wantDecision {
+				t.Fatalf("effectiveDecision = %q, want %q", gotDecision, tc.wantDecision)
 			}
 		})
 	}
@@ -290,13 +301,13 @@ func TestDecisionPropagation(t *testing.T) {
 			name: "decision propagates to outcome",
 			state: stubState{
 				values: map[string]any{
-					"verdict":   "FAIL",
+					"verdict":   "fail",
 					"decision":  "replan",
 					"iteration": 3,
 				},
 			},
 			wantDecision: "replan",
-			wantVerdict:  "FAIL",
+			wantVerdict:  "fail",
 			wantStatus:   "failed",
 		},
 		{
@@ -315,13 +326,13 @@ func TestDecisionPropagation(t *testing.T) {
 			name: "pass with continue decision stops",
 			state: stubState{
 				values: map[string]any{
-					"verdict":   "PASS",
+					"verdict":   "pass",
 					"decision":  "continue",
 					"iteration": 1,
 				},
 			},
 			wantDecision: "continue",
-			wantVerdict:  "PASS",
+			wantVerdict:  "pass",
 			wantStatus:   "stopped",
 		},
 		{
@@ -330,13 +341,13 @@ func TestDecisionPropagation(t *testing.T) {
 				values: map[string]any{
 					"iteration": 5,
 					"task_state": &contracts.TaskState{
-						Check: []byte(`{"verdict":"PASS"}`),
+						Check: []byte(`{"verdict":"pass"}`),
 						Act:   []byte(`{"decision":"close"}`),
 					},
 				},
 			},
 			wantDecision: "close",
-			wantVerdict:  "PASS",
+			wantVerdict:  "pass",
 			wantStatus:   "passed",
 		},
 	}
@@ -350,7 +361,7 @@ func TestDecisionPropagation(t *testing.T) {
 				t.Fatalf("parseFinalState() unexpected error: %v", err)
 			}
 
-			status, effectiveVerdict := deriveFinalOutcome(verdict, decision)
+			status, effectiveVerdict, _ := deriveFinalOutcome(verdict, decision)
 
 			if decision != tc.wantDecision {
 				t.Fatalf("decision = %q, want %q", decision, tc.wantDecision)

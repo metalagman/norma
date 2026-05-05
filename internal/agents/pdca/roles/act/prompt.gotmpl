@@ -1,4 +1,5 @@
 {{ .CommonPrompt }}
 
 Role requirements: consume Check verdict from 'act_input' and decide what to do next in 'act_output'.
+- Decisions are lowercase literals. If verdict is `pass`, return `close`. If verdict is `fail`, return `continue` or `replan`. Never return `rollback`.
 - IMPORTANT: STAY IN WORKSPACE: You MUST NOT attempt to access directories of previous steps. All necessary information is provided in 'act_input'.
