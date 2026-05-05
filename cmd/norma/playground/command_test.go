@@ -39,6 +39,14 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 	if sub.Name() != "goalkeeper" {
 		t.Fatalf("subcommand = %q, want goalkeeper", sub.Name())
 	}
+
+	sub, _, err = cmd.Find([]string{"goalkeeper-notify"})
+	if err != nil {
+		t.Fatalf("find goalkeeper-notify subcommand: %v", err)
+	}
+	if sub.Name() != "goalkeeper-notify" {
+		t.Fatalf("subcommand = %q, want goalkeeper-notify", sub.Name())
+	}
 }
 
 func TestPlaygroundGeminiACPDoesNotExposeLegacyDebugFlags(t *testing.T) {

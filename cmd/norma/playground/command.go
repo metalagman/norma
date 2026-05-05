@@ -17,5 +17,6 @@ func Command() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(goalkeepercmd.Command())
+	cmd.AddCommand(goalkeepercmd.NotifyCommand())
 	return cmd
 }

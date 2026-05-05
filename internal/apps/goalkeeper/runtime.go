@@ -294,6 +294,10 @@ func (r *roleSession) run(ctx context.Context, jobID string, task string) (strin
 	return last, err
 }
 
+func (r *roleSession) RunJob(ctx context.Context, jobID string, task string) (string, error) {
+	return r.run(ctx, jobID, task)
+}
+
 func (r *roleSession) close() {
 	if r.agent != nil {
 		_ = r.agent.Close()
@@ -387,14 +391,17 @@ type httpServerResult struct {
 }
 
 func startHTTPServer(ctx context.Context, service *service, addr string) (*httpServerResult, error) {
+	return startGenericHTTPServer(ctx, addr, func(_ *http.Request) *mcp.Server {
+		return newMCPServer(service)
+	})
+}
+
+func startGenericHTTPServer(ctx context.Context, addr string, serverFactory func(*http.Request) *mcp.Server) (*httpServerResult, error) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %q: %w", addr, err)
 	}
-	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
-		return newMCPServer(service)
-	}, &mcp.StreamableHTTPOptions{})
-
+	handler := mcp.NewStreamableHTTPHandler(serverFactory, &mcp.StreamableHTTPOptions{})
 	httpServer := &http.Server{Handler: handler}
 	go func() {
 		<-ctx.Done()

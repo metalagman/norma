@@ -1,6 +1,9 @@
 # Goalkeeper Scheduler
 
-Goalkeeper is an experimental playground feature for a fixed-DAG worker scheduler.
+Goalkeeper is an experimental playground feature with two temporary command surfaces:
+
+- `norma playground goalkeeper <goal>`: synchronous scheduler-agent MVP
+- `norma playground goalkeeper-notify <goal>`: async job-first notification MVP
 
 The MVP is intentionally static: the scheduler agent runs once at the start, produces the complete job DAG, and then the deterministic kernel executes that DAG to completion. Workers do not create jobs, and worker output never mutates the DAG directly.
 
@@ -8,6 +11,7 @@ Future command surface:
 
 ```bash
 norma playground goalkeeper "ship the goal"
+norma playground goalkeeper-notify "ship the goal"
 ```
 
 The first playground CLI should be temporary and local. It should not use Temporal.io, Beads, or the production `norma swarm` assignee model.
@@ -72,6 +76,91 @@ Example receive envelope:
   "message": "job envelope"
 }
 ```
+
+## Goalkeeper Notify
+
+`goalkeeper-notify` keeps the exposed workflow fixed to `plan -> do -> check -> act`, but changes the execution model to a job-first async harness:
+
+- the Coordinator is code, not an agent
+- every logical agent has an inbox queue
+- one serial executor drains each inbox queue
+- worker completions do not go directly to another agent
+- the Coordinator creates a scheduler notification job after each worker completion
+- the scheduler agent reacts to those notification jobs by enqueuing the next PDCA worker job or calling `goalkeeper.finish`
+
+Command flags match the synchronous playground:
+
+```bash
+norma playground goalkeeper-notify "ship the goal" \
+  --bridge-bin /path/to/codex-acp-bridge \
+  --max-tool-calls 8
+```
+
+Async scheduler tools:
+
+### `goalkeeper.schedule_job`
+
+```json
+{
+  "job_id": "job-plan",
+  "target_agent_id": "plan",
+  "task": "Plan how to satisfy the GOAL job."
+}
+```
+
+Tool output:
+
+```json
+{
+  "job_id": "job-plan",
+  "target_agent_id": "plan",
+  "status": "queued",
+  "message": "job queued"
+}
+```
+
+### `goalkeeper.finish`
+
+```json
+{
+  "summary": "Goal handled."
+}
+```
+
+Tool output:
+
+```json
+{
+  "status": "finished",
+  "summary": "Goal handled."
+}
+```
+
+Async execution shape:
+
+```mermaid
+flowchart TD
+    Input[CLI goal] --> Coordinator
+    Coordinator -->|enqueue| SchedulerQueue[Scheduler inbox queue]
+    SchedulerQueue --> SchedulerExec[Scheduler executor]
+    SchedulerExec --> SchedulerAgent[Scheduler agent]
+    SchedulerAgent -->|goalkeeper.schedule_job| Coordinator
+    Coordinator -->|enqueue worker job| WorkerQueue[Role inbox queue]
+    WorkerQueue --> WorkerExec[Role executor]
+    WorkerExec --> WorkerAgent[plan/do/check/act agent]
+    WorkerAgent -->|job result| Coordinator
+    Coordinator -->|enqueue notification job| SchedulerQueue
+    SchedulerAgent -->|goalkeeper.finish| Coordinator
+```
+
+Debug logs for `goalkeeper-notify` include:
+
+- `job enqueued`
+- `job started`
+- `job completed`
+- `job failed`
+- `notification job created`
+- `notification job received`
 
 ### `goalkeeper.run_job`
 

@@ -1,6 +1,7 @@
 package goalkeepercmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,10 +19,24 @@ type options struct {
 
 // Command builds the `norma playground goalkeeper` command.
 func Command() *cobra.Command {
+	return newGoalkeeperCommand(
+		"goalkeeper <goal>",
+		"Run the experimental Goalkeeper PDCA scheduler playground",
+		"maximum scheduler calls to goalkeeper.run_job",
+		goalkeeper.Run,
+	)
+}
+
+func newGoalkeeperCommand(
+	use string,
+	short string,
+	maxToolCallsUsage string,
+	run func(context.Context, goalkeeper.Config) error,
+) *cobra.Command {
 	opts := options{maxToolCalls: 8}
 	cmd := &cobra.Command{
-		Use:          "goalkeeper <goal>",
-		Short:        "Run the experimental Goalkeeper PDCA scheduler playground",
+		Use:          use,
+		Short:        short,
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -36,7 +51,7 @@ func Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
-			return goalkeeper.Run(cmd.Context(), goalkeeper.Config{
+			return run(cmd.Context(), goalkeeper.Config{
 				Goal:         strings.Join(args, " "),
 				WorkingDir:   workingDir,
 				BridgeBin:    opts.bridgeBin,
@@ -48,6 +63,6 @@ func Command() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.bridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@latest)")
-	cmd.Flags().IntVar(&opts.maxToolCalls, "max-tool-calls", opts.maxToolCalls, "maximum scheduler calls to goalkeeper.run_job")
+	cmd.Flags().IntVar(&opts.maxToolCalls, "max-tool-calls", opts.maxToolCalls, maxToolCallsUsage)
 	return cmd
 }
