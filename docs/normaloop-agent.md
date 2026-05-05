@@ -88,9 +88,9 @@ After workflow returns:
   - mark task `done` in Beads
   - code: `internal/run/run.go`
 - If `verdict=fail` + `decision=continue`:
-  - keep the task open
-  - schedule an in-memory retry backoff for that task
-  - keep selecting other ready tasks while the retry backoff is active
+  - `continue` is handled inside the PDCA ADK loop by advancing the in-session `iteration`
+  - the loop keeps running the same selected task until it reaches a terminal outcome or a stop condition
+  - there is no separate normaloop retry queue or in-memory retry backoff path documented in the current implementation
 - If `verdict=fail` + `decision=replan`:
   - create/link replacement work
   - close the old task with a replan reason
@@ -101,7 +101,6 @@ After workflow returns:
 
 - `norma loop` keeps running after task-run, tracker, DB, agent, finalize, and apply failures once startup has succeeded.
 - Runtime failures are logged and backed off instead of stopping the CLI process.
-- Failed tasks can be retried after their in-memory retry backoff expires.
 - Startup/preflight failures still stop the command before the loop starts.
 
 ## Data Boundaries

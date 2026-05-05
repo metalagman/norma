@@ -1,46 +1,32 @@
-# Goalkeeper Scheduler
+# Goalkeeper Playground
 
 Goalkeeper is an experimental playground feature with two temporary command surfaces:
 
-- `norma playground goalkeeper <goal>`: synchronous scheduler-agent MVP
-- `norma playground goalkeeper-notify <goal>`: async job-first notification MVP
+- `norma playground goalkeeper <goal>`: synchronous scheduler-agent playground
+- `norma playground goalkeeper-notify <goal>`: async queue-based playground
 
-The MVP is intentionally static: the scheduler agent runs once at the start, produces the complete job DAG, and then the deterministic kernel executes that DAG to completion. Workers do not create jobs, and worker output never mutates the DAG directly.
+Goalkeeper is **PDCA-inspired**, not the structured PDCA contract implementation used by `norma loop`. The real PDCA runtime is documented in [PDCA Loop](pdca-agent.md).
 
-Future command surface:
+## What Goalkeeper Is
 
-```bash
-norma playground goalkeeper "ship the goal"
-norma playground goalkeeper-notify "ship the goal"
-```
+Goalkeeper uses the role names `plan`, `do`, `check`, and `act`, but today it runs them as long-lived Codex ACP-backed agents with:
 
-The first playground CLI should be temporary and local. It should not use Temporal.io, Beads, or the production `norma swarm` assignee model.
+- fixed injected role instructions
+- freeform per-job task text
+- freeform text outputs
+- debug lifecycle logging around job dispatch and completion
 
-## PDCA Playground MVP
+Goalkeeper does **not** currently implement:
 
-The first implementation is a fixed PDCA scheduler:
+- structured PDCA role JSON contracts
+- real harness-level `continue` or `replan` semantics
+- Beads integration
+- the older fixed-DAG `depends_on` kernel model
 
-- the root scheduler is a Codex ACP-backed agent
-- the Codex ACP backend is fixed to `codex_acp` with model `gpt-5.3-codex`
-- the scheduler receives one GOAL job
-- the scheduler has four Codex ACP-backed role agents: `plan`, `do`, `check`, and `act`
-- the scheduler can run role work only by calling the `goalkeeper.run_job` tool
-- `goalkeeper.run_job` runs one prompt turn on exactly one role agent and returns the text result
-- each role agent keeps its ADK session for the command lifetime
+All Goalkeeper agents are fixed to:
 
-The scheduler chooses when to call the tool, but its instructions constrain the path to:
-
-```text
-plan -> do -> check -> act
-```
-
-Command flags:
-
-```bash
-norma playground goalkeeper "ship the goal" \
-  --bridge-bin /path/to/codex-acp-bridge \
-  --max-tool-calls 8
-```
+- agent type: `codex_acp`
+- model: `gpt-5.3-codex`
 
 `--bridge-bin` is optional and only overrides the executable used for the fixed Codex ACP bridge. When omitted, Goalkeeper uses:
 
@@ -48,123 +34,31 @@ norma playground goalkeeper "ship the goal" \
 npx -y @normahq/codex-acp-bridge@latest
 ```
 
-Stdout is reserved for the final scheduler answer. Scheduler lifecycle messages use structured zerolog at info level. Per-job send/receive envelopes and role-agent output produced during job execution are emitted only at debug level.
+Stdout is reserved for the final scheduler answer. Scheduler lifecycle messages use structured zerolog at info level. Per-job envelopes and role-agent output are debug-only.
 
-Example send envelope:
+## `goalkeeper`
 
-```json
-{
-  "level": "debug",
-  "direction": "send",
-  "job_id": "job-plan",
-  "role": "plan",
-  "task": "Plan how to satisfy the GOAL job.",
-  "message": "job envelope"
-}
-```
-
-Example receive envelope:
-
-```json
-{
-  "level": "debug",
-  "direction": "receive",
-  "job_id": "job-plan",
-  "role": "plan",
-  "status": "completed",
-  "result": "...",
-  "message": "job envelope"
-}
-```
-
-## Goalkeeper Notify
-
-`goalkeeper-notify` keeps the exposed workflow fixed to `plan -> do -> check -> act`, but changes the execution model to a job-first async harness:
-
-- the Coordinator is code, not an agent
-- every logical agent has an inbox queue
-- one serial executor drains each inbox queue
-- worker completions do not go directly to another agent
-- the Coordinator creates a scheduler notification job after each worker completion
-- the scheduler agent reacts to those notification jobs by enqueuing the next PDCA worker job or calling `goalkeeper.finish`
-
-Command flags match the synchronous playground:
+The synchronous playground is a single scheduler turn backed by one MCP tool:
 
 ```bash
-norma playground goalkeeper-notify "ship the goal" \
+norma playground goalkeeper "ship the goal" \
   --bridge-bin /path/to/codex-acp-bridge \
   --max-tool-calls 8
 ```
 
-Async scheduler tools:
+Behavior:
 
-### `goalkeeper.schedule_job`
+- the scheduler receives one `GOAL JOB`
+- the scheduler can run role work only through `goalkeeper.run_job`
+- `goalkeeper.run_job` runs one prompt turn on exactly one role agent
+- each role agent keeps its ADK session for the command lifetime
+- the scheduler is instructed to keep the path simple: `plan -> do -> check -> act`
 
-```json
-{
-  "job_id": "job-plan",
-  "target_agent_id": "plan",
-  "task": "Plan how to satisfy the GOAL job."
-}
-```
-
-Tool output:
-
-```json
-{
-  "job_id": "job-plan",
-  "target_agent_id": "plan",
-  "status": "queued",
-  "message": "job queued"
-}
-```
-
-### `goalkeeper.finish`
-
-```json
-{
-  "summary": "Goal handled."
-}
-```
-
-Tool output:
-
-```json
-{
-  "status": "finished",
-  "summary": "Goal handled."
-}
-```
-
-Async execution shape:
-
-```mermaid
-flowchart TD
-    Input[CLI goal] --> Coordinator
-    Coordinator -->|enqueue| SchedulerQueue[Scheduler inbox queue]
-    SchedulerQueue --> SchedulerExec[Scheduler executor]
-    SchedulerExec --> SchedulerAgent[Scheduler agent]
-    SchedulerAgent -->|goalkeeper.schedule_job| Coordinator
-    Coordinator -->|enqueue worker job| WorkerQueue[Role inbox queue]
-    WorkerQueue --> WorkerExec[Role executor]
-    WorkerExec --> WorkerAgent[plan/do/check/act agent]
-    WorkerAgent -->|job result| Coordinator
-    Coordinator -->|enqueue notification job| SchedulerQueue
-    SchedulerAgent -->|goalkeeper.finish| Coordinator
-```
-
-Debug logs for `goalkeeper-notify` include:
-
-- `job enqueued`
-- `job started`
-- `job completed`
-- `job failed`
-- `notification job created`
-- `notification job received`
+This command is a playground approximation of PDCA role orchestration. It is not the same thing as the structured PDCA loop in `norma loop`.
 
 ### `goalkeeper.run_job`
 
-The scheduler receives this MCP tool:
+Tool input:
 
 ```json
 {
@@ -187,169 +81,137 @@ Tool output:
 
 The tool rejects unknown roles, empty job IDs, empty tasks, and calls beyond `--max-tool-calls`.
 
-## Architecture
+Example debug send envelope:
 
-```mermaid
-flowchart LR
-    User[Root task or fixture] --> SchedulerAgent[Scheduler agent]
-    SchedulerAgent -->|fixed DAG| Kernel[Goalkeeper kernel]
-
-    Kernel -->|job prompt| WorkerA[Worker A session]
-    Kernel -->|job prompt| WorkerB[Worker B session]
-    Kernel -->|job prompt| WorkerC[Worker C session]
-    Kernel -->|scheduler job prompt| SchedulerSession[Scheduler session]
-
-    WorkerA -->|JobCompleted event| Kernel
-    WorkerB -->|JobCompleted event| Kernel
-    WorkerC -->|JobCompleted event| Kernel
-    SchedulerSession -->|JobCompleted event| Kernel
-
-    Kernel --> Results[(Job results)]
-    Results --> Kernel
+```json
+{
+  "level": "debug",
+  "direction": "send",
+  "job_id": "job-plan",
+  "role": "plan",
+  "task": "Plan how to satisfy the GOAL job.",
+  "message": "job envelope"
+}
 ```
 
-Responsibilities:
+Example debug receive envelope:
 
-- Scheduler agent creates the complete DAG before execution starts.
-- Goalkeeper kernel validates the DAG, owns job state, dispatches ready jobs, and records results.
-- Worker agents are long-lived for one run and process one job at a time.
-- Scheduler session is just another long-lived agent target. It receives results only through predefined DAG jobs.
-
-## Fixed DAG Lifecycle
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant CLI as playground CLI
-    participant SA as Scheduler agent
-    participant K as Kernel
-    participant A as Worker A
-    participant B as Worker B
-    participant S as Scheduler session
-
-    CLI->>SA: Root task and worker list
-    SA-->>CLI: Complete job DAG
-    CLI->>K: Start run with fixed DAG
-    K->>K: Validate ids, targets, dependencies, and cycles
-
-    K->>A: Dispatch job-a1
-    K->>B: Dispatch job-b1
-    A-->>K: JobCompleted(job-a1, result)
-    B-->>K: JobCompleted(job-b1, result)
-
-    K->>K: Mark dependencies satisfied
-    K->>S: Dispatch summarize-a-b with dependency results
-    S-->>K: JobCompleted(summarize-a-b, result)
-
-    K->>K: Mark terminal jobs complete
-    K-->>CLI: Run completed
+```json
+{
+  "level": "debug",
+  "direction": "receive",
+  "job_id": "job-plan",
+  "role": "plan",
+  "status": "completed",
+  "result": "...",
+  "message": "job envelope"
+}
 ```
 
-The scheduler agent is not notified out of band after every worker result. If the scheduler must inspect results, the initial DAG must contain a scheduler-targeted job that depends on those worker jobs.
+## `goalkeeper-notify`
 
-## Async Completion Flow
+The async playground keeps the same four role names, but changes the harness shape:
+
+```bash
+norma playground goalkeeper-notify "ship the goal" \
+  --bridge-bin /path/to/codex-acp-bridge \
+  --max-tool-calls 8
+```
+
+Current implementation:
+
+- a code Coordinator owns scheduling
+- every logical agent has an inbox queue
+- one serial executor drains each inbox queue
+- worker completions are reported back to the Coordinator
+- the Coordinator creates scheduler notification jobs
+- the scheduler reacts to those notifications with more scheduling or `goalkeeper.finish`
+
+This is still a playground harness, not the structured PDCA runtime used by `norma loop`.
+
+### Current limitations
+
+- the exposed workflow is fixed to `plan -> do -> check -> act`
+- worker job payloads are freeform text
+- scheduler notifications are freeform text
+- `act` may say `continue` or `replan` in prose, but those are not harness-level control states today
+- the current harness finishes when the scheduler calls `goalkeeper.finish`
+- jobs are in-memory only for this playground
+
+### Async execution shape
 
 ```mermaid
 flowchart TD
-    Running[Worker has running job] --> Finish[Agent turn finishes]
-    Finish --> Event[Emit JobCompleted]
-    Event --> KernelLoop[Kernel event loop]
-    KernelLoop --> Store[Store job result]
-    Store --> Complete[Mark job completed]
-    Complete --> Ready{Any dependents ready?}
-    Ready -- yes --> Dispatch[Dispatch ready jobs to idle targets]
-    Ready -- no --> Wait[Wait for more completions]
-    Dispatch --> Wait
+    Input[CLI goal] --> Coordinator
+    Coordinator -->|enqueue| SchedulerQueue[Scheduler inbox queue]
+    SchedulerQueue --> SchedulerExec[Scheduler executor]
+    SchedulerExec --> SchedulerAgent[Scheduler agent]
+    SchedulerAgent -->|goalkeeper.schedule_job| Coordinator
+    Coordinator -->|enqueue worker job| WorkerQueue[Role inbox queue]
+    WorkerQueue --> WorkerExec[Role executor]
+    WorkerExec --> WorkerAgent[plan/do/check/act agent]
+    WorkerAgent -->|job result| Coordinator
+    Coordinator -->|enqueue notification job| SchedulerQueue
+    SchedulerAgent -->|goalkeeper.finish| Coordinator
 ```
 
-Worker completion event:
+### `goalkeeper.schedule_job`
+
+Tool input:
 
 ```json
 {
-  "job_id": "job-a1",
-  "agent": "agent-a",
-  "status": "completed",
-  "result": "foobar"
+  "job_id": "job-plan",
+  "target_agent_id": "plan",
+  "task": "Plan how to satisfy the GOAL job."
 }
 ```
 
-The kernel consumes this event immediately. Downstream jobs receive the result only when their dependencies are satisfied and they are dispatched.
-
-## Worker State
-
-```mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> Running: dispatch(job_id)
-    Running --> Idle: completed
-    Running --> Idle: failed
-    Idle --> [*]: run finished
-```
-
-Rules:
-
-- A worker has one state: `idle` or `running(job_id)`.
-- A worker can run only one job turn at a time.
-- A ready job targeting a busy worker waits until that worker becomes idle.
-- Worker sessions live for the whole run.
-
-## Job State
-
-```mermaid
-stateDiagram-v2
-    [*] --> Pending
-    Pending --> Ready: dependencies satisfied
-    Ready --> Running: target idle
-    Running --> Completed: worker completed
-    Running --> Failed: worker failed
-    Completed --> [*]
-    Failed --> [*]
-```
-
-Rules:
-
-- A job is immutable after validation.
-- A job can run only after all `depends_on` jobs are completed.
-- A job can target a named worker or the scheduler session.
-- A failed job ends the MVP run unless the fixed DAG explicitly models a recovery path.
-
-## MVP Job Shape
+Tool output:
 
 ```json
 {
-  "id": "job-a1",
-  "target": "agent-a",
-  "prompt": "Do this one turn of work.",
-  "depends_on": []
+  "job_id": "job-plan",
+  "target_agent_id": "plan",
+  "status": "queued",
+  "message": "job queued"
 }
 ```
 
-Example fan-in job:
+### `goalkeeper.finish`
+
+Tool input:
 
 ```json
 {
-  "id": "summarize-a-b",
-  "target": "scheduler",
-  "prompt": "Summarize dependency results from job-a1 and job-b1.",
-  "depends_on": ["job-a1", "job-b1"]
+  "summary": "Goal handled."
 }
 ```
 
-## Validation Rules
+Tool output:
 
-Goalkeeper must fail before dispatch when:
+```json
+{
+  "status": "finished",
+  "summary": "Goal handled."
+}
+```
 
-- a job id is empty or duplicated
-- a dependency references an unknown job
-- the DAG has a cycle
-- a target references an unknown worker
-- a job prompt is empty
+Debug logs for `goalkeeper-notify` include:
 
-## Out of Scope
+- `job enqueued`
+- `job started`
+- `job completed`
+- `job failed`
+- `notification job created`
+- `notification job received`
 
-- Dynamic job creation after the initial DAG.
-- Worker-created jobs.
-- Direct worker-to-worker communication.
-- Beads state integration.
-- Production `norma swarm` replacement.
-- Temporal.io workflows.
+## Relation to Real PDCA
+
+Use [PDCA Loop](pdca-agent.md) for the real contract and runtime semantics:
+
+- structured `input.json -> output.json` role contracts
+- lowercase control literals: `pass|fail`, `close|continue|replan`, `passed|failed|stopped`
+- session-backed iterative PDCA loop behavior
+
+Use Goalkeeper docs only for the experimental playground command surfaces.
