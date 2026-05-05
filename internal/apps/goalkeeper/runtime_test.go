@@ -11,7 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
 )
+
+const wantCompletedStatus = "completed"
 
 func TestBuildCodexACPCommand(t *testing.T) {
 	t.Parallel()
@@ -43,8 +47,9 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeJobRunner{result: "planned"}
-	var transcript bytes.Buffer
-	svc := newService(runner, &transcript, 2)
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs).Level(zerolog.DebugLevel)
+	svc := newService(runner, logger, 2)
 
 	_, out, err := svc.runJob(context.Background(), nil, runJobInput{
 		JobID: "job-plan",
@@ -54,7 +59,7 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
 	}
-	if out.Status != "completed" {
+	if out.Status != wantCompletedStatus {
 		t.Fatalf("out.Status = %q, want completed", out.Status)
 	}
 	if out.Result != "planned" {
@@ -63,15 +68,42 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 	if runner.role != "plan" || runner.task != "Plan the goal" {
 		t.Fatalf("runner got role=%q task=%q", runner.role, runner.task)
 	}
-	if got := transcript.String(); !strings.Contains(got, "job job-plan: dispatch role=plan") || !strings.Contains(got, "job job-plan: completed") {
-		t.Fatalf("transcript = %q, want dispatch and completion entries", got)
+	gotLogs := logs.String()
+	if !strings.Contains(gotLogs, `"level":"debug"`) ||
+		!strings.Contains(gotLogs, `"job_id":"job-plan"`) ||
+		!strings.Contains(gotLogs, `"message":"job dispatch"`) ||
+		!strings.Contains(gotLogs, `"message":"job completed"`) {
+		t.Fatalf("logs = %q, want debug dispatch and completion entries", gotLogs)
+	}
+}
+
+func TestRunJobToolSuppressesJobLogsAboveDebug(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs).Level(zerolog.InfoLevel)
+	svc := newService(&fakeJobRunner{result: "planned"}, logger, 1)
+
+	_, out, err := svc.runJob(context.Background(), nil, runJobInput{
+		JobID: "job-plan",
+		Role:  "plan",
+		Task:  "Plan the goal",
+	})
+	if err != nil {
+		t.Fatalf("runJob() error = %v", err)
+	}
+	if out.Status != wantCompletedStatus {
+		t.Fatalf("out.Status = %q, want completed", out.Status)
+	}
+	if got := logs.String(); got != "" {
+		t.Fatalf("logs = %q, want no job logs above debug", got)
 	}
 }
 
 func TestRunJobToolValidation(t *testing.T) {
 	t.Parallel()
 
-	svc := newService(&fakeJobRunner{}, nil, 1)
+	svc := newService(&fakeJobRunner{}, zerolog.Nop(), 1)
 	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-x", Role: "invalid", Task: "x"})
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
@@ -87,9 +119,9 @@ func TestRunJobToolValidation(t *testing.T) {
 func TestRunJobToolMaxToolCalls(t *testing.T) {
 	t.Parallel()
 
-	svc := newService(&fakeJobRunner{result: "ok"}, nil, 1)
+	svc := newService(&fakeJobRunner{result: "ok"}, zerolog.Nop(), 1)
 	_, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-1", Role: "plan", Task: "x"})
-	if err != nil || out.Status != "completed" {
+	if err != nil || out.Status != wantCompletedStatus {
 		t.Fatalf("first runJob() out=%+v err=%v, want completed", out, err)
 	}
 	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-2", Role: "do", Task: "x"})
@@ -107,7 +139,7 @@ func TestRunJobToolMaxToolCalls(t *testing.T) {
 func TestRunJobToolRunnerError(t *testing.T) {
 	t.Parallel()
 
-	svc := newService(&fakeJobRunner{err: errors.New("role failed")}, nil, 1)
+	svc := newService(&fakeJobRunner{err: errors.New("role failed")}, zerolog.Nop(), 1)
 	result, out, err := svc.runJob(context.Background(), nil, runJobInput{JobID: "job-1", Role: "check", Task: "x"})
 	if err != nil {
 		t.Fatalf("runJob() error = %v", err)
@@ -124,6 +156,8 @@ func TestRunWithFakeACPBridge(t *testing.T) {
 	wrapper := writeACPWrapper(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs).Level(zerolog.DebugLevel)
 
 	err := Run(context.Background(), Config{
 		Goal:         "test goal",
@@ -132,20 +166,23 @@ func TestRunWithFakeACPBridge(t *testing.T) {
 		MaxToolCalls: 1,
 		Stdout:       &stdout,
 		Stderr:       &stderr,
+		Logger:       &logger,
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v; stderr=%s", err, stderr.String())
 	}
 
 	got := stdout.String()
-	if !strings.Contains(got, "scheduler: start goal=test goal") {
-		t.Fatalf("stdout = %q, want scheduler start", got)
-	}
-	if !strings.Contains(got, "scheduler: final") {
-		t.Fatalf("stdout = %q, want scheduler final", got)
+	if strings.Contains(got, "scheduler:") || strings.Contains(got, "job job-") {
+		t.Fatalf("stdout = %q, want only final command output", got)
 	}
 	if !strings.Contains(got, "GOAL JOB:\ntest goal") {
 		t.Fatalf("stdout = %q, want goal in scheduler response", got)
+	}
+	gotLogs := logs.String()
+	if !strings.Contains(gotLogs, `"message":"scheduler started"`) ||
+		!strings.Contains(gotLogs, `"message":"scheduler completed"`) {
+		t.Fatalf("logs = %q, want scheduler lifecycle entries", gotLogs)
 	}
 }
 

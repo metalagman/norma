@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/normahq/norma/internal/apps/goalkeeper"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,7 @@ func Command() *cobra.Command {
 				MaxToolCalls: opts.maxToolCalls,
 				Stdout:       cmd.OutOrStdout(),
 				Stderr:       cmd.ErrOrStderr(),
+				Logger:       &log.Logger,
 			})
 		},
 	}

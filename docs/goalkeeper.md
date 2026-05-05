@@ -44,6 +44,8 @@ norma playground goalkeeper "ship the goal" \
 npx -y @normahq/codex-acp-bridge@latest
 ```
 
+Stdout is reserved for the final scheduler answer. Scheduler lifecycle messages use structured zerolog at info level, and per-job dispatch/completion/error messages are emitted only at debug level.
+
 ### `goalkeeper.run_job`
 
 The scheduler receives this MCP tool:

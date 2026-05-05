@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -44,6 +43,7 @@ type Config struct {
 	MaxToolCalls int
 	Stdout       io.Writer
 	Stderr       io.Writer
+	Logger       *zerolog.Logger
 }
 
 // Run executes one Goalkeeper playground run.
@@ -75,15 +75,17 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	stderr = &syncWriter{writer: stderr}
 
-	command := BuildCodexACPCommand(cfg.BridgeBin)
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: stderr, TimeFormat: time.RFC3339}).
-		Level(zerolog.InfoLevel).
-		With().Timestamp().
+	baseLogger := cfg.Logger
+	if baseLogger == nil {
+		baseLogger = zerolog.Ctx(ctx)
+	}
+	logger := baseLogger.With().
 		Str("component", "playground.goalkeeper").
 		Str("agent_type", defaultAgentType).
 		Str("model", defaultModel).
 		Logger()
 
+	command := BuildCodexACPCommand(cfg.BridgeBin)
 	roleSet, err := newRoleSet(ctx, roleSetConfig{
 		Command:    command,
 		WorkingDir: workingDir,
@@ -95,7 +97,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	defer roleSet.close()
 
-	service := newService(roleSet, stdout, maxToolCalls)
+	service := newService(roleSet, logger, maxToolCalls)
 	server, err := startHTTPServer(ctx, service, "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -125,9 +127,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	defer func() { _ = scheduler.Close() }()
 
-	if _, err := fmt.Fprintf(stdout, "scheduler: start goal=%s\n", goal); err != nil {
-		return err
-	}
+	logger.Info().Str("goal", goal).Msg("scheduler started")
 	_, last, err := runOneTurn(ctx, runTurnInput{
 		AppName:   "goalkeeper-scheduler",
 		UserID:    "goalkeeper",
@@ -138,8 +138,10 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("run scheduler: %w", err)
 	}
-	if strings.TrimSpace(last) != "" {
-		if _, err := fmt.Fprintf(stdout, "scheduler: final\n%s\n", strings.TrimSpace(last)); err != nil {
+	final := strings.TrimSpace(last)
+	logger.Info().Bool("has_result", final != "").Str("result", final).Msg("scheduler completed")
+	if final != "" {
+		if _, err := fmt.Fprintln(stdout, final); err != nil {
 			return err
 		}
 	}

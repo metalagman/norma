@@ -3,11 +3,11 @@ package goalkeeper
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -22,16 +22,16 @@ type jobRunner interface {
 
 type service struct {
 	runner       jobRunner
-	transcript   io.Writer
+	logger       zerolog.Logger
 	maxToolCalls int
 	mu           sync.Mutex
 	callCount    int
 }
 
-func newService(runner jobRunner, transcript io.Writer, maxToolCalls int) *service {
+func newService(runner jobRunner, logger zerolog.Logger, maxToolCalls int) *service {
 	return &service{
 		runner:       runner,
-		transcript:   transcript,
+		logger:       logger,
 		maxToolCalls: maxToolCalls,
 	}
 }
@@ -81,15 +81,29 @@ func (s *service) runJob(ctx context.Context, _ *mcp.CallToolRequest, input runJ
 		return toolError(out.Result, out), out, nil
 	}
 
-	s.writeTranscriptf("job %s: dispatch role=%s\n", jobID, role)
+	s.logger.Debug().
+		Str("job_id", jobID).
+		Str("role", role).
+		Msg("job dispatch")
 	result, err := s.runner.RunJob(ctx, role, task)
 	if err != nil {
 		out := runJobOutput{JobID: jobID, Role: role, Status: "error", Result: err.Error()}
-		s.writeTranscriptf("job %s: error %s\n", jobID, err.Error())
+		s.logger.Debug().
+			Err(err).
+			Str("job_id", jobID).
+			Str("role", role).
+			Str("status", out.Status).
+			Str("result", out.Result).
+			Msg("job error")
 		return toolError(out.Result, out), out, nil
 	}
 	out := runJobOutput{JobID: jobID, Role: role, Status: "completed", Result: strings.TrimSpace(result)}
-	s.writeTranscriptf("job %s: completed role=%s result=%s\n", jobID, role, out.Result)
+	s.logger.Debug().
+		Str("job_id", jobID).
+		Str("role", role).
+		Str("status", out.Status).
+		Str("result", out.Result).
+		Msg("job completed")
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: out.Result}},
 	}, out, nil
@@ -103,13 +117,6 @@ func (s *service) reserveCall() bool {
 	}
 	s.callCount++
 	return true
-}
-
-func (s *service) writeTranscriptf(format string, args ...any) {
-	if s.transcript == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(s.transcript, format, args...)
 }
 
 func toolError(message string, _ runJobOutput) *mcp.CallToolResult {
