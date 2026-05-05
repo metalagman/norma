@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +49,7 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 
 	runner := &fakeJobRunner{result: "planned"}
 	var logs bytes.Buffer
-	logger := zerolog.New(&logs).Level(zerolog.DebugLevel)
+	logger := newTestLogger(&logs, zerolog.DebugLevel)
 	svc := newService(runner, logger, 2)
 
 	_, out, err := svc.runJob(context.Background(), nil, runJobInput{
@@ -68,6 +69,9 @@ func TestRunJobToolDispatchesRole(t *testing.T) {
 	if runner.role != "plan" || runner.task != "Plan the goal" {
 		t.Fatalf("runner got role=%q task=%q", runner.role, runner.task)
 	}
+	if runner.jobID != "job-plan" {
+		t.Fatalf("runner got jobID=%q, want job-plan", runner.jobID)
+	}
 	gotLogs := logs.String()
 	if !strings.Contains(gotLogs, `"level":"debug"`) ||
 		!strings.Contains(gotLogs, `"job_id":"job-plan"`) ||
@@ -81,7 +85,7 @@ func TestRunJobToolSuppressesJobLogsAboveDebug(t *testing.T) {
 	t.Parallel()
 
 	var logs bytes.Buffer
-	logger := zerolog.New(&logs).Level(zerolog.InfoLevel)
+	logger := newTestLogger(&logs, zerolog.InfoLevel)
 	svc := newService(&fakeJobRunner{result: "planned"}, logger, 1)
 
 	_, out, err := svc.runJob(context.Background(), nil, runJobInput{
@@ -157,7 +161,7 @@ func TestRunWithFakeACPBridge(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	var logs bytes.Buffer
-	logger := zerolog.New(&logs).Level(zerolog.DebugLevel)
+	logger := newTestLogger(&logs, zerolog.DebugLevel)
 
 	err := Run(context.Background(), Config{
 		Goal:         "test goal",
@@ -186,14 +190,68 @@ func TestRunWithFakeACPBridge(t *testing.T) {
 	}
 }
 
+func TestRoleSessionLogsJobOutput(t *testing.T) {
+	wrapper := writeACPWrapper(t)
+	var stderr bytes.Buffer
+	var logs bytes.Buffer
+	logger := newTestLogger(&logs, zerolog.DebugLevel).With().Str("role", "plan").Logger()
+	stderrWriter := &syncWriter{writer: &stderr}
+
+	role, err := newRoleSession(context.Background(), roleSessionConfig{
+		Role:        "plan",
+		Instruction: pdcaRoles["plan"],
+		Command:     []string{wrapper},
+		WorkingDir:  t.TempDir(),
+		Stderr:      stderrWriter,
+		Logger:      logger,
+	})
+	if err != nil {
+		t.Fatalf("newRoleSession() error = %v; stderr=%s", err, stderr.String())
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			role.close()
+		}
+	}()
+
+	got, err := role.run(context.Background(), "job-plan", "role task")
+	if err != nil {
+		role.close()
+		closed = true
+		t.Fatalf("role.run() error = %v; stderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(got, "role task") {
+		role.close()
+		closed = true
+		t.Fatalf("role.run() = %q, want echoed role task", got)
+	}
+	role.close()
+	closed = true
+	gotLogs := logs.String()
+	if !strings.Contains(gotLogs, `"message":"job output"`) ||
+		!strings.Contains(gotLogs, `"job_id":"job-plan"`) ||
+		!strings.Contains(gotLogs, `"role":"plan"`) ||
+		!strings.Contains(gotLogs, `"output"`) ||
+		!strings.Contains(gotLogs, "role task") {
+		t.Fatalf("logs = %q, want debug job output entry", gotLogs)
+	}
+}
+
+func newTestLogger(writer io.Writer, level zerolog.Level) zerolog.Logger {
+	return zerolog.New(&syncWriter{writer: writer}).Level(level)
+}
+
 type fakeJobRunner struct {
+	jobID  string
 	role   string
 	task   string
 	result string
 	err    error
 }
 
-func (r *fakeJobRunner) RunJob(_ context.Context, role string, task string) (string, error) {
+func (r *fakeJobRunner) RunJob(_ context.Context, jobID string, role string, task string) (string, error) {
+	r.jobID = jobID
 	r.role = role
 	r.task = task
 	return r.result, r.err

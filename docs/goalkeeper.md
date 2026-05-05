@@ -44,7 +44,7 @@ norma playground goalkeeper "ship the goal" \
 npx -y @normahq/codex-acp-bridge@latest
 ```
 
-Stdout is reserved for the final scheduler answer. Scheduler lifecycle messages use structured zerolog at info level, and per-job dispatch/completion/error messages are emitted only at debug level.
+Stdout is reserved for the final scheduler answer. Scheduler lifecycle messages use structured zerolog at info level. Per-job dispatch/completion/error messages and role-agent output produced during job execution are emitted only at debug level.
 
 ### `goalkeeper.run_job`
 

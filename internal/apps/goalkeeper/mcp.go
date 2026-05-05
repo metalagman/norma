@@ -17,7 +17,7 @@ const (
 )
 
 type jobRunner interface {
-	RunJob(ctx context.Context, role string, task string) (string, error)
+	RunJob(ctx context.Context, jobID string, role string, task string) (string, error)
 }
 
 type service struct {
@@ -85,7 +85,7 @@ func (s *service) runJob(ctx context.Context, _ *mcp.CallToolRequest, input runJ
 		Str("job_id", jobID).
 		Str("role", role).
 		Msg("job dispatch")
-	result, err := s.runner.RunJob(ctx, role, task)
+	result, err := s.runner.RunJob(ctx, jobID, role, task)
 	if err != nil {
 		out := runJobOutput{JobID: jobID, Role: role, Status: "error", Result: err.Error()}
 		s.logger.Debug().

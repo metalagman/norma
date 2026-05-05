@@ -202,13 +202,13 @@ func newRoleSet(ctx context.Context, cfg roleSetConfig) (*roleSet, error) {
 	return &roleSet{roles: roles}, nil
 }
 
-func (r *roleSet) RunJob(ctx context.Context, role string, task string) (string, error) {
+func (r *roleSet) RunJob(ctx context.Context, jobID string, role string, task string) (string, error) {
 	role = strings.ToLower(strings.TrimSpace(role))
 	runner, ok := r.roles[role]
 	if !ok {
 		return "", fmt.Errorf("unknown role %q", role)
 	}
-	return runner.run(ctx, task)
+	return runner.run(ctx, jobID, task)
 }
 
 func (r *roleSet) close() {
@@ -233,6 +233,7 @@ type roleSession struct {
 	sessionService session.Service
 	appName        string
 	sessionID      string
+	logger         zerolog.Logger
 }
 
 func newRoleSession(ctx context.Context, cfg roleSessionConfig) (*roleSession, error) {
@@ -279,13 +280,17 @@ func newRoleSession(ctx context.Context, cfg roleSessionConfig) (*roleSession, e
 		sessionService: sessionService,
 		appName:        appName,
 		sessionID:      created.Session.ID(),
+		logger:         logger,
 	}, nil
 }
 
-func (r *roleSession) run(ctx context.Context, task string) (string, error) {
+func (r *roleSession) run(ctx context.Context, jobID string, task string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, last, err := runWithRunner(ctx, r.runner, r.sessionService, r.appName, "goalkeeper", r.sessionID, task)
+	jobLogger := r.logger.With().Str("job_id", jobID).Logger()
+	_, last, err := runWithRunner(ctx, r.runner, r.sessionService, r.appName, "goalkeeper", r.sessionID, task, func(output string) {
+		jobLogger.Debug().Str("output", output).Msg("job output")
+	})
 	return last, err
 }
 
@@ -321,7 +326,7 @@ func runOneTurn(ctx context.Context, input runTurnInput) (session.Session, strin
 	if err != nil {
 		return nil, "", err
 	}
-	finalSession, text, err := runWithRunner(ctx, runner, sessionService, input.AppName, input.UserID, created.Session.ID(), input.Prompt)
+	finalSession, text, err := runWithRunner(ctx, runner, sessionService, input.AppName, input.UserID, created.Session.ID(), input.Prompt, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -336,6 +341,7 @@ func runWithRunner(
 	userID string,
 	sessionID string,
 	prompt string,
+	onOutput func(string),
 ) (session.Session, string, error) {
 	var lastContent *genai.Content
 	events := runner.Run(ctx, userID, sessionID, genai.NewContentFromText(prompt, genai.RoleUser), agent.RunConfig{})
@@ -345,6 +351,10 @@ func runWithRunner(
 		}
 		if ev != nil && ev.Content != nil {
 			lastContent = ev.Content
+			output := contentText(ev.Content)
+			if onOutput != nil && output != "" {
+				onOutput(output)
+			}
 		}
 	}
 	finalSession, err := sessionService.Get(ctx, &session.GetRequest{
