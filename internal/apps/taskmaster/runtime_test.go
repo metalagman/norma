@@ -247,6 +247,42 @@ func TestCoordinatorLogsDebugLifecycle(t *testing.T) {
 	}
 }
 
+func TestExecutorLogsInfoTaskLifecycle(t *testing.T) {
+	t.Parallel()
+
+	logs := &lockedStringBuffer{}
+	logger := newTestLogger(logs, zerolog.InfoLevel)
+	coordinator, cleanup := startTestCoordinatorWithLogger(t, logger, testRunners{
+		taskmaster: &fakeTaskRunner{},
+		plan:       &fakeTaskRunner{result: "planned"},
+		do:         &fakeTaskRunner{},
+		check:      &fakeTaskRunner{},
+		act:        &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	if err := coordinator.scheduleTask("task-plan", newAgentLocator("plan"), newAgentLocator(taskmasterAgentID), "Plan the goal"); err != nil {
+		t.Fatalf("scheduleTask() error = %v", err)
+	}
+	waitForCondition(t, 2*time.Second, func() bool {
+		return strings.Contains(logs.String(), `"message":"agent finished task"`)
+	})
+	got := logs.String()
+	for _, want := range []string{
+		`"level":"info"`,
+		`"agent_id":"plan"`,
+		`"task_id":"task-plan"`,
+		`"message":"agent received task"`,
+		`"task":"Plan the goal"`,
+		`"message":"agent finished task"`,
+		`"result":"planned"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("logs = %q, want %s", got, want)
+		}
+	}
+}
+
 func TestCoordinatorWaitsForTerminalTaskmasterTask(t *testing.T) {
 	t.Parallel()
 

@@ -335,8 +335,23 @@ func (e *executor) run(ctx context.Context) {
 					Interface("reply_to", nextTask.ReplyTo).
 					Msg("notification task received")
 			}
+			e.logger.Info().
+				Str("task_id", nextTask.ID).
+				Str("task", nextTask.Input).
+				Msg("agent received task")
 			e.coordinator.markTaskStarted(nextTask)
 			output, err := e.runner.RunTask(ctx, nextTask.ID, nextTask.Input)
+			if err != nil {
+				e.logger.Info().
+					Str("task_id", nextTask.ID).
+					Str("error", err.Error()).
+					Msg("agent finished task")
+			} else {
+				e.logger.Info().
+					Str("task_id", nextTask.ID).
+					Str("result", strings.TrimSpace(output)).
+					Msg("agent finished task")
+			}
 			e.coordinator.handleTaskResult(nextTask, output, err)
 		}
 	}
