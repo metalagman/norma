@@ -180,3 +180,4 @@
 {"id":"int-320035ec","kind":"field_change","created_at":"2026-05-06T08:29:06.303143579Z","actor":"Alexey Samoylov","issue_id":"norma-5wt2","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-0c4bda93","kind":"field_change","created_at":"2026-05-06T08:42:43.884792973Z","actor":"Alexey Samoylov","issue_id":"norma-ecop","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-0fa33395","kind":"field_change","created_at":"2026-05-06T09:50:30.958786824Z","actor":"Alexey Samoylov","issue_id":"norma-2lp8","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-8a9eb0fb","kind":"field_change","created_at":"2026-05-06T10:24:53.079448488Z","actor":"Alexey Samoylov","issue_id":"norma-ccuz","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
