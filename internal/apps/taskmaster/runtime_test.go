@@ -3,6 +3,7 @@ package taskmaster
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -146,7 +147,7 @@ func TestScheduleTaskQueuesImmediately(t *testing.T) {
 	})
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), 4)
+	service := newService(zerolog.Nop())
 	service.coordinator = coordinator
 	done := make(chan struct{})
 	go func() {
@@ -211,6 +212,48 @@ func TestCoordinatorCreatesTaskmasterNotification(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("taskmaster did not receive notification task")
+	}
+}
+
+func TestServiceFinishRemainsAvailableAfterManySchedules(t *testing.T) {
+	t.Parallel()
+
+	coordinator, cleanup := startTestCoordinator(t, testRunners{
+		taskmaster: &fakeTaskRunner{},
+		plan:       &fakeTaskRunner{},
+		do:         &fakeTaskRunner{},
+		check:      &fakeTaskRunner{},
+		act:        &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	service := newService(zerolog.Nop())
+	service.coordinator = coordinator
+
+	for i := 0; i < 12; i++ {
+		taskID := fmt.Sprintf("task-%02d", i)
+		_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
+			TaskID:  taskID,
+			Locator: newAgentLocator("plan"),
+			Task:    "Plan the goal",
+		})
+		if err != nil {
+			t.Fatalf("scheduleTask(%s) error = %v", taskID, err)
+		}
+		if out.Status != string(taskStatusQueued) {
+			t.Fatalf("scheduleTask(%s) status = %q, want queued", taskID, out.Status)
+		}
+	}
+
+	_, out, err := service.finish(context.Background(), nil, finishInput{Summary: "done"})
+	if err != nil {
+		t.Fatalf("finish() error = %v", err)
+	}
+	if out.Status != "finished" {
+		t.Fatalf("finish() status = %q, want finished", out.Status)
+	}
+	if out.Summary != "done" {
+		t.Fatalf("finish() summary = %q, want done", out.Summary)
 	}
 }
 

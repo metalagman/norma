@@ -4,8 +4,7 @@ Taskmaster is an experimental async harness exposed as:
 
 ```bash
 norma playground taskmaster "ship the goal" \
-  --bridge-bin /path/to/codex-acp-bridge \
-  --max-tool-calls 8
+  --bridge-bin /path/to/codex-acp-bridge
 ```
 
 Taskmaster is an experimental async harness that now runs a **strict PDCA prompt contract** on top of its queue-based runtime. It is still not the same thing as the structured PDCA runtime used by `norma loop`. The real PDCA contracts and loop semantics are documented in [PDCA Loop](pdca-agent.md).
@@ -152,7 +151,6 @@ Validation rules:
 - `locator.id` must be one of `plan|do|check|act`
 - `reply_to.type` must be `agent`
 - `reply_to.id` must be a known runtime agent id
-- calls beyond `--max-tool-calls` are rejected
 
 ## `taskmaster.finish`
 

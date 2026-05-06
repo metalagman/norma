@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
@@ -19,12 +18,8 @@ const (
 )
 
 type service struct {
-	logger       zerolog.Logger
-	maxToolCalls int
-	coordinator  *coordinator
-
-	mu        sync.Mutex
-	callCount int
+	logger      zerolog.Logger
+	coordinator *coordinator
 }
 
 type scheduleTaskInput struct {
@@ -51,11 +46,8 @@ type finishOutput struct {
 	Summary string `json:"summary"`
 }
 
-func newService(logger zerolog.Logger, maxToolCalls int) *service {
-	return &service{
-		logger:       logger,
-		maxToolCalls: maxToolCalls,
-	}
+func newService(logger zerolog.Logger) *service {
+	return &service{logger: logger}
 }
 
 func newMCPServer(service *service) *mcp.Server {
@@ -85,10 +77,6 @@ func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	locator, locatorErr := normalizeLocator(input.Locator)
 	replyTo, replyErr := normalizeReplyLocator(input.ReplyTo)
 	taskText := strings.TrimSpace(input.Task)
-	if !s.reserveCall() {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: "max tool calls exceeded"}
-		return toolError(out.Message), out, nil
-	}
 	if s.coordinator == nil {
 		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: "coordinator is not ready"}
 		return toolError(out.Message), out, nil
@@ -124,10 +112,6 @@ func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, inpu
 
 func (s *service) finish(_ context.Context, _ *mcp.CallToolRequest, input finishInput) (*mcp.CallToolResult, finishOutput, error) {
 	summary := strings.TrimSpace(input.Summary)
-	if !s.reserveCall() {
-		out := finishOutput{Status: "error", Summary: "max tool calls exceeded"}
-		return toolError(out.Summary), out, nil
-	}
 	if s.coordinator == nil {
 		out := finishOutput{Status: "error", Summary: "coordinator is not ready"}
 		return toolError(out.Summary), out, nil
@@ -141,16 +125,6 @@ func (s *service) finish(_ context.Context, _ *mcp.CallToolRequest, input finish
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("finished: %s", summary)}},
 	}, out, nil
-}
-
-func (s *service) reserveCall() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.maxToolCalls > 0 && s.callCount >= s.maxToolCalls {
-		return false
-	}
-	s.callCount++
-	return true
 }
 
 func toolError(message string) *mcp.CallToolResult {

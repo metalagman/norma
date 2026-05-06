@@ -24,13 +24,12 @@ import (
 )
 
 const (
-	defaultMaxToolCalls = 8
-	defaultAgentType    = "codex_acp"
-	defaultModel        = "gpt-5.3-codex"
-	defaultQueueDepth   = 32
-	initialGoalTaskID   = "goal-task"
-	defaultMaxAttempts  = 1
-	rootAgentName       = "Taskmaster"
+	defaultAgentType   = "codex_acp"
+	defaultModel       = "gpt-5.3-codex"
+	defaultQueueDepth  = 32
+	initialGoalTaskID  = "goal-task"
+	defaultMaxAttempts = 1
+	rootAgentName      = "Taskmaster"
 )
 
 var childAgentInstructions = map[string]string{
@@ -76,13 +75,12 @@ func isKnownRuntimeAgentID(id string) bool {
 }
 
 type Config struct {
-	Goal         string
-	WorkingDir   string
-	BridgeBin    string
-	MaxToolCalls int
-	Stdout       io.Writer
-	Stderr       io.Writer
-	Logger       *zerolog.Logger
+	Goal       string
+	WorkingDir string
+	BridgeBin  string
+	Stdout     io.Writer
+	Stderr     io.Writer
+	Logger     *zerolog.Logger
 }
 
 type taskKind string
@@ -753,14 +751,6 @@ func Run(ctx context.Context, cfg Config) error {
 	if goal == "" {
 		return errors.New("goal is required")
 	}
-	maxToolCalls := cfg.MaxToolCalls
-	if maxToolCalls == 0 {
-		maxToolCalls = defaultMaxToolCalls
-	}
-	if maxToolCalls < 0 {
-		return fmt.Errorf("max tool calls must be >= 0")
-	}
-
 	workingDir := strings.TrimSpace(cfg.WorkingDir)
 	if workingDir == "" {
 		workingDir = "."
@@ -799,7 +789,7 @@ func Run(ctx context.Context, cfg Config) error {
 	defer childAgents.close()
 
 	serviceLogger := logger.With().Str("surface", "taskmaster").Logger()
-	service := newService(serviceLogger, maxToolCalls)
+	service := newService(serviceLogger)
 	server, err := startHTTPServer(ctx, service, "127.0.0.1:0")
 	if err != nil {
 		return err
