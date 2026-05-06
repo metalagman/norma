@@ -34,10 +34,33 @@ const (
 )
 
 var childAgentInstructions = map[string]string{
-	"plan":  "Create a concise plan for the assigned TASK. Return only the useful planning result.",
-	"do":    "Execute the assigned TASK as far as possible. Return only the useful implementation result.",
-	"check": "Check the assigned TASK result against the goal. Return PASS or FAIL with concise evidence.",
-	"act":   "Decide the next action for the assigned TASK. Return close, continue, or replan with a concise reason.",
+	"plan": strings.Join([]string{
+		"You are the plan phase of a strict PDCA flow.",
+		"Work only on planning for the current iteration.",
+		"Produce the next concise plan that the do phase should execute.",
+		"Do not execute work, check results, or act on outcomes.",
+		"Return only the useful planning result.",
+	}, "\n"),
+	"do": strings.Join([]string{
+		"You are the do phase of a strict PDCA flow.",
+		"Execute only the assigned plan for the current iteration.",
+		"Do not replan, verify completion, or choose the next action.",
+		"Return only the useful execution result for the check phase.",
+	}, "\n"),
+	"check": strings.Join([]string{
+		"You are the check phase of a strict PDCA flow.",
+		"Compare the execution result against the plan and the goal.",
+		"Return lowercase `pass` only when the task is complete for this iteration.",
+		"Otherwise return lowercase `fail` with concise evidence.",
+		"Do not act, replan, or execute more work.",
+	}, "\n"),
+	"act": strings.Join([]string{
+		"You are the act phase of a strict PDCA flow.",
+		"Consume only the check result for the current iteration.",
+		"If the verdict is `pass`, return lowercase `close`.",
+		"If the verdict is `fail`, return lowercase `continue` or `replan` with a concise reason.",
+		"Never return uppercase literals and never return `rollback`.",
+	}, "\n"),
 }
 
 func childAgentIDs() []string {
@@ -417,7 +440,7 @@ func (c *coordinator) enqueueInitialGoal(goal string) error {
 		Kind:        taskKindTaskmaster,
 		Locator:     newAgentLocator(taskmasterAgentID),
 		ReplyTo:     newAgentLocator(taskmasterAgentID),
-		Input:       "GOAL TASK:\n" + strings.TrimSpace(goal),
+		Input:       formatInitialGoalTaskInput(goal),
 		Status:      taskStatusQueued,
 		Attempt:     1,
 		MaxAttempts: defaultMaxAttempts,
@@ -653,6 +676,7 @@ func (c *coordinator) sendDoneLocked(result runResult) {
 func formatNotificationTaskInput(doneTask *task) string {
 	type completionEnvelope struct {
 		Type          string      `json:"type"`
+		Phase         string      `json:"phase"`
 		SourceTaskID  string      `json:"source_task_id"`
 		SourceLocator taskLocator `json:"source_locator"`
 		ReplyTo       taskLocator `json:"reply_to"`
@@ -663,6 +687,7 @@ func formatNotificationTaskInput(doneTask *task) string {
 
 	envelope := completionEnvelope{
 		Type:          "task_completion",
+		Phase:         doneTask.Locator.ID,
 		SourceTaskID:  doneTask.ID,
 		SourceLocator: doneTask.Locator,
 		ReplyTo:       doneTask.ReplyTo,
@@ -677,19 +702,48 @@ func formatNotificationTaskInput(doneTask *task) string {
 	if err != nil {
 		return strings.TrimSpace(fmt.Sprintf("TASK ENVELOPE:\n%s", doneTask.ID))
 	}
-	return "TASK ENVELOPE:\n" + string(payload)
+	return strings.Join([]string{
+		"TASK ENVELOPE:",
+		"This is the completion of one strict PDCA phase. Use it to choose the next phase in order.",
+		string(payload),
+	}, "\n")
+}
+
+func formatInitialGoalTaskInput(goal string) string {
+	return strings.Join([]string{
+		"GOAL TASK:",
+		strings.TrimSpace(goal),
+		"",
+		"PDCA MODE:",
+		"- Run strict PDCA iterations in this exact order: plan -> do -> check -> act.",
+		"- Start with plan for iteration 1.",
+		"- The check phase returns lowercase `pass` or `fail`.",
+		"- The act phase returns lowercase `close`, `continue`, or `replan`.",
+		"- If act returns `close`, call taskmaster.finish.",
+		"- If act returns `continue`, start the next iteration from plan.",
+		"- If act returns `replan`, call taskmaster.finish with a concise replan summary.",
+	}, "\n")
 }
 
 func rootInstruction() string {
 	return strings.Join([]string{
 		"You are the Taskmaster async root agent named taskmaster.",
 		"You receive taskmaster tasks in one of two forms: GOAL TASK or TASK ENVELOPE.",
+		"You are running a strict PDCA workflow over child agents.",
+		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
+		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
 		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to finish the run.",
 		"Each scheduled task must include a stable task_id, a locator, an optional reply_to, and task text.",
 		"The child agents available in this MVP are plan, do, check, and act.",
-		"Decide yourself which child agent to run next based on the goal and the task envelopes you receive.",
-		"If the goal is handled, call taskmaster.finish with a concise final summary.",
+		"Treat plan, do, check, and act as strict PDCA phases, not generic workers.",
+		"After a plan completion, schedule do. After a do completion, schedule check. After a check completion, schedule act.",
+		"The check phase returns lowercase `pass` or `fail`.",
+		"The act phase returns lowercase `close`, `continue`, or `replan`.",
+		"If act returns `close`, call taskmaster.finish with a concise final summary.",
+		"If act returns `continue`, start the next PDCA iteration from plan.",
+		"If act returns `replan`, call taskmaster.finish with a concise replan-required summary. This MVP has no replacement-work tool.",
 		"If a task envelope reports an error and you want to stop, call taskmaster.finish with a concise failure summary.",
+		"Do not perform worker work yourself. Only coordinate the PDCA flow through child-agent tasks.",
 		"Do not try to deliver work directly without using taskmaster.schedule_task.",
 	}, "\n")
 }

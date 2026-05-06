@@ -8,7 +8,7 @@ norma playground taskmaster "ship the goal" \
   --max-tool-calls 8
 ```
 
-Taskmaster is **PDCA-inspired**, not the structured PDCA runtime used by `norma loop`. The real PDCA contracts and loop semantics are documented in [PDCA Loop](pdca-agent.md).
+Taskmaster is an experimental async harness that now runs a **strict PDCA prompt contract** on top of its queue-based runtime. It is still not the same thing as the structured PDCA runtime used by `norma loop`. The real PDCA contracts and loop semantics are documented in [PDCA Loop](pdca-agent.md).
 
 ## What It Is
 
@@ -31,6 +31,7 @@ This playground currently uses:
 - coordinator-owned task scheduling
 - target-agnostic routing through `locator`
 - async completion routing through `reply_to`
+- strict root-agent PDCA sequencing by prompt contract
 - freeform task text and freeform text outputs
 
 This playground does **not** currently implement:
@@ -51,7 +52,9 @@ Stdout is reserved for the final `taskmaster` answer. Lifecycle logs, task envel
 
 ## Runtime Shape
 
-At runtime, the harness routes **tasks**, not roles. `plan`, `do`, `check`, and `act` are just fixed startup-configured agent ids in this MVP.
+At runtime, the harness routes **tasks**, not roles. `plan`, `do`, `check`, and `act` are fixed startup-configured agent ids in this MVP, and the root `taskmaster` agent is instructed to run them in strict PDCA order:
+
+`plan -> do -> check -> act`
 
 Core pieces:
 
@@ -79,6 +82,20 @@ flowchart TD
     Coordinator -->|enqueue notification task| TaskmasterQueue
     TaskmasterAgent -->|taskmaster.finish| Coordinator
 ```
+
+## Prompt Contract
+
+The current prompt layer is strict PDCA:
+
+- the root `taskmaster` instruction requires `plan -> do -> check -> act`
+- every new goal starts with `plan`
+- `check` must return lowercase `pass` or `fail`
+- `act` must return lowercase `close`, `continue`, or `replan`
+- `close` means `taskmaster.finish`
+- `continue` means begin the next iteration from `plan`
+- `replan` means finish with a replan-required summary, because this MVP has no replacement-work primitive
+
+This sequencing is enforced by prompt contract, not by a coordinator phase-state machine.
 
 ## Routing Model
 
@@ -167,6 +184,7 @@ Notification prompt payload:
 ```json
 {
   "type": "task_completion",
+  "phase": "plan",
   "source_task_id": "task-plan",
   "source_locator": { "type": "agent", "id": "plan" },
   "reply_to": { "type": "agent", "id": "taskmaster" },
@@ -179,6 +197,7 @@ The root agent receives that payload prefixed as:
 
 ```text
 TASK ENVELOPE:
+This is the completion of one strict PDCA phase. Use it to choose the next phase in order.
 ...
 ```
 
@@ -202,4 +221,4 @@ Use [PDCA Loop](pdca-agent.md) for the real runtime:
 - branch/workspace integration
 - Beads-backed task selection and completion flow
 
-Use Taskmaster docs only for the experimental playground harness.
+Use Taskmaster docs only for the experimental async playground harness.

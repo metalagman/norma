@@ -37,6 +37,97 @@ func TestFixedACPConfig(t *testing.T) {
 	}
 }
 
+func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
+	t.Parallel()
+
+	got := rootInstruction()
+	for _, want := range []string{
+		"strict PDCA workflow",
+		"plan -> do -> check -> act",
+		"Always start a new goal with plan.",
+		"lowercase `pass` or `fail`",
+		"lowercase `close`, `continue`, or `replan`",
+		"If act returns `continue`, start the next PDCA iteration from plan.",
+		"If act returns `replan`, call taskmaster.finish with a concise replan-required summary.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rootInstruction() = %q, want substring %q", got, want)
+		}
+	}
+}
+
+func TestChildAgentInstructionsUseStrictPDCAContract(t *testing.T) {
+	t.Parallel()
+
+	checkInstruction := childAgentInstructions["check"]
+	for _, want := range []string{
+		"strict PDCA flow",
+		"lowercase `pass`",
+		"lowercase `fail`",
+	} {
+		if !strings.Contains(checkInstruction, want) {
+			t.Fatalf("check instruction = %q, want substring %q", checkInstruction, want)
+		}
+	}
+	if strings.Contains(checkInstruction, "PASS") || strings.Contains(checkInstruction, "FAIL") {
+		t.Fatalf("check instruction = %q, want lowercase literals only", checkInstruction)
+	}
+
+	actInstruction := childAgentInstructions["act"]
+	for _, want := range []string{
+		"If the verdict is `pass`, return lowercase `close`.",
+		"If the verdict is `fail`, return lowercase `continue` or `replan`",
+		"never return `rollback`",
+	} {
+		if !strings.Contains(actInstruction, want) {
+			t.Fatalf("act instruction = %q, want substring %q", actInstruction, want)
+		}
+	}
+}
+
+func TestFormatInitialGoalTaskInputIncludesPDCAPolicy(t *testing.T) {
+	t.Parallel()
+
+	got := formatInitialGoalTaskInput("ship it")
+	for _, want := range []string{
+		"GOAL TASK:",
+		"ship it",
+		"PDCA MODE:",
+		"plan -> do -> check -> act",
+		"Start with plan for iteration 1.",
+		"The check phase returns lowercase `pass` or `fail`.",
+		"The act phase returns lowercase `close`, `continue`, or `replan`.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatInitialGoalTaskInput() = %q, want substring %q", got, want)
+		}
+	}
+}
+
+func TestFormatNotificationTaskInputIncludesPDCAContext(t *testing.T) {
+	t.Parallel()
+
+	got := formatNotificationTaskInput(&task{
+		ID:      "task-plan",
+		Locator: newAgentLocator("plan"),
+		ReplyTo: newAgentLocator(taskmasterAgentID),
+		Status:  taskStatusCompleted,
+		Output:  "planned",
+	})
+	for _, want := range []string{
+		"TASK ENVELOPE:",
+		"This is the completion of one strict PDCA phase.",
+		`"phase": "plan"`,
+		`"source_task_id": "task-plan"`,
+		`"status": "completed"`,
+		`"result": "planned"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatNotificationTaskInput() = %q, want substring %q", got, want)
+		}
+	}
+}
+
 func TestScheduleTaskQueuesImmediately(t *testing.T) {
 	t.Parallel()
 
@@ -107,7 +198,9 @@ func TestCoordinatorCreatesTaskmasterNotification(t *testing.T) {
 	select {
 	case prompt := <-rootRunner.started:
 		if !strings.Contains(prompt, "TASK ENVELOPE:") ||
+			!strings.Contains(prompt, "strict PDCA phase") ||
 			!strings.Contains(prompt, `"type": "task_completion"`) ||
+			!strings.Contains(prompt, `"phase": "plan"`) ||
 			!strings.Contains(prompt, `"source_task_id": "task-plan"`) ||
 			!strings.Contains(prompt, `"source_locator": {`) ||
 			!strings.Contains(prompt, `"id": "plan"`) ||
