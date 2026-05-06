@@ -103,6 +103,10 @@ Important boundary:
 - Agents do **not** receive that envelope object.
 - The runtime passes only the envelope `prompt` into the actual agent turn.
 - Routing data such as `locator` and `reply_to` stays in the coordinator/tool layer.
+- Root `taskmaster` is a handoff coordinator, not a pseudo-worker author.
+- Root `taskmaster` must not invent worker methodology, command examples, acceptance criteria, or execution guidance for child agents.
+- Child methodology lives in the child agent system prompts.
+- When multiple upstream texts are needed, root may use only neutral separators such as `Goal:`, `Plan output:`, `Do output:`, and `Check output:`.
 
 ## Routing Model
 
@@ -135,7 +139,7 @@ Tool input:
   "task_id": "task-plan",
   "locator": { "type": "agent", "id": "plan" },
   "reply_to": { "type": "agent", "id": "taskmaster" },
-  "prompt": "Plan how to satisfy the goal.",
+  "prompt": "count lines of go code",
   "metadata": {
     "trace_id": "abc123"
   }

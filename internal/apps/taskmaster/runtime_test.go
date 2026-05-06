@@ -48,6 +48,12 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"Always start a new goal with plan.",
 		"You receive only prompt text as your turn input.",
 		"Runtime task metadata and routing are internal",
+		"do not author task-specific methodology, examples, commands, acceptance criteria, or execution instructions yourself",
+		"The child agent's own system prompt defines how that phase works.",
+		"For plan, pass only the raw goal text.",
+		"For do, pass only the prior plan output.",
+		"Goal:, Plan output:, Do output:.",
+		"For act, pass only a neutral Check output: section.",
 		"lowercase `pass` or `fail`",
 		"lowercase `close` or `replan`",
 		"If act returns `replan`, more planning is required before further execution.",
@@ -61,6 +67,9 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 	for _, unwanted := range []string{
 		"`continue`",
 		"call taskmaster.finish with a concise replan-required summary",
+		"Create a concrete execution plan",
+		"include exact command",
+		"Return a concise plan suitable for immediate execution",
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("rootInstruction() = %q, do not want substring %q", got, unwanted)
