@@ -36,7 +36,7 @@ This playground currently uses:
 This playground does **not** currently implement:
 
 - structured PDCA JSON role contracts
-- harness-level `continue` or `replan` control states
+- harness-level `continue` control states
 - persistence or retries
 - non-agent locator types
 - Beads-backed orchestration state
@@ -51,7 +51,7 @@ Stdout is reserved for the final `taskmaster` answer. Lifecycle logs, task envel
 
 ## Runtime Shape
 
-At runtime, the harness routes **tasks**, not roles. `plan`, `do`, `check`, and `act` are fixed startup-configured agent ids in this MVP, and the root `taskmaster` agent is instructed to run them in strict PDCA order:
+At runtime, the harness routes **tasks**, not roles. `plan`, `do`, `check`, and `act` are fixed startup-configured agent ids in this MVP, and the root `taskmaster` agent is instructed to run them in strict PDCA order within each iteration:
 
 `plan -> do -> check -> act`
 
@@ -89,10 +89,10 @@ The current prompt layer is strict PDCA:
 - the root `taskmaster` instruction requires `plan -> do -> check -> act`
 - every new goal starts with `plan`
 - `check` must return lowercase `pass` or `fail`
-- `act` must return lowercase `close`, `continue`, or `replan`
+- `act` must return lowercase `close` or `replan`
 - `close` means `taskmaster.finish`
-- `continue` means begin the next iteration from `plan`
-- `replan` means finish with a replan-required summary, because this MVP has no replacement-work primitive
+- `replan` means more planning is required before further execution
+- the root `taskmaster` agent decides what to schedule next from task envelopes; child outputs are advisory, not direct runtime commands
 
 This sequencing is enforced by prompt contract, not by a coordinator phase-state machine.
 
@@ -195,7 +195,7 @@ The root agent receives that payload prefixed as:
 
 ```text
 TASK ENVELOPE:
-This is the completion of one strict PDCA phase. Use it to choose the next phase in order.
+This is the completion of one strict PDCA phase. Use it to decide the next child task or to finish the run.
 ...
 ```
 

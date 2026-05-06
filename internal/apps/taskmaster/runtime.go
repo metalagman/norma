@@ -56,8 +56,9 @@ var childAgentInstructions = map[string]string{
 	"act": strings.Join([]string{
 		"You are the act phase of a strict PDCA flow.",
 		"Consume only the check result for the current iteration.",
+		"Your output is advisory input for the root taskmaster agent.",
 		"If the verdict is `pass`, return lowercase `close`.",
-		"If the verdict is `fail`, return lowercase `continue` or `replan` with a concise reason.",
+		"If the verdict is `fail`, return lowercase `replan` with a concise reason.",
 		"Never return uppercase literals and never return `rollback`.",
 	}, "\n"),
 }
@@ -702,7 +703,8 @@ func formatNotificationTaskInput(doneTask *task) string {
 	}
 	return strings.Join([]string{
 		"TASK ENVELOPE:",
-		"This is the completion of one strict PDCA phase. Use it to choose the next phase in order.",
+		"This is the completion of one strict PDCA phase.",
+		"Use it to decide the next child task or to finish the run.",
 		string(payload),
 	}, "\n")
 }
@@ -716,10 +718,10 @@ func formatInitialGoalTaskInput(goal string) string {
 		"- Run strict PDCA iterations in this exact order: plan -> do -> check -> act.",
 		"- Start with plan for iteration 1.",
 		"- The check phase returns lowercase `pass` or `fail`.",
-		"- The act phase returns lowercase `close`, `continue`, or `replan`.",
+		"- The act phase returns lowercase `close` or `replan`.",
 		"- If act returns `close`, call taskmaster.finish.",
-		"- If act returns `continue`, start the next iteration from plan.",
-		"- If act returns `replan`, call taskmaster.finish with a concise replan summary.",
+		"- If act returns `replan`, more planning is required before further execution.",
+		"- The root taskmaster agent decides the next task and uses only taskmaster.schedule_task and taskmaster.finish.",
 	}, "\n")
 }
 
@@ -736,12 +738,13 @@ func rootInstruction() string {
 		"Treat plan, do, check, and act as strict PDCA phases, not generic workers.",
 		"After a plan completion, schedule do. After a do completion, schedule check. After a check completion, schedule act.",
 		"The check phase returns lowercase `pass` or `fail`.",
-		"The act phase returns lowercase `close`, `continue`, or `replan`.",
+		"The act phase returns lowercase `close` or `replan`.",
 		"If act returns `close`, call taskmaster.finish with a concise final summary.",
-		"If act returns `continue`, start the next PDCA iteration from plan.",
-		"If act returns `replan`, call taskmaster.finish with a concise replan-required summary. This MVP has no replacement-work tool.",
+		"If act returns `replan`, more planning is required before further execution.",
+		"You decide the next child task yourself from the task envelopes. Do not treat child outputs as direct runtime commands.",
 		"If a task envelope reports an error and you want to stop, call taskmaster.finish with a concise failure summary.",
-		"Do not perform worker work yourself. Only coordinate the PDCA flow through child-agent tasks.",
+		"Do not read files, execute scripts, or perform worker work yourself.",
+		"Only coordinate the PDCA flow through child-agent tasks.",
 		"Do not try to deliver work directly without using taskmaster.schedule_task.",
 	}, "\n")
 }

@@ -47,12 +47,21 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"plan -> do -> check -> act",
 		"Always start a new goal with plan.",
 		"lowercase `pass` or `fail`",
-		"lowercase `close`, `continue`, or `replan`",
-		"If act returns `continue`, start the next PDCA iteration from plan.",
-		"If act returns `replan`, call taskmaster.finish with a concise replan-required summary.",
+		"lowercase `close` or `replan`",
+		"If act returns `replan`, more planning is required before further execution.",
+		"You decide the next child task yourself from the task envelopes.",
+		"Do not read files, execute scripts, or perform worker work yourself.",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rootInstruction() = %q, want substring %q", got, want)
+		}
+	}
+	for _, unwanted := range []string{
+		"`continue`",
+		"call taskmaster.finish with a concise replan-required summary",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("rootInstruction() = %q, do not want substring %q", got, unwanted)
 		}
 	}
 }
@@ -76,13 +85,17 @@ func TestChildAgentInstructionsUseStrictPDCAContract(t *testing.T) {
 
 	actInstruction := childAgentInstructions["act"]
 	for _, want := range []string{
+		"advisory input for the root taskmaster agent",
 		"If the verdict is `pass`, return lowercase `close`.",
-		"If the verdict is `fail`, return lowercase `continue` or `replan`",
+		"If the verdict is `fail`, return lowercase `replan`",
 		"never return `rollback`",
 	} {
 		if !strings.Contains(actInstruction, want) {
 			t.Fatalf("act instruction = %q, want substring %q", actInstruction, want)
 		}
+	}
+	if strings.Contains(actInstruction, "`continue`") {
+		t.Fatalf("act instruction = %q, do not want continue literal", actInstruction)
 	}
 }
 
@@ -97,10 +110,19 @@ func TestFormatInitialGoalTaskInputIncludesPDCAPolicy(t *testing.T) {
 		"plan -> do -> check -> act",
 		"Start with plan for iteration 1.",
 		"The check phase returns lowercase `pass` or `fail`.",
-		"The act phase returns lowercase `close`, `continue`, or `replan`.",
+		"The act phase returns lowercase `close` or `replan`.",
+		"The root taskmaster agent decides the next task",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatInitialGoalTaskInput() = %q, want substring %q", got, want)
+		}
+	}
+	for _, unwanted := range []string{
+		"`continue`",
+		"call taskmaster.finish with a concise replan summary",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("formatInitialGoalTaskInput() = %q, do not want substring %q", got, unwanted)
 		}
 	}
 }
@@ -118,6 +140,7 @@ func TestFormatNotificationTaskInputIncludesPDCAContext(t *testing.T) {
 	for _, want := range []string{
 		"TASK ENVELOPE:",
 		"This is the completion of one strict PDCA phase.",
+		"Use it to decide the next child task or to finish the run.",
 		`"phase": "plan"`,
 		`"source_task_id": "task-plan"`,
 		`"status": "completed"`,
