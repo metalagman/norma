@@ -89,10 +89,11 @@ The current prompt layer is strict PDCA:
 
 - the root `taskmaster` instruction requires `plan -> do -> check -> act`
 - every new goal starts with `plan`
-- `check` must return lowercase `pass` or `fail`
-- `act` must return lowercase `close` or `replan`
-- `close` means `taskmaster.finish`
-- `replan` means more planning is required before further execution
+- child-agent I/O is plain text, not structured role payloads
+- `check` and `act` are interpreted semantically by the root agent from their text output
+- helpful text labels like `verdict:` or `decision:` are optional conventions, not required protocol
+- an act output that clearly recommends `close` means `taskmaster.finish`
+- an act output that clearly recommends `replan` means more planning is required before further execution
 - the root `taskmaster` agent decides what to schedule next from the prompt text it receives; child outputs are advisory, not direct runtime commands
 
 This sequencing is enforced by prompt contract, not by a coordinator phase-state machine.
@@ -107,6 +108,7 @@ Important boundary:
 - Root `taskmaster` must not invent worker methodology, command examples, acceptance criteria, or execution guidance for child agents.
 - Child methodology lives in the child agent system prompts.
 - When multiple upstream texts are needed, root may use only neutral separators such as `Goal:`, `Plan output:`, `Do output:`, and `Check output:`.
+- Child agents are expected to answer in simple plain text. Taskmaster does not require JSON, role field names, or fenced structured blobs.
 
 ## Routing Model
 

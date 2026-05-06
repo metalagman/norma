@@ -54,9 +54,10 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"For do, pass only the prior plan output.",
 		"Goal:, Plan output:, Do output:.",
 		"For act, pass only a neutral Check output: section.",
-		"lowercase `pass` or `fail`",
-		"lowercase `close` or `replan`",
-		"If act returns `replan`, more planning is required before further execution.",
+		"Child agents return freeform plain text, not structured role payloads.",
+		"You interpret check and act outputs semantically from their plain text.",
+		"helpful labels like `verdict:` or `decision:`",
+		"If an act output clearly recommends replan, more planning is required before further execution.",
 		"You decide the next child task yourself from the prompt text you receive.",
 		"Do not read files, execute scripts, or perform worker work yourself.",
 	} {
@@ -70,6 +71,8 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"Create a concrete execution plan",
 		"include exact command",
 		"Return a concise plan suitable for immediate execution",
+		"The check phase returns lowercase `pass` or `fail`",
+		"The act phase returns lowercase `close` or `replan`",
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("rootInstruction() = %q, do not want substring %q", got, unwanted)
@@ -83,30 +86,47 @@ func TestChildAgentInstructionsUseStrictPDCAContract(t *testing.T) {
 	checkInstruction := childAgentInstructions["check"]
 	for _, want := range []string{
 		"strict PDCA flow",
-		"lowercase `pass`",
-		"lowercase `fail`",
+		"plain-text assessment",
+		"`verdict: pass` or `verdict: fail`",
+		"Do not use JSON, schemas, field names, or code fences.",
 	} {
 		if !strings.Contains(checkInstruction, want) {
 			t.Fatalf("check instruction = %q, want substring %q", checkInstruction, want)
 		}
 	}
-	if strings.Contains(checkInstruction, "PASS") || strings.Contains(checkInstruction, "FAIL") {
-		t.Fatalf("check instruction = %q, want lowercase literals only", checkInstruction)
+	for _, unwanted := range []string{
+		"check_output",
+		"acceptance_criteria",
+		"do_steps",
+		"Return lowercase `pass` only",
+		"Otherwise return lowercase `fail`",
+	} {
+		if strings.Contains(checkInstruction, unwanted) {
+			t.Fatalf("check instruction = %q, do not want substring %q", checkInstruction, unwanted)
+		}
 	}
 
 	actInstruction := childAgentInstructions["act"]
 	for _, want := range []string{
 		"advisory input for the root taskmaster agent",
-		"If the verdict is `pass`, return lowercase `close`.",
-		"If the verdict is `fail`, return lowercase `replan`",
-		"never return `rollback`",
+		"plain-text recommendation",
+		"`decision: close` or `decision: replan`",
+		"Do not use JSON, schemas, field names, or code fences.",
 	} {
 		if !strings.Contains(actInstruction, want) {
 			t.Fatalf("act instruction = %q, want substring %q", actInstruction, want)
 		}
 	}
-	if strings.Contains(actInstruction, "`continue`") {
-		t.Fatalf("act instruction = %q, do not want continue literal", actInstruction)
+	for _, unwanted := range []string{
+		"`continue`",
+		"`rollback`",
+		"act_output",
+		"If the verdict is `pass`, return lowercase `close`.",
+		"If the verdict is `fail`, return lowercase `replan`",
+	} {
+		if strings.Contains(actInstruction, unwanted) {
+			t.Fatalf("act instruction = %q, do not want substring %q", actInstruction, unwanted)
+		}
 	}
 }
 
