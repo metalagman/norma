@@ -9,6 +9,7 @@ import (
 const (
 	taskmasterAgentID = "taskmaster"
 	locatorTypeAgent  = "agent"
+	systemMetadataKey = "taskmaster"
 )
 
 type taskLocator struct {
@@ -42,4 +43,25 @@ func normalizeReplyLocator(replyTo *taskLocator) (taskLocator, error) {
 		return newAgentLocator(taskmasterAgentID), nil
 	}
 	return normalizeLocator(*replyTo)
+}
+
+func normalizeUserMetadata(metadata map[string]any) (map[string]any, error) {
+	if len(metadata) == 0 {
+		return nil, nil
+	}
+	if _, exists := metadata[systemMetadataKey]; exists {
+		return nil, fmt.Errorf("metadata.%s is reserved", systemMetadataKey)
+	}
+	return cloneMetadata(metadata), nil
+}
+
+func cloneMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	return cloned
 }

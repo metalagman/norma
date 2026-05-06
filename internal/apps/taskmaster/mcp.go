@@ -23,10 +23,11 @@ type service struct {
 }
 
 type scheduleTaskInput struct {
-	TaskID  string       `json:"task_id"`
-	Locator taskLocator  `json:"locator"`
-	ReplyTo *taskLocator `json:"reply_to,omitempty"`
-	Task    string       `json:"task"`
+	TaskID   string         `json:"task_id"`
+	Locator  taskLocator    `json:"locator"`
+	ReplyTo  *taskLocator   `json:"reply_to,omitempty"`
+	Prompt   string         `json:"prompt"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type scheduleTaskOutput struct {
@@ -57,7 +58,7 @@ func newMCPServer(service *service) *mcp.Server {
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        scheduleTaskToolName,
-		Description: "Enqueue one child-agent task addressed by locator. Returns immediately after queueing.",
+		Description: "Enqueue one child-agent task addressed by locator using a generic prompt plus optional metadata payload. Returns immediately after queueing.",
 	}, service.scheduleTask)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        finishToolName,
@@ -76,7 +77,8 @@ func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	taskID := strings.TrimSpace(input.TaskID)
 	locator, locatorErr := normalizeLocator(input.Locator)
 	replyTo, replyErr := normalizeReplyLocator(input.ReplyTo)
-	taskText := strings.TrimSpace(input.Task)
+	prompt := strings.TrimSpace(input.Prompt)
+	metadata, metadataErr := normalizeUserMetadata(input.Metadata)
 	if s.coordinator == nil {
 		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: "coordinator is not ready"}
 		return toolError(out.Message), out, nil
@@ -89,7 +91,11 @@ func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, Status: "error", Message: replyErr.Error()}
 		return toolError(out.Message), out, nil
 	}
-	if err := s.coordinator.scheduleTask(taskID, locator, replyTo, taskText); err != nil {
+	if metadataErr != nil {
+		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: metadataErr.Error()}
+		return toolError(out.Message), out, nil
+	}
+	if err := s.coordinator.scheduleTask(taskID, locator, replyTo, prompt, metadata); err != nil {
 		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: err.Error()}
 		return toolError(out.Message), out, nil
 	}

@@ -28,6 +28,7 @@ This playground currently uses:
 - one inbox queue per agent
 - one serial executor per inbox
 - coordinator-owned task scheduling
+- internal task envelopes with `prompt` plus internal metadata
 - target-agnostic routing through `locator`
 - async completion routing through `reply_to`
 - strict root-agent PDCA sequencing by prompt contract
@@ -92,9 +93,16 @@ The current prompt layer is strict PDCA:
 - `act` must return lowercase `close` or `replan`
 - `close` means `taskmaster.finish`
 - `replan` means more planning is required before further execution
-- the root `taskmaster` agent decides what to schedule next from task envelopes; child outputs are advisory, not direct runtime commands
+- the root `taskmaster` agent decides what to schedule next from the prompt text it receives; child outputs are advisory, not direct runtime commands
 
 This sequencing is enforced by prompt contract, not by a coordinator phase-state machine.
+
+Important boundary:
+
+- Taskmaster runtime tasks internally carry `prompt` plus metadata.
+- Agents do **not** receive that envelope object.
+- The runtime passes only the envelope `prompt` into the actual agent turn.
+- Routing data such as `locator` and `reply_to` stays in the coordinator/tool layer.
 
 ## Routing Model
 
@@ -127,7 +135,10 @@ Tool input:
   "task_id": "task-plan",
   "locator": { "type": "agent", "id": "plan" },
   "reply_to": { "type": "agent", "id": "taskmaster" },
-  "task": "Plan how to satisfy the GOAL TASK."
+  "prompt": "Plan how to satisfy the goal.",
+  "metadata": {
+    "trace_id": "abc123"
+  }
 }
 ```
 
@@ -146,11 +157,12 @@ Tool output:
 Validation rules:
 
 - `task_id` must be non-empty and unique within the run
-- `task` must be non-empty
+- `prompt` must be non-empty
 - `locator.type` must be `agent`
 - `locator.id` must be one of `plan|do|check|act`
 - `reply_to.type` must be `agent`
 - `reply_to.id` must be a known runtime agent id
+- `metadata.taskmaster` is reserved and cannot be set by the caller
 
 ## `taskmaster.finish`
 
@@ -173,29 +185,16 @@ Tool output:
 
 `taskmaster.finish` marks the run terminal, but the harness still waits for the currently running `taskmaster` turn to return before the command exits.
 
-## Notification Envelope
+## Completion Prompts
 
 When a non-root task completes, the Coordinator creates a new notification task addressed to the original `reply_to`.
 
-Notification prompt payload:
-
-```json
-{
-  "type": "task_completion",
-  "phase": "plan",
-  "source_task_id": "task-plan",
-  "source_locator": { "type": "agent", "id": "plan" },
-  "reply_to": { "type": "agent", "id": "taskmaster" },
-  "status": "completed",
-  "result": "..."
-}
-```
-
-The root agent receives that payload prefixed as:
+The runtime keeps completion metadata internally, but the root agent receives only a plain prompt, for example:
 
 ```text
-TASK ENVELOPE:
-This is the completion of one strict PDCA phase. Use it to decide the next child task or to finish the run.
+Task task-plan completed.
+
+Result:
 ...
 ```
 
