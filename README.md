@@ -178,7 +178,7 @@ profiles:
 - [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
 - [NormaLoop Orchestration](docs/normaloop-agent.md)
 - [Swarm Harness](docs/swarm.md)
-- [Goalkeeper Scheduler](docs/goalkeeper.md)
+- [Taskmaster Playground](docs/taskmaster.md)
 
 ### 4. Create a Task & Run
 ```bash

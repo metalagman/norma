@@ -1,13 +1,12 @@
-package goalkeepercmd
+package taskmastercmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/apps/goalkeeper"
+	"github.com/normahq/norma/internal/apps/taskmaster"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -17,26 +16,12 @@ type options struct {
 	maxToolCalls int
 }
 
-// Command builds the `norma playground goalkeeper` command.
+// Command builds the `norma playground taskmaster` command.
 func Command() *cobra.Command {
-	return newGoalkeeperCommand(
-		"goalkeeper <goal>",
-		"Run the experimental Goalkeeper root-agent playground",
-		"maximum goalkeeper calls to goalkeeper.run_job",
-		goalkeeper.Run,
-	)
-}
-
-func newGoalkeeperCommand(
-	use string,
-	short string,
-	maxToolCallsUsage string,
-	run func(context.Context, goalkeeper.Config) error,
-) *cobra.Command {
 	opts := options{maxToolCalls: 8}
 	cmd := &cobra.Command{
-		Use:          use,
-		Short:        short,
+		Use:          "taskmaster <goal>",
+		Short:        "Run the experimental Taskmaster async task harness",
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -51,7 +36,7 @@ func newGoalkeeperCommand(
 			if err != nil {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
-			return run(cmd.Context(), goalkeeper.Config{
+			return taskmaster.Run(cmd.Context(), taskmaster.Config{
 				Goal:         strings.Join(args, " "),
 				WorkingDir:   workingDir,
 				BridgeBin:    opts.bridgeBin,
@@ -63,6 +48,6 @@ func newGoalkeeperCommand(
 		},
 	}
 	cmd.Flags().StringVar(&opts.bridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@latest)")
-	cmd.Flags().IntVar(&opts.maxToolCalls, "max-tool-calls", opts.maxToolCalls, maxToolCallsUsage)
+	cmd.Flags().IntVar(&opts.maxToolCalls, "max-tool-calls", opts.maxToolCalls, "maximum taskmaster calls to Taskmaster MCP tools")
 	return cmd
 }
