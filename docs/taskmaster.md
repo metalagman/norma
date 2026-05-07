@@ -109,7 +109,6 @@ These timer goals are supplemental to the initial user goal and continue until t
 The unstable reusable runtime now lives under:
 
 - `pkg/runtime/taskmaster`
-- `pkg/runtime/taskmaster/adk`
 - `pkg/runtime/taskmaster/mcp`
 
 That local runtime provides:
@@ -120,6 +119,8 @@ That local runtime provides:
 - completion routing modeled as another task addressed to `report_to`
 - lifecycle-style control: `New`, `Start`, `Stop`, `Done`, `Err`, `Enqueue`
 - shared MCP tooling only for `taskmaster.schedule_task`
+
+ADK/ACP agent construction is outside the shared Taskmaster runtime boundary. In this repo, the playground wrappers build runners through `agentfactory` in `internal/apps/taskmasterrunner` and then inject them into `pkg/runtime/taskmaster`.
 
 ## Relation to Other Playgrounds
 

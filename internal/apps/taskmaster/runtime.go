@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/normahq/norma/internal/apps/taskmasterrunner"
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
-	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
 	taskmastermcp "github.com/normahq/norma/pkg/runtime/taskmaster/mcp"
-	"github.com/normahq/runtime/acpagent"
+	"github.com/normahq/runtime/agentconfig"
 	"github.com/rs/zerolog"
 )
 
@@ -64,7 +64,7 @@ var newTicker = func(d time.Duration) ticker {
 }
 
 func BuildCodexACPCommand(bridgeBin string) []string {
-	return taskmasteradk.BuildCodexACPCommand(bridgeBin)
+	return taskmasterrunner.BuildCodexACPCommand(bridgeBin)
 }
 
 func Run(ctx context.Context, cfg Config) error {
@@ -92,14 +92,14 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	filteredStderr := &shutdownAwareStderr{writer: stderr, shuttingDown: shuttingDown}
 
-	command := taskmasteradk.BuildCodexACPCommand(cfg.BridgeBin)
-	childRunners, err := taskmasteradk.NewRunnerSet(runCtx, taskmasteradk.RunnerSetConfig{
+	command := taskmasterrunner.BuildCodexACPCommand(cfg.BridgeBin)
+	childRunners, err := taskmasterrunner.NewRunnerSet(runCtx, taskmasterrunner.RunnerSetConfig{
 		RootAgentID: taskmasterAgentID,
 		Command:     command,
 		WorkingDir:  cfg.WorkingDir,
 		Stderr:      filteredStderr,
 		Logger:      baseLogger,
-		ChildAgents: map[string]taskmasterrt.AgentConfig{
+		ChildAgents: map[string]taskmasterrunner.AgentSpec{
 			workerAgentID: {
 				Name:        defaultWorkerName,
 				Description: "Generic async worker child agent",
@@ -122,7 +122,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	defer func() { _ = server.Close() }()
 
-	rootRunner, err := taskmasteradk.NewRunner(runCtx, taskmasteradk.RunnerConfig{
+	rootRunner, err := taskmasterrunner.NewRunner(runCtx, taskmasterrunner.RunnerConfig{
 		AgentID:     taskmasterAgentID,
 		AppName:     "taskmaster-" + taskmasterAgentID,
 		Name:        defaultAgentName,
@@ -133,9 +133,9 @@ func Run(ctx context.Context, cfg Config) error {
 		Stderr:      filteredStderr,
 		Logger:      baseLogger,
 		UserID:      taskmasterAgentID,
-		MCPServers: map[string]acpagent.MCPServerConfig{
+		MCPServers: map[string]agentconfig.MCPServerConfig{
 			"taskmaster": {
-				Type: acpagent.MCPServerTypeHTTP,
+				Type: agentconfig.MCPServerTypeHTTP,
 				URL:  "http://" + server.Addr,
 			},
 		},

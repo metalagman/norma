@@ -13,12 +13,6 @@ import (
 
 const defaultQueueDepth = 32
 
-type AgentConfig struct {
-	Name        string
-	Description string
-	Instruction string
-}
-
 type Task struct {
 	ID        string   `json:"task_id"`
 	SessionID string   `json:"session_id"`
@@ -176,6 +170,7 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	if !started {
 		return nil
 	}
+	r.coordinator.beginShutdown()
 	if cancel != nil {
 		cancel()
 	}
@@ -201,6 +196,7 @@ func (r *Runtime) requestStop() {
 	r.startMu.Lock()
 	cancel := r.cancel
 	r.startMu.Unlock()
+	r.coordinator.beginShutdown()
 	if cancel != nil {
 		cancel()
 	}

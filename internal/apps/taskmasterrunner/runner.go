@@ -1,4 +1,4 @@
-package adk
+package taskmasterrunner
 
 import (
 	"context"
@@ -10,8 +10,10 @@ import (
 	"sync"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/norma/pkg/runtime/taskmaster"
-	"github.com/normahq/runtime/acpagent"
+	taskmaster "github.com/normahq/norma/pkg/runtime/taskmaster"
+	"github.com/normahq/runtime/agentconfig"
+	"github.com/normahq/runtime/agentfactory"
+	"github.com/normahq/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	adkrunner "google.golang.org/adk/runner"
@@ -19,10 +21,13 @@ import (
 	"google.golang.org/genai"
 )
 
-const (
-	defaultAgentType = "codex_acp"
-	defaultModel     = "gpt-5.3-codex"
-)
+const defaultModel = "gpt-5.3-codex"
+
+type AgentSpec struct {
+	Name        string
+	Description string
+	Instruction string
+}
 
 type RunnerConfig struct {
 	AgentID     string
@@ -35,7 +40,7 @@ type RunnerConfig struct {
 	Stderr      io.Writer
 	Logger      zerolog.Logger
 	UserID      string
-	MCPServers  map[string]acpagent.MCPServerConfig
+	MCPServers  map[string]agentconfig.MCPServerConfig
 }
 
 type RunnerSetConfig struct {
@@ -44,18 +49,20 @@ type RunnerSetConfig struct {
 	WorkingDir  string
 	Stderr      io.Writer
 	Logger      zerolog.Logger
-	ChildAgents map[string]taskmaster.AgentConfig
+	ChildAgents map[string]AgentSpec
 }
 
 type runner struct {
 	mu             sync.Mutex
-	agent          *acpagent.Agent
+	inner          agent.Agent
+	closer         io.Closer
 	runner         *adkrunner.Runner
 	sessionService session.Service
 	appName        string
 	userID         string
 	logger         zerolog.Logger
 	sessions       map[string]string
+	sessionState   map[string]any
 }
 
 func BuildCodexACPCommand(bridgeBin string) []string {
@@ -68,45 +75,69 @@ func BuildCodexACPCommand(bridgeBin string) []string {
 func NewRunner(ctx context.Context, cfg RunnerConfig) (taskmaster.LocalRunner, error) {
 	logger := cfg.Logger.With().
 		Str("agent_id", cfg.AgentID).
-		Str("agent_type", defaultAgentType).
+		Str("agent_type", agentconfig.AgentTypeCodexACP).
 		Str("model", defaultModel).
 		Logger()
-	agentRuntime, err := acpagent.New(acpagent.Config{
-		Context:           ctx,
-		Name:              cfg.Name,
-		Description:       cfg.Description,
-		Model:             defaultModel,
-		Command:           cfg.Command,
-		WorkingDir:        cfg.WorkingDir,
-		Stderr:            cfg.Stderr,
-		PermissionHandler: autoAllowPermission,
-		Logger:            &logger,
-		Instruction:       cfg.Instruction,
-		MCPServers:        cfg.MCPServers,
+
+	registry := map[string]agentconfig.Config{
+		cfg.AgentID: {
+			Type: agentconfig.AgentTypeCodexACP,
+			CodexACP: &agentconfig.ACPConfig{
+				Cmd:   append([]string(nil), cfg.Command...),
+				Model: defaultModel,
+			},
+		},
+	}
+	factoryOpts := []agentfactory.Option{
+		agentfactory.WithPermissionHandler(autoAllowPermission),
+	}
+	if cfg.Stderr != nil {
+		factoryOpts = append(factoryOpts, agentfactory.WithStderrWriter(cfg.Stderr))
+	}
+	factory := agentfactory.New(registry, mcpregistry.New(cfg.MCPServers), factoryOpts...)
+	sessionState, err := factory.BuildSessionState(cfg.AgentID, cfg.WorkingDir)
+	if err != nil {
+		return nil, fmt.Errorf("build session state for %s: %w", cfg.AgentID, err)
+	}
+	innerAgent, err := factory.Build(ctx, agentfactory.BuildRequest{
+		AgentID:          cfg.AgentID,
+		Name:             cfg.Name,
+		Description:      cfg.Description,
+		Instruction:      cfg.Instruction,
+		WorkingDirectory: cfg.WorkingDir,
+		MCPServerIDs:     sortedMCPServerIDs(cfg.MCPServers),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create %s agent: %w", cfg.AgentID, err)
 	}
 
 	sessionService := session.InMemoryService()
-	adkRunner, err := adkrunner.New(adkrunner.Config{
+	adkRuntime, err := adkrunner.New(adkrunner.Config{
 		AppName:        cfg.AppName,
-		Agent:          agentRuntime,
+		Agent:          innerAgent,
 		SessionService: sessionService,
 	})
 	if err != nil {
-		_ = agentRuntime.Close()
+		if closer, ok := innerAgent.(io.Closer); ok {
+			_ = closer.Close()
+		}
 		return nil, fmt.Errorf("create %s runner: %w", cfg.AgentID, err)
 	}
-	return &runner{
-		agent:          agentRuntime,
-		runner:         adkRunner,
+
+	result := &runner{
+		inner:          innerAgent,
+		runner:         adkRuntime,
 		sessionService: sessionService,
 		appName:        cfg.AppName,
 		userID:         cfg.UserID,
 		logger:         logger,
 		sessions:       make(map[string]string),
-	}, nil
+		sessionState:   cloneSessionState(sessionState),
+	}
+	if closer, ok := innerAgent.(io.Closer); ok {
+		result.closer = closer
+	}
+	return result, nil
 }
 
 func NewRunnerSet(ctx context.Context, cfg RunnerSetConfig) (map[string]taskmaster.LocalRunner, error) {
@@ -175,6 +206,7 @@ func (r *runner) ensureSessionLocked(ctx context.Context, sessionID string) (str
 		AppName:   r.appName,
 		UserID:    r.userID,
 		SessionID: sessionID,
+		State:     cloneSessionState(r.sessionState),
 	})
 	if err != nil {
 		return "", err
@@ -184,10 +216,10 @@ func (r *runner) ensureSessionLocked(ctx context.Context, sessionID string) (str
 }
 
 func (r *runner) Close() error {
-	if r.agent == nil {
+	if r.closer == nil {
 		return nil
 	}
-	return r.agent.Close()
+	return r.closer.Close()
 }
 
 func runWithRunner(
@@ -236,6 +268,29 @@ func contentText(content *genai.Content) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func cloneSessionState(state map[string]any) map[string]any {
+	if len(state) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(state))
+	for key, value := range state {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func sortedMCPServerIDs(mcpServers map[string]agentconfig.MCPServerConfig) []string {
+	if len(mcpServers) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(mcpServers))
+	for id := range mcpServers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func autoAllowPermission(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {

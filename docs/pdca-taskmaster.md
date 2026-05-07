@@ -66,8 +66,9 @@ This wrapper accepts only agent-based `report_to` targets. It does not support t
 This wrapper is now built on the local reusable runtime packages:
 
 - `pkg/runtime/taskmaster`
-- `pkg/runtime/taskmaster/adk`
 - `pkg/runtime/taskmaster/mcp`
+
+Its ADK/ACP runner assembly is wrapper-owned and currently lives in `internal/apps/taskmasterrunner`, which uses `agentfactory` and then injects runners into the shared Taskmaster runtime.
 
 ## Relation to Other Playgrounds
 
