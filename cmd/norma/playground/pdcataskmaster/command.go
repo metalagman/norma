@@ -1,4 +1,4 @@
-package taskmastercmd
+package pdcataskmastercmd
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/apps/taskmaster"
+	"github.com/normahq/norma/internal/apps/pdcataskmaster"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -15,12 +15,12 @@ type options struct {
 	bridgeBin string
 }
 
-// Command builds the `norma playground taskmaster` command.
+// Command builds the `norma playground pdca-taskmaster` command.
 func Command() *cobra.Command {
 	opts := options{}
 	cmd := &cobra.Command{
-		Use:          "taskmaster <goal>",
-		Short:        "Run the experimental generic Taskmaster async harness",
+		Use:          "pdca-taskmaster <goal>",
+		Short:        "Run the experimental PDCA Taskmaster async harness",
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -32,7 +32,7 @@ func Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
-			return taskmaster.Run(cmd.Context(), taskmaster.Config{
+			return pdcataskmaster.Run(cmd.Context(), pdcataskmaster.Config{
 				Goal:       strings.Join(args, " "),
 				WorkingDir: workingDir,
 				BridgeBin:  opts.bridgeBin,

@@ -1,4 +1,4 @@
-package taskmaster
+package taskmastercore
 
 import (
 	"context"
@@ -18,23 +18,24 @@ const (
 )
 
 type service struct {
-	logger      zerolog.Logger
-	coordinator *coordinator
+	logger          zerolog.Logger
+	coordinator     *coordinator
+	defaultReportTo Locator
 }
 
 type scheduleTaskInput struct {
-	TaskID   string       `json:"task_id"`
-	Locator  taskLocator  `json:"locator"`
-	ReportTo *taskLocator `json:"report_to,omitempty"`
-	Prompt   string       `json:"prompt"`
+	TaskID   string   `json:"task_id"`
+	Locator  Locator  `json:"locator"`
+	ReportTo *Locator `json:"report_to,omitempty"`
+	Prompt   string   `json:"prompt"`
 }
 
 type scheduleTaskOutput struct {
-	TaskID   string      `json:"task_id"`
-	Locator  taskLocator `json:"locator"`
-	ReportTo taskLocator `json:"report_to"`
-	Status   string      `json:"status"`
-	Message  string      `json:"message,omitempty"`
+	TaskID   string  `json:"task_id"`
+	Locator  Locator `json:"locator"`
+	ReportTo Locator `json:"report_to"`
+	Status   string  `json:"status"`
+	Message  string  `json:"message,omitempty"`
 }
 
 type finishInput struct {
@@ -46,14 +47,17 @@ type finishOutput struct {
 	Summary string `json:"summary"`
 }
 
-func newService(logger zerolog.Logger) *service {
-	return &service{logger: logger}
+func newService(logger zerolog.Logger, defaultReportTo Locator) *service {
+	return &service{
+		logger:          logger,
+		defaultReportTo: defaultReportTo,
+	}
 }
 
 func newMCPServer(service *service) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion},
-		&mcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one child-agent task and taskmaster.finish to finish the Taskmaster async run."},
+		&mcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one child-agent task and taskmaster.finish to finish the async run."},
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        scheduleTaskToolName,
@@ -61,7 +65,7 @@ func newMCPServer(service *service) *mcp.Server {
 	}, service.scheduleTask)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        finishToolName,
-		Description: "Finish the Taskmaster async run and return the final summary.",
+		Description: "Finish the async run and return the final summary.",
 	}, service.finish)
 	return server
 }
@@ -75,7 +79,7 @@ func startHTTPServer(ctx context.Context, service *service, addr string) (*httpS
 func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, input scheduleTaskInput) (*mcp.CallToolResult, scheduleTaskOutput, error) {
 	taskID := strings.TrimSpace(input.TaskID)
 	locator, locatorErr := normalizeLocator(input.Locator)
-	reportTo, reportErr := normalizeReportLocator(input.ReportTo)
+	reportTo, reportErr := normalizeReportLocator(input.ReportTo, s.defaultReportTo)
 	prompt := strings.TrimSpace(input.Prompt)
 	if s.coordinator == nil {
 		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReportTo: reportTo, Status: "error", Message: "coordinator is not ready"}

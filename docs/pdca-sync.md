@@ -10,6 +10,11 @@ norma playground pdca-sync "ship the goal" \
 
 `pdca-sync` is an experimental **synchronous** PDCA playground.
 
+In the current playground family:
+- `taskmaster` = generic async harness
+- `pdca-taskmaster` = async PDCA wrapper
+- `pdca-sync` = sync PDCA wrapper
+
 It boots:
 - one root coordinator agent
 - four fixed child agents: `plan`, `do`, `check`, `act`
