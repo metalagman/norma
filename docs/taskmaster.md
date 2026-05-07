@@ -38,13 +38,13 @@ The MCP control namespace is:
 
 - `taskmaster.schedule_task`
 
-`schedule_task` still accepts:
+`schedule_task` accepts:
 
 - `task_id`
 - `session_id`
 - `locator`
 - optional `report_to`
-- `prompt`
+- `content`
 
 The only child locator in this wrapper is:
 
@@ -82,10 +82,10 @@ If a child task uses that target, its completion is written to the current playg
 
 The generic flow is:
 
-1. CLI enqueues the initial goal to the root `taskmaster` agent.
+1. CLI enqueues the initial task content to the root `taskmaster` agent.
    - source locator: `integration/cli/input`
 2. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
-3. `worker` runs a plain-text prompt as a black box.
+3. `worker` runs plain-text task content as a black box.
 4. Completion is either:
    - routed back to root through `report_to = agent`, or
    - written to the log through `report_to = integration/cli/log`
@@ -101,21 +101,27 @@ Stdout remains reserved for:
 
 ## Background Goals
 
-Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root goals with `hello world` prompt text.
+Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root tasks with `hello world` content.
 
 Those synthetic goals use source locator `integration/timer/default`.
 
 These timer goals are supplemental to the initial user goal and continue until the command context is canceled.
 
-## Reusable Core Notes
+## Reusable Runtime
 
-The shared `taskmastercore` now supports:
+The unstable reusable runtime now lives under:
 
-- root-only mode with zero child agents
-- session-aware agent turns keyed by explicit `session_id`
+- `pkg/runtime/taskmaster`
+- `pkg/runtime/taskmaster/adk`
+- `pkg/runtime/taskmaster/mcp`
+
+That local runtime provides:
+
+- one public `Task` type with `content`
+- session-aware local agent turns keyed by explicit `session_id`
 - reusable locators with `class`, `transport`, `key`, and optional `address`
-- app-owned provider routing for non-local report or target addresses
-- a separate root-ingress API for external integrations
+- completion routing modeled as another task addressed to `report_to`
+- MCP tooling for `taskmaster.schedule_task` and optional `taskmaster.finish`
 
 ## Relation to Other Playgrounds
 

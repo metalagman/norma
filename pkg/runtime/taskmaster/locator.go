@@ -1,4 +1,4 @@
-package taskmastercore
+package taskmaster
 
 import (
 	"errors"
@@ -71,18 +71,11 @@ func NewWhatsAppHumanLocator(phoneNumberID string) Locator {
 	return locator
 }
 
-func cloneAddress(address map[string]any) map[string]any {
-	if len(address) == 0 {
-		return nil
-	}
-	cloned := make(map[string]any, len(address))
-	for key, value := range address {
-		cloned[key] = value
-	}
-	return cloned
+func (l Locator) String() string {
+	return locatorString(l)
 }
 
-func normalizeLocator(locator Locator) (Locator, error) {
+func NormalizeLocator(locator Locator) (Locator, error) {
 	normalized := NewLocator(locator.Class, locator.Transport, locator.Key)
 	normalized.Address = cloneAddress(locator.Address)
 	if normalized.Class == "" {
@@ -97,11 +90,22 @@ func normalizeLocator(locator Locator) (Locator, error) {
 	return normalized, nil
 }
 
+func cloneAddress(address map[string]any) map[string]any {
+	if len(address) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(address))
+	for key, value := range address {
+		cloned[key] = value
+	}
+	return cloned
+}
+
 func normalizeReportLocator(reportTo *Locator, defaultReportTo Locator) (Locator, error) {
 	if reportTo == nil {
 		return defaultReportTo, nil
 	}
-	return normalizeLocator(*reportTo)
+	return NormalizeLocator(*reportTo)
 }
 
 func locatorKey(locator Locator) string {

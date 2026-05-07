@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/normahq/norma/internal/apps/taskmastercore"
+	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
 )
 
 func TestBuildCodexACPCommand(t *testing.T) {
@@ -41,6 +41,7 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"host context is canceled",
 		"Keep coordinating work and updating your current best summary",
 		"Do not impose a fixed workflow or phase order",
+		"plain-text task content",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rootInstruction() = %q, want substring %q", got, want)
@@ -74,43 +75,60 @@ func TestWorkerInstructionIsGenericPlainText(t *testing.T) {
 	}
 }
 
-func TestBackgroundGoalSourceEmitsHelloWorld(t *testing.T) {
+func TestFormatIngressContent(t *testing.T) {
+	t.Parallel()
+
+	got := formatIngressContent("session-a", taskmasterrt.NewCLIInputLocator(), "hello")
+	for _, want := range []string{"Session ID:\nsession-a", "Source:\nintegration/cli/input", "Prompt:\nhello"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatIngressContent() = %q, want substring %q", got, want)
+		}
+	}
+}
+
+func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 	t.Parallel()
 
 	tickCh := make(chan time.Time, 1)
 	fake := &fakeTicker{ch: tickCh}
-	source := backgroundGoalSource(time.Second, func(time.Duration) ticker { return fake })
 
-	got := make(chan taskmastercore.IngressRequest, 1)
+	rootRunner := &fakeLocalRunner{started: make(chan startedTask, 1)}
+	runtime, err := taskmasterrt.Start(context.Background(), taskmasterrt.Config{
+		RootAgentID:     taskmasterAgentID,
+		LocalRunners:    map[string]taskmasterrt.LocalRunner{taskmasterAgentID: rootRunner},
+		DefaultReportTo: taskmasterrt.NewAgentLocator(taskmasterAgentID),
+		ReportTaskContentFormatter: func(source taskmasterrt.Task, output string, err error) string {
+			return output
+		},
+		ShutdownSummaryFormatter: formatContextDoneSummary,
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer func() { _ = runtime.Close() }()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go source(ctx, func(req taskmastercore.IngressRequest) error {
-		got <- req
-		return nil
-	})
+	go backgroundTaskSource(ctx, runtime, time.Second, func(time.Duration) ticker { return fake })
 
 	tickCh <- time.Now()
 	select {
-	case req := <-got:
-		if req.Prompt != timerGoalMessage {
-			t.Fatalf("prompt = %q, want %q", req.Prompt, timerGoalMessage)
+	case started := <-rootRunner.started:
+		if !strings.Contains(started.Content, timerGoalMessage) {
+			t.Fatalf("started.Content = %q, want hello world content", started.Content)
 		}
-		if req.SessionID == "" {
-			t.Fatal("background goal session_id is empty")
-		}
-		if got := req.Source; got.Class != taskmastercore.LocatorClassIntegration || got.Transport != taskmastercore.LocatorTransportTimer || got.Key != taskmastercore.DefaultTimerKey {
-			t.Fatalf("source = %+v, want integration/timer/default", got)
+		if started.SessionID == "" {
+			t.Fatal("background task session_id is empty")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("background goal source did not emit synthetic goal")
+		t.Fatal("background task source did not emit synthetic goal")
 	}
-	cancel()
 }
 
 func TestFormatContextDoneSummary(t *testing.T) {
 	t.Parallel()
 
-	got := formatContextDoneSummary(taskmastercore.ContextDoneSummaryInput{
+	got := formatContextDoneSummary(taskmasterrt.ShutdownSummaryInput{
 		LastRootOutput: "latest summary",
 		Err:            context.Canceled,
 	})
@@ -133,3 +151,23 @@ type fakeTicker struct {
 func (t *fakeTicker) Chan() <-chan time.Time { return t.ch }
 
 func (t *fakeTicker) Stop() { t.stopped = true }
+
+type startedTask struct {
+	SessionID string
+	Content   string
+}
+
+type fakeLocalRunner struct {
+	started chan startedTask
+}
+
+func (r *fakeLocalRunner) RunTask(_ context.Context, task taskmasterrt.Task) (string, error) {
+	if r.started != nil {
+		r.started <- startedTask{SessionID: task.SessionID, Content: task.Content}
+	}
+	return "", nil
+}
+
+func (r *fakeLocalRunner) Close() error {
+	return nil
+}

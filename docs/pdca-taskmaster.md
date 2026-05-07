@@ -62,6 +62,12 @@ This wrapper accepts only agent-based `report_to` targets. It does not support t
 
 `taskmaster.schedule_task` also requires `session_id`. The root keeps the same session across PDCA turns for the same conversation.
 
+This wrapper is now built on the local reusable runtime packages:
+
+- `pkg/runtime/taskmaster`
+- `pkg/runtime/taskmaster/adk`
+- `pkg/runtime/taskmaster/mcp`
+
 ## Relation to Other Playgrounds
 
 - `taskmaster` = generic async harness with one `worker`

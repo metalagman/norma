@@ -3,15 +3,18 @@ package pdcataskmaster
 import (
 	"context"
 	"io"
+	"os"
 	"strings"
+	"time"
 
-	"github.com/normahq/norma/internal/apps/taskmastercore"
+	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
+	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
+	taskmastermcp "github.com/normahq/norma/pkg/runtime/taskmaster/mcp"
+	"github.com/normahq/runtime/acpagent"
 	"github.com/rs/zerolog"
 )
 
-const (
-	rootAgentID = "pdca-taskmaster"
-)
+const rootAgentID = "pdca-taskmaster"
 
 type Config struct {
 	Goal       string
@@ -57,28 +60,32 @@ var childAgentInstructions = map[string]string{
 }
 
 func BuildCodexACPCommand(bridgeBin string) []string {
-	return taskmastercore.BuildCodexACPCommand(bridgeBin)
+	return taskmasteradk.BuildCodexACPCommand(bridgeBin)
 }
 
 func Run(ctx context.Context, cfg Config) error {
-	return taskmastercore.Run(ctx, taskmastercore.Config{
-		Goal:       cfg.Goal,
-		WorkingDir: cfg.WorkingDir,
-		BridgeBin:  cfg.BridgeBin,
-		Stdout:     cfg.Stdout,
-		Stderr:     cfg.Stderr,
-		Logger:     cfg.Logger,
+	baseLogger := *zerolog.Ctx(ctx)
+	if cfg.Logger != nil {
+		baseLogger = *cfg.Logger
+	}
 
-		ComponentName: "playground.pdca_taskmaster",
-		SurfaceName:   "pdca-taskmaster",
+	stdout := cfg.Stdout
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	stderr := cfg.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 
+	command := taskmasteradk.BuildCodexACPCommand(cfg.BridgeBin)
+	childRunners, err := taskmasteradk.NewRunnerSet(ctx, taskmasteradk.RunnerSetConfig{
 		RootAgentID: rootAgentID,
-		RootAgent: taskmastercore.AgentConfig{
-			Name:        "PDCATaskmaster",
-			Description: "Strict PDCA async task harness",
-			Instruction: rootInstruction(),
-		},
-		ChildAgents: map[string]taskmastercore.AgentConfig{
+		Command:     command,
+		WorkingDir:  cfg.WorkingDir,
+		Stderr:      stderr,
+		Logger:      baseLogger,
+		ChildAgents: map[string]taskmasterrt.AgentConfig{
 			"plan": {
 				Name:        "PDCATaskmasterPlan",
 				Description: "PDCA plan child agent",
@@ -100,44 +107,114 @@ func Run(ctx context.Context, cfg Config) error {
 				Instruction: childAgentInstructions["act"],
 			},
 		},
-		DefaultReportTo:           taskmastercore.NewAgentLocator(rootAgentID),
-		AllowFinishTool:           true,
-		IngressPromptFormatter:    formatIngressPrompt,
-		CompletionPromptFormatter: formatCompletionPrompt,
 	})
+	if err != nil {
+		return err
+	}
+
+	serviceLogger := baseLogger.With().Str("surface", "pdca-taskmaster").Logger()
+	service := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(rootAgentID), true)
+	server, err := taskmastermcp.StartHTTPServer(ctx, service, "127.0.0.1:0")
+	if err != nil {
+		for _, runner := range childRunners {
+			_ = runner.Close()
+		}
+		return err
+	}
+
+	rootRunner, err := taskmasteradk.NewRunner(ctx, taskmasteradk.RunnerConfig{
+		AgentID:     rootAgentID,
+		AppName:     "taskmaster-" + rootAgentID,
+		Name:        "PDCATaskmaster",
+		Description: "Strict PDCA async task harness",
+		Instruction: rootInstruction(),
+		Command:     command,
+		WorkingDir:  cfg.WorkingDir,
+		Stderr:      stderr,
+		Logger:      baseLogger,
+		UserID:      rootAgentID,
+		MCPServers: map[string]acpagent.MCPServerConfig{
+			"taskmaster": {
+				Type: acpagent.MCPServerTypeHTTP,
+				URL:  "http://" + server.Addr,
+			},
+		},
+	})
+	if err != nil {
+		_ = server.Close()
+		for _, runner := range childRunners {
+			_ = runner.Close()
+		}
+		return err
+	}
+
+	localRunners := map[string]taskmasterrt.LocalRunner{rootAgentID: rootRunner}
+	for id, runner := range childRunners {
+		localRunners[id] = runner
+	}
+
+	runtime, err := taskmasterrt.Start(ctx, taskmasterrt.Config{
+		Logger:                     &baseLogger,
+		RootAgentID:                rootAgentID,
+		LocalRunners:               localRunners,
+		DefaultReportTo:            taskmasterrt.NewAgentLocator(rootAgentID),
+		ReportTaskContentFormatter: formatReportTaskContent,
+		Closers:                    []io.Closer{server},
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = runtime.Close() }()
+	service.SetController(runtime)
+
+	if err := runtime.Enqueue(taskmasterrt.Task{
+		ID:        "goal-task",
+		SessionID: "goal-task",
+		Locator:   taskmasterrt.NewAgentLocator(rootAgentID),
+		Content:   formatIngressContent("goal-task", cfg.Goal),
+	}); err != nil {
+		return err
+	}
+
+	startedAt := time.Now()
+	result, err := runtime.Wait()
+	if err != nil {
+		return err
+	}
+	return taskmasterrt.WriteRunOutput(stdout, result.Summary, taskmasterrt.FormatElapsed(time.Since(startedAt)))
 }
 
-func formatIngressPrompt(req taskmastercore.IngressRequest) string {
+func formatIngressContent(sessionID string, content string) string {
 	return strings.Join([]string{
 		"Session ID:",
-		strings.TrimSpace(req.SessionID),
+		strings.TrimSpace(sessionID),
 		"",
 		"Goal:",
-		strings.TrimSpace(req.Prompt),
+		strings.TrimSpace(content),
 	}, "\n")
 }
 
-func formatCompletionPrompt(input taskmastercore.CompletionPromptInput) string {
+func formatReportTaskContent(source taskmasterrt.Task, output string, err error) string {
 	lines := []string{
 		"Session ID:",
-		strings.TrimSpace(input.SessionID),
+		strings.TrimSpace(source.SessionID),
 		"",
 	}
-	if input.Error != "" {
+	if err != nil {
 		lines = append(lines,
-			"Task "+strings.TrimSpace(input.TaskID)+" failed.",
+			"Task "+strings.TrimSpace(source.ID)+" failed.",
 			"",
 			"Error:",
-			strings.TrimSpace(input.Error),
+			strings.TrimSpace(err.Error()),
 		)
 		return strings.Join(lines, "\n")
 	}
-	result := strings.TrimSpace(input.Output)
+	result := strings.TrimSpace(output)
 	if result == "" {
 		result = "(empty result)"
 	}
 	lines = append(lines,
-		"Task "+strings.TrimSpace(input.TaskID)+" completed.",
+		"Task "+strings.TrimSpace(source.ID)+" completed.",
 		"",
 		"Result:",
 		result,
@@ -148,13 +225,13 @@ func formatCompletionPrompt(input taskmastercore.CompletionPromptInput) string {
 func rootInstruction() string {
 	return strings.Join([]string{
 		"You are the PDCA Taskmaster async root agent named pdca-taskmaster.",
-		"You receive only prompt text as your turn input.",
+		"You receive only plain-text task content as your turn input.",
 		"Runtime task routing and bookkeeping are internal and are not shown to you directly.",
 		"You are running a strict PDCA workflow over child agents.",
 		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
 		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
 		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to finish the run.",
-		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and a prompt.",
+		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and content.",
 		"Keep the same session_id when continuing the same PDCA conversation.",
 		"The report_to field means where task completion should be reported.",
 		"The local root agent locator is {class: agent, transport: local, key: pdca-taskmaster}.",
