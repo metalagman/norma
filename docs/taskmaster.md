@@ -110,6 +110,7 @@ The unstable reusable runtime now lives under:
 
 - `pkg/runtime/taskmaster`
 - `pkg/runtime/taskmaster/mcp`
+- `pkg/runtime/taskmaster/adk`
 
 That local runtime provides:
 
@@ -118,9 +119,15 @@ That local runtime provides:
 - reusable locators with `class`, `transport`, `key`, and optional `address`
 - completion routing modeled as another task addressed to `report_to`
 - lifecycle-style control: `New`, `Start`, `Stop`, `Done`, `Err`, `Enqueue`
-- shared MCP tooling only for `taskmaster.schedule_task`
+- shared MCP tool registration for `taskmaster.schedule_task`
+- an ADK wrapper that turns an already-built `agent.Agent` into a `taskmaster.LocalRunner`
 
-ADK/ACP agent construction is outside the shared Taskmaster runtime boundary. In this repo, the playground wrappers build runners through `agentfactory` in `internal/apps/taskmasterrunner` and then inject them into `pkg/runtime/taskmaster`.
+The app owns all app-level wiring:
+
+- building `agent.Agent` instances with `agentfactory`
+- creating the MCP server instance
+- registering Taskmaster tools on that server
+- injecting the wrapped local runners into `pkg/runtime/taskmaster`
 
 ## Relation to Other Playgrounds
 

@@ -2,9 +2,6 @@ package mcp
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"net/http"
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -12,11 +9,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const (
-	mcpServerName        = "norma-taskmaster"
-	mcpServerVersion     = "1.0.0"
-	ScheduleTaskToolName = "taskmaster.schedule_task"
-)
+const ScheduleTaskToolName = "taskmaster.schedule_task"
 
 type Controller interface {
 	Enqueue(task taskmaster.Task) error
@@ -45,11 +38,6 @@ type ScheduleTaskOutput struct {
 	Message   string             `json:"message,omitempty"`
 }
 
-type HTTPServer struct {
-	Addr       string
-	httpServer *http.Server
-}
-
 func NewService(logger zerolog.Logger, defaultReportTo taskmaster.Locator) *Service {
 	return &Service{
 		logger:          logger,
@@ -61,42 +49,17 @@ func (s *Service) SetController(controller Controller) {
 	s.controller = controller
 }
 
-func NewServer(service *Service) *sdkmcp.Server {
-	instructions := "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include task_id, session_id, locator, optional report_to, and content."
-	server := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: mcpServerName, Version: mcpServerVersion},
-		&sdkmcp.ServerOptions{Instructions: instructions},
-	)
+func RegisterTools(server *sdkmcp.Server, service *Service) {
+	if server == nil || service == nil {
+		return
+	}
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        ScheduleTaskToolName,
 		Description: "Enqueue one task addressed by locator using plain-text content. Session context is required. Optionally set report_to for async task-result routing. Returns immediately after queueing.",
-	}, service.scheduleTask)
-	return server
+	}, service.ScheduleTask)
 }
 
-func StartHTTPServer(ctx context.Context, service *Service, addr string) (*HTTPServer, error) {
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("listen on %q: %w", addr, err)
-	}
-	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
-		return NewServer(service)
-	}, &sdkmcp.StreamableHTTPOptions{})
-	httpServer := &http.Server{Handler: handler}
-	go func() {
-		<-ctx.Done()
-		_ = httpServer.Close()
-	}()
-	go func() {
-		_ = httpServer.Serve(listener)
-	}()
-	return &HTTPServer{
-		Addr:       listener.Addr().String(),
-		httpServer: httpServer,
-	}, nil
-}
-
-func (s *Service) scheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, input ScheduleTaskInput) (*sdkmcp.CallToolResult, ScheduleTaskOutput, error) {
+func (s *Service) ScheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, input ScheduleTaskInput) (*sdkmcp.CallToolResult, ScheduleTaskOutput, error) {
 	taskID := strings.TrimSpace(input.TaskID)
 	sessionID := strings.TrimSpace(input.SessionID)
 	locator, locatorErr := taskmaster.NormalizeLocator(input.Locator)
@@ -141,13 +104,6 @@ func (s *Service) scheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, inp
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: out.Message}},
 	}, out, nil
-}
-
-func (s *HTTPServer) Close() error {
-	if s == nil || s.httpServer == nil {
-		return nil
-	}
-	return s.httpServer.Close()
 }
 
 func normalizeReportTo(reportTo *taskmaster.Locator, defaultReportTo taskmaster.Locator) (taskmaster.Locator, error) {

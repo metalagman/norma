@@ -67,8 +67,13 @@ This wrapper is now built on the local reusable runtime packages:
 
 - `pkg/runtime/taskmaster`
 - `pkg/runtime/taskmaster/mcp`
+- `pkg/runtime/taskmaster/adk`
 
-Its ADK/ACP runner assembly is wrapper-owned and currently lives in `internal/apps/taskmasterrunner`, which uses `agentfactory` and then injects runners into the shared Taskmaster runtime.
+Its app-level wiring is wrapper-owned:
+
+- the wrapper builds `agent.Agent` instances with `agentfactory`
+- the wrapper creates the MCP server instance and registers Taskmaster tools
+- `pkg/runtime/taskmaster/adk` only wraps those built agents as local runners
 
 ## Relation to Other Playgrounds
 

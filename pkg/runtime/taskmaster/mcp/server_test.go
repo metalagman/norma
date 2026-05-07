@@ -15,14 +15,14 @@ func TestScheduleTaskUsesContentAndDefaultReportTo(t *testing.T) {
 	service := NewService(zerolog.Nop(), taskmaster.NewAgentLocator("taskmaster"))
 	service.SetController(controller)
 
-	_, out, err := service.scheduleTask(context.Background(), nil, ScheduleTaskInput{
+	_, out, err := service.ScheduleTask(context.Background(), nil, ScheduleTaskInput{
 		TaskID:    "task-1",
 		SessionID: "session-a",
 		Locator:   taskmaster.NewAgentLocator("worker"),
 		Content:   "do work",
 	})
 	if err != nil {
-		t.Fatalf("scheduleTask() error = %v", err)
+		t.Fatalf("ScheduleTask() error = %v", err)
 	}
 	if out.Status != "queued" {
 		t.Fatalf("status = %q, want queued", out.Status)

@@ -5,8 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,10 +17,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/normahq/norma/internal/apps/taskmasterrunner"
+	acp "github.com/coder/acp-go-sdk"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
+	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
 	taskmastermcp "github.com/normahq/norma/pkg/runtime/taskmaster/mcp"
 	"github.com/normahq/runtime/agentconfig"
+	"github.com/normahq/runtime/agentfactory"
+	"github.com/normahq/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 )
 
@@ -64,7 +71,10 @@ var newTicker = func(d time.Duration) ticker {
 }
 
 func BuildCodexACPCommand(bridgeBin string) []string {
-	return taskmasterrunner.BuildCodexACPCommand(bridgeBin)
+	if trimmed := strings.TrimSpace(bridgeBin); trimmed != "" {
+		return []string{trimmed}
+	}
+	return []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
 }
 
 func Run(ctx context.Context, cfg Config) error {
@@ -92,63 +102,67 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	filteredStderr := &shutdownAwareStderr{writer: stderr, shuttingDown: shuttingDown}
 
-	command := taskmasterrunner.BuildCodexACPCommand(cfg.BridgeBin)
-	childRunners, err := taskmasterrunner.NewRunnerSet(runCtx, taskmasterrunner.RunnerSetConfig{
-		RootAgentID: taskmasterAgentID,
-		Command:     command,
-		WorkingDir:  cfg.WorkingDir,
-		Stderr:      filteredStderr,
-		Logger:      baseLogger,
-		ChildAgents: map[string]taskmasterrunner.AgentSpec{
-			workerAgentID: {
-				Name:        defaultWorkerName,
-				Description: "Generic async worker child agent",
-				Instruction: workerInstruction,
-			},
-		},
-	})
-	if err != nil {
-		return err
-	}
-
 	serviceLogger := baseLogger.With().Str("surface", "taskmaster").Logger()
 	service := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(taskmasterAgentID))
-	server, err := taskmastermcp.StartHTTPServer(runCtx, service, "127.0.0.1:0")
+	server, err := startTaskmasterHTTPServer(runCtx, service)
 	if err != nil {
-		for _, runner := range childRunners {
-			_ = runner.Close()
-		}
 		return err
 	}
 	defer func() { _ = server.Close() }()
 
-	rootRunner, err := taskmasterrunner.NewRunner(runCtx, taskmasterrunner.RunnerConfig{
-		AgentID:     taskmasterAgentID,
-		AppName:     "taskmaster-" + taskmasterAgentID,
-		Name:        defaultAgentName,
-		Description: defaultDescription,
-		Instruction: rootInstruction(),
-		Command:     command,
-		WorkingDir:  cfg.WorkingDir,
-		Stderr:      filteredStderr,
-		Logger:      baseLogger,
-		UserID:      taskmasterAgentID,
-		MCPServers: map[string]agentconfig.MCPServerConfig{
-			"taskmaster": {
-				Type: agentconfig.MCPServerTypeHTTP,
-				URL:  "http://" + server.Addr,
-			},
+	command := BuildCodexACPCommand(cfg.BridgeBin)
+	agentRegistry := map[string]agentconfig.Config{
+		taskmasterAgentID: newCodexACPConfig(command),
+		workerAgentID:     newCodexACPConfig(command),
+	}
+	mcpServers := map[string]agentconfig.MCPServerConfig{
+		"taskmaster": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://" + server.addr,
 		},
+	}
+	factoryOpts := []agentfactory.Option{
+		agentfactory.WithPermissionHandler(autoAllowPermission),
+		agentfactory.WithStderrWriter(filteredStderr),
+	}
+	factory := agentfactory.New(agentRegistry, mcpregistry.New(mcpServers), factoryOpts...)
+
+	childRunner, err := buildLocalRunner(runCtx, factory, localRunnerConfig{
+		AgentID:     workerAgentID,
+		AppName:     "taskmaster-" + workerAgentID,
+		Name:        defaultWorkerName,
+		Description: "Generic async worker child agent",
+		Instruction: workerInstruction,
+		WorkingDir:  cfg.WorkingDir,
+		UserID:      taskmasterAgentID,
+		Logger: baseLogger.With().
+			Str("agent_id", workerAgentID).
+			Logger(),
 	})
 	if err != nil {
+		return err
+	}
+	rootRunner, err := buildLocalRunner(runCtx, factory, localRunnerConfig{
+		AgentID:      taskmasterAgentID,
+		AppName:      "taskmaster-" + taskmasterAgentID,
+		Name:         defaultAgentName,
+		Description:  defaultDescription,
+		Instruction:  rootInstruction(),
+		WorkingDir:   cfg.WorkingDir,
+		UserID:       taskmasterAgentID,
+		MCPServerIDs: sortedMCPServerIDs(mcpServers),
+		Logger: baseLogger.With().
+			Str("agent_id", taskmasterAgentID).
+			Logger(),
+	})
+	if err != nil {
+		_ = childRunner.Close()
 		return err
 	}
 
 	localRunners := map[string]taskmasterrt.LocalRunner{
 		taskmasterAgentID: rootRunner,
-	}
-	for id, runner := range childRunners {
-		localRunners[id] = runner
+		workerAgentID:     childRunner,
 	}
 
 	runtime, err := taskmasterrt.New(taskmasterrt.Config{
@@ -158,10 +172,16 @@ func Run(ctx context.Context, cfg Config) error {
 		Targets:      []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(baseLogger)},
 	})
 	if err != nil {
+		for _, runner := range localRunners {
+			_ = runner.Close()
+		}
 		return err
 	}
 	service.SetController(runtime)
 	if err := runtime.Start(runCtx); err != nil {
+		for _, runner := range localRunners {
+			_ = runner.Close()
+		}
 		return err
 	}
 
@@ -194,6 +214,124 @@ func Run(ctx context.Context, cfg Config) error {
 		_, err := fmt.Fprintf(stdout, "Total run time: %s\n", time.Since(startedAt).Round(time.Millisecond))
 		return err
 	}
+}
+
+type localRunnerConfig struct {
+	AgentID      string
+	AppName      string
+	Name         string
+	Description  string
+	Instruction  string
+	WorkingDir   string
+	UserID       string
+	MCPServerIDs []string
+	Logger       zerolog.Logger
+}
+
+type taskmasterHTTPServer struct {
+	addr       string
+	httpServer *http.Server
+}
+
+func startTaskmasterHTTPServer(ctx context.Context, service *taskmastermcp.Service) (*taskmasterHTTPServer, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("listen: %w", err)
+	}
+	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
+		server := sdkmcp.NewServer(
+			&sdkmcp.Implementation{Name: "norma-taskmaster", Version: "1.0.0"},
+			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include task_id, session_id, locator, optional report_to, and content."},
+		)
+		taskmastermcp.RegisterTools(server, service)
+		return server
+	}, &sdkmcp.StreamableHTTPOptions{})
+	httpServer := &http.Server{Handler: handler}
+	go func() {
+		<-ctx.Done()
+		_ = httpServer.Close()
+	}()
+	go func() {
+		_ = httpServer.Serve(listener)
+	}()
+	return &taskmasterHTTPServer{
+		addr:       listener.Addr().String(),
+		httpServer: httpServer,
+	}, nil
+}
+
+func (s *taskmasterHTTPServer) Close() error {
+	if s == nil || s.httpServer == nil {
+		return nil
+	}
+	return s.httpServer.Close()
+}
+
+func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.LocalRunner, error) {
+	sessionState, err := factory.BuildSessionState(cfg.AgentID, cfg.WorkingDir)
+	if err != nil {
+		return nil, fmt.Errorf("build session state for %s: %w", cfg.AgentID, err)
+	}
+	innerAgent, err := factory.Build(ctx, agentfactory.BuildRequest{
+		AgentID:          cfg.AgentID,
+		Name:             cfg.Name,
+		Description:      cfg.Description,
+		Instruction:      cfg.Instruction,
+		WorkingDirectory: cfg.WorkingDir,
+		MCPServerIDs:     append([]string(nil), cfg.MCPServerIDs...),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create %s agent: %w", cfg.AgentID, err)
+	}
+	localRunner, err := taskmasteradk.Wrap(innerAgent, taskmasteradk.Config{
+		AppName:      cfg.AppName,
+		UserID:       cfg.UserID,
+		SessionState: sessionState,
+		Logger:       cfg.Logger,
+	})
+	if err != nil {
+		if closer, ok := innerAgent.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		return nil, err
+	}
+	return localRunner, nil
+}
+
+func newCodexACPConfig(command []string) agentconfig.Config {
+	return agentconfig.Config{
+		Type: agentconfig.AgentTypeCodexACP,
+		CodexACP: &agentconfig.ACPConfig{
+			Cmd:   append([]string(nil), command...),
+			Model: "gpt-5.3-codex",
+		},
+	}
+}
+
+func sortedMCPServerIDs(mcpServers map[string]agentconfig.MCPServerConfig) []string {
+	if len(mcpServers) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(mcpServers))
+	for id := range mcpServers {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+func autoAllowPermission(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	for _, option := range req.Options {
+		if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
+			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId)}, nil
+		}
+	}
+	for _, option := range req.Options {
+		if option.Kind == acp.PermissionOptionKindRejectOnce || option.Kind == acp.PermissionOptionKindRejectAlways {
+			return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId)}, nil
+		}
+	}
+	return acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}, nil
 }
 
 func rootInstruction() string {
