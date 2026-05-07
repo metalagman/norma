@@ -46,17 +46,19 @@ Routing remains async and locator-based, but child locators are the PDCA child a
 - `check`
 - `act`
 
+Each child uses local agent address shape: `class=agent`, `transport=local`, `key=<role>`.
+
 Default `report_to` resolves to the PDCA root agent:
 
 ```json
 {
-  "type": "agent",
-  "kind": "local",
-  "id": "pdca-taskmaster"
+  "class": "agent",
+  "transport": "local",
+  "key": "pdca-taskmaster"
 }
 ```
 
-This wrapper accepts only agent-based `report_to` targets. It does not support the generic `human_output` report sink.
+This wrapper accepts only agent-based `report_to` targets. It does not support the generic `integration/cli/log` report sink.
 
 `taskmaster.schedule_task` also requires `session_id`. The root keeps the same session across PDCA turns for the same conversation.
 

@@ -251,7 +251,7 @@ func Run(ctx context.Context, cfg Config) error {
 		ID:        initialGoalTaskID,
 		SessionID: initialGoalTaskID,
 		Prompt:    strings.TrimSpace(cfg.Goal),
-		Source:    NewCLILocator(initialGoalTaskID),
+		Source:    NewCLIInputLocator(),
 	}); err != nil {
 		return err
 	}
@@ -467,11 +467,11 @@ func validateConfig(cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("default report_to: %w", err)
 	}
-	if defaultReportTo.Type != LocatorTypeAgent || defaultReportTo.Kind != LocatorKindLocal {
+	if defaultReportTo.Class != LocatorClassAgent || defaultReportTo.Transport != LocatorTransportLocal {
 		return fmt.Errorf("default report_to must be the local root agent locator")
 	}
-	if defaultReportTo.ID != strings.ToLower(strings.TrimSpace(cfg.RootAgentID)) {
-		return fmt.Errorf("default report_to.id %q must match root agent id %q", defaultReportTo.ID, cfg.RootAgentID)
+	if defaultReportTo.Key != strings.ToLower(strings.TrimSpace(cfg.RootAgentID)) {
+		return fmt.Errorf("default report_to.key %q must match root agent id %q", defaultReportTo.Key, cfg.RootAgentID)
 	}
 	if cfg.IngressPromptFormatter == nil {
 		return errors.New("ingress prompt formatter is required")
@@ -492,11 +492,15 @@ func newCoordinator(logger zerolog.Logger, cfg Config) (*coordinator, error) {
 	}
 	childIDs := make(map[string]struct{}, len(cfg.ChildAgents))
 	runnerCount := len(cfg.ChildAgents) + 1
+	defaultReportTo, err := normalizeLocator(cfg.DefaultReportTo)
+	if err != nil {
+		return nil, fmt.Errorf("default report_to: %w", err)
+	}
 	c := &coordinator{
 		logger:                    logger,
 		rootAgentID:               rootID,
 		childAgentIDs:             childIDs,
-		defaultReportTo:           cfg.DefaultReportTo,
+		defaultReportTo:           defaultReportTo,
 		allowFinishTool:           cfg.AllowFinishTool,
 		finishOnContextDone:       cfg.FinishOnContextDone,
 		ingressPromptFormatter:    cfg.IngressPromptFormatter,
@@ -637,8 +641,8 @@ func (c *coordinator) scheduleTask(taskID string, sessionID string, locator Loca
 	if prompt == "" {
 		return errors.New("prompt is required")
 	}
-	if !c.isLocalChildTarget(locator) && !c.providers.supportsTarget(locator) {
-		return fmt.Errorf("unsupported target locator %s", locatorKey(locator))
+	if isBuiltInSourceLocator(locator) {
+		return fmt.Errorf("source locator %s cannot be used as a target", locatorKey(locator))
 	}
 	if err := c.validateReportTo(reportTo); err != nil {
 		return err
@@ -657,10 +661,13 @@ func (c *coordinator) scheduleTask(taskID string, sessionID string, locator Loca
 }
 
 func (c *coordinator) validateReportTo(reportTo Locator) error {
+	if isBuiltInSourceLocator(reportTo) {
+		return fmt.Errorf("source locator %s cannot be used as report_to", locatorKey(reportTo))
+	}
 	if c.isLocalAgentTarget(reportTo) {
 		return nil
 	}
-	if c.providers.supportsReport(reportTo) {
+	if c.providers.supports(reportTo) {
 		return nil
 	}
 	return fmt.Errorf("unsupported report_to locator %s", locatorKey(reportTo))
@@ -743,9 +750,9 @@ func (c *coordinator) newQueuedTaskLocked(taskID string, sessionID string, locat
 func (c *coordinator) enqueueQueuedTaskLocked(nextTask *task) error {
 	c.logTaskEvent("task enqueued", nextTask)
 	if c.isLocalAgentTarget(nextTask.Locator) {
-		queue, ok := c.queues[nextTask.Locator.ID]
+		queue, ok := c.queues[nextTask.Locator.Key]
 		if !ok {
-			return fmt.Errorf("unknown local agent locator.id %q", nextTask.Locator.ID)
+			return fmt.Errorf("unknown local agent locator.key %q", nextTask.Locator.Key)
 		}
 		queue <- nextTask
 		return nil
@@ -755,14 +762,14 @@ func (c *coordinator) enqueueQueuedTaskLocked(nextTask *task) error {
 }
 
 func (c *coordinator) isLocalAgentTarget(locator Locator) bool {
-	return locator.Type == LocatorTypeAgent && locator.Kind == LocatorKindLocal && locator.ID == c.rootAgentID || c.isLocalChildTarget(locator)
+	return locator.Class == LocatorClassAgent && locator.Transport == LocatorTransportLocal && locator.Key == c.rootAgentID || c.isLocalChildTarget(locator)
 }
 
 func (c *coordinator) isLocalChildTarget(locator Locator) bool {
-	if locator.Type != LocatorTypeAgent || locator.Kind != LocatorKindLocal {
+	if locator.Class != LocatorClassAgent || locator.Transport != LocatorTransportLocal {
 		return false
 	}
-	_, ok := c.childAgentIDs[locator.ID]
+	_, ok := c.childAgentIDs[locator.Key]
 	return ok
 }
 
@@ -840,7 +847,7 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 		c.logTaskEvent("task completed", doneTask)
 	}
 
-	if doneTask.Locator.ID == c.rootAgentID {
+	if doneTask.Locator.Key == c.rootAgentID {
 		if err != nil {
 			c.finalErr = fmt.Errorf("%s task %q failed: %w", c.rootAgentID, doneTask.ID, err)
 			c.terminal = true
@@ -894,9 +901,9 @@ func (c *coordinator) enqueueNotification(nextTask *task) error {
 	if c.terminal {
 		return errors.New("run already finished")
 	}
-	queue, ok := c.queues[nextTask.Locator.ID]
+	queue, ok := c.queues[nextTask.Locator.Key]
 	if !ok {
-		return fmt.Errorf("unknown local agent locator.id %q", nextTask.Locator.ID)
+		return fmt.Errorf("unknown local agent locator.key %q", nextTask.Locator.Key)
 	}
 	c.logTaskEvent("task enqueued", nextTask)
 	queue <- nextTask

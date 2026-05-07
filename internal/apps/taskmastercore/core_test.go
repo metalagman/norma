@@ -2,6 +2,7 @@ package taskmastercore
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -31,7 +32,7 @@ func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
-	if out.ReportTo != NewAgentLocator(rootAgentID) {
+	if !reflect.DeepEqual(out.ReportTo, NewAgentLocator(rootAgentID)) {
 		t.Fatalf("out.ReportTo = %+v, want taskmaster root", out.ReportTo)
 	}
 	if out.SessionID != "session-a" {
@@ -43,7 +44,7 @@ func TestScheduleTaskAllowsProviderReport(t *testing.T) {
 	t.Parallel()
 
 	provider := &fakeProvider{
-		reportLocators: map[string]bool{locatorKey(NewHumanOutputLocator()): true},
+		supportedLocators: map[string]bool{locatorKey(NewCLILogLocator()): true},
 	}
 	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig([]Provider{provider}), map[string]taskRunner{
 		rootAgentID: &fakeTaskRunner{},
@@ -58,14 +59,14 @@ func TestScheduleTaskAllowsProviderReport(t *testing.T) {
 		TaskID:    "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
-		ReportTo:  ptrLocator(NewHumanOutputLocator()),
+		ReportTo:  ptrLocator(NewCLILogLocator()),
 		Prompt:    "do work",
 	})
 	if err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
-	if out.ReportTo != NewHumanOutputLocator() {
-		t.Fatalf("out.ReportTo = %+v, want human output locator", out.ReportTo)
+	if !reflect.DeepEqual(out.ReportTo, NewCLILogLocator()) {
+		t.Fatalf("out.ReportTo = %+v, want cli log locator", out.ReportTo)
 	}
 }
 
@@ -83,9 +84,39 @@ func TestRootOnlyConfigAllowed(t *testing.T) {
 		ID:        "ingress-1",
 		SessionID: "session-a",
 		Prompt:    "hello",
-		Source:    NewCLILocator("cli"),
+		Source:    NewCLIInputLocator(),
 	}); err != nil {
 		t.Fatalf("ingest() error = %v", err)
+	}
+}
+
+func TestScheduleTaskRejectsSourceOnlyTarget(t *testing.T) {
+	t.Parallel()
+
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig(nil), map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	err := coordinator.scheduleTask("task-source", "session-a", NewTimerSourceLocator(), NewAgentLocator(rootAgentID), "do work")
+	if err == nil || !strings.Contains(err.Error(), "cannot be used as a target") {
+		t.Fatalf("scheduleTask() error = %v, want source-only target rejection", err)
+	}
+}
+
+func TestScheduleTaskRejectsSourceOnlyReportTo(t *testing.T) {
+	t.Parallel()
+
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig(nil), map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	err := coordinator.scheduleTask("task-report", "session-a", NewAgentLocator("worker"), NewCLIInputLocator(), "do work")
+	if err == nil || !strings.Contains(err.Error(), "cannot be used as report_to") {
+		t.Fatalf("scheduleTask() error = %v, want source-only report_to rejection", err)
 	}
 }
 
@@ -143,10 +174,10 @@ func TestCoordinatorCreatesRootNotificationWithSession(t *testing.T) {
 func TestExternalTargetDispatchUsesProvider(t *testing.T) {
 	t.Parallel()
 
-	external := NewLocator("chat", "telegram", "chat-42")
+	external := NewTelegramHumanLocator(42, 7)
 	provider := &fakeProvider{
-		targetLocators:  map[string]bool{locatorKey(external): true},
-		dispatchStarted: make(chan DispatchRequest, 1),
+		supportedLocators: map[string]bool{locatorKey(external): true},
+		dispatchStarted:   make(chan DispatchRequest, 1),
 	}
 	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig([]Provider{provider}), map[string]taskRunner{
 		rootAgentID: &fakeTaskRunner{},
@@ -163,11 +194,38 @@ func TestExternalTargetDispatchUsesProvider(t *testing.T) {
 		if req.SessionID != "session-telegram" {
 			t.Fatalf("dispatch session_id = %q, want session-telegram", req.SessionID)
 		}
-		if req.Locator != external {
+		if !reflect.DeepEqual(req.Locator, external) {
 			t.Fatalf("dispatch locator = %+v, want %+v", req.Locator, external)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("provider did not receive external dispatch")
+	}
+}
+
+func TestReportOnlyTargetDispatchFailsAndNotifiesRoot(t *testing.T) {
+	t.Parallel()
+
+	rootRunner := &fakeTaskRunner{started: make(chan startedTask, 1)}
+	provider := &fakeProvider{
+		supportedLocators: map[string]bool{locatorKey(NewCLILogLocator()): true},
+	}
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig([]Provider{provider}), map[string]taskRunner{
+		rootAgentID: rootRunner,
+		"worker":    &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	if err := coordinator.scheduleTask("task-log-target", "session-a", NewCLILogLocator(), NewAgentLocator(rootAgentID), "do work"); err != nil {
+		t.Fatalf("scheduleTask() error = %v", err)
+	}
+
+	select {
+	case started := <-rootRunner.started:
+		if !strings.Contains(started.Prompt, "unsupported dispatch") {
+			t.Fatalf("notification prompt = %q, want unsupported dispatch failure", started.Prompt)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("root did not receive failure notification")
 	}
 }
 
@@ -185,7 +243,7 @@ func TestWaitResultReturnsLatestRootOutputOnContextDone(t *testing.T) {
 		ID:        "ingress-1",
 		SessionID: "session-a",
 		Prompt:    "initial goal",
-		Source:    NewCLILocator("cli"),
+		Source:    NewCLIInputLocator(),
 	}); err != nil {
 		t.Fatalf("ingest() error = %v", err)
 	}
@@ -299,22 +357,20 @@ func (r *fakeTaskRunner) RunTask(ctx context.Context, sessionID string, _ string
 }
 
 type fakeProvider struct {
-	targetLocators map[string]bool
-	reportLocators map[string]bool
+	supportedLocators map[string]bool
 
 	dispatchStarted chan DispatchRequest
 	reports         chan ReportRequest
 }
 
-func (p *fakeProvider) SupportsTarget(locator Locator) bool {
-	return p.targetLocators[locatorKey(locator)]
-}
-
-func (p *fakeProvider) SupportsReport(locator Locator) bool {
-	return p.reportLocators[locatorKey(locator)]
+func (p *fakeProvider) Supports(locator Locator) bool {
+	return p.supportedLocators[locatorKey(locator)]
 }
 
 func (p *fakeProvider) DispatchTask(_ context.Context, req DispatchRequest) error {
+	if reflect.DeepEqual(req.Locator, NewCLILogLocator()) {
+		return ErrUnsupported
+	}
 	if p.dispatchStarted != nil {
 		p.dispatchStarted <- req
 	}

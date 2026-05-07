@@ -157,7 +157,7 @@ func rootInstruction() string {
 		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and a prompt.",
 		"Keep the same session_id when continuing the same PDCA conversation.",
 		"The report_to field means where task completion should be reported.",
-		"The local root agent locator is {type: agent, kind: local, id: pdca-taskmaster}.",
+		"The local root agent locator is {class: agent, transport: local, key: pdca-taskmaster}.",
 		"The child agent locators are local agent locators with ids plan, do, check, and act.",
 		"The child agents available in this wrapper are plan, do, check, and act.",
 		"Treat plan, do, check, and act as strict PDCA phases, not generic workers.",

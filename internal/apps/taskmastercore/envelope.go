@@ -7,58 +7,92 @@ import (
 )
 
 const (
-	LocatorTypeAgent  = "agent"
-	LocatorTypeSink   = "sink"
-	LocatorTypeSystem = "system"
+	LocatorClassAgent       = "agent"
+	LocatorClassAlias       = "alias"
+	LocatorClassHuman       = "human"
+	LocatorClassIntegration = "integration"
 
-	LocatorKindLocal       = "local"
-	LocatorKindHumanOutput = "human_output"
-	LocatorKindCLI         = "cli"
-	LocatorKindTimer       = "timer"
+	LocatorTransportCLI      = "cli"
+	LocatorTransportLocal    = "local"
+	LocatorTransportTelegram = "telegram"
+	LocatorTransportTimer    = "timer"
+	LocatorTransportWhatsApp = "whatsapp"
 
-	HumanOutputCurrentLogID = "current_log"
+	CLIInputKey     = "input"
+	CLILogKey       = "log"
+	DefaultTimerKey = "default"
 )
 
 type Locator struct {
-	Type string `json:"type"`
-	Kind string `json:"kind"`
-	ID   string `json:"id"`
+	Class     string         `json:"class"`
+	Transport string         `json:"transport"`
+	Key       string         `json:"key"`
+	Address   map[string]any `json:"address,omitempty"`
 }
 
-func NewLocator(locatorType string, kind string, id string) Locator {
+func NewLocator(locatorClass string, transport string, key string) Locator {
 	return Locator{
-		Type: strings.ToLower(strings.TrimSpace(locatorType)),
-		Kind: strings.ToLower(strings.TrimSpace(kind)),
-		ID:   strings.TrimSpace(id),
+		Class:     strings.ToLower(strings.TrimSpace(locatorClass)),
+		Transport: strings.ToLower(strings.TrimSpace(transport)),
+		Key:       strings.TrimSpace(key),
 	}
 }
 
 func NewAgentLocator(id string) Locator {
-	return NewLocator(LocatorTypeAgent, LocatorKindLocal, strings.ToLower(strings.TrimSpace(id)))
+	return NewLocator(LocatorClassAgent, LocatorTransportLocal, strings.ToLower(strings.TrimSpace(id)))
 }
 
-func NewHumanOutputLocator() Locator {
-	return NewLocator(LocatorTypeSink, LocatorKindHumanOutput, HumanOutputCurrentLogID)
+func NewCLIInputLocator() Locator {
+	return NewLocator(LocatorClassIntegration, LocatorTransportCLI, CLIInputKey)
 }
 
-func NewCLILocator(id string) Locator {
-	return NewLocator(LocatorTypeSystem, LocatorKindCLI, id)
+func NewCLILogLocator() Locator {
+	return NewLocator(LocatorClassIntegration, LocatorTransportCLI, CLILogKey)
 }
 
-func NewTimerLocator(id string) Locator {
-	return NewLocator(LocatorTypeSystem, LocatorKindTimer, id)
+func NewTimerSourceLocator() Locator {
+	return NewLocator(LocatorClassIntegration, LocatorTransportTimer, DefaultTimerKey)
+}
+
+func NewTelegramHumanLocator(chatID int64, topicID int) Locator {
+	locator := NewLocator(LocatorClassHuman, LocatorTransportTelegram, fmt.Sprintf("%d:%d", chatID, topicID))
+	locator.Address = map[string]any{
+		"chat_id":  chatID,
+		"topic_id": topicID,
+	}
+	return locator
+}
+
+func NewWhatsAppHumanLocator(phoneNumberID string) Locator {
+	locator := NewLocator(LocatorClassHuman, LocatorTransportWhatsApp, strings.TrimSpace(phoneNumberID))
+	locator.Address = map[string]any{
+		"phone_number_id": strings.TrimSpace(phoneNumberID),
+	}
+	return locator
+}
+
+func cloneAddress(address map[string]any) map[string]any {
+	if len(address) == 0 {
+		return nil
+	}
+	cloned := make(map[string]any, len(address))
+	for key, value := range address {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func normalizeLocator(locator Locator) (Locator, error) {
-	normalized := NewLocator(locator.Type, locator.Kind, locator.ID)
-	if normalized.Type == "" {
-		return Locator{}, errors.New("locator.type is required")
+	normalized := NewLocator(locator.Class, locator.Transport, locator.Key)
+	normalized.Address = cloneAddress(locator.Address)
+	if normalized.Class == "" {
+		return Locator{}, errors.New("locator.class is required")
 	}
-	if normalized.Kind == "" {
-		return Locator{}, errors.New("locator.kind is required")
+	if normalized.Transport == "" {
+		return Locator{}, errors.New("locator.transport is required")
 	}
-	if normalized.ID == "" {
-		return Locator{}, errors.New("locator.id is required")
+	if normalized.Key == "" {
+		return Locator{}, errors.New("locator.key is required")
 	}
 	return normalized, nil
 }
@@ -71,5 +105,15 @@ func normalizeReportLocator(reportTo *Locator, defaultReportTo Locator) (Locator
 }
 
 func locatorKey(locator Locator) string {
-	return fmt.Sprintf("%s:%s:%s", locator.Type, locator.Kind, locator.ID)
+	return fmt.Sprintf("%s:%s:%s", locator.Class, locator.Transport, locator.Key)
+}
+
+func isBuiltInSourceLocator(locator Locator) bool {
+	if locator.Class != LocatorClassIntegration {
+		return false
+	}
+	if locator.Transport == LocatorTransportTimer {
+		return true
+	}
+	return locator.Transport == LocatorTransportCLI && locator.Key == CLIInputKey
 }

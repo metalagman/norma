@@ -33,8 +33,8 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"one plain-text child agent named worker",
 		"taskmaster.schedule_task",
 		"session_id",
-		"type: agent, kind: local, id: worker",
-		"type: sink, kind: human_output, id: current_log",
+		"class: agent, transport: local, key: worker",
+		"class: integration, transport: cli, key: log",
 		"completion goes only to the current log",
 		"background timer may also deliver simple hello world goals",
 		"does not finish on your turn completion",
@@ -96,6 +96,9 @@ func TestBackgroundGoalSourceEmitsHelloWorld(t *testing.T) {
 		}
 		if req.SessionID == "" {
 			t.Fatal("background goal session_id is empty")
+		}
+		if got := req.Source; got.Class != taskmastercore.LocatorClassIntegration || got.Transport != taskmastercore.LocatorTransportTimer || got.Key != taskmastercore.DefaultTimerKey {
+			t.Fatalf("source = %+v, want integration/timer/default", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("background goal source did not emit synthetic goal")

@@ -95,7 +95,7 @@ func Run(ctx context.Context, cfg Config) error {
 		DefaultReportTo:           taskmastercore.NewAgentLocator(taskmasterAgentID),
 		AllowFinishTool:           false,
 		FinishOnContextDone:       true,
-		Providers:                 []taskmastercore.Provider{taskmastercore.NewHumanOutputProvider(baseLogger)},
+		Providers:                 []taskmastercore.Provider{taskmastercore.NewCLILogProvider(baseLogger)},
 		IngressPromptFormatter:    formatIngressPrompt,
 		CompletionPromptFormatter: formatCompletionPrompt,
 		BackgroundGoalSource:      backgroundGoalSource(timerGoalInterval, newTicker),
@@ -111,12 +111,14 @@ func rootInstruction() string {
 		"Use only the taskmaster.schedule_task tool to enqueue worker tasks.",
 		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and a prompt.",
 		"Keep the same session_id when scheduling follow-up work for the same conversation.",
-		"The only local child locator in this wrapper is {type: agent, kind: local, id: worker}.",
+		"The only local child locator in this wrapper is {class: agent, transport: local, key: worker}.",
 		"The report_to field uses the same locator schema as the target.",
-		"The local root agent is {type: agent, kind: local, id: taskmaster}.",
-		"The current log sink is {type: sink, kind: human_output, id: current_log}.",
+		"The local root agent is {class: agent, transport: local, key: taskmaster}.",
+		"The current log sink is {class: integration, transport: cli, key: log}.",
 		"If you use report_to as the current log sink, that completion goes only to the current log and is not returned to you for further orchestration.",
-		"Use human_output reporting only when you do not need the completion text to decide what to do next.",
+		"Use cli log reporting only when you do not need the completion text to decide what to do next.",
+		"The CLI ingress source is {class: integration, transport: cli, key: input}.",
+		"The background timer source is {class: integration, transport: timer, key: default}.",
 		"A background timer may also deliver simple hello world goals to you while the run is active.",
 		"This generic run does not finish on your turn completion.",
 		"It ends only when the host context is canceled, typically by a process signal such as SIGINT or SIGTERM.",
@@ -174,7 +176,7 @@ func formatCompletionPrompt(input taskmastercore.CompletionPromptInput) string {
 }
 
 func locatorText(locator taskmastercore.Locator) string {
-	return strings.Join([]string{locator.Type, locator.Kind, locator.ID}, "/")
+	return strings.Join([]string{locator.Class, locator.Transport, locator.Key}, "/")
 }
 
 func backgroundGoalSource(interval time.Duration, makeTicker func(time.Duration) ticker) taskmastercore.BackgroundGoalSource {
@@ -193,7 +195,7 @@ func backgroundGoalSource(interval time.Duration, makeTicker func(time.Duration)
 					ID:        id,
 					SessionID: id,
 					Prompt:    timerGoalMessage,
-					Source:    taskmastercore.NewTimerLocator(id),
+					Source:    taskmastercore.NewTimerSourceLocator(),
 				})
 			}
 		}

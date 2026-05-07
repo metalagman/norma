@@ -2,6 +2,7 @@ package taskmastercore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -28,9 +29,10 @@ type ReportRequest struct {
 	Error         string
 }
 
+var ErrUnsupported = errors.New("unsupported locator operation")
+
 type Provider interface {
-	SupportsTarget(locator Locator) bool
-	SupportsReport(locator Locator) bool
+	Supports(locator Locator) bool
 	DispatchTask(ctx context.Context, req DispatchRequest) error
 	DeliverReport(ctx context.Context, req ReportRequest) error
 }
@@ -49,18 +51,9 @@ func newProviderRegistry(providers []Provider) providerRegistry {
 	return providerRegistry{providers: cloned}
 }
 
-func (r providerRegistry) supportsTarget(locator Locator) bool {
+func (r providerRegistry) supports(locator Locator) bool {
 	for _, provider := range r.providers {
-		if provider.SupportsTarget(locator) {
-			return true
-		}
-	}
-	return false
-}
-
-func (r providerRegistry) supportsReport(locator Locator) bool {
-	for _, provider := range r.providers {
-		if provider.SupportsReport(locator) {
+		if provider.Supports(locator) {
 			return true
 		}
 	}
@@ -68,44 +61,68 @@ func (r providerRegistry) supportsReport(locator Locator) bool {
 }
 
 func (r providerRegistry) dispatchTask(ctx context.Context, req DispatchRequest) error {
+	supported := false
 	for _, provider := range r.providers {
-		if provider.SupportsTarget(req.Locator) {
-			return provider.DispatchTask(ctx, req)
+		if !provider.Supports(req.Locator) {
+			continue
 		}
+		supported = true
+		err := provider.DispatchTask(ctx, req)
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, ErrUnsupported) {
+			continue
+		}
+		return err
+	}
+	if supported {
+		return fmt.Errorf("unsupported dispatch for locator %s", locatorKey(req.Locator))
 	}
 	return fmt.Errorf("no provider for locator %s", locatorKey(req.Locator))
 }
 
 func (r providerRegistry) deliverReport(ctx context.Context, req ReportRequest) error {
+	supported := false
 	for _, provider := range r.providers {
-		if provider.SupportsReport(req.ReportTo) {
-			return provider.DeliverReport(ctx, req)
+		if !provider.Supports(req.ReportTo) {
+			continue
 		}
+		supported = true
+		err := provider.DeliverReport(ctx, req)
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, ErrUnsupported) {
+			continue
+		}
+		return err
+	}
+	if supported {
+		return fmt.Errorf("unsupported report for locator %s", locatorKey(req.ReportTo))
 	}
 	return fmt.Errorf("no provider for report_to %s", locatorKey(req.ReportTo))
 }
 
-type humanOutputProvider struct {
+type cliLogProvider struct {
 	logger zerolog.Logger
 }
 
-func NewHumanOutputProvider(logger zerolog.Logger) Provider {
-	return humanOutputProvider{logger: logger}
+func NewCLILogProvider(logger zerolog.Logger) Provider {
+	return cliLogProvider{logger: logger}
 }
 
-func (p humanOutputProvider) SupportsTarget(locator Locator) bool {
-	return false
+func (p cliLogProvider) Supports(locator Locator) bool {
+	return locator.Class == LocatorClassIntegration &&
+		locator.Transport == LocatorTransportCLI &&
+		locator.Key == CLILogKey
 }
 
-func (p humanOutputProvider) SupportsReport(locator Locator) bool {
-	return locator.Type == LocatorTypeSink && locator.Kind == LocatorKindHumanOutput && locator.ID == HumanOutputCurrentLogID
+func (p cliLogProvider) DispatchTask(_ context.Context, req DispatchRequest) error {
+	return ErrUnsupported
 }
 
-func (p humanOutputProvider) DispatchTask(_ context.Context, req DispatchRequest) error {
-	return fmt.Errorf("locator %s does not support task dispatch", locatorKey(req.Locator))
-}
-
-func (p humanOutputProvider) DeliverReport(_ context.Context, req ReportRequest) error {
+func (p cliLogProvider) DeliverReport(_ context.Context, req ReportRequest) error {
 	message := strings.TrimSpace(req.Prompt)
 	if message == "" {
 		message = "(empty report)"
