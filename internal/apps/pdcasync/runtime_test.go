@@ -219,8 +219,12 @@ func TestRunPrintsCoordinatorResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != "final answer" {
-		t.Fatalf("stdout = %q, want final answer", got)
+	got := stdout.String()
+	if !strings.Contains(got, "final answer\n") {
+		t.Fatalf("stdout = %q, want final answer line", got)
+	}
+	if !strings.Contains(got, "Total run time: ") {
+		t.Fatalf("stdout = %q, want total run time line", got)
 	}
 	if !root.closed {
 		t.Fatal("root runner was not closed")

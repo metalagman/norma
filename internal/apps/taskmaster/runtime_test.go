@@ -186,6 +186,30 @@ func TestFormatNotificationTaskInputIncludesPDCAContext(t *testing.T) {
 	}
 }
 
+func TestWriteRunOutputIncludesTotalRunTime(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	if err := writeRunOutput(&stdout, "final answer", "1.234s"); err != nil {
+		t.Fatalf("writeRunOutput() error = %v", err)
+	}
+	if got := stdout.String(); got != "final answer\nTotal run time: 1.234s\n" {
+		t.Fatalf("stdout = %q, want summary plus total run time", got)
+	}
+}
+
+func TestWriteRunOutputPrintsElapsedWithoutSummary(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	if err := writeRunOutput(&stdout, "   ", "0s"); err != nil {
+		t.Fatalf("writeRunOutput() error = %v", err)
+	}
+	if got := stdout.String(); got != "Total run time: 0s\n" {
+		t.Fatalf("stdout = %q, want elapsed only", got)
+	}
+}
+
 func TestScheduleTaskQueuesImmediately(t *testing.T) {
 	t.Parallel()
 

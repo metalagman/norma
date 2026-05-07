@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -179,6 +180,7 @@ func Run(ctx context.Context, cfg Config) error {
 }
 
 func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
+	startedAt := time.Now()
 	goal := strings.TrimSpace(cfg.Goal)
 	if goal == "" {
 		return errors.New("goal is required")
@@ -281,15 +283,14 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		Str("call_id", "goal").
 		Str("result", strings.TrimSpace(result)).
 		Msg("agent finished prompt")
+	elapsed := formatElapsed(time.Since(startedAt))
 
 	logger.Info().
 		Bool("has_result", strings.TrimSpace(result) != "").
+		Str("elapsed", elapsed).
 		Str("result", strings.TrimSpace(result)).
 		Msg("pdca-sync completed")
-	if _, err := fmt.Fprintln(stdout, strings.TrimSpace(result)); err != nil {
-		return err
-	}
-	return nil
+	return writeRunOutput(stdout, strings.TrimSpace(result), elapsed)
 }
 
 func newService(logger zerolog.Logger, maxIterations int) *service {
@@ -558,6 +559,20 @@ func rootInstruction(maxIterations int) string {
 		"When you are done, return your final plain-text answer directly instead of calling any finish tool.",
 		"Do not read files, execute scripts, or do worker work yourself.",
 	}, "\n")
+}
+
+func formatElapsed(d time.Duration) string {
+	return d.Round(time.Millisecond).String()
+}
+
+func writeRunOutput(stdout io.Writer, summary string, elapsed string) error {
+	if trimmed := strings.TrimSpace(summary); trimmed != "" {
+		if _, err := fmt.Fprintln(stdout, trimmed); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(stdout, "Total run time: %s\n", elapsed)
+	return err
 }
 
 func formatInitialGoalPrompt(goal string) string {

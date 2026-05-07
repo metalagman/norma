@@ -724,6 +724,7 @@ func rootInstruction() string {
 }
 
 func Run(ctx context.Context, cfg Config) error {
+	startedAt := time.Now()
 	goal := strings.TrimSpace(cfg.Goal)
 	if goal == "" {
 		return errors.New("goal is required")
@@ -821,17 +822,28 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	elapsed := formatElapsed(time.Since(startedAt))
 
 	logger.Info().
 		Bool("has_result", strings.TrimSpace(result.Summary) != "").
+		Str("elapsed", elapsed).
 		Str("result", result.Summary).
 		Msg("taskmaster completed")
-	if result.Summary != "" {
-		if _, err := fmt.Fprintln(stdout, result.Summary); err != nil {
+	return writeRunOutput(stdout, result.Summary, elapsed)
+}
+
+func formatElapsed(d time.Duration) string {
+	return d.Round(time.Millisecond).String()
+}
+
+func writeRunOutput(stdout io.Writer, summary string, elapsed string) error {
+	if trimmed := strings.TrimSpace(summary); trimmed != "" {
+		if _, err := fmt.Fprintln(stdout, trimmed); err != nil {
 			return err
 		}
 	}
-	return nil
+	_, err := fmt.Fprintf(stdout, "Total run time: %s\n", elapsed)
+	return err
 }
 
 func BuildCodexACPCommand(bridgeBin string) []string {
