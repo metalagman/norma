@@ -35,6 +35,12 @@ func TestRootInstructionDefinesSyncCoordinator(t *testing.T) {
 	for _, want := range []string{
 		"synchronous PDCA playground",
 		"pdca.prompt_subagent",
+		"The canonical PDCA check verdict literals are `pass` and `fail`.",
+		"The canonical PDCA act decision literals are `close`, `continue`, and `replan`.",
+		"The legal verdict/decision pairs are `pass + close`, `fail + continue`, and `fail + replan`.",
+		"The invalid verdict/decision pairs are `pass + continue`, `pass + replan`, and `fail + close`.",
+		"Any `rollback` decision is invalid PDCA output.",
+		"`close` means the work is done, `continue` means run another PDCA iteration, and `replan` means the work is not ready to close and needs replanning.",
 		"Child invocation is a blackbox runtime action.",
 		"There is no task, envelope, queue, report, or finish protocol",
 		"The runtime does not enforce phase order.",
@@ -69,6 +75,29 @@ func TestChildAgentInstructionsStayPlainText(t *testing.T) {
 		}
 		if !strings.Contains(instruction, "Do not use JSON, schemas, field names, or code fences.") {
 			t.Fatalf("%s instruction = %q, want plain-text safety guidance", agentID, instruction)
+		}
+	}
+
+	checkInstruction := childAgentInstructions["check"]
+	for _, want := range []string{
+		"Your semantic output is the PDCA verdict for the current iteration: pass or fail.",
+		"`verdict: pass` or `verdict: fail`",
+	} {
+		if !strings.Contains(checkInstruction, want) {
+			t.Fatalf("check instruction = %q, want substring %q", checkInstruction, want)
+		}
+	}
+
+	actInstruction := childAgentInstructions["act"]
+	for _, want := range []string{
+		"Your semantic output is the PDCA decision for the current iteration: close, continue, or replan.",
+		"If the verdict is pass, the only legal decision is close.",
+		"If the verdict is fail, the legal decisions are continue or replan.",
+		"Never return rollback.",
+		"`decision: close`, `decision: continue`, or `decision: replan`",
+	} {
+		if !strings.Contains(actInstruction, want) {
+			t.Fatalf("act instruction = %q, want substring %q", actInstruction, want)
 		}
 	}
 }

@@ -60,10 +60,28 @@ The only loop guard is `--max-iterations`:
 The child prompts match the current Taskmaster child prompts:
 - `plan` plans
 - `do` executes
-- `check` assesses
-- `act` recommends close or replan
+- `check` emits the semantic PDCA verdict `pass` or `fail`
+- `act` emits the semantic PDCA decision `close`, `continue`, or `replan`
 
 All child messaging remains plain text.
+
+The PDCA semantic layer is still canonical:
+- check verdict literals: `pass`, `fail`
+- act decision literals: `close`, `continue`, `replan`
+- legal pairs:
+  - `pass + close`
+  - `fail + continue`
+  - `fail + replan`
+- invalid pairs:
+  - `pass + continue`
+  - `pass + replan`
+  - `fail + close`
+  - any `rollback`
+
+Semantic meaning:
+- `close` means the work is done
+- `continue` means run another PDCA iteration
+- `replan` means the work is not ready to close and needs replanning
 
 The coordinator root:
 - must not invent worker methodology
