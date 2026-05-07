@@ -39,6 +39,7 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"background timer may also deliver simple hello world goals",
 		"does not finish on your turn completion",
 		"host context is canceled",
+		"Keep coordinating work and updating your current best summary",
 		"Do not impose a fixed workflow or phase order",
 	} {
 		if !strings.Contains(got, want) {
@@ -104,6 +105,24 @@ func TestBackgroundGoalSourceEmitsHelloWorld(t *testing.T) {
 		t.Fatal("background goal source did not emit synthetic goal")
 	}
 	cancel()
+}
+
+func TestFormatContextDoneSummary(t *testing.T) {
+	t.Parallel()
+
+	got := formatContextDoneSummary(taskmastercore.ContextDoneSummaryInput{
+		LastRootOutput: "latest summary",
+		Err:            context.Canceled,
+	})
+	if !strings.Contains(got, "Run stopped by signal.") {
+		t.Fatalf("formatContextDoneSummary() = %q, want stop headline", got)
+	}
+	if !strings.Contains(got, "Last completed root output:") {
+		t.Fatalf("formatContextDoneSummary() = %q, want last-output header", got)
+	}
+	if !strings.Contains(got, "latest summary") {
+		t.Fatalf("formatContextDoneSummary() = %q, want last root output", got)
+	}
 }
 
 type fakeTicker struct {

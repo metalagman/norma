@@ -56,9 +56,15 @@ type CompletionPromptInput struct {
 
 type RunResult struct {
 	Summary string
+	Stopped bool
 }
 
 type BackgroundGoalSource func(ctx context.Context, enqueue func(IngressRequest) error)
+
+type ContextDoneSummaryInput struct {
+	LastRootOutput string
+	Err            error
+}
 
 type Config struct {
 	Goal          string
@@ -70,16 +76,17 @@ type Config struct {
 	ComponentName string
 	SurfaceName   string
 
-	RootAgentID               string
-	RootAgent                 AgentConfig
-	ChildAgents               map[string]AgentConfig
-	DefaultReportTo           Locator
-	AllowFinishTool           bool
-	FinishOnContextDone       bool
-	Providers                 []Provider
-	IngressPromptFormatter    func(IngressRequest) string
-	CompletionPromptFormatter func(CompletionPromptInput) string
-	BackgroundGoalSource      BackgroundGoalSource
+	RootAgentID                 string
+	RootAgent                   AgentConfig
+	ChildAgents                 map[string]AgentConfig
+	DefaultReportTo             Locator
+	AllowFinishTool             bool
+	FinishOnContextDone         bool
+	Providers                   []Provider
+	IngressPromptFormatter      func(IngressRequest) string
+	CompletionPromptFormatter   func(CompletionPromptInput) string
+	ContextDoneSummaryFormatter func(ContextDoneSummaryInput) string
+	BackgroundGoalSource        BackgroundGoalSource
 }
 
 type taskStatus string
@@ -183,14 +190,15 @@ type executor struct {
 type coordinator struct {
 	logger zerolog.Logger
 
-	rootAgentID               string
-	childAgentIDs             map[string]struct{}
-	defaultReportTo           Locator
-	allowFinishTool           bool
-	finishOnContextDone       bool
-	ingressPromptFormatter    func(IngressRequest) string
-	completionPromptFormatter func(CompletionPromptInput) string
-	providers                 providerRegistry
+	rootAgentID                 string
+	childAgentIDs               map[string]struct{}
+	defaultReportTo             Locator
+	allowFinishTool             bool
+	finishOnContextDone         bool
+	ingressPromptFormatter      func(IngressRequest) string
+	completionPromptFormatter   func(CompletionPromptInput) string
+	contextDoneSummaryFormatter func(ContextDoneSummaryInput) string
+	providers                   providerRegistry
 
 	mu               sync.Mutex
 	tasks            map[string]*task
@@ -392,17 +400,33 @@ func (r *Runtime) Ingest(req IngressRequest) error {
 }
 
 func (r *Runtime) Wait(ctx context.Context) (RunResult, error) {
-	result, err := r.coordinator.waitResult(ctx)
-	r.coordinator.beginShutdown()
-	_ = r.Close()
-	if err != nil {
-		return RunResult{}, err
+	resultCh := make(chan struct {
+		result RunResult
+		err    error
+	}, 1)
+	go func() {
+		result, err := r.coordinator.waitResult()
+		resultCh <- struct {
+			result RunResult
+			err    error
+		}{result: result, err: err}
+	}()
+
+	select {
+	case outcome := <-resultCh:
+		_ = r.Close()
+		if outcome.err != nil {
+			return RunResult{}, outcome.err
+		}
+		return outcome.result, nil
+	case <-ctx.Done():
+		return r.stopOnContextDone(ctx.Err())
 	}
-	return result, nil
 }
 
 func (r *Runtime) Close() error {
 	r.closeOnce.Do(func() {
+		r.coordinator.beginShutdown()
 		r.cancel()
 		r.coordinator.wait()
 		var errs []string
@@ -428,13 +452,30 @@ func (r *Runtime) Close() error {
 	return r.closeErr
 }
 
+func (r *Runtime) stopOnContextDone(err error) (RunResult, error) {
+	r.coordinator.beginShutdown()
+	closeErr := r.Close()
+	result, resultErr := r.coordinator.contextDoneResult(err)
+	if resultErr != nil {
+		return RunResult{}, resultErr
+	}
+	if closeErr != nil {
+		return RunResult{}, closeErr
+	}
+	return result, nil
+}
+
 func (r *Runtime) WriteOutput(result RunResult) error {
 	elapsed := formatElapsed(time.Since(r.startedAt))
-	r.logger.Info().
+	event := r.logger.Info().
 		Bool("has_result", strings.TrimSpace(result.Summary) != "").
 		Str("elapsed", elapsed).
-		Str("result", result.Summary).
-		Msg(r.surfaceName + " completed")
+		Str("result", result.Summary)
+	if result.Stopped {
+		event.Msg(r.surfaceName + " stopped")
+	} else {
+		event.Msg(r.surfaceName + " completed")
+	}
 	return writeRunOutput(r.stdout, result.Summary, elapsed)
 }
 
@@ -479,6 +520,9 @@ func validateConfig(cfg Config) error {
 	if cfg.CompletionPromptFormatter == nil {
 		return errors.New("completion prompt formatter is required")
 	}
+	if cfg.FinishOnContextDone && cfg.ContextDoneSummaryFormatter == nil {
+		return errors.New("context-done summary formatter is required when FinishOnContextDone is enabled")
+	}
 	return nil
 }
 
@@ -497,19 +541,20 @@ func newCoordinator(logger zerolog.Logger, cfg Config) (*coordinator, error) {
 		return nil, fmt.Errorf("default report_to: %w", err)
 	}
 	c := &coordinator{
-		logger:                    logger,
-		rootAgentID:               rootID,
-		childAgentIDs:             childIDs,
-		defaultReportTo:           defaultReportTo,
-		allowFinishTool:           cfg.AllowFinishTool,
-		finishOnContextDone:       cfg.FinishOnContextDone,
-		ingressPromptFormatter:    cfg.IngressPromptFormatter,
-		completionPromptFormatter: cfg.CompletionPromptFormatter,
-		providers:                 newProviderRegistry(cfg.Providers),
-		tasks:                     make(map[string]*task),
-		queues:                    make(map[string]chan *task, runnerCount),
-		dispatchQueue:             make(chan *task, defaultQueueDepth),
-		done:                      make(chan RunResult, 1),
+		logger:                      logger,
+		rootAgentID:                 rootID,
+		childAgentIDs:               childIDs,
+		defaultReportTo:             defaultReportTo,
+		allowFinishTool:             cfg.AllowFinishTool,
+		finishOnContextDone:         cfg.FinishOnContextDone,
+		ingressPromptFormatter:      cfg.IngressPromptFormatter,
+		completionPromptFormatter:   cfg.CompletionPromptFormatter,
+		contextDoneSummaryFormatter: cfg.ContextDoneSummaryFormatter,
+		providers:                   newProviderRegistry(cfg.Providers),
+		tasks:                       make(map[string]*task),
+		queues:                      make(map[string]chan *task, runnerCount),
+		dispatchQueue:               make(chan *task, defaultQueueDepth),
+		done:                        make(chan RunResult, 1),
 	}
 	c.queues[rootID] = make(chan *task, defaultQueueDepth)
 	for childID := range cfg.ChildAgents {
@@ -548,12 +593,21 @@ func (e *executor) run(ctx context.Context) {
 				Msg("agent received task")
 			output, err := e.runner.RunTask(ctx, nextTask.SessionID, nextTask.ID, nextTask.Prompt)
 			if err != nil {
-				e.logger.Info().
+				event := e.logger.Info().
 					Str("agent_id", e.agentID).
 					Str("task_id", nextTask.ID).
 					Str("session_id", nextTask.SessionID).
-					Str("error", err.Error()).
-					Msg("agent finished task")
+					Str("error", err.Error())
+				if e.coordinator.isExpectedShutdownCancel(err) {
+					event = e.logger.Debug().
+						Str("agent_id", e.agentID).
+						Str("task_id", nextTask.ID).
+						Str("session_id", nextTask.SessionID).
+						Str("error", err.Error())
+					event.Msg("agent task canceled during shutdown")
+				} else {
+					event.Msg("agent finished task")
+				}
 			} else {
 				e.logger.Info().
 					Str("agent_id", e.agentID).
@@ -620,7 +674,7 @@ func (c *coordinator) ingest(req IngressRequest) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.terminal {
+	if c.terminal || c.shuttingDown {
 		return errors.New("run already finished")
 	}
 	queued := c.newQueuedTaskLocked(taskID, sessionID, NewAgentLocator(c.rootAgentID), reportTo, c.ingressPromptFormatter(req))
@@ -650,7 +704,7 @@ func (c *coordinator) scheduleTask(taskID string, sessionID string, locator Loca
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.terminal {
+	if c.terminal || c.shuttingDown {
 		return errors.New("run already finished")
 	}
 	if _, exists := c.tasks[taskID]; exists {
@@ -698,26 +752,30 @@ func (c *coordinator) beginShutdown() {
 	c.shuttingDown = true
 }
 
-func (c *coordinator) waitResult(ctx context.Context) (RunResult, error) {
-	select {
-	case <-ctx.Done():
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		if c.finalErr != nil {
-			return RunResult{}, c.finalErr
-		}
-		if c.finishOnContextDone {
-			return RunResult{Summary: strings.TrimSpace(c.latestRootOutput)}, nil
-		}
-		return RunResult{}, ctx.Err()
-	case result := <-c.done:
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		if c.finalErr != nil {
-			return RunResult{}, c.finalErr
-		}
-		return result, nil
+func (c *coordinator) waitResult() (RunResult, error) {
+	result := <-c.done
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.finalErr != nil {
+		return RunResult{}, c.finalErr
 	}
+	return result, nil
+}
+
+func (c *coordinator) contextDoneResult(err error) (RunResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.finalErr != nil {
+		return RunResult{}, c.finalErr
+	}
+	if !c.finishOnContextDone {
+		return RunResult{}, err
+	}
+	summary := c.contextDoneSummaryFormatter(ContextDoneSummaryInput{
+		LastRootOutput: strings.TrimSpace(c.latestRootOutput),
+		Err:            err,
+	})
+	return RunResult{Summary: strings.TrimSpace(summary), Stopped: true}, nil
 }
 
 func (c *coordinator) setRunError(err error) {
@@ -816,6 +874,10 @@ func (c *coordinator) tryStartTask(nextTask *task) bool {
 		c.logTaskEvent("task skipped after terminal", nextTask)
 		return false
 	}
+	if c.shuttingDown {
+		c.logTaskEvent("task skipped during shutdown", nextTask)
+		return false
+	}
 	now := time.Now().UTC()
 	nextTask.ClaimedAt = now
 	nextTask.StartedAt = now
@@ -898,7 +960,7 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 func (c *coordinator) enqueueNotification(nextTask *task) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.terminal {
+	if c.terminal || c.shuttingDown {
 		return errors.New("run already finished")
 	}
 	queue, ok := c.queues[nextTask.Locator.Key]
@@ -970,6 +1032,15 @@ func buildReportRequest(doneTask *task, prompt string) *ReportRequest {
 		Output:        doneTask.Output,
 		Error:         doneTask.Error,
 	}
+}
+
+func (c *coordinator) isExpectedShutdownCancel(err error) bool {
+	if !errors.Is(err, context.Canceled) {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.shuttingDown
 }
 
 func formatElapsed(d time.Duration) string {

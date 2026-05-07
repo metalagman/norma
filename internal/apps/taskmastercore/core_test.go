@@ -276,56 +276,110 @@ func TestCLILogProviderLogsCanonicalLocatorStrings(t *testing.T) {
 	}
 }
 
-func TestWaitResultReturnsLatestRootOutputOnContextDone(t *testing.T) {
+func TestContextDoneResultReturnsStoppedSummary(t *testing.T) {
 	t.Parallel()
 
-	rootRunner := &fakeTaskRunner{result: "latest root summary"}
 	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig(nil), map[string]taskRunner{
-		rootAgentID: rootRunner,
+		rootAgentID: &fakeTaskRunner{},
 		"worker":    &fakeTaskRunner{},
 	})
 	defer cleanup()
 
+	coordinator.mu.Lock()
+	coordinator.latestRootOutput = "latest root summary"
+	coordinator.mu.Unlock()
+
+	result, err := coordinator.contextDoneResult(context.Canceled)
+	if err != nil {
+		t.Fatalf("contextDoneResult() error = %v", err)
+	}
+	if !result.Stopped {
+		t.Fatal("result.Stopped = false, want true")
+	}
+	if strings.Contains(result.Summary, "latest root summary") && result.Summary == "latest root summary" {
+		t.Fatalf("result.Summary = %q, want explicit stop summary instead of stale root output", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "Run stopped") {
+		t.Fatalf("result.Summary = %q, want stop summary", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "latest root summary") {
+		t.Fatalf("result.Summary = %q, want last root output as context", result.Summary)
+	}
+}
+
+func TestScheduleAndIngressRejectedDuringShutdown(t *testing.T) {
+	t.Parallel()
+
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig(nil), map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	coordinator.beginShutdown()
+
+	if err := coordinator.scheduleTask("task-worker", "session-a", NewAgentLocator("worker"), NewAgentLocator(rootAgentID), "do work"); err == nil || !strings.Contains(err.Error(), "run already finished") {
+		t.Fatalf("scheduleTask() error = %v, want shutdown rejection", err)
+	}
 	if err := coordinator.ingest(IngressRequest{
 		ID:        "ingress-1",
 		SessionID: "session-a",
-		Prompt:    "initial goal",
+		Prompt:    "hello",
 		Source:    NewCLIInputLocator(),
-	}); err != nil {
-		t.Fatalf("ingest() error = %v", err)
+	}); err == nil || !strings.Contains(err.Error(), "run already finished") {
+		t.Fatalf("ingest() error = %v, want shutdown rejection", err)
 	}
-	waitForCondition(t, func() bool {
-		coordinator.mu.Lock()
-		defer coordinator.mu.Unlock()
-		return coordinator.latestRootOutput == "latest root summary"
-	})
+}
+
+func TestQueuedTaskDoesNotStartAfterShutdownBegins(t *testing.T) {
+	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	defer cancel()
 
-	result, err := coordinator.waitResult(ctx)
-	if err != nil {
-		t.Fatalf("waitResult() error = %v", err)
+	workerRunner := &fakeTaskRunner{
+		started: make(chan startedTask, 2),
+		release: make(chan struct{}),
 	}
-	if result.Summary != "latest root summary" {
-		t.Fatalf("result.Summary = %q, want latest root summary", result.Summary)
+	coordinator, err := newCoordinator(zerolog.Nop(), testConfig(nil))
+	if err != nil {
+		t.Fatalf("newCoordinator() error = %v", err)
+	}
+	coordinator.start(ctx, map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    workerRunner,
+	})
+	defer coordinator.wait()
+
+	if err := coordinator.scheduleTask("task-1", "session-a", NewAgentLocator("worker"), NewAgentLocator(rootAgentID), "first"); err != nil {
+		t.Fatalf("scheduleTask(task-1) error = %v", err)
+	}
+	if err := coordinator.scheduleTask("task-2", "session-a", NewAgentLocator("worker"), NewAgentLocator(rootAgentID), "second"); err != nil {
+		t.Fatalf("scheduleTask(task-2) error = %v", err)
+	}
+
+	select {
+	case started := <-workerRunner.started:
+		if started.Prompt != "first" {
+			t.Fatalf("first started prompt = %q, want first", started.Prompt)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not start")
+	}
+
+	coordinator.beginShutdown()
+	cancel()
+	close(workerRunner.release)
+
+	select {
+	case started := <-workerRunner.started:
+		t.Fatalf("unexpected task started after shutdown: %+v", started)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
 func ptrLocator(locator Locator) *Locator {
 	return &locator
-}
-
-func waitForCondition(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("condition not satisfied before timeout")
 }
 
 func startTestCoordinator(t *testing.T, logger zerolog.Logger, cfg Config, runners map[string]taskRunner) (*coordinator, func()) {
@@ -367,6 +421,13 @@ func testConfig(providers []Provider) Config {
 				return strings.Join([]string{"Session ID:", input.SessionID, "", "Error:", input.Error}, "\n")
 			}
 			return strings.Join([]string{"Session ID:", input.SessionID, "", "Result:", input.Output}, "\n")
+		},
+		ContextDoneSummaryFormatter: func(input ContextDoneSummaryInput) string {
+			lines := []string{"Run stopped."}
+			if input.LastRootOutput != "" {
+				lines = append(lines, "", input.LastRootOutput)
+			}
+			return strings.Join(lines, "\n")
 		},
 		FinishOnContextDone: true,
 	}

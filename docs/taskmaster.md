@@ -90,7 +90,9 @@ The generic flow is:
    - routed back to root through `report_to = agent`, or
    - written to the log through `report_to = integration/cli/log`
 5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
-6. On shutdown, the playground returns the latest plain-text output produced by the root agent.
+6. On shutdown, the playground stops gracefully and returns a stop summary.
+   - It may include the last completed root output as context.
+   - It does not treat the interrupted turn as a normal completed result.
 
 Stdout remains reserved for:
 

@@ -1,12 +1,15 @@
 package taskmaster
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -63,9 +66,20 @@ func Run(ctx context.Context, cfg Config) error {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	shuttingDown := &atomic.Bool{}
+	go func() {
+		<-runCtx.Done()
+		shuttingDown.Store(true)
+	}()
+
 	baseLogger := *zerolog.Ctx(runCtx)
 	if cfg.Logger != nil {
 		baseLogger = *cfg.Logger
+	}
+
+	stderr := cfg.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
 	}
 
 	return taskmastercore.Run(runCtx, taskmastercore.Config{
@@ -73,7 +87,7 @@ func Run(ctx context.Context, cfg Config) error {
 		WorkingDir: cfg.WorkingDir,
 		BridgeBin:  cfg.BridgeBin,
 		Stdout:     cfg.Stdout,
-		Stderr:     cfg.Stderr,
+		Stderr:     &shutdownAwareStderr{writer: stderr, shuttingDown: shuttingDown},
 		Logger:     cfg.Logger,
 
 		ComponentName: "playground.taskmaster",
@@ -92,13 +106,14 @@ func Run(ctx context.Context, cfg Config) error {
 				Instruction: workerInstruction,
 			},
 		},
-		DefaultReportTo:           taskmastercore.NewAgentLocator(taskmasterAgentID),
-		AllowFinishTool:           false,
-		FinishOnContextDone:       true,
-		Providers:                 []taskmastercore.Provider{taskmastercore.NewCLILogProvider(baseLogger)},
-		IngressPromptFormatter:    formatIngressPrompt,
-		CompletionPromptFormatter: formatCompletionPrompt,
-		BackgroundGoalSource:      backgroundGoalSource(timerGoalInterval, newTicker),
+		DefaultReportTo:             taskmastercore.NewAgentLocator(taskmasterAgentID),
+		AllowFinishTool:             false,
+		FinishOnContextDone:         true,
+		Providers:                   []taskmastercore.Provider{taskmastercore.NewCLILogProvider(baseLogger)},
+		IngressPromptFormatter:      formatIngressPrompt,
+		CompletionPromptFormatter:   formatCompletionPrompt,
+		ContextDoneSummaryFormatter: formatContextDoneSummary,
+		BackgroundGoalSource:        backgroundGoalSource(timerGoalInterval, newTicker),
 	})
 }
 
@@ -200,4 +215,58 @@ func backgroundGoalSource(interval time.Duration, makeTicker func(time.Duration)
 			}
 		}
 	}
+}
+
+func formatContextDoneSummary(input taskmastercore.ContextDoneSummaryInput) string {
+	lines := []string{"Run stopped by signal."}
+	if last := strings.TrimSpace(input.LastRootOutput); last != "" {
+		lines = append(lines, "", "Last completed root output:", last)
+	}
+	return strings.Join(lines, "\n")
+}
+
+type shutdownAwareStderr struct {
+	writer       io.Writer
+	shuttingDown *atomic.Bool
+	mu           sync.Mutex
+	pending      []byte
+}
+
+func (w *shutdownAwareStderr) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.shuttingDown.Load() {
+		if len(w.pending) == 0 {
+			return w.writer.Write(p)
+		}
+		combined := append(append([]byte{}, w.pending...), p...)
+		w.pending = nil
+		_, err := w.writer.Write(combined)
+		return len(p), err
+	}
+
+	combined := append(append([]byte{}, w.pending...), p...)
+	w.pending = nil
+	lines := bytes.SplitAfter(combined, []byte("\n"))
+	if len(lines) == 0 {
+		return len(p), nil
+	}
+
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		if line[len(line)-1] != '\n' {
+			w.pending = append(w.pending, line...)
+			continue
+		}
+		if strings.TrimSpace(string(line)) == "Error: context canceled" {
+			continue
+		}
+		if _, err := w.writer.Write(line); err != nil {
+			return len(p), err
+		}
+	}
+	return len(p), nil
 }
