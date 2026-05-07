@@ -47,7 +47,7 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"plan -> do -> check -> act",
 		"Always start a new goal with plan.",
 		"You receive only prompt text as your turn input.",
-		"Runtime task metadata and routing are internal",
+		"Runtime task routing and bookkeeping are internal",
 		"do not author task-specific methodology, examples, commands, acceptance criteria, or execution instructions yourself",
 		"The child agent's own system prompt defines how that phase works.",
 		"For plan, pass only the raw goal text.",
@@ -59,6 +59,7 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"helpful labels like `verdict:` or `decision:`",
 		"If an act output clearly recommends replan, more planning is required before further execution.",
 		"You decide the next child task yourself from the prompt text you receive.",
+		"The report_to field means where task completion should be reported.",
 		"Do not read files, execute scripts, or perform worker work yourself.",
 	} {
 		if !strings.Contains(got, want) {
@@ -158,11 +159,11 @@ func TestFormatNotificationTaskInputIncludesPDCAContext(t *testing.T) {
 	t.Parallel()
 
 	got := formatNotificationTaskInput(&task{
-		ID:      "task-plan",
-		Locator: newAgentLocator("plan"),
-		ReplyTo: newAgentLocator(taskmasterAgentID),
-		Status:  taskStatusCompleted,
-		Output:  "planned",
+		ID:       "task-plan",
+		Locator:  newAgentLocator("plan"),
+		ReportTo: newAgentLocator(taskmasterAgentID),
+		Status:   taskStatusCompleted,
+		Output:   "planned",
 	})
 	for _, want := range []string{
 		"Task task-plan completed.",
@@ -177,7 +178,7 @@ func TestFormatNotificationTaskInputIncludesPDCAContext(t *testing.T) {
 		"TASK ENVELOPE:",
 		`"phase":`,
 		`"source_locator":`,
-		`"reply_to":`,
+		`"report_to":`,
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("formatNotificationTaskInput() = %q, do not want substring %q", got, unwanted)
@@ -211,10 +212,9 @@ func TestScheduleTaskQueuesImmediately(t *testing.T) {
 	}()
 
 	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
-		TaskID:   "task-plan",
-		Locator:  newAgentLocator("plan"),
-		Prompt:   "Plan the goal",
-		Metadata: map[string]any{"trace_id": "abc123"},
+		TaskID:  "task-plan",
+		Locator: newAgentLocator("plan"),
+		Prompt:  "Plan the goal",
 	})
 	if err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
@@ -238,26 +238,31 @@ func TestScheduleTaskQueuesImmediately(t *testing.T) {
 	close(planRunner.release)
 }
 
-func TestScheduleTaskRejectsReservedSystemMetadata(t *testing.T) {
+func TestScheduleTaskDefaultsReportToTaskmaster(t *testing.T) {
 	t.Parallel()
 
+	coordinator, cleanup := startTestCoordinator(t, testRunners{
+		taskmaster: &fakeTaskRunner{},
+		plan:       &fakeTaskRunner{},
+		do:         &fakeTaskRunner{},
+		check:      &fakeTaskRunner{},
+		act:        &fakeTaskRunner{},
+	})
+	defer cleanup()
+
 	service := newService(zerolog.Nop())
-	service.coordinator = &coordinator{}
+	service.coordinator = coordinator
 
 	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
-		TaskID:   "task-plan",
-		Locator:  newAgentLocator("plan"),
-		Prompt:   "Plan the goal",
-		Metadata: map[string]any{systemMetadataKey: map[string]any{"kind": "task"}},
+		TaskID:  "task-plan",
+		Locator: newAgentLocator("plan"),
+		Prompt:  "Plan the goal",
 	})
 	if err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
-	if out.Status != "error" {
-		t.Fatalf("out.Status = %q, want error", out.Status)
-	}
-	if !strings.Contains(out.Message, "metadata.taskmaster is reserved") {
-		t.Fatalf("out.Message = %q, want reserved metadata error", out.Message)
+	if out.ReportTo != newAgentLocator(taskmasterAgentID) {
+		t.Fatalf("out.ReportTo = %+v, want default taskmaster locator", out.ReportTo)
 	}
 }
 
@@ -274,7 +279,7 @@ func TestCoordinatorCreatesTaskmasterNotification(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.scheduleTask("task-plan", newAgentLocator("plan"), newAgentLocator(taskmasterAgentID), "Plan the goal", nil); err != nil {
+	if err := coordinator.scheduleTask("task-plan", newAgentLocator("plan"), newAgentLocator(taskmasterAgentID), "Plan the goal"); err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
 
@@ -286,7 +291,7 @@ func TestCoordinatorCreatesTaskmasterNotification(t *testing.T) {
 			strings.Contains(prompt, "TASK ENVELOPE:") ||
 			strings.Contains(prompt, `"phase"`) ||
 			strings.Contains(prompt, `"source_locator"`) ||
-			strings.Contains(prompt, `"reply_to"`) {
+			strings.Contains(prompt, `"report_to"`) {
 			t.Fatalf("taskmaster notification = %q, want plain completion prompt", prompt)
 		}
 	case <-time.After(2 * time.Second):
@@ -352,10 +357,10 @@ func TestCoordinatorSerializesPerAgent(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.enqueueTask(&task{ID: "task-1", Kind: taskKindAgent, Locator: newAgentLocator("plan"), ReplyTo: newAgentLocator(taskmasterAgentID), Prompt: "first", Input: "first"}); err != nil {
+	if err := coordinator.enqueueTask(&task{ID: "task-1", Locator: newAgentLocator("plan"), ReportTo: newAgentLocator(taskmasterAgentID), Prompt: "first"}); err != nil {
 		t.Fatalf("enqueueTask(first) error = %v", err)
 	}
-	if err := coordinator.enqueueTask(&task{ID: "task-2", Kind: taskKindAgent, Locator: newAgentLocator("plan"), ReplyTo: newAgentLocator(taskmasterAgentID), Prompt: "second", Input: "second"}); err != nil {
+	if err := coordinator.enqueueTask(&task{ID: "task-2", Locator: newAgentLocator("plan"), ReportTo: newAgentLocator(taskmasterAgentID), Prompt: "second"}); err != nil {
 		t.Fatalf("enqueueTask(second) error = %v", err)
 	}
 
@@ -399,10 +404,10 @@ func TestCoordinatorRunsDifferentAgentsConcurrently(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.enqueueTask(&task{ID: "task-plan", Kind: taskKindAgent, Locator: newAgentLocator("plan"), ReplyTo: newAgentLocator(taskmasterAgentID), Prompt: "plan", Input: "plan"}); err != nil {
+	if err := coordinator.enqueueTask(&task{ID: "task-plan", Locator: newAgentLocator("plan"), ReportTo: newAgentLocator(taskmasterAgentID), Prompt: "plan"}); err != nil {
 		t.Fatalf("enqueueTask(plan) error = %v", err)
 	}
-	if err := coordinator.enqueueTask(&task{ID: "task-do", Kind: taskKindAgent, Locator: newAgentLocator("do"), ReplyTo: newAgentLocator(taskmasterAgentID), Prompt: "do", Input: "do"}); err != nil {
+	if err := coordinator.enqueueTask(&task{ID: "task-do", Locator: newAgentLocator("do"), ReportTo: newAgentLocator(taskmasterAgentID), Prompt: "do"}); err != nil {
 		t.Fatalf("enqueueTask(do) error = %v", err)
 	}
 
@@ -434,7 +439,7 @@ func TestCoordinatorLogsDebugLifecycle(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.scheduleTask("task-plan", newAgentLocator("plan"), newAgentLocator(taskmasterAgentID), "Plan the goal", nil); err != nil {
+	if err := coordinator.scheduleTask("task-plan", newAgentLocator("plan"), newAgentLocator(taskmasterAgentID), "Plan the goal"); err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
 	waitForCondition(t, 2*time.Second, func() bool {
@@ -453,7 +458,7 @@ func TestCoordinatorLogsDebugLifecycle(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"locator":{"type":"agent","id":"plan"}`,
-		`"reply_to":{"type":"agent","id":"taskmaster"}`,
+		`"report_to":{"type":"agent","id":"taskmaster"}`,
 		`"source_locator":{"type":"agent","id":"plan"}`,
 	} {
 		if !strings.Contains(got, want) {
@@ -476,7 +481,7 @@ func TestExecutorLogsInfoTaskLifecycle(t *testing.T) {
 	})
 	defer cleanup()
 
-	if err := coordinator.scheduleTask("task-plan", newAgentLocator("plan"), newAgentLocator(taskmasterAgentID), "Plan the goal", nil); err != nil {
+	if err := coordinator.scheduleTask("task-plan", newAgentLocator("plan"), newAgentLocator(taskmasterAgentID), "Plan the goal"); err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
 	waitForCondition(t, 2*time.Second, func() bool {

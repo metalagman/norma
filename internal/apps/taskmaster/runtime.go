@@ -23,12 +23,11 @@ import (
 )
 
 const (
-	defaultAgentType   = "codex_acp"
-	defaultModel       = "gpt-5.3-codex"
-	defaultQueueDepth  = 32
-	initialGoalTaskID  = "goal-task"
-	defaultMaxAttempts = 1
-	rootAgentName      = "Taskmaster"
+	defaultAgentType  = "codex_acp"
+	defaultModel      = "gpt-5.3-codex"
+	defaultQueueDepth = 32
+	initialGoalTaskID = "goal-task"
+	rootAgentName     = "Taskmaster"
 )
 
 var childAgentInstructions = map[string]string{
@@ -86,13 +85,6 @@ type Config struct {
 	Logger     *zerolog.Logger
 }
 
-type taskKind string
-
-const (
-	taskKindAgent      taskKind = "agent"
-	taskKindTaskmaster taskKind = "taskmaster"
-)
-
 type taskStatus string
 
 const (
@@ -104,17 +96,12 @@ const (
 
 type task struct {
 	ID            string
-	Kind          taskKind
 	Locator       taskLocator
-	ReplyTo       taskLocator
+	ReportTo      taskLocator
 	SourceTaskID  string
 	SourceLocator *taskLocator
 	Prompt        string
-	Metadata      map[string]any
-	Input         string
 	Status        taskStatus
-	Attempt       int
-	MaxAttempts   int
 	CreatedAt     time.Time
 	ScheduledAt   time.Time
 	ClaimedAt     time.Time
@@ -353,12 +340,12 @@ func (e *executor) run(ctx context.Context) {
 			if nextTask == nil {
 				continue
 			}
-			if nextTask.Kind == taskKindTaskmaster && nextTask.SourceTaskID != "" {
+			if nextTask.SourceTaskID != "" {
 				e.logger.Debug().
 					Str("task_id", nextTask.ID).
 					Str("source_task_id", nextTask.SourceTaskID).
 					Interface("source_locator", nextTask.SourceLocator).
-					Interface("reply_to", nextTask.ReplyTo).
+					Interface("report_to", nextTask.ReportTo).
 					Msg("notification task received")
 			}
 			e.logger.Info().
@@ -367,7 +354,7 @@ func (e *executor) run(ctx context.Context) {
 				Str("task", nextTask.Prompt).
 				Msg("agent received task")
 			e.coordinator.markTaskStarted(nextTask)
-			output, err := e.runner.RunTask(ctx, nextTask.ID, nextTask.Input)
+			output, err := e.runner.RunTask(ctx, nextTask.ID, nextTask.Prompt)
 			if err != nil {
 				e.logger.Info().
 					Str("agent_id", e.agentID).
@@ -441,28 +428,17 @@ func (c *coordinator) wait() {
 }
 
 func (c *coordinator) enqueueInitialGoal(goal string) error {
-	metadata := map[string]any{
-		systemMetadataKey: map[string]any{
-			"kind":    "goal",
-			"task_id": initialGoalTaskID,
-		},
-	}
 	initial := &task{
-		ID:          initialGoalTaskID,
-		Kind:        taskKindTaskmaster,
-		Locator:     newAgentLocator(taskmasterAgentID),
-		ReplyTo:     newAgentLocator(taskmasterAgentID),
-		Prompt:      formatInitialGoalTaskInput(goal),
-		Metadata:    metadata,
-		Input:       formatInitialGoalTaskInput(goal),
-		Status:      taskStatusQueued,
-		Attempt:     1,
-		MaxAttempts: defaultMaxAttempts,
+		ID:       initialGoalTaskID,
+		Locator:  newAgentLocator(taskmasterAgentID),
+		ReportTo: newAgentLocator(taskmasterAgentID),
+		Prompt:   formatInitialGoalTaskInput(goal),
+		Status:   taskStatusQueued,
 	}
 	return c.enqueueTask(initial)
 }
 
-func (c *coordinator) scheduleTask(taskID string, locator taskLocator, replyTo taskLocator, prompt string, metadata map[string]any) error {
+func (c *coordinator) scheduleTask(taskID string, locator taskLocator, reportTo taskLocator, prompt string) error {
 	taskID = strings.TrimSpace(taskID)
 	prompt = strings.TrimSpace(prompt)
 	if taskID == "" {
@@ -477,23 +453,12 @@ func (c *coordinator) scheduleTask(taskID string, locator taskLocator, replyTo t
 	if _, ok := childAgentInstructions[locator.ID]; !ok {
 		return fmt.Errorf("unknown child agent locator.id %q", locator.ID)
 	}
-	if replyTo.Type != locatorTypeAgent {
-		return fmt.Errorf("unsupported reply_to.type %q", replyTo.Type)
+	if reportTo.Type != locatorTypeAgent {
+		return fmt.Errorf("unsupported report_to.type %q", reportTo.Type)
 	}
-	if !isKnownRuntimeAgentID(replyTo.ID) {
-		return fmt.Errorf("unknown reply_to.id %q", replyTo.ID)
+	if !isKnownRuntimeAgentID(reportTo.ID) {
+		return fmt.Errorf("unknown report_to.id %q", reportTo.ID)
 	}
-	systemMetadata := map[string]any{
-		systemMetadataKey: map[string]any{
-			"kind":    "task",
-			"task_id": taskID,
-		},
-	}
-	envelopeMetadata := cloneMetadata(metadata)
-	if envelopeMetadata == nil {
-		envelopeMetadata = make(map[string]any, 1)
-	}
-	envelopeMetadata[systemMetadataKey] = systemMetadata[systemMetadataKey]
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -503,7 +468,7 @@ func (c *coordinator) scheduleTask(taskID string, locator taskLocator, replyTo t
 	if _, exists := c.tasks[taskID]; exists {
 		return fmt.Errorf("task %q already exists", taskID)
 	}
-	queued := c.newQueuedTaskLocked(taskID, taskKindAgent, locator, replyTo, prompt, envelopeMetadata)
+	queued := c.newQueuedTaskLocked(taskID, locator, reportTo, prompt)
 	return c.enqueueQueuedTaskLocked(queued)
 }
 
@@ -557,26 +522,20 @@ func (c *coordinator) enqueueTask(nextTask *task) error {
 	if _, exists := c.tasks[nextTask.ID]; exists {
 		return fmt.Errorf("task %q already exists", nextTask.ID)
 	}
-	queued := c.newQueuedTaskLocked(nextTask.ID, nextTask.Kind, nextTask.Locator, nextTask.ReplyTo, nextTask.Prompt, nextTask.Metadata)
+	queued := c.newQueuedTaskLocked(nextTask.ID, nextTask.Locator, nextTask.ReportTo, nextTask.Prompt)
 	queued.SourceTaskID = nextTask.SourceTaskID
 	queued.SourceLocator = nextTask.SourceLocator
 	return c.enqueueQueuedTaskLocked(queued)
 }
 
-func (c *coordinator) newQueuedTaskLocked(taskID string, kind taskKind, locator taskLocator, replyTo taskLocator, prompt string, metadata map[string]any) *task {
+func (c *coordinator) newQueuedTaskLocked(taskID string, locator taskLocator, reportTo taskLocator, prompt string) *task {
 	now := time.Now().UTC()
-	clonedMetadata := cloneMetadata(metadata)
 	nextTask := &task{
 		ID:          taskID,
-		Kind:        kind,
 		Locator:     locator,
-		ReplyTo:     replyTo,
+		ReportTo:    reportTo,
 		Prompt:      strings.TrimSpace(prompt),
-		Metadata:    clonedMetadata,
-		Input:       strings.TrimSpace(prompt),
 		Status:      taskStatusQueued,
-		Attempt:     1,
-		MaxAttempts: defaultMaxAttempts,
 		CreatedAt:   now,
 		ScheduledAt: now,
 	}
@@ -636,21 +595,11 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 
 	if !c.terminal {
 		notificationPrompt := formatNotificationTaskInput(doneTask)
-		notificationMetadata := map[string]any{
-			systemMetadataKey: map[string]any{
-				"kind":           "completion",
-				"task_id":        doneTask.ID + ".notify",
-				"source_task_id": doneTask.ID,
-				"status":         string(doneTask.Status),
-			},
-		}
 		notification = c.newQueuedTaskLocked(
 			doneTask.ID+".notify",
-			taskKindTaskmaster,
-			doneTask.ReplyTo,
+			doneTask.ReportTo,
 			newAgentLocator(taskmasterAgentID),
 			notificationPrompt,
-			notificationMetadata,
 		)
 		notification.SourceTaskID = doneTask.ID
 		sourceLocator := doneTask.Locator
@@ -684,9 +633,8 @@ func (c *coordinator) enqueueNotification(nextTask *task) error {
 func (c *coordinator) logTaskEvent(message string, nextTask *task) {
 	event := c.logger.Debug().
 		Str("task_id", nextTask.ID).
-		Str("kind", string(nextTask.Kind)).
 		Interface("locator", nextTask.Locator).
-		Interface("reply_to", nextTask.ReplyTo).
+		Interface("report_to", nextTask.ReportTo).
 		Str("status", string(nextTask.Status))
 	if nextTask.SourceTaskID != "" {
 		event = event.Str("source_task_id", nextTask.SourceTaskID)
@@ -744,13 +692,13 @@ func rootInstruction() string {
 	return strings.Join([]string{
 		"You are the Taskmaster async root agent named taskmaster.",
 		"You receive only prompt text as your turn input.",
-		"Runtime task metadata and routing are internal and are not shown to you directly.",
+		"Runtime task routing and bookkeeping are internal and are not shown to you directly.",
 		"You are running a strict PDCA workflow over child agents.",
 		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
 		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
 		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to finish the run.",
-		"Each scheduled task must include a stable task_id, a locator, an optional reply_to, a prompt, and optional metadata.",
-		"Do not set metadata.taskmaster when scheduling tasks. That namespace is reserved for the coordinator.",
+		"Each scheduled task must include a stable task_id, a locator, an optional report_to, and a prompt.",
+		"The report_to field means where task completion should be reported.",
 		"The child agents available in this MVP are plan, do, check, and act.",
 		"Treat plan, do, check, and act as strict PDCA phases, not generic workers.",
 		"After a plan completion, schedule do. After a do completion, schedule check. After a check completion, schedule act.",

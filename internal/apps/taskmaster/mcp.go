@@ -23,19 +23,18 @@ type service struct {
 }
 
 type scheduleTaskInput struct {
-	TaskID   string         `json:"task_id"`
-	Locator  taskLocator    `json:"locator"`
-	ReplyTo  *taskLocator   `json:"reply_to,omitempty"`
-	Prompt   string         `json:"prompt"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	TaskID   string       `json:"task_id"`
+	Locator  taskLocator  `json:"locator"`
+	ReportTo *taskLocator `json:"report_to,omitempty"`
+	Prompt   string       `json:"prompt"`
 }
 
 type scheduleTaskOutput struct {
-	TaskID  string      `json:"task_id"`
-	Locator taskLocator `json:"locator"`
-	ReplyTo taskLocator `json:"reply_to"`
-	Status  string      `json:"status"`
-	Message string      `json:"message,omitempty"`
+	TaskID   string      `json:"task_id"`
+	Locator  taskLocator `json:"locator"`
+	ReportTo taskLocator `json:"report_to"`
+	Status   string      `json:"status"`
+	Message  string      `json:"message,omitempty"`
 }
 
 type finishInput struct {
@@ -58,7 +57,7 @@ func newMCPServer(service *service) *mcp.Server {
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        scheduleTaskToolName,
-		Description: "Enqueue one child-agent task addressed by locator using a generic prompt plus optional metadata payload. Returns immediately after queueing.",
+		Description: "Enqueue one child-agent task addressed by locator using a plain-text prompt. Optionally set report_to for completion reporting. Returns immediately after queueing.",
 	}, service.scheduleTask)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        finishToolName,
@@ -76,40 +75,35 @@ func startHTTPServer(ctx context.Context, service *service, addr string) (*httpS
 func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, input scheduleTaskInput) (*mcp.CallToolResult, scheduleTaskOutput, error) {
 	taskID := strings.TrimSpace(input.TaskID)
 	locator, locatorErr := normalizeLocator(input.Locator)
-	replyTo, replyErr := normalizeReplyLocator(input.ReplyTo)
+	reportTo, reportErr := normalizeReportLocator(input.ReportTo)
 	prompt := strings.TrimSpace(input.Prompt)
-	metadata, metadataErr := normalizeUserMetadata(input.Metadata)
 	if s.coordinator == nil {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: "coordinator is not ready"}
+		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReportTo: reportTo, Status: "error", Message: "coordinator is not ready"}
 		return toolError(out.Message), out, nil
 	}
 	if locatorErr != nil {
 		out := scheduleTaskOutput{TaskID: taskID, Status: "error", Message: locatorErr.Error()}
 		return toolError(out.Message), out, nil
 	}
-	if replyErr != nil {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, Status: "error", Message: replyErr.Error()}
+	if reportErr != nil {
+		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, Status: "error", Message: reportErr.Error()}
 		return toolError(out.Message), out, nil
 	}
-	if metadataErr != nil {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: metadataErr.Error()}
-		return toolError(out.Message), out, nil
-	}
-	if err := s.coordinator.scheduleTask(taskID, locator, replyTo, prompt, metadata); err != nil {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReplyTo: replyTo, Status: "error", Message: err.Error()}
+	if err := s.coordinator.scheduleTask(taskID, locator, reportTo, prompt); err != nil {
+		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReportTo: reportTo, Status: "error", Message: err.Error()}
 		return toolError(out.Message), out, nil
 	}
 	out := scheduleTaskOutput{
-		TaskID:  taskID,
-		Locator: locator,
-		ReplyTo: replyTo,
-		Status:  string(taskStatusQueued),
-		Message: "task queued",
+		TaskID:   taskID,
+		Locator:  locator,
+		ReportTo: reportTo,
+		Status:   string(taskStatusQueued),
+		Message:  "task queued",
 	}
 	s.logger.Debug().
 		Str("task_id", taskID).
 		Interface("locator", locator).
-		Interface("reply_to", replyTo).
+		Interface("report_to", reportTo).
 		Msg("schedule_task accepted")
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: out.Message}},

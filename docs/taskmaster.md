@@ -28,9 +28,8 @@ This playground currently uses:
 - one inbox queue per agent
 - one serial executor per inbox
 - coordinator-owned task scheduling
-- internal task envelopes with `prompt` plus internal metadata
 - target-agnostic routing through `locator`
-- async completion routing through `reply_to`
+- async completion routing through `report_to`
 - strict root-agent PDCA sequencing by prompt contract
 - freeform task text and freeform text outputs
 
@@ -100,10 +99,10 @@ This sequencing is enforced by prompt contract, not by a coordinator phase-state
 
 Important boundary:
 
-- Taskmaster runtime tasks internally carry `prompt` plus metadata.
+- Taskmaster runtime tasks internally carry `prompt` plus routing state.
 - Agents do **not** receive that envelope object.
 - The runtime passes only the envelope `prompt` into the actual agent turn.
-- Routing data such as `locator` and `reply_to` stays in the coordinator/tool layer.
+- Routing data such as `locator` and `report_to` stays in the coordinator/tool layer.
 - Root `taskmaster` is a handoff coordinator, not a pseudo-worker author.
 - Root `taskmaster` must not invent worker methodology, command examples, acceptance criteria, or execution guidance for child agents.
 - Child methodology lives in the child agent system prompts.
@@ -123,7 +122,7 @@ Current MVP locator shape:
 }
 ```
 
-Every runtime task also carries `reply_to`, which tells the Coordinator where completion notifications must be sent. If omitted in `taskmaster.schedule_task`, it defaults to:
+Every runtime task also carries `report_to`, which tells the Coordinator where task completion should be reported. If omitted in `taskmaster.schedule_task`, it defaults to:
 
 ```json
 {
@@ -140,11 +139,8 @@ Tool input:
 {
   "task_id": "task-plan",
   "locator": { "type": "agent", "id": "plan" },
-  "reply_to": { "type": "agent", "id": "taskmaster" },
-  "prompt": "count lines of go code",
-  "metadata": {
-    "trace_id": "abc123"
-  }
+  "report_to": { "type": "agent", "id": "taskmaster" },
+  "prompt": "count lines of go code"
 }
 ```
 
@@ -154,7 +150,7 @@ Tool output:
 {
   "task_id": "task-plan",
   "locator": { "type": "agent", "id": "plan" },
-  "reply_to": { "type": "agent", "id": "taskmaster" },
+  "report_to": { "type": "agent", "id": "taskmaster" },
   "status": "queued",
   "message": "task queued"
 }
@@ -166,9 +162,8 @@ Validation rules:
 - `prompt` must be non-empty
 - `locator.type` must be `agent`
 - `locator.id` must be one of `plan|do|check|act`
-- `reply_to.type` must be `agent`
-- `reply_to.id` must be a known runtime agent id
-- `metadata.taskmaster` is reserved and cannot be set by the caller
+- `report_to.type` must be `agent`
+- `report_to.id` must be a known runtime agent id
 
 ## `taskmaster.finish`
 
@@ -193,7 +188,7 @@ Tool output:
 
 ## Completion Prompts
 
-When a non-root task completes, the Coordinator creates a new notification task addressed to the original `reply_to`.
+When a non-root task completes, the Coordinator creates a new notification task addressed to the original `report_to`.
 
 The runtime keeps completion metadata internally, but the root agent receives only a plain prompt, for example:
 
