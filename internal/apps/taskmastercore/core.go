@@ -171,6 +171,7 @@ type coordinator struct {
 	tasks        map[string]*task
 	queues       map[string]chan *task
 	terminal     bool
+	shuttingDown bool
 	finalSummary string
 	finalErr     error
 	done         chan runResult
@@ -313,6 +314,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		})
 	}
 	result, err := coordinator.waitResult(ctx)
+	coordinator.beginShutdown()
 	cancel()
 	coordinator.wait()
 	if err != nil {
@@ -416,12 +418,14 @@ func (e *executor) run(ctx context.Context) {
 					Interface("report_to", nextTask.ReportTo).
 					Msg("notification task received")
 			}
+			if !e.coordinator.tryStartTask(nextTask) {
+				continue
+			}
 			e.logger.Info().
 				Str("agent_id", e.agentID).
 				Str("task_id", nextTask.ID).
 				Str("task", nextTask.Prompt).
 				Msg("agent received task")
-			e.coordinator.markTaskStarted(nextTask)
 			output, err := e.runner.RunTask(ctx, nextTask.ID, nextTask.Prompt)
 			if err != nil {
 				e.logger.Info().
@@ -555,6 +559,12 @@ func (c *coordinator) finish(summary string) error {
 	return nil
 }
 
+func (c *coordinator) beginShutdown() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.shuttingDown = true
+}
+
 func (c *coordinator) waitResult(ctx context.Context) (runResult, error) {
 	select {
 	case <-ctx.Done():
@@ -620,14 +630,19 @@ func (c *coordinator) enqueueQueuedTaskLocked(nextTask *task) error {
 	return nil
 }
 
-func (c *coordinator) markTaskStarted(nextTask *task) {
+func (c *coordinator) tryStartTask(nextTask *task) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.terminal {
+		c.logTaskEvent("task skipped after terminal", nextTask)
+		return false
+	}
 	now := time.Now().UTC()
 	nextTask.ClaimedAt = now
 	nextTask.StartedAt = now
 	nextTask.Status = taskStatusRunning
 	c.logTaskEvent("task started", nextTask)
+	return true
 }
 
 func (c *coordinator) handleTaskResult(doneTask *task, output string, err error) {
@@ -638,6 +653,13 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 	var notification *task
 	var humanOutput string
 	if err != nil {
+		if c.shuttingDown && errors.Is(err, context.Canceled) {
+			doneTask.Status = taskStatusFailed
+			doneTask.Error = err.Error()
+			c.logTaskEvent("task canceled during shutdown", doneTask)
+			c.mu.Unlock()
+			return
+		}
 		doneTask.Status = taskStatusFailed
 		doneTask.Error = err.Error()
 		c.logTaskEvent("task failed", doneTask)

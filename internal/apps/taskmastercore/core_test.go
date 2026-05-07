@@ -131,8 +131,111 @@ func TestCoordinatorHumanOutputSkipsRootNotification(t *testing.T) {
 	t.Fatalf("logs = %q, want human output delivered entry", logs.String())
 }
 
+func TestQueuedRootTaskSkippedAfterFinish(t *testing.T) {
+	t.Parallel()
+
+	rootRunner := &fakeTaskRunner{
+		started: make(chan string, 2),
+		release: make(chan struct{}),
+	}
+	coordinator, cleanup := startTestCoordinatorWithRunners(t, zerolog.Nop(), false, rootRunner, &fakeTaskRunner{})
+	defer cleanup()
+
+	if err := coordinator.enqueueInitialGoal("initial goal"); err != nil {
+		t.Fatalf("enqueueInitialGoal() error = %v", err)
+	}
+	select {
+	case <-rootRunner.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial root task did not start")
+	}
+
+	if err := coordinator.enqueueBackgroundGoal("hello world"); err != nil {
+		t.Fatalf("enqueueBackgroundGoal() error = %v", err)
+	}
+	if err := coordinator.finish("done"); err != nil {
+		t.Fatalf("finish() error = %v", err)
+	}
+	close(rootRunner.release)
+
+	result, err := coordinator.waitResult(context.Background())
+	if err != nil {
+		t.Fatalf("waitResult() error = %v", err)
+	}
+	if result.Summary != "done" {
+		t.Fatalf("result.Summary = %q, want done", result.Summary)
+	}
+
+	select {
+	case prompt := <-rootRunner.started:
+		t.Fatalf("unexpected second root task started with prompt %q after finish", prompt)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestCanceledTaskDuringShutdownIsNotTreatedAsFailure(t *testing.T) {
+	t.Parallel()
+
+	logs := &lockedStringBuffer{}
+	logger := zerolog.New(logs).Level(zerolog.DebugLevel)
+	rootRunner := &fakeTaskRunner{}
+	workerRunner := &fakeTaskRunner{
+		release: make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := Config{
+		RootAgentID: rootAgentID,
+		RootAgent: AgentConfig{
+			Name:        "root",
+			Instruction: "root",
+		},
+		ChildAgents: map[string]AgentConfig{
+			"worker": {
+				Name:        "worker",
+				Instruction: "worker",
+			},
+		},
+		DefaultReportTo:      NewAgentLocator(rootAgentID),
+		AllowHumanOutputSink: false,
+		GoalPromptFormatter:  func(goal string) string { return goal },
+	}
+	coordinator, err := newCoordinator(logger, cfg)
+	if err != nil {
+		t.Fatalf("newCoordinator() error = %v", err)
+	}
+	coordinator.start(ctx, map[string]taskRunner{
+		rootAgentID: rootRunner,
+		"worker":    workerRunner,
+	})
+	defer coordinator.wait()
+
+	if err := coordinator.scheduleTask("task-worker", NewAgentLocator("worker"), NewAgentLocator("taskmaster"), "do work"); err != nil {
+		t.Fatalf("scheduleTask() error = %v", err)
+	}
+	waitForString(t, logs, `"message":"task started"`)
+	coordinator.beginShutdown()
+	cancel()
+
+	waitForString(t, logs, `"message":"task canceled during shutdown"`)
+	if strings.Contains(logs.String(), `"message":"task failed"`) {
+		t.Fatalf("logs = %q, do not want task failed log for expected shutdown cancel", logs.String())
+	}
+}
+
 func ptrLocator(locator Locator) *Locator {
 	return &locator
+}
+
+func waitForString(t *testing.T, logs *lockedStringBuffer, needle string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(logs.String(), needle) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("logs = %q, want substring %q", logs.String(), needle)
 }
 
 func startTestCoordinator(t *testing.T, logger zerolog.Logger, allowHumanOutput bool) (*coordinator, func()) {
