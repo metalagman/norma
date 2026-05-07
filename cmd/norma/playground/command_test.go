@@ -39,6 +39,14 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 	if sub.Name() != "taskmaster" {
 		t.Fatalf("subcommand = %q, want taskmaster", sub.Name())
 	}
+
+	sub, _, err = cmd.Find([]string{"pdca-sync"})
+	if err != nil {
+		t.Fatalf("find pdca-sync subcommand: %v", err)
+	}
+	if sub.Name() != "pdca-sync" {
+		t.Fatalf("subcommand = %q, want pdca-sync", sub.Name())
+	}
 }
 
 func TestPlaygroundGeminiACPDoesNotExposeLegacyDebugFlags(t *testing.T) {

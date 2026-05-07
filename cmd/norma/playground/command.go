@@ -1,6 +1,7 @@
 package playgroundcmd
 
 import (
+	pdcasynccmd "github.com/normahq/norma/cmd/norma/playground/pdcasync"
 	taskmastercmd "github.com/normahq/norma/cmd/norma/playground/taskmaster"
 	"github.com/spf13/cobra"
 )
@@ -16,6 +17,7 @@ func Command() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(pdcasynccmd.Command())
 	cmd.AddCommand(taskmastercmd.Command())
 	return cmd
 }
