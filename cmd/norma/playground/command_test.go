@@ -69,15 +69,15 @@ func TestPlaygroundGeminiACPDoesNotExposeLegacyDebugFlags(t *testing.T) {
 
 func TestRunGeminiACPOneShot(t *testing.T) {
 	wrapper, argsFile := writeGeminiWrapper(t)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
 
 	err := acpcmd.RunGeminiACP(context.Background(), t.TempDir(), acpcmd.GeminiOptions{
 		Prompt:     "hello",
 		Model:      "gemini-test",
 		GeminiBin:  wrapper,
 		GeminiArgs: []string{"--sandbox", "workspace-write"},
-	}, strings.NewReader(""), &stdout, &stderr)
+	}, strings.NewReader(""), stdout, stderr)
 	if err != nil {
 		t.Fatalf("runGeminiACP() error = %v", err)
 	}
@@ -106,15 +106,15 @@ func TestRunGeminiACPReusesSessionInREPL(t *testing.T) {
 
 func TestRunOpenCodeACPOneShot(t *testing.T) {
 	wrapper, argsFile := writeOpenCodeWrapper(t)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
 
 	err := acpcmd.RunOpenCodeACP(context.Background(), t.TempDir(), acpcmd.OpenCodeOptions{
 		Prompt:       "hello",
 		Model:        "opencode/test-model",
 		OpenCodeBin:  wrapper,
 		OpenCodeArgs: []string{"--print-logs"},
-	}, strings.NewReader(""), &stdout, &stderr)
+	}, strings.NewReader(""), stdout, stderr)
 	if err != nil {
 		t.Fatalf("runOpenCodeACP() error = %v", err)
 	}
@@ -143,13 +143,13 @@ func TestRunOpenCodeACPReusesSessionInREPL(t *testing.T) {
 
 func TestRunCodexACPOneShot(t *testing.T) {
 	wrapper, argsFile := writeCodexACPWrapper(t)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
 
 	err := acpcmd.RunCodexACP(context.Background(), t.TempDir(), acpcmd.CodexOptions{
 		Prompt:    "hello",
 		BridgeBin: wrapper,
-	}, strings.NewReader(""), &stdout, &stderr)
+	}, strings.NewReader(""), stdout, stderr)
 	if err != nil {
 		t.Fatalf("runCodexACP() error = %v", err)
 	}
@@ -217,6 +217,12 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
+func (b *lockedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.buf.Bytes()...)
+}
+
 func TestRunACPInfoHuman(t *testing.T) {
 	tests := []struct {
 		name string
@@ -247,9 +253,9 @@ func TestRunACPInfoHuman(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var stdout bytes.Buffer
-			var stderr bytes.Buffer
-			if err := tc.run(context.Background(), t.TempDir(), &stdout, &stderr); err != nil {
+			stdout := &lockedBuffer{}
+			stderr := &lockedBuffer{}
+			if err := tc.run(context.Background(), t.TempDir(), stdout, stderr); err != nil {
 				t.Fatalf("run info error = %v", err)
 			}
 
@@ -273,16 +279,16 @@ func TestRunACPInfoHuman(t *testing.T) {
 
 func TestRunACPInfoJSON(t *testing.T) {
 	wrapper, _ := writeGeminiWrapper(t)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
 
 	err := acpcmd.RunGeminiACPInfo(
 		context.Background(),
 		t.TempDir(),
 		acpcmd.GeminiOptions{GeminiBin: wrapper},
 		true,
-		&stdout,
-		&stderr,
+		stdout,
+		stderr,
 	)
 	if err != nil {
 		t.Fatalf("RunGeminiACPInfo() error = %v", err)

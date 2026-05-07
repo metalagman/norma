@@ -30,7 +30,7 @@ The runtime shape is still queue-based:
 - completion routing through `report_to`
 - plain-text prompts and plain-text outputs
 
-The root agent is workflow-agnostic. It schedules work to `worker`, interprets plain-text completions, and keeps emitting its current best plain-text summary while the run stays active.
+The root agent is workflow-agnostic. It schedules work to `worker`, interprets plain-text follow-up tasks, and keeps the run moving while the process stays alive.
 
 ## Control Surface
 
@@ -90,13 +90,10 @@ The generic flow is:
    - routed back to root through `report_to = agent`, or
    - written to the log through `report_to = integration/cli/log`
 5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
-6. On shutdown, the playground stops gracefully and returns a stop summary.
-   - It may include the last completed root output as context.
-   - It does not treat the interrupted turn as a normal completed result.
+6. On shutdown, the playground stops gracefully.
 
 Stdout remains reserved for:
 
-- final root summary
 - `Total run time: ...`
 
 ## Background Goals
@@ -121,7 +118,8 @@ That local runtime provides:
 - session-aware local agent turns keyed by explicit `session_id`
 - reusable locators with `class`, `transport`, `key`, and optional `address`
 - completion routing modeled as another task addressed to `report_to`
-- MCP tooling for `taskmaster.schedule_task` and optional `taskmaster.finish`
+- lifecycle-style control: `New`, `Start`, `Stop`, `Done`, `Err`, `Enqueue`
+- shared MCP tooling only for `taskmaster.schedule_task`
 
 ## Relation to Other Playgrounds
 

@@ -84,8 +84,6 @@ func (t CLILogTarget) DispatchTask(_ context.Context, task Task) error {
 		Str("task_id", task.ID).
 		Str("session_id", task.SessionID).
 		Str("locator", task.Locator.String()).
-		Str("source_locator", locatorPtrString(task.SourceLocator)).
-		Str("source_task_id", strings.TrimSpace(task.SourceTaskID)).
 		Str("message_text", message).
 		Msg("cli log delivered")
 	return nil

@@ -12,7 +12,7 @@ func TestScheduleTaskUsesContentAndDefaultReportTo(t *testing.T) {
 	t.Parallel()
 
 	controller := &fakeController{}
-	service := NewService(zerolog.Nop(), taskmaster.NewAgentLocator("taskmaster"), true)
+	service := NewService(zerolog.Nop(), taskmaster.NewAgentLocator("taskmaster"))
 	service.SetController(controller)
 
 	_, out, err := service.scheduleTask(context.Background(), nil, ScheduleTaskInput{
@@ -35,47 +35,19 @@ func TestScheduleTaskUsesContentAndDefaultReportTo(t *testing.T) {
 	}
 }
 
-func TestFinishCallsController(t *testing.T) {
-	t.Parallel()
-
-	controller := &fakeController{}
-	service := NewService(zerolog.Nop(), taskmaster.NewAgentLocator("taskmaster"), true)
-	service.SetController(controller)
-
-	_, out, err := service.finish(context.Background(), nil, FinishInput{Summary: "done"})
-	if err != nil {
-		t.Fatalf("finish() error = %v", err)
-	}
-	if out.Status != "finished" {
-		t.Fatalf("status = %q, want finished", out.Status)
-	}
-	if controller.finishSummary != "done" {
-		t.Fatalf("finishSummary = %q, want done", controller.finishSummary)
-	}
-}
-
-func TestToolNamesStayStable(t *testing.T) {
+func TestToolNameStaysStable(t *testing.T) {
 	t.Parallel()
 
 	if ScheduleTaskToolName != "taskmaster.schedule_task" {
 		t.Fatalf("ScheduleTaskToolName = %q", ScheduleTaskToolName)
 	}
-	if FinishToolName != "taskmaster.finish" {
-		t.Fatalf("FinishToolName = %q", FinishToolName)
-	}
 }
 
 type fakeController struct {
-	lastTask      taskmaster.Task
-	finishSummary string
+	lastTask taskmaster.Task
 }
 
 func (c *fakeController) Enqueue(task taskmaster.Task) error {
 	c.lastTask = task
-	return nil
-}
-
-func (c *fakeController) Finish(summary string) error {
-	c.finishSummary = summary
 	return nil
 }

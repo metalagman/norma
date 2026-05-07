@@ -35,11 +35,10 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"session_id",
 		"class: agent, transport: local, key: worker",
 		"class: integration, transport: cli, key: log",
-		"completion goes only to the current log",
+		"If you want async results to come back somewhere, set report_to to a registered target locator.",
 		"background timer may also deliver simple hello world goals",
 		"does not finish on your turn completion",
 		"host context is canceled",
-		"Keep coordinating work and updating your current best summary",
 		"Do not impose a fixed workflow or phase order",
 		"plain-text task content",
 	} {
@@ -54,6 +53,7 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"taskmaster.finish",
 		"`verdict:`",
 		"`decision:`",
+		"current best summary",
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("rootInstruction() = %q, do not want substring %q", got, unwanted)
@@ -93,19 +93,17 @@ func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 	fake := &fakeTicker{ch: tickCh}
 
 	rootRunner := &fakeLocalRunner{started: make(chan startedTask, 1)}
-	runtime, err := taskmasterrt.Start(context.Background(), taskmasterrt.Config{
-		RootAgentID:     taskmasterAgentID,
-		LocalRunners:    map[string]taskmasterrt.LocalRunner{taskmasterAgentID: rootRunner},
-		DefaultReportTo: taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		ReportTaskContentFormatter: func(source taskmasterrt.Task, output string, err error) string {
-			return output
-		},
-		ShutdownSummaryFormatter: formatContextDoneSummary,
+	runtime, err := taskmasterrt.New(taskmasterrt.Config{
+		RootAgentID:  taskmasterAgentID,
+		LocalRunners: map[string]taskmasterrt.LocalRunner{taskmasterAgentID: rootRunner},
 	})
 	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := runtime.Start(context.Background()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer func() { _ = runtime.Close() }()
+	defer func() { _ = runtime.Stop(context.Background()) }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -122,24 +120,6 @@ func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("background task source did not emit synthetic goal")
-	}
-}
-
-func TestFormatContextDoneSummary(t *testing.T) {
-	t.Parallel()
-
-	got := formatContextDoneSummary(taskmasterrt.ShutdownSummaryInput{
-		LastRootOutput: "latest summary",
-		Err:            context.Canceled,
-	})
-	if !strings.Contains(got, "Run stopped by signal.") {
-		t.Fatalf("formatContextDoneSummary() = %q, want stop headline", got)
-	}
-	if !strings.Contains(got, "Last completed root output:") {
-		t.Fatalf("formatContextDoneSummary() = %q, want last-output header", got)
-	}
-	if !strings.Contains(got, "latest summary") {
-		t.Fatalf("formatContextDoneSummary() = %q, want last root output", got)
 	}
 }
 

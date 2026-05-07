@@ -37,7 +37,6 @@ This wrapper preserves the existing strict PDCA prompt contract:
 The control-tool namespace is the same as generic Taskmaster:
 
 - `taskmaster.schedule_task`
-- `taskmaster.finish`
 
 Routing remains async and locator-based, but child locators are the PDCA child agents:
 
@@ -61,6 +60,8 @@ Default `report_to` resolves to the PDCA root agent:
 This wrapper accepts only agent-based `report_to` targets. It does not support the generic `integration/cli/log` report sink.
 
 `taskmaster.schedule_task` also requires `session_id`. The root keeps the same session across PDCA turns for the same conversation.
+
+`taskmaster.finish` still exists in this wrapper, but it is wrapper-owned. It is not part of the shared reusable `pkg/runtime/taskmaster` MCP package.
 
 This wrapper is now built on the local reusable runtime packages:
 

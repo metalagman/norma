@@ -33,7 +33,7 @@ func TestChildAgentInstructionsUsePDCAContract(t *testing.T) {
 		t.Fatalf("check instruction = %q, want PDCA guidance", checkInstruction)
 	}
 	actInstruction := childAgentInstructions["act"]
-	if !strings.Contains(actInstruction, "decision: close") || !strings.Contains(actInstruction, "decision: replan") {
+	if !strings.Contains(actInstruction, "decision: close") || !strings.Contains(actInstruction, "decision: replan") || !strings.Contains(actInstruction, "stop or replan") {
 		t.Fatalf("act instruction = %q, want advisory close/replan guidance", actInstruction)
 	}
 }

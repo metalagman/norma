@@ -3,6 +3,7 @@ package taskmaster
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -111,7 +112,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	serviceLogger := baseLogger.With().Str("surface", "taskmaster").Logger()
-	service := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(taskmasterAgentID), false)
+	service := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(taskmasterAgentID))
 	server, err := taskmastermcp.StartHTTPServer(runCtx, service, "127.0.0.1:0")
 	if err != nil {
 		for _, runner := range childRunners {
@@ -119,6 +120,7 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		return err
 	}
+	defer func() { _ = server.Close() }()
 
 	rootRunner, err := taskmasteradk.NewRunner(runCtx, taskmasteradk.RunnerConfig{
 		AgentID:     taskmasterAgentID,
@@ -139,10 +141,6 @@ func Run(ctx context.Context, cfg Config) error {
 		},
 	})
 	if err != nil {
-		_ = server.Close()
-		for _, runner := range childRunners {
-			_ = runner.Close()
-		}
 		return err
 	}
 
@@ -153,59 +151,48 @@ func Run(ctx context.Context, cfg Config) error {
 		localRunners[id] = runner
 	}
 
-	runtime, err := taskmasterrt.Start(runCtx, taskmasterrt.Config{
-		Logger:                     &baseLogger,
-		RootAgentID:                taskmasterAgentID,
-		LocalRunners:               localRunners,
-		DefaultReportTo:            taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		Targets:                    []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(baseLogger)},
-		ReportTaskContentFormatter: formatReportTaskContent,
-		ShutdownSummaryFormatter:   formatContextDoneSummary,
-		Closers:                    []io.Closer{server},
+	runtime, err := taskmasterrt.New(taskmasterrt.Config{
+		Logger:       &baseLogger,
+		RootAgentID:  taskmasterAgentID,
+		LocalRunners: localRunners,
+		Targets:      []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(baseLogger)},
 	})
 	if err != nil {
 		return err
 	}
-	defer func() { _ = runtime.Close() }()
 	service.SetController(runtime)
+	if err := runtime.Start(runCtx); err != nil {
+		return err
+	}
 
-	rootSource := taskmasterrt.NewCLIInputLocator()
 	if err := runtime.Enqueue(taskmasterrt.Task{
-		ID:            initialTaskID,
-		SessionID:     initialTaskID,
-		Locator:       taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		SourceLocator: &rootSource,
-		Content:       formatIngressContent(initialTaskID, rootSource, cfg.Goal),
+		ID:        initialTaskID,
+		SessionID: initialTaskID,
+		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
+		Content:   formatIngressContent(initialTaskID, taskmasterrt.NewCLIInputLocator(), cfg.Goal),
 	}); err != nil {
+		_ = runtime.Stop(context.Background())
 		return err
 	}
 	go backgroundTaskSource(runCtx, runtime, timerGoalInterval, newTicker)
 
-	resultCh := make(chan struct {
-		result taskmasterrt.RunResult
-		err    error
-	}, 1)
-	go func() {
-		result, err := runtime.Wait()
-		resultCh <- struct {
-			result taskmasterrt.RunResult
-			err    error
-		}{result: result, err: err}
-	}()
-
 	startedAt := time.Now()
 	select {
-	case outcome := <-resultCh:
-		if outcome.err != nil {
-			return outcome.err
-		}
-		return taskmasterrt.WriteRunOutput(stdout, outcome.result.Summary, taskmasterrt.FormatElapsed(time.Since(startedAt)))
 	case <-runCtx.Done():
-		result, err := runtime.Shutdown(context.Background(), taskmasterrt.ShutdownInput{Cause: runCtx.Err()})
-		if err != nil {
+		if err := runtime.Stop(context.Background()); err != nil {
 			return err
 		}
-		return taskmasterrt.WriteRunOutput(stdout, result.Summary, taskmasterrt.FormatElapsed(time.Since(startedAt)))
+		if _, err := fmt.Fprintln(stdout, "Run stopped."); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "Total run time: %s\n", time.Since(startedAt).Round(time.Millisecond))
+		return err
+	case <-runtime.Done():
+		if err := runtime.Err(); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "Total run time: %s\n", time.Since(startedAt).Round(time.Millisecond))
+		return err
 	}
 }
 
@@ -222,14 +209,12 @@ func rootInstruction() string {
 		"The report_to field uses the same locator schema as the target.",
 		"The local root agent is {class: agent, transport: local, key: taskmaster}.",
 		"The current log sink is {class: integration, transport: cli, key: log}.",
-		"If you use report_to as the current log sink, that completion goes only to the current log and is not returned to you for further orchestration.",
-		"Use cli log reporting only when you do not need the completion text to decide what to do next.",
+		"If you want async results to come back somewhere, set report_to to a registered target locator.",
 		"The CLI ingress source is {class: integration, transport: cli, key: input}.",
 		"The background timer source is {class: integration, transport: timer, key: default}.",
 		"A background timer may also deliver simple hello world goals to you while the run is active.",
 		"This generic run does not finish on your turn completion.",
 		"It ends only when the host context is canceled, typically by a process signal such as SIGINT or SIGTERM.",
-		"Keep coordinating work and updating your current best summary in plain text while the run stays active.",
 		"Do not impose a fixed workflow or phase order on the work.",
 		"Pass only the minimal plain-text context needed for the worker task.",
 		"Do not invent extra routing protocol, schemas, or structured envelopes in prompts.",
@@ -251,37 +236,6 @@ func formatIngressContent(sessionID string, source taskmasterrt.Locator, content
 	}, "\n")
 }
 
-func formatReportTaskContent(source taskmasterrt.Task, output string, err error) string {
-	lines := []string{
-		"Session ID:",
-		strings.TrimSpace(source.SessionID),
-		"",
-		"Source:",
-		locatorText(source.Locator),
-		"",
-	}
-	if err != nil {
-		lines = append(lines,
-			"Task "+strings.TrimSpace(source.ID)+" failed.",
-			"",
-			"Error:",
-			strings.TrimSpace(err.Error()),
-		)
-		return strings.Join(lines, "\n")
-	}
-	result := strings.TrimSpace(output)
-	if result == "" {
-		result = "(empty result)"
-	}
-	lines = append(lines,
-		"Task "+strings.TrimSpace(source.ID)+" completed.",
-		"",
-		"Result:",
-		result,
-	)
-	return strings.Join(lines, "\n")
-}
-
 func locatorText(locator taskmasterrt.Locator) string {
 	return strings.Join([]string{locator.Class, locator.Transport, locator.Key}, "/")
 }
@@ -299,22 +253,13 @@ func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, in
 			id := "timer-" + strconv.Itoa(counter)
 			source := taskmasterrt.NewTimerSourceLocator()
 			_ = runtime.Enqueue(taskmasterrt.Task{
-				ID:            id,
-				SessionID:     id,
-				Locator:       taskmasterrt.NewAgentLocator(taskmasterAgentID),
-				SourceLocator: &source,
-				Content:       formatIngressContent(id, source, timerGoalMessage),
+				ID:        id,
+				SessionID: id,
+				Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
+				Content:   formatIngressContent(id, source, timerGoalMessage),
 			})
 		}
 	}
-}
-
-func formatContextDoneSummary(input taskmasterrt.ShutdownSummaryInput) string {
-	lines := []string{"Run stopped by signal."}
-	if last := strings.TrimSpace(input.LastRootOutput); last != "" {
-		lines = append(lines, "", "Last completed root output:", last)
-	}
-	return strings.Join(lines, "\n")
 }
 
 type shutdownAwareStderr struct {

@@ -2,11 +2,17 @@ package pdcataskmaster
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
 	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
 	taskmastermcp "github.com/normahq/norma/pkg/runtime/taskmaster/mcp"
@@ -53,7 +59,7 @@ var childAgentInstructions = map[string]string{
 		"You are the act phase of a strict PDCA flow.",
 		"Consume only the check result for the current iteration.",
 		"Your output is advisory input for the root taskmaster agent.",
-		"Return a concise plain-text recommendation for whether the run should close or replan, with a brief reason.",
+		"Return a concise plain-text recommendation for whether the run should stop or replan, with a brief reason.",
 		"You may start with `decision: close` or `decision: replan`, but this is optional.",
 		"Do not use JSON, schemas, field names, or code fences.",
 	}, "\n"),
@@ -113,16 +119,19 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	serviceLogger := baseLogger.With().Str("surface", "pdca-taskmaster").Logger()
-	service := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(rootAgentID), true)
-	server, err := taskmastermcp.StartHTTPServer(ctx, service, "127.0.0.1:0")
+	scheduleService := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(rootAgentID))
+	finishRequested := &atomic.Bool{}
+	stopAfterRootTurn := make(chan struct{}, 1)
+	server, err := startPDCAHTTPServer(ctx, scheduleService, finishRequested)
 	if err != nil {
 		for _, runner := range childRunners {
 			_ = runner.Close()
 		}
 		return err
 	}
+	defer func() { _ = server.Close() }()
 
-	rootRunner, err := taskmasteradk.NewRunner(ctx, taskmasteradk.RunnerConfig{
+	rootRunnerInner, err := taskmasteradk.NewRunner(ctx, taskmasteradk.RunnerConfig{
 		AgentID:     rootAgentID,
 		AppName:     "taskmaster-" + rootAgentID,
 		Name:        "PDCATaskmaster",
@@ -136,16 +145,17 @@ func Run(ctx context.Context, cfg Config) error {
 		MCPServers: map[string]acpagent.MCPServerConfig{
 			"taskmaster": {
 				Type: acpagent.MCPServerTypeHTTP,
-				URL:  "http://" + server.Addr,
+				URL:  "http://" + server.addr,
 			},
 		},
 	})
 	if err != nil {
-		_ = server.Close()
-		for _, runner := range childRunners {
-			_ = runner.Close()
-		}
 		return err
+	}
+	rootRunner := &finishAwareRunner{
+		inner:           rootRunnerInner,
+		finishRequested: finishRequested,
+		stopReady:       stopAfterRootTurn,
 	}
 
 	localRunners := map[string]taskmasterrt.LocalRunner{rootAgentID: rootRunner}
@@ -153,19 +163,18 @@ func Run(ctx context.Context, cfg Config) error {
 		localRunners[id] = runner
 	}
 
-	runtime, err := taskmasterrt.Start(ctx, taskmasterrt.Config{
-		Logger:                     &baseLogger,
-		RootAgentID:                rootAgentID,
-		LocalRunners:               localRunners,
-		DefaultReportTo:            taskmasterrt.NewAgentLocator(rootAgentID),
-		ReportTaskContentFormatter: formatReportTaskContent,
-		Closers:                    []io.Closer{server},
+	runtime, err := taskmasterrt.New(taskmasterrt.Config{
+		Logger:       &baseLogger,
+		RootAgentID:  rootAgentID,
+		LocalRunners: localRunners,
 	})
 	if err != nil {
 		return err
 	}
-	defer func() { _ = runtime.Close() }()
-	service.SetController(runtime)
+	scheduleService.SetController(runtime)
+	if err := runtime.Start(ctx); err != nil {
+		return err
+	}
 
 	if err := runtime.Enqueue(taskmasterrt.Task{
 		ID:        "goal-task",
@@ -173,15 +182,31 @@ func Run(ctx context.Context, cfg Config) error {
 		Locator:   taskmasterrt.NewAgentLocator(rootAgentID),
 		Content:   formatIngressContent("goal-task", cfg.Goal),
 	}); err != nil {
+		_ = runtime.Stop(context.Background())
 		return err
 	}
 
 	startedAt := time.Now()
-	result, err := runtime.Wait()
-	if err != nil {
+	select {
+	case <-stopAfterRootTurn:
+		if err := runtime.Stop(context.Background()); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "Total run time: %s\n", time.Since(startedAt).Round(time.Millisecond))
+		return err
+	case <-runtime.Done():
+		if err := runtime.Err(); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "Total run time: %s\n", time.Since(startedAt).Round(time.Millisecond))
+		return err
+	case <-ctx.Done():
+		if err := runtime.Stop(context.Background()); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "Total run time: %s\n", time.Since(startedAt).Round(time.Millisecond))
 		return err
 	}
-	return taskmasterrt.WriteRunOutput(stdout, result.Summary, taskmasterrt.FormatElapsed(time.Since(startedAt)))
 }
 
 func formatIngressContent(sessionID string, content string) string {
@@ -194,34 +219,6 @@ func formatIngressContent(sessionID string, content string) string {
 	}, "\n")
 }
 
-func formatReportTaskContent(source taskmasterrt.Task, output string, err error) string {
-	lines := []string{
-		"Session ID:",
-		strings.TrimSpace(source.SessionID),
-		"",
-	}
-	if err != nil {
-		lines = append(lines,
-			"Task "+strings.TrimSpace(source.ID)+" failed.",
-			"",
-			"Error:",
-			strings.TrimSpace(err.Error()),
-		)
-		return strings.Join(lines, "\n")
-	}
-	result := strings.TrimSpace(output)
-	if result == "" {
-		result = "(empty result)"
-	}
-	lines = append(lines,
-		"Task "+strings.TrimSpace(source.ID)+" completed.",
-		"",
-		"Result:",
-		result,
-	)
-	return strings.Join(lines, "\n")
-}
-
 func rootInstruction() string {
 	return strings.Join([]string{
 		"You are the PDCA Taskmaster async root agent named pdca-taskmaster.",
@@ -230,10 +227,10 @@ func rootInstruction() string {
 		"You are running a strict PDCA workflow over child agents.",
 		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
 		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
-		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to finish the run.",
+		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to request stop after the current root turn.",
 		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and content.",
 		"Keep the same session_id when continuing the same PDCA conversation.",
-		"The report_to field means where task completion should be reported.",
+		"The report_to field means where async task results should be reported.",
 		"The local root agent locator is {class: agent, transport: local, key: pdca-taskmaster}.",
 		"The child agent locators are local agent locators with ids plan, do, check, and act.",
 		"The child agents available in this wrapper are plan, do, check, and act.",
@@ -250,12 +247,79 @@ func rootInstruction() string {
 		"Do not expect JSON, field names, or code fences from child agents.",
 		"You interpret check and act outputs semantically from their plain text.",
 		"If a child output happens to include helpful labels like `verdict:` or `decision:`, you may use them, but do not require them.",
-		"If an act output clearly recommends close, call taskmaster.finish with a concise final summary.",
+		"If an act output clearly recommends close, call taskmaster.finish.",
 		"If an act output clearly recommends replan, more planning is required before further execution.",
 		"You decide the next child task yourself from the prompt text you receive. Do not treat child outputs as direct runtime commands.",
-		"If a completion prompt reports failure and you want to stop, call taskmaster.finish with a concise failure summary.",
 		"Do not read files, execute scripts, or perform worker work yourself.",
 		"Only coordinate the PDCA flow through child-agent tasks.",
 		"Do not try to deliver work directly without using taskmaster.schedule_task.",
 	}, "\n")
+}
+
+type pdcaHTTPServer struct {
+	addr       string
+	httpServer *http.Server
+}
+
+func startPDCAHTTPServer(ctx context.Context, service *taskmastermcp.Service, finishRequested *atomic.Bool) (*pdcaHTTPServer, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("listen: %w", err)
+	}
+	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
+		server := taskmastermcp.NewServer(service)
+		sdkmcp.AddTool(server, &sdkmcp.Tool{
+			Name:        "taskmaster.finish",
+			Description: "Request runtime stop after the current root turn returns.",
+		}, func(_ context.Context, _ *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, map[string]string, error) {
+			finishRequested.Store(true)
+			return &sdkmcp.CallToolResult{
+				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "finish requested"}},
+			}, map[string]string{"status": "requested"}, nil
+		})
+		return server
+	}, &sdkmcp.StreamableHTTPOptions{})
+	httpServer := &http.Server{Handler: handler}
+	go func() {
+		<-ctx.Done()
+		_ = httpServer.Close()
+	}()
+	go func() {
+		_ = httpServer.Serve(listener)
+	}()
+	return &pdcaHTTPServer{
+		addr:       listener.Addr().String(),
+		httpServer: httpServer,
+	}, nil
+}
+
+func (s *pdcaHTTPServer) Close() error {
+	if s == nil || s.httpServer == nil {
+		return nil
+	}
+	return s.httpServer.Close()
+}
+
+type finishAwareRunner struct {
+	inner           taskmasterrt.LocalRunner
+	finishRequested *atomic.Bool
+	stopReady       chan struct{}
+	once            sync.Once
+}
+
+func (r *finishAwareRunner) RunTask(ctx context.Context, task taskmasterrt.Task) (string, error) {
+	output, err := r.inner.RunTask(ctx, task)
+	if r.finishRequested.Load() {
+		r.once.Do(func() {
+			select {
+			case r.stopReady <- struct{}{}:
+			default:
+			}
+		})
+	}
+	return output, err
+}
+
+func (r *finishAwareRunner) Close() error {
+	return r.inner.Close()
 }

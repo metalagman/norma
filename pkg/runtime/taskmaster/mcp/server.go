@@ -16,19 +16,16 @@ const (
 	mcpServerName        = "norma-taskmaster"
 	mcpServerVersion     = "1.0.0"
 	ScheduleTaskToolName = "taskmaster.schedule_task"
-	FinishToolName       = "taskmaster.finish"
 )
 
 type Controller interface {
 	Enqueue(task taskmaster.Task) error
-	Finish(summary string) error
 }
 
 type Service struct {
 	logger          zerolog.Logger
 	controller      Controller
 	defaultReportTo taskmaster.Locator
-	allowFinishTool bool
 }
 
 type ScheduleTaskInput struct {
@@ -48,25 +45,15 @@ type ScheduleTaskOutput struct {
 	Message   string             `json:"message,omitempty"`
 }
 
-type FinishInput struct {
-	Summary string `json:"summary"`
-}
-
-type FinishOutput struct {
-	Status  string `json:"status"`
-	Summary string `json:"summary"`
-}
-
 type HTTPServer struct {
 	Addr       string
 	httpServer *http.Server
 }
 
-func NewService(logger zerolog.Logger, defaultReportTo taskmaster.Locator, allowFinishTool bool) *Service {
+func NewService(logger zerolog.Logger, defaultReportTo taskmaster.Locator) *Service {
 	return &Service{
 		logger:          logger,
 		defaultReportTo: defaultReportTo,
-		allowFinishTool: allowFinishTool,
 	}
 }
 
@@ -76,23 +63,14 @@ func (s *Service) SetController(controller Controller) {
 
 func NewServer(service *Service) *sdkmcp.Server {
 	instructions := "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include task_id, session_id, locator, optional report_to, and content."
-	if service.allowFinishTool {
-		instructions += " Use taskmaster.finish to finish the async run."
-	}
 	server := sdkmcp.NewServer(
 		&sdkmcp.Implementation{Name: mcpServerName, Version: mcpServerVersion},
 		&sdkmcp.ServerOptions{Instructions: instructions},
 	)
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        ScheduleTaskToolName,
-		Description: "Enqueue one task addressed by locator using plain-text content. Session context is required. Optionally set report_to for task completion routing. Returns immediately after queueing.",
+		Description: "Enqueue one task addressed by locator using plain-text content. Session context is required. Optionally set report_to for async task-result routing. Returns immediately after queueing.",
 	}, service.scheduleTask)
-	if service.allowFinishTool {
-		sdkmcp.AddTool(server, &sdkmcp.Tool{
-			Name:        FinishToolName,
-			Description: "Finish the async run and return the final summary.",
-		}, service.finish)
-	}
 	return server
 }
 
@@ -162,23 +140,6 @@ func (s *Service) scheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, inp
 		Msg("schedule_task accepted")
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: out.Message}},
-	}, out, nil
-}
-
-func (s *Service) finish(_ context.Context, _ *sdkmcp.CallToolRequest, input FinishInput) (*sdkmcp.CallToolResult, FinishOutput, error) {
-	summary := strings.TrimSpace(input.Summary)
-	if s.controller == nil {
-		out := FinishOutput{Status: "error", Summary: "controller is not ready"}
-		return toolError(out.Summary), out, nil
-	}
-	if err := s.controller.Finish(summary); err != nil {
-		out := FinishOutput{Status: "error", Summary: err.Error()}
-		return toolError(out.Summary), out, nil
-	}
-	out := FinishOutput{Status: "finished", Summary: summary}
-	s.logger.Debug().Str("summary", summary).Msg("finish accepted")
-	return &sdkmcp.CallToolResult{
-		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: fmt.Sprintf("finished: %s", summary)}},
 	}, out, nil
 }
 

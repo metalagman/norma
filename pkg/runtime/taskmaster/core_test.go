@@ -20,12 +20,6 @@ func TestLocatorStringUsesCanonicalFormat(t *testing.T) {
 	if got := locator.String(); got != "human:telegram:123456:77" {
 		t.Fatalf("locator.String() = %q, want human:telegram:123456:77", got)
 	}
-	if got := locatorPtrString(&locator); got != "human:telegram:123456:77" {
-		t.Fatalf("locatorPtrString() = %q, want human:telegram:123456:77", got)
-	}
-	if got := locatorPtrString(nil); got != "" {
-		t.Fatalf("locatorPtrString(nil) = %q, want empty string", got)
-	}
 }
 
 func TestRootOnlyConfigAllowed(t *testing.T) {
@@ -36,13 +30,12 @@ func TestRootOnlyConfigAllowed(t *testing.T) {
 	})
 	defer cleanup()
 
-	err := runtime.Enqueue(Task{
+	if err := runtime.Enqueue(Task{
 		ID:        "ingress-1",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator(rootAgentID),
 		Content:   "hello",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 }
@@ -56,13 +49,12 @@ func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 	})
 	defer cleanup()
 
-	err := runtime.Enqueue(Task{
+	if err := runtime.Enqueue(Task{
 		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		Content:   "do work",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
@@ -84,14 +76,13 @@ func TestScheduleTaskAllowsExternalReportTarget(t *testing.T) {
 	})
 	defer cleanup()
 
-	err := runtime.Enqueue(Task{
+	if err := runtime.Enqueue(Task{
 		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		ReportTo:  ptrLocator(NewCLILogLocator()),
 		Content:   "do work",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 }
@@ -148,14 +139,13 @@ func TestCoordinatorCreatesRootNotificationWithSession(t *testing.T) {
 	})
 	defer cleanup()
 
-	err := runtime.Enqueue(Task{
+	if err := runtime.Enqueue(Task{
 		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		ReportTo:  ptrLocator(NewAgentLocator(rootAgentID)),
 		Content:   "do work",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
@@ -186,13 +176,12 @@ func TestExternalTargetDispatchUsesTarget(t *testing.T) {
 	})
 	defer cleanup()
 
-	err := runtime.Enqueue(Task{
+	if err := runtime.Enqueue(Task{
 		ID:        "task-telegram",
 		SessionID: "session-telegram",
 		Locator:   external,
 		Content:   "send outbound",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
@@ -222,13 +211,12 @@ func TestReportOnlyTargetDispatchFailsAndNotifiesRoot(t *testing.T) {
 	})
 	defer cleanup()
 
-	err := runtime.Enqueue(Task{
+	if err := runtime.Enqueue(Task{
 		ID:        "task-log-target",
 		SessionID: "session-a",
 		Locator:   NewCLILogLocator(),
 		Content:   "do work",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
@@ -249,12 +237,10 @@ func TestCLILogTargetLogsCanonicalLocatorStrings(t *testing.T) {
 	logger := zerolog.New(&buf)
 	target := NewCLILogTarget(logger)
 	task := Task{
-		ID:            "task-log",
-		SessionID:     "session-a",
-		Locator:       NewCLILogLocator(),
-		SourceTaskID:  "task-worker",
-		SourceLocator: ptrLocator(NewAgentLocator("worker")),
-		Content:       "done",
+		ID:        "task-log",
+		SessionID: "session-a",
+		Locator:   NewCLILogLocator(),
+		Content:   "done",
 	}
 
 	if err := target.DispatchTask(context.Background(), task); err != nil {
@@ -265,15 +251,15 @@ func TestCLILogTargetLogsCanonicalLocatorStrings(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal log payload: %v", err)
 	}
-	if got := payload["source_locator"]; got != "agent:local:worker" {
-		t.Fatalf("source_locator = %#v, want agent:local:worker", got)
-	}
 	if got := payload["locator"]; got != "integration:cli:log" {
 		t.Fatalf("locator = %#v, want integration:cli:log", got)
 	}
+	if _, ok := payload["source_locator"]; ok {
+		t.Fatalf("unexpected source_locator in log payload: %#v", payload["source_locator"])
+	}
 }
 
-func TestShutdownResultReturnsStoppedSummary(t *testing.T) {
+func TestRuntimeDoneClosesOnStop(t *testing.T) {
 	t.Parallel()
 
 	runtime, cleanup := startTestRuntime(t, zerolog.Nop(), testConfig(nil), map[string]LocalRunner{
@@ -282,25 +268,13 @@ func TestShutdownResultReturnsStoppedSummary(t *testing.T) {
 	})
 	defer cleanup()
 
-	runtime.coordinator.mu.Lock()
-	runtime.coordinator.latestRootOutput = "latest root summary"
-	runtime.coordinator.mu.Unlock()
-
-	result, err := runtime.Shutdown(context.Background(), ShutdownInput{Cause: context.Canceled})
-	if err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
+	if err := runtime.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
 	}
-	if !result.Stopped {
-		t.Fatal("result.Stopped = false, want true")
-	}
-	if strings.Contains(result.Summary, "latest root summary") && result.Summary == "latest root summary" {
-		t.Fatalf("result.Summary = %q, want explicit stop summary instead of stale root output", result.Summary)
-	}
-	if !strings.Contains(result.Summary, "Run stopped") {
-		t.Fatalf("result.Summary = %q, want stop summary", result.Summary)
-	}
-	if !strings.Contains(result.Summary, "latest root summary") {
-		t.Fatalf("result.Summary = %q, want last root output as context", result.Summary)
+	select {
+	case <-runtime.Done():
+	case <-time.After(time.Second):
+		t.Fatal("runtime done did not close")
 	}
 }
 
@@ -313,18 +287,17 @@ func TestEnqueueRejectedDuringShutdown(t *testing.T) {
 	})
 	defer cleanup()
 
-	_, err := runtime.Shutdown(context.Background(), ShutdownInput{Summary: "stopped"})
-	if err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
+	if err := runtime.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
 	}
 
-	err = runtime.Enqueue(Task{
+	err := runtime.Enqueue(Task{
 		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		Content:   "do work",
 	})
-	if err == nil || !strings.Contains(err.Error(), "run already finished") {
+	if err == nil || !strings.Contains(err.Error(), "runtime is stopping") {
 		t.Fatalf("Enqueue() error = %v, want shutdown rejection", err)
 	}
 }
@@ -336,29 +309,22 @@ func TestQueuedTaskDoesNotStartAfterShutdownBegins(t *testing.T) {
 		started: make(chan startedTask, 2),
 		release: make(chan struct{}),
 	}
-	runtime, err := Start(context.Background(), Config{
-		RootAgentID:     rootAgentID,
-		LocalRunners:    map[string]LocalRunner{rootAgentID: &fakeLocalRunner{}, "worker": workerRunner},
-		DefaultReportTo: NewAgentLocator(rootAgentID),
-		ReportTaskContentFormatter: func(source Task, output string, err error) string {
-			if err != nil {
-				return err.Error()
-			}
-			return output
-		},
-		ShutdownSummaryFormatter: func(input ShutdownSummaryInput) string { return "stopped" },
+	runtime, err := New(Config{
+		RootAgentID:  rootAgentID,
+		LocalRunners: map[string]LocalRunner{rootAgentID: &fakeLocalRunner{}, "worker": workerRunner},
 	})
 	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := runtime.Start(context.Background()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer func() { _ = runtime.Close() }()
+	defer func() { _ = runtime.Stop(context.Background()) }()
 
-	err = runtime.Enqueue(Task{ID: "task-1", SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "first"})
-	if err != nil {
+	if err := runtime.Enqueue(Task{ID: "task-1", SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "first"}); err != nil {
 		t.Fatalf("Enqueue(task-1) error = %v", err)
 	}
-	err = runtime.Enqueue(Task{ID: "task-2", SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "second"})
-	if err != nil {
+	if err := runtime.Enqueue(Task{ID: "task-2", SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "second"}); err != nil {
 		t.Fatalf("Enqueue(task-2) error = %v", err)
 	}
 
@@ -371,10 +337,13 @@ func TestQueuedTaskDoesNotStartAfterShutdownBegins(t *testing.T) {
 		t.Fatal("first task did not start")
 	}
 
-	runtime.coordinator.beginShutdown()
-	runtime.cancel()
-	close(workerRunner.release)
-	runtime.coordinator.wait()
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		close(workerRunner.release)
+	}()
+	if err := runtime.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
 
 	select {
 	case started := <-workerRunner.started:
@@ -392,35 +361,21 @@ func startTestRuntime(t *testing.T, logger zerolog.Logger, cfg Config, runners m
 
 	cfg.RootAgentID = rootAgentID
 	cfg.LocalRunners = runners
-	cfg.DefaultReportTo = NewAgentLocator(rootAgentID)
-	runtime, err := Start(context.Background(), cfg)
+	runtime, err := New(cfg)
 	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := runtime.Start(context.Background()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 	return runtime, func() {
-		_ = runtime.Close()
+		_ = runtime.Stop(context.Background())
 	}
 }
 
 func testConfig(targets []Target) Config {
 	return Config{
 		Targets: targets,
-		ReportTaskContentFormatter: func(source Task, output string, err error) string {
-			lines := []string{"Session ID:", source.SessionID, ""}
-			if err != nil {
-				lines = append(lines, "Error:", err.Error())
-				return strings.Join(lines, "\n")
-			}
-			lines = append(lines, "Result:", output)
-			return strings.Join(lines, "\n")
-		},
-		ShutdownSummaryFormatter: func(input ShutdownSummaryInput) string {
-			lines := []string{"Run stopped."}
-			if input.LastRootOutput != "" {
-				lines = append(lines, "", input.LastRootOutput)
-			}
-			return strings.Join(lines, "\n")
-		},
 	}
 }
 
