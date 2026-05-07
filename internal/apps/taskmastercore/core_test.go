@@ -17,7 +17,7 @@ func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), false)
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"))
+	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), true)
 	service.coordinator = coordinator
 
 	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
@@ -39,7 +39,7 @@ func TestScheduleTaskAllowsHumanOutputWhenEnabled(t *testing.T) {
 	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), true)
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"))
+	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), true)
 	service.coordinator = coordinator
 
 	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
@@ -62,7 +62,7 @@ func TestScheduleTaskRejectsHumanOutputWhenDisabled(t *testing.T) {
 	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), false)
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"))
+	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), true)
 	service.coordinator = coordinator
 
 	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
@@ -76,6 +76,43 @@ func TestScheduleTaskRejectsHumanOutputWhenDisabled(t *testing.T) {
 	}
 	if out.Status != "error" || !strings.Contains(out.Message, `unsupported report_to.type "human_output"`) {
 		t.Fatalf("scheduleTask() output = %+v", out)
+	}
+}
+
+func TestFinishToolCanBeDisabled(t *testing.T) {
+	t.Parallel()
+
+	coordinator, cleanup := startTestCoordinatorWithConfig(t, zerolog.Nop(), Config{
+		RootAgentID: rootAgentID,
+		RootAgent: AgentConfig{
+			Name:        "root",
+			Instruction: "root",
+		},
+		ChildAgents: map[string]AgentConfig{
+			"worker": {
+				Name:        "worker",
+				Instruction: "worker",
+			},
+		},
+		DefaultReportTo:      NewAgentLocator(rootAgentID),
+		AllowHumanOutputSink: false,
+		AllowFinishTool:      false,
+		GoalPromptFormatter:  func(goal string) string { return goal },
+	}, map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), false)
+	service.coordinator = coordinator
+
+	_, out, err := service.finish(context.Background(), nil, finishInput{Summary: "done"})
+	if err != nil {
+		t.Fatalf("finish() error = %v", err)
+	}
+	if out.Status != "error" || !strings.Contains(out.Summary, "finish tool is disabled") {
+		t.Fatalf("finish() output = %+v", out)
 	}
 }
 
@@ -197,6 +234,7 @@ func TestCanceledTaskDuringShutdownIsNotTreatedAsFailure(t *testing.T) {
 		},
 		DefaultReportTo:      NewAgentLocator(rootAgentID),
 		AllowHumanOutputSink: false,
+		AllowFinishTool:      true,
 		GoalPromptFormatter:  func(goal string) string { return goal },
 	}
 	coordinator, err := newCoordinator(logger, cfg)
@@ -222,20 +260,75 @@ func TestCanceledTaskDuringShutdownIsNotTreatedAsFailure(t *testing.T) {
 	}
 }
 
+func TestWaitResultReturnsLatestRootOutputOnContextDone(t *testing.T) {
+	t.Parallel()
+
+	rootRunner := &fakeTaskRunner{result: "latest root summary"}
+	coordinator, cleanup := startTestCoordinatorWithConfig(t, zerolog.Nop(), Config{
+		RootAgentID: rootAgentID,
+		RootAgent: AgentConfig{
+			Name:        "root",
+			Instruction: "root",
+		},
+		ChildAgents: map[string]AgentConfig{
+			"worker": {
+				Name:        "worker",
+				Instruction: "worker",
+			},
+		},
+		DefaultReportTo:      NewAgentLocator(rootAgentID),
+		AllowHumanOutputSink: false,
+		AllowFinishTool:      false,
+		FinishOnContextDone:  true,
+		GoalPromptFormatter:  func(goal string) string { return goal },
+	}, map[string]taskRunner{
+		rootAgentID: rootRunner,
+		"worker":    &fakeTaskRunner{},
+	})
+	defer cleanup()
+
+	if err := coordinator.enqueueInitialGoal("initial goal"); err != nil {
+		t.Fatalf("enqueueInitialGoal() error = %v", err)
+	}
+	waitForCondition(t, func() bool {
+		coordinator.mu.Lock()
+		defer coordinator.mu.Unlock()
+		return coordinator.latestRootOutput == "latest root summary"
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := coordinator.waitResult(ctx)
+	if err != nil {
+		t.Fatalf("waitResult() error = %v", err)
+	}
+	if result.Summary != "latest root summary" {
+		t.Fatalf("result.Summary = %q, want latest root summary", result.Summary)
+	}
+}
+
 func ptrLocator(locator Locator) *Locator {
 	return &locator
 }
 
 func waitForString(t *testing.T, logs *lockedStringBuffer, needle string) {
 	t.Helper()
+	waitForCondition(t, func() bool {
+		return strings.Contains(logs.String(), needle)
+	})
+}
+
+func waitForCondition(t *testing.T, cond func() bool) {
+	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(logs.String(), needle) {
+		if cond() {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("logs = %q, want substring %q", logs.String(), needle)
+	t.Fatal("condition not satisfied before timeout")
 }
 
 func startTestCoordinator(t *testing.T, logger zerolog.Logger, allowHumanOutput bool) (*coordinator, func()) {
@@ -245,8 +338,6 @@ func startTestCoordinator(t *testing.T, logger zerolog.Logger, allowHumanOutput 
 
 func startTestCoordinatorWithRunners(t *testing.T, logger zerolog.Logger, allowHumanOutput bool, rootRunner, workerRunner *fakeTaskRunner) (*coordinator, func()) {
 	t.Helper()
-
-	ctx, cancel := context.WithCancel(context.Background())
 	cfg := Config{
 		RootAgentID: rootAgentID,
 		RootAgent: AgentConfig{
@@ -261,15 +352,23 @@ func startTestCoordinatorWithRunners(t *testing.T, logger zerolog.Logger, allowH
 		},
 		DefaultReportTo:      NewAgentLocator(rootAgentID),
 		AllowHumanOutputSink: allowHumanOutput,
+		AllowFinishTool:      true,
 		GoalPromptFormatter:  func(goal string) string { return goal },
-	}
-	coordinator, err := newCoordinator(logger, cfg)
-	if err != nil {
-		t.Fatalf("newCoordinator() error = %v", err)
 	}
 	runners := map[string]taskRunner{
 		rootAgentID: rootRunner,
 		"worker":    workerRunner,
+	}
+	return startTestCoordinatorWithConfig(t, logger, cfg, runners)
+}
+
+func startTestCoordinatorWithConfig(t *testing.T, logger zerolog.Logger, cfg Config, runners map[string]taskRunner) (*coordinator, func()) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	coordinator, err := newCoordinator(logger, cfg)
+	if err != nil {
+		t.Fatalf("newCoordinator() error = %v", err)
 	}
 	coordinator.start(ctx, runners)
 	return coordinator, func() {

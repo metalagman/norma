@@ -21,6 +21,7 @@ type service struct {
 	logger          zerolog.Logger
 	coordinator     *coordinator
 	defaultReportTo Locator
+	allowFinishTool bool
 }
 
 type scheduleTaskInput struct {
@@ -47,26 +48,33 @@ type finishOutput struct {
 	Summary string `json:"summary"`
 }
 
-func newService(logger zerolog.Logger, defaultReportTo Locator) *service {
+func newService(logger zerolog.Logger, defaultReportTo Locator, allowFinishTool bool) *service {
 	return &service{
 		logger:          logger,
 		defaultReportTo: defaultReportTo,
+		allowFinishTool: allowFinishTool,
 	}
 }
 
 func newMCPServer(service *service) *mcp.Server {
+	instructions := "Use taskmaster.schedule_task to enqueue one child-agent task in the async run."
+	if service.allowFinishTool {
+		instructions += " Use taskmaster.finish to finish the async run."
+	}
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion},
-		&mcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one child-agent task and taskmaster.finish to finish the async run."},
+		&mcp.ServerOptions{Instructions: instructions},
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        scheduleTaskToolName,
 		Description: "Enqueue one child-agent task addressed by locator using a plain-text prompt. Optionally set report_to for completion reporting. Returns immediately after queueing.",
 	}, service.scheduleTask)
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        finishToolName,
-		Description: "Finish the async run and return the final summary.",
-	}, service.finish)
+	if service.allowFinishTool {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        finishToolName,
+			Description: "Finish the async run and return the final summary.",
+		}, service.finish)
+	}
 	return server
 }
 

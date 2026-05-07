@@ -30,10 +30,11 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"generic Taskmaster async root agent",
 		"one plain-text child agent named worker",
 		"taskmaster.schedule_task",
-		"taskmaster.finish",
 		"human_output current_log",
 		"completion goes only to the current log",
 		"background timer may also deliver simple hello world goals",
+		"does not finish on your turn completion",
+		"host context is canceled",
 		"Do not impose a fixed workflow or phase order",
 	} {
 		if !strings.Contains(got, want) {
@@ -44,6 +45,7 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"strict PDCA",
 		"plan -> do -> check -> act",
 		"plan, do, check, and act",
+		"taskmaster.finish",
 		"`verdict:`",
 		"`decision:`",
 	} {

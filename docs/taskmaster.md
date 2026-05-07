@@ -30,14 +30,13 @@ The runtime shape is still queue-based:
 - completion routing through `report_to`
 - plain-text prompts and plain-text outputs
 
-The root agent is workflow-agnostic. It schedules work to `worker`, interprets plain-text completions, and decides when to call `taskmaster.finish`.
+The root agent is workflow-agnostic. It schedules work to `worker`, interprets plain-text completions, and keeps emitting its current best plain-text summary while the run stays active.
 
 ## Control Surface
 
 The MCP control namespace is:
 
 - `taskmaster.schedule_task`
-- `taskmaster.finish`
 
 `schedule_task` still accepts:
 
@@ -85,7 +84,8 @@ The generic flow is:
 4. Completion is either:
    - routed back to root through `report_to = agent`, or
    - written to the log through `report_to = human_output`
-5. Root eventually calls `taskmaster.finish`.
+5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
+6. On shutdown, the playground returns the latest plain-text output produced by the root agent.
 
 Stdout remains reserved for:
 
@@ -96,7 +96,7 @@ Stdout remains reserved for:
 
 Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root goals with `hello world` prompt text.
 
-These timer goals are supplemental to the initial user goal and continue until the run finishes or the command context is canceled.
+These timer goals are supplemental to the initial user goal and continue until the command context is canceled.
 
 ## Relation to Other Playgrounds
 

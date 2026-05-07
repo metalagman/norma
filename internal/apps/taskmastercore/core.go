@@ -53,6 +53,8 @@ type Config struct {
 	ChildAgents          map[string]AgentConfig
 	DefaultReportTo      Locator
 	AllowHumanOutputSink bool
+	AllowFinishTool      bool
+	FinishOnContextDone  bool
 	GoalPromptFormatter  func(string) string
 	BackgroundGoalSource BackgroundGoalSource
 }
@@ -164,18 +166,21 @@ type coordinator struct {
 	childAgentIDs         map[string]struct{}
 	defaultReportTo       Locator
 	allowHumanOutputSink  bool
+	allowFinishTool       bool
+	finishOnContextDone   bool
 	goalPromptFormatter   func(string) string
 	backgroundTaskCounter int
 
-	mu           sync.Mutex
-	tasks        map[string]*task
-	queues       map[string]chan *task
-	terminal     bool
-	shuttingDown bool
-	finalSummary string
-	finalErr     error
-	done         chan runResult
-	doneClosed   bool
+	mu               sync.Mutex
+	tasks            map[string]*task
+	queues           map[string]chan *task
+	terminal         bool
+	shuttingDown     bool
+	finalSummary     string
+	latestRootOutput string
+	finalErr         error
+	done             chan runResult
+	doneClosed       bool
 
 	wg sync.WaitGroup
 }
@@ -255,7 +260,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 	defer func() { _ = children.Close() }()
 
 	serviceLogger := logger.With().Str("surface", surfaceName).Logger()
-	service := newService(serviceLogger, cfg.DefaultReportTo)
+	service := newService(serviceLogger, cfg.DefaultReportTo, cfg.AllowFinishTool)
 	server, err := deps.startServer(ctx, service, "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -387,6 +392,8 @@ func newCoordinator(logger zerolog.Logger, cfg Config) (*coordinator, error) {
 		childAgentIDs:        childIDs,
 		defaultReportTo:      cfg.DefaultReportTo,
 		allowHumanOutputSink: cfg.AllowHumanOutputSink,
+		allowFinishTool:      cfg.AllowFinishTool,
+		finishOnContextDone:  cfg.FinishOnContextDone,
 		goalPromptFormatter:  cfg.GoalPromptFormatter,
 		tasks:                make(map[string]*task),
 		queues:               make(map[string]chan *task, runnerCount),
@@ -544,6 +551,9 @@ func (c *coordinator) validateReportTo(reportTo Locator) error {
 }
 
 func (c *coordinator) finish(summary string) error {
+	if !c.allowFinishTool {
+		return errors.New("finish tool is disabled for this run")
+	}
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
 		return errors.New("summary is required")
@@ -568,6 +578,14 @@ func (c *coordinator) beginShutdown() {
 func (c *coordinator) waitResult(ctx context.Context) (runResult, error) {
 	select {
 	case <-ctx.Done():
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.finalErr != nil {
+			return runResult{}, c.finalErr
+		}
+		if c.finishOnContextDone {
+			return runResult{Summary: strings.TrimSpace(c.latestRootOutput)}, nil
+		}
 		return runResult{}, ctx.Err()
 	case result := <-c.done:
 		c.mu.Lock()
@@ -676,6 +694,7 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 			c.mu.Unlock()
 			return
 		}
+		c.latestRootOutput = doneTask.Output
 		if c.terminal {
 			c.sendDoneLocked(runResult{Summary: c.finalSummary})
 		}
