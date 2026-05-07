@@ -100,16 +100,49 @@ func Run(ctx context.Context, cfg Config) error {
 				Instruction: childAgentInstructions["act"],
 			},
 		},
-		DefaultReportTo:     taskmastercore.NewAgentLocator(rootAgentID),
-		GoalPromptFormatter: formatGoalPrompt,
+		DefaultReportTo:           taskmastercore.NewAgentLocator(rootAgentID),
+		AllowFinishTool:           true,
+		IngressPromptFormatter:    formatIngressPrompt,
+		CompletionPromptFormatter: formatCompletionPrompt,
 	})
 }
 
-func formatGoalPrompt(goal string) string {
+func formatIngressPrompt(req taskmastercore.IngressRequest) string {
 	return strings.Join([]string{
+		"Session ID:",
+		strings.TrimSpace(req.SessionID),
+		"",
 		"Goal:",
-		strings.TrimSpace(goal),
+		strings.TrimSpace(req.Prompt),
 	}, "\n")
+}
+
+func formatCompletionPrompt(input taskmastercore.CompletionPromptInput) string {
+	lines := []string{
+		"Session ID:",
+		strings.TrimSpace(input.SessionID),
+		"",
+	}
+	if input.Error != "" {
+		lines = append(lines,
+			"Task "+strings.TrimSpace(input.TaskID)+" failed.",
+			"",
+			"Error:",
+			strings.TrimSpace(input.Error),
+		)
+		return strings.Join(lines, "\n")
+	}
+	result := strings.TrimSpace(input.Output)
+	if result == "" {
+		result = "(empty result)"
+	}
+	lines = append(lines,
+		"Task "+strings.TrimSpace(input.TaskID)+" completed.",
+		"",
+		"Result:",
+		result,
+	)
+	return strings.Join(lines, "\n")
 }
 
 func rootInstruction() string {
@@ -121,8 +154,11 @@ func rootInstruction() string {
 		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
 		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
 		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to finish the run.",
-		"Each scheduled task must include a stable task_id, a locator, an optional report_to, and a prompt.",
+		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and a prompt.",
+		"Keep the same session_id when continuing the same PDCA conversation.",
 		"The report_to field means where task completion should be reported.",
+		"The local root agent locator is {type: agent, kind: local, id: pdca-taskmaster}.",
+		"The child agent locators are local agent locators with ids plan, do, check, and act.",
 		"The child agents available in this wrapper are plan, do, check, and act.",
 		"Treat plan, do, check, and act as strict PDCA phases, not generic workers.",
 		"After a plan completion, schedule do. After a do completion, schedule check. After a check completion, schedule act.",

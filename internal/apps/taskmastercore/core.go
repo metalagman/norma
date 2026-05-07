@@ -36,7 +36,29 @@ type AgentConfig struct {
 	Instruction string
 }
 
-type BackgroundGoalSource func(ctx context.Context, enqueue func(string) error)
+type IngressRequest struct {
+	ID        string
+	SessionID string
+	Prompt    string
+	Source    Locator
+	ReportTo  *Locator
+}
+
+type CompletionPromptInput struct {
+	TaskID       string
+	SessionID    string
+	SourceTaskID string
+	Source       Locator
+	Status       string
+	Output       string
+	Error        string
+}
+
+type RunResult struct {
+	Summary string
+}
+
+type BackgroundGoalSource func(ctx context.Context, enqueue func(IngressRequest) error)
 
 type Config struct {
 	Goal          string
@@ -48,28 +70,31 @@ type Config struct {
 	ComponentName string
 	SurfaceName   string
 
-	RootAgentID          string
-	RootAgent            AgentConfig
-	ChildAgents          map[string]AgentConfig
-	DefaultReportTo      Locator
-	AllowHumanOutputSink bool
-	AllowFinishTool      bool
-	FinishOnContextDone  bool
-	GoalPromptFormatter  func(string) string
-	BackgroundGoalSource BackgroundGoalSource
+	RootAgentID               string
+	RootAgent                 AgentConfig
+	ChildAgents               map[string]AgentConfig
+	DefaultReportTo           Locator
+	AllowFinishTool           bool
+	FinishOnContextDone       bool
+	Providers                 []Provider
+	IngressPromptFormatter    func(IngressRequest) string
+	CompletionPromptFormatter func(CompletionPromptInput) string
+	BackgroundGoalSource      BackgroundGoalSource
 }
 
 type taskStatus string
 
 const (
-	taskStatusQueued    taskStatus = "queued"
-	taskStatusRunning   taskStatus = "running"
-	taskStatusCompleted taskStatus = "completed"
-	taskStatusFailed    taskStatus = "failed"
+	taskStatusQueued     taskStatus = "queued"
+	taskStatusRunning    taskStatus = "running"
+	taskStatusCompleted  taskStatus = "completed"
+	taskStatusDispatched taskStatus = "dispatched"
+	taskStatusFailed     taskStatus = "failed"
 )
 
 type task struct {
 	ID            string
+	SessionID     string
 	Locator       Locator
 	ReportTo      Locator
 	SourceTaskID  string
@@ -85,16 +110,12 @@ type task struct {
 	Error         string
 }
 
-type runResult struct {
-	Summary string
-}
-
 type taskRunner interface {
-	RunTask(ctx context.Context, taskID string, taskText string) (string, error)
+	RunTask(ctx context.Context, sessionID string, taskID string, taskText string) (string, error)
 }
 
 type childInvoker interface {
-	RunTask(ctx context.Context, callID string, prompt string) (string, error)
+	RunTask(ctx context.Context, sessionID string, callID string, prompt string) (string, error)
 }
 
 type closableRunner interface {
@@ -113,9 +134,9 @@ type acpSession struct {
 	runner         *adkrunner.Runner
 	sessionService session.Service
 	appName        string
-	sessionID      string
 	userID         string
 	logger         zerolog.Logger
+	sessions       map[string]string
 }
 
 type acpSessionConfig struct {
@@ -162,24 +183,25 @@ type executor struct {
 type coordinator struct {
 	logger zerolog.Logger
 
-	rootAgentID           string
-	childAgentIDs         map[string]struct{}
-	defaultReportTo       Locator
-	allowHumanOutputSink  bool
-	allowFinishTool       bool
-	finishOnContextDone   bool
-	goalPromptFormatter   func(string) string
-	backgroundTaskCounter int
+	rootAgentID               string
+	childAgentIDs             map[string]struct{}
+	defaultReportTo           Locator
+	allowFinishTool           bool
+	finishOnContextDone       bool
+	ingressPromptFormatter    func(IngressRequest) string
+	completionPromptFormatter func(CompletionPromptInput) string
+	providers                 providerRegistry
 
 	mu               sync.Mutex
 	tasks            map[string]*task
 	queues           map[string]chan *task
+	dispatchQueue    chan *task
 	terminal         bool
 	shuttingDown     bool
 	finalSummary     string
 	latestRootOutput string
 	finalErr         error
-	done             chan runResult
+	done             chan RunResult
 	doneClosed       bool
 
 	wg sync.WaitGroup
@@ -188,6 +210,23 @@ type coordinator struct {
 type httpServerResult struct {
 	Addr  string
 	Close func() error
+}
+
+type Runtime struct {
+	logger      zerolog.Logger
+	surfaceName string
+	stdout      io.Writer
+	startedAt   time.Time
+
+	runCtx      context.Context
+	cancel      context.CancelFunc
+	coordinator *coordinator
+	root        closableRunner
+	children    runnerSet
+	server      *httpServerResult
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func defaultDeps() runtimeDeps {
@@ -201,15 +240,41 @@ func defaultDeps() runtimeDeps {
 }
 
 func Run(ctx context.Context, cfg Config) error {
-	return run(ctx, cfg, defaultDeps())
-}
-
-func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
-	startedAt := time.Now()
-	if err := validateConfig(cfg); err != nil {
+	runtime, err := Start(ctx, cfg)
+	if err != nil {
 		return err
 	}
-	goal := strings.TrimSpace(cfg.Goal)
+	defer func() { _ = runtime.Close() }()
+
+	runtime.logger.Info().Str("goal", strings.TrimSpace(cfg.Goal)).Msg(runtime.surfaceName + " started")
+	if err := runtime.Ingest(IngressRequest{
+		ID:        initialGoalTaskID,
+		SessionID: initialGoalTaskID,
+		Prompt:    strings.TrimSpace(cfg.Goal),
+		Source:    NewCLILocator(initialGoalTaskID),
+	}); err != nil {
+		return err
+	}
+	if cfg.BackgroundGoalSource != nil {
+		go cfg.BackgroundGoalSource(runtime.runCtx, func(backgroundGoal IngressRequest) error {
+			return runtime.Ingest(backgroundGoal)
+		})
+	}
+	result, err := runtime.Wait(ctx)
+	if err != nil {
+		return err
+	}
+	return runtime.WriteOutput(result)
+}
+
+func Start(ctx context.Context, cfg Config) (*Runtime, error) {
+	return start(ctx, cfg, defaultDeps())
+}
+
+func start(ctx context.Context, cfg Config, deps runtimeDeps) (*Runtime, error) {
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
+	}
 	workingDir := strings.TrimSpace(cfg.WorkingDir)
 	if workingDir == "" {
 		workingDir = "."
@@ -255,17 +320,16 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		ChildAgents: cfg.ChildAgents,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer func() { _ = children.Close() }()
 
 	serviceLogger := logger.With().Str("surface", surfaceName).Logger()
 	service := newService(serviceLogger, cfg.DefaultReportTo, cfg.AllowFinishTool)
 	server, err := deps.startServer(ctx, service, "127.0.0.1:0")
 	if err != nil {
-		return err
+		_ = children.Close()
+		return nil, err
 	}
-	defer func() { _ = server.Close() }()
 
 	root, err := deps.newRootSession(ctx, acpSessionConfig{
 		AgentID:     cfg.RootAgentID,
@@ -286,9 +350,10 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		},
 	})
 	if err != nil {
-		return err
+		_ = server.Close()
+		_ = children.Close()
+		return nil, err
 	}
-	defer func() { _ = root.Close() }()
 
 	runners := make(map[string]taskRunner, len(cfg.ChildAgents)+1)
 	runners[cfg.RootAgentID] = root
@@ -297,42 +362,80 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	coordinator, err := newCoordinator(logger, cfg)
 	if err != nil {
 		cancel()
-		return err
+		_ = root.Close()
+		_ = server.Close()
+		_ = children.Close()
+		return nil, err
 	}
 	service.coordinator = coordinator
 	coordinator.start(runCtx, runners)
+	return &Runtime{
+		logger:      logger,
+		surfaceName: surfaceName,
+		stdout:      stdout,
+		startedAt:   time.Now(),
+		runCtx:      runCtx,
+		cancel:      cancel,
+		coordinator: coordinator,
+		root:        root,
+		children:    children,
+		server:      server,
+	}, nil
+}
 
-	logger.Info().Str("goal", goal).Msg(surfaceName + " started")
-	if err := coordinator.enqueueInitialGoal(goal); err != nil {
-		cancel()
-		coordinator.wait()
-		return err
-	}
-	if cfg.BackgroundGoalSource != nil {
-		go cfg.BackgroundGoalSource(runCtx, func(backgroundGoal string) error {
-			return coordinator.enqueueBackgroundGoal(backgroundGoal)
-		})
-	}
-	result, err := coordinator.waitResult(ctx)
-	coordinator.beginShutdown()
-	cancel()
-	coordinator.wait()
+func (r *Runtime) Ingest(req IngressRequest) error {
+	return r.coordinator.ingest(req)
+}
+
+func (r *Runtime) Wait(ctx context.Context) (RunResult, error) {
+	result, err := r.coordinator.waitResult(ctx)
+	r.coordinator.beginShutdown()
+	_ = r.Close()
 	if err != nil {
-		return err
+		return RunResult{}, err
 	}
-	elapsed := formatElapsed(time.Since(startedAt))
+	return result, nil
+}
 
-	logger.Info().
+func (r *Runtime) Close() error {
+	r.closeOnce.Do(func() {
+		r.cancel()
+		r.coordinator.wait()
+		var errs []string
+		if r.root != nil {
+			if err := r.root.Close(); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+		if r.server != nil {
+			if err := r.server.Close(); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+		if r.children != nil {
+			if err := r.children.Close(); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+		if len(errs) > 0 {
+			r.closeErr = errors.New(strings.Join(errs, "; "))
+		}
+	})
+	return r.closeErr
+}
+
+func (r *Runtime) WriteOutput(result RunResult) error {
+	elapsed := formatElapsed(time.Since(r.startedAt))
+	r.logger.Info().
 		Bool("has_result", strings.TrimSpace(result.Summary) != "").
 		Str("elapsed", elapsed).
 		Str("result", result.Summary).
-		Msg(surfaceName + " completed")
-	return writeRunOutput(stdout, result.Summary, elapsed)
+		Msg(r.surfaceName + " completed")
+	return writeRunOutput(r.stdout, result.Summary, elapsed)
 }
 
 func validateConfig(cfg Config) error {
@@ -349,9 +452,6 @@ func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.RootAgent.Instruction) == "" {
 		return errors.New("root agent instruction is required")
 	}
-	if len(cfg.ChildAgents) == 0 {
-		return errors.New("at least one child agent is required")
-	}
 	for childID, child := range cfg.ChildAgents {
 		if strings.TrimSpace(childID) == "" {
 			return errors.New("child agent id is required")
@@ -367,37 +467,45 @@ func validateConfig(cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("default report_to: %w", err)
 	}
-	if defaultReportTo.Type != LocatorTypeAgent {
-		return fmt.Errorf("default report_to.type must be %q", LocatorTypeAgent)
+	if defaultReportTo.Type != LocatorTypeAgent || defaultReportTo.Kind != LocatorKindLocal {
+		return fmt.Errorf("default report_to must be the local root agent locator")
 	}
 	if defaultReportTo.ID != strings.ToLower(strings.TrimSpace(cfg.RootAgentID)) {
 		return fmt.Errorf("default report_to.id %q must match root agent id %q", defaultReportTo.ID, cfg.RootAgentID)
 	}
-	if cfg.GoalPromptFormatter == nil {
-		return errors.New("goal prompt formatter is required")
+	if cfg.IngressPromptFormatter == nil {
+		return errors.New("ingress prompt formatter is required")
+	}
+	if cfg.CompletionPromptFormatter == nil {
+		return errors.New("completion prompt formatter is required")
 	}
 	return nil
 }
 
 func newCoordinator(logger zerolog.Logger, cfg Config) (*coordinator, error) {
 	rootID := strings.ToLower(strings.TrimSpace(cfg.RootAgentID))
-	if cfg.GoalPromptFormatter == nil {
-		return nil, errors.New("goal prompt formatter is required")
+	if cfg.IngressPromptFormatter == nil {
+		return nil, errors.New("ingress prompt formatter is required")
+	}
+	if cfg.CompletionPromptFormatter == nil {
+		return nil, errors.New("completion prompt formatter is required")
 	}
 	childIDs := make(map[string]struct{}, len(cfg.ChildAgents))
 	runnerCount := len(cfg.ChildAgents) + 1
 	c := &coordinator{
-		logger:               logger,
-		rootAgentID:          rootID,
-		childAgentIDs:        childIDs,
-		defaultReportTo:      cfg.DefaultReportTo,
-		allowHumanOutputSink: cfg.AllowHumanOutputSink,
-		allowFinishTool:      cfg.AllowFinishTool,
-		finishOnContextDone:  cfg.FinishOnContextDone,
-		goalPromptFormatter:  cfg.GoalPromptFormatter,
-		tasks:                make(map[string]*task),
-		queues:               make(map[string]chan *task, runnerCount),
-		done:                 make(chan runResult, 1),
+		logger:                    logger,
+		rootAgentID:               rootID,
+		childAgentIDs:             childIDs,
+		defaultReportTo:           cfg.DefaultReportTo,
+		allowFinishTool:           cfg.AllowFinishTool,
+		finishOnContextDone:       cfg.FinishOnContextDone,
+		ingressPromptFormatter:    cfg.IngressPromptFormatter,
+		completionPromptFormatter: cfg.CompletionPromptFormatter,
+		providers:                 newProviderRegistry(cfg.Providers),
+		tasks:                     make(map[string]*task),
+		queues:                    make(map[string]chan *task, runnerCount),
+		dispatchQueue:             make(chan *task, defaultQueueDepth),
+		done:                      make(chan RunResult, 1),
 	}
 	c.queues[rootID] = make(chan *task, defaultQueueDepth)
 	for childID := range cfg.ChildAgents {
@@ -431,19 +539,22 @@ func (e *executor) run(ctx context.Context) {
 			e.logger.Info().
 				Str("agent_id", e.agentID).
 				Str("task_id", nextTask.ID).
+				Str("session_id", nextTask.SessionID).
 				Str("task", nextTask.Prompt).
 				Msg("agent received task")
-			output, err := e.runner.RunTask(ctx, nextTask.ID, nextTask.Prompt)
+			output, err := e.runner.RunTask(ctx, nextTask.SessionID, nextTask.ID, nextTask.Prompt)
 			if err != nil {
 				e.logger.Info().
 					Str("agent_id", e.agentID).
 					Str("task_id", nextTask.ID).
+					Str("session_id", nextTask.SessionID).
 					Str("error", err.Error()).
 					Msg("agent finished task")
 			} else {
 				e.logger.Info().
 					Str("agent_id", e.agentID).
 					Str("task_id", nextTask.ID).
+					Str("session_id", nextTask.SessionID).
 					Str("result", strings.TrimSpace(output)).
 					Msg("agent finished task")
 			}
@@ -467,49 +578,67 @@ func (c *coordinator) start(ctx context.Context, runners map[string]taskRunner) 
 			e.run(ctx)
 		}(exec)
 	}
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.runDispatchLoop(ctx)
+	}()
 }
 
 func (c *coordinator) wait() {
 	c.wg.Wait()
 }
 
-func (c *coordinator) enqueueInitialGoal(goal string) error {
-	initial := &task{
-		ID:       initialGoalTaskID,
-		Locator:  NewAgentLocator(c.rootAgentID),
-		ReportTo: NewAgentLocator(c.rootAgentID),
-		Prompt:   c.goalPromptFormatter(goal),
-		Status:   taskStatusQueued,
+func (c *coordinator) ingest(req IngressRequest) error {
+	taskID := strings.TrimSpace(req.ID)
+	sessionID := strings.TrimSpace(req.SessionID)
+	prompt := strings.TrimSpace(req.Prompt)
+	source, sourceErr := normalizeLocator(req.Source)
+	reportTo, reportErr := normalizeReportLocator(req.ReportTo, c.defaultReportTo)
+	if taskID == "" {
+		return errors.New("id is required")
 	}
-	return c.enqueueTask(initial)
-}
+	if sessionID == "" {
+		return errors.New("session_id is required")
+	}
+	if prompt == "" {
+		return errors.New("prompt is required")
+	}
+	if sourceErr != nil {
+		return fmt.Errorf("source: %w", sourceErr)
+	}
+	if reportErr != nil {
+		return reportErr
+	}
+	if err := c.validateReportTo(reportTo); err != nil {
+		return err
+	}
 
-func (c *coordinator) enqueueBackgroundGoal(goal string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.terminal {
 		return errors.New("run already finished")
 	}
-	c.backgroundTaskCounter++
-	taskID := fmt.Sprintf("timer-%d", c.backgroundTaskCounter)
-	queued := c.newQueuedTaskLocked(taskID, NewAgentLocator(c.rootAgentID), NewAgentLocator(c.rootAgentID), c.goalPromptFormatter(goal))
+	queued := c.newQueuedTaskLocked(taskID, sessionID, NewAgentLocator(c.rootAgentID), reportTo, c.ingressPromptFormatter(req))
+	queued.SourceLocator = &source
 	return c.enqueueQueuedTaskLocked(queued)
 }
 
-func (c *coordinator) scheduleTask(taskID string, locator Locator, reportTo Locator, prompt string) error {
+func (c *coordinator) scheduleTask(taskID string, sessionID string, locator Locator, reportTo Locator, prompt string) error {
 	taskID = strings.TrimSpace(taskID)
+	sessionID = strings.TrimSpace(sessionID)
 	prompt = strings.TrimSpace(prompt)
 	if taskID == "" {
 		return errors.New("task_id is required")
 	}
+	if sessionID == "" {
+		return errors.New("session_id is required")
+	}
 	if prompt == "" {
 		return errors.New("prompt is required")
 	}
-	if locator.Type != LocatorTypeAgent {
-		return fmt.Errorf("unsupported locator.type %q", locator.Type)
-	}
-	if _, ok := c.childAgentIDs[locator.ID]; !ok {
-		return fmt.Errorf("unknown child agent locator.id %q", locator.ID)
+	if !c.isLocalChildTarget(locator) && !c.providers.supportsTarget(locator) {
+		return fmt.Errorf("unsupported target locator %s", locatorKey(locator))
 	}
 	if err := c.validateReportTo(reportTo); err != nil {
 		return err
@@ -523,31 +652,18 @@ func (c *coordinator) scheduleTask(taskID string, locator Locator, reportTo Loca
 	if _, exists := c.tasks[taskID]; exists {
 		return fmt.Errorf("task %q already exists", taskID)
 	}
-	queued := c.newQueuedTaskLocked(taskID, locator, reportTo, prompt)
+	queued := c.newQueuedTaskLocked(taskID, sessionID, locator, reportTo, prompt)
 	return c.enqueueQueuedTaskLocked(queued)
 }
 
 func (c *coordinator) validateReportTo(reportTo Locator) error {
-	switch reportTo.Type {
-	case LocatorTypeAgent:
-		if reportTo.ID == c.rootAgentID {
-			return nil
-		}
-		if _, ok := c.childAgentIDs[reportTo.ID]; ok {
-			return nil
-		}
-		return fmt.Errorf("unknown report_to.id %q", reportTo.ID)
-	case LocatorTypeHumanOutput:
-		if !c.allowHumanOutputSink {
-			return fmt.Errorf("unsupported report_to.type %q", reportTo.Type)
-		}
-		if reportTo.ID != HumanOutputCurrentLogID {
-			return fmt.Errorf("unknown report_to.id %q", reportTo.ID)
-		}
+	if c.isLocalAgentTarget(reportTo) {
 		return nil
-	default:
-		return fmt.Errorf("unsupported report_to.type %q", reportTo.Type)
 	}
+	if c.providers.supportsReport(reportTo) {
+		return nil
+	}
+	return fmt.Errorf("unsupported report_to locator %s", locatorKey(reportTo))
 }
 
 func (c *coordinator) finish(summary string) error {
@@ -575,23 +691,23 @@ func (c *coordinator) beginShutdown() {
 	c.shuttingDown = true
 }
 
-func (c *coordinator) waitResult(ctx context.Context) (runResult, error) {
+func (c *coordinator) waitResult(ctx context.Context) (RunResult, error) {
 	select {
 	case <-ctx.Done():
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.finalErr != nil {
-			return runResult{}, c.finalErr
+			return RunResult{}, c.finalErr
 		}
 		if c.finishOnContextDone {
-			return runResult{Summary: strings.TrimSpace(c.latestRootOutput)}, nil
+			return RunResult{Summary: strings.TrimSpace(c.latestRootOutput)}, nil
 		}
-		return runResult{}, ctx.Err()
+		return RunResult{}, ctx.Err()
 	case result := <-c.done:
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.finalErr != nil {
-			return runResult{}, c.finalErr
+			return RunResult{}, c.finalErr
 		}
 		return result, nil
 	}
@@ -605,28 +721,14 @@ func (c *coordinator) setRunError(err error) {
 	}
 	c.terminal = true
 	c.finalErr = err
-	c.sendDoneLocked(runResult{})
+	c.sendDoneLocked(RunResult{})
 }
 
-func (c *coordinator) enqueueTask(nextTask *task) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.terminal {
-		return errors.New("run already finished")
-	}
-	if _, exists := c.tasks[nextTask.ID]; exists {
-		return fmt.Errorf("task %q already exists", nextTask.ID)
-	}
-	queued := c.newQueuedTaskLocked(nextTask.ID, nextTask.Locator, nextTask.ReportTo, nextTask.Prompt)
-	queued.SourceTaskID = nextTask.SourceTaskID
-	queued.SourceLocator = nextTask.SourceLocator
-	return c.enqueueQueuedTaskLocked(queued)
-}
-
-func (c *coordinator) newQueuedTaskLocked(taskID string, locator Locator, reportTo Locator, prompt string) *task {
+func (c *coordinator) newQueuedTaskLocked(taskID string, sessionID string, locator Locator, reportTo Locator, prompt string) *task {
 	now := time.Now().UTC()
 	nextTask := &task{
 		ID:          taskID,
+		SessionID:   sessionID,
 		Locator:     locator,
 		ReportTo:    reportTo,
 		Prompt:      strings.TrimSpace(prompt),
@@ -639,13 +741,65 @@ func (c *coordinator) newQueuedTaskLocked(taskID string, locator Locator, report
 }
 
 func (c *coordinator) enqueueQueuedTaskLocked(nextTask *task) error {
-	queue, ok := c.queues[nextTask.Locator.ID]
-	if !ok {
-		return fmt.Errorf("unknown locator.id %q", nextTask.Locator.ID)
-	}
 	c.logTaskEvent("task enqueued", nextTask)
-	queue <- nextTask
+	if c.isLocalAgentTarget(nextTask.Locator) {
+		queue, ok := c.queues[nextTask.Locator.ID]
+		if !ok {
+			return fmt.Errorf("unknown local agent locator.id %q", nextTask.Locator.ID)
+		}
+		queue <- nextTask
+		return nil
+	}
+	c.dispatchQueue <- nextTask
 	return nil
+}
+
+func (c *coordinator) isLocalAgentTarget(locator Locator) bool {
+	return locator.Type == LocatorTypeAgent && locator.Kind == LocatorKindLocal && locator.ID == c.rootAgentID || c.isLocalChildTarget(locator)
+}
+
+func (c *coordinator) isLocalChildTarget(locator Locator) bool {
+	if locator.Type != LocatorTypeAgent || locator.Kind != LocatorKindLocal {
+		return false
+	}
+	_, ok := c.childAgentIDs[locator.ID]
+	return ok
+}
+
+func (c *coordinator) runDispatchLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case nextTask := <-c.dispatchQueue:
+			if nextTask == nil {
+				continue
+			}
+			if !c.tryStartTask(nextTask) {
+				continue
+			}
+			if err := c.providers.dispatchTask(ctx, DispatchRequest{
+				TaskID:    nextTask.ID,
+				SessionID: nextTask.SessionID,
+				Locator:   nextTask.Locator,
+				ReportTo:  nextTask.ReportTo,
+				Prompt:    nextTask.Prompt,
+			}); err != nil {
+				c.handleTaskResult(nextTask, "", err)
+				continue
+			}
+			c.handleDispatchHandoff(nextTask)
+		}
+	}
+}
+
+func (c *coordinator) handleDispatchHandoff(dispatchedTask *task) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now().UTC()
+	dispatchedTask.FinishedAt = now
+	dispatchedTask.Status = taskStatusDispatched
+	c.logTaskEvent("task dispatched", dispatchedTask)
 }
 
 func (c *coordinator) tryStartTask(nextTask *task) bool {
@@ -669,7 +823,7 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 	doneTask.FinishedAt = now
 	doneTask.Output = strings.TrimSpace(output)
 	var notification *task
-	var humanOutput string
+	var reportRequest *ReportRequest
 	if err != nil {
 		if c.shuttingDown && errors.Is(err, context.Canceled) {
 			doneTask.Status = taskStatusFailed
@@ -690,24 +844,24 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 		if err != nil {
 			c.finalErr = fmt.Errorf("%s task %q failed: %w", c.rootAgentID, doneTask.ID, err)
 			c.terminal = true
-			c.sendDoneLocked(runResult{})
+			c.sendDoneLocked(RunResult{})
 			c.mu.Unlock()
 			return
 		}
 		c.latestRootOutput = doneTask.Output
 		if c.terminal {
-			c.sendDoneLocked(runResult{Summary: c.finalSummary})
+			c.sendDoneLocked(RunResult{Summary: c.finalSummary})
 		}
 		c.mu.Unlock()
 		return
 	}
 
 	if !c.terminal {
-		switch doneTask.ReportTo.Type {
-		case LocatorTypeAgent:
-			notificationPrompt := formatNotificationTaskInput(doneTask)
+		if c.isLocalAgentTarget(doneTask.ReportTo) {
+			notificationPrompt := c.completionPromptFormatter(completionPromptInputFromTask(doneTask))
 			notification = c.newQueuedTaskLocked(
 				doneTask.ID+".notify",
+				doneTask.SessionID,
 				doneTask.ReportTo,
 				NewAgentLocator(c.rootAgentID),
 				notificationPrompt,
@@ -716,24 +870,20 @@ func (c *coordinator) handleTaskResult(doneTask *task, output string, err error)
 			sourceLocator := doneTask.Locator
 			notification.SourceLocator = &sourceLocator
 			c.logTaskEvent("notification task created", notification)
-		case LocatorTypeHumanOutput:
-			humanOutput = formatNotificationTaskInput(doneTask)
+		} else {
+			reportRequest = buildReportRequest(doneTask, c.completionPromptFormatter(completionPromptInputFromTask(doneTask)))
 		}
 	}
 	c.mu.Unlock()
 
-	if humanOutput != "" {
-		c.logger.Info().
-			Str("task_id", doneTask.ID).
-			Interface("source_locator", doneTask.Locator).
-			Str("report_to", doneTask.ReportTo.Type+":"+doneTask.ReportTo.ID).
-			Str("message_text", humanOutput).
-			Msg("human output delivered")
-	}
-
 	if notification != nil {
 		if err := c.enqueueNotification(notification); err != nil {
 			c.setRunError(fmt.Errorf("enqueue notification for %q: %w", doneTask.ID, err))
+		}
+	}
+	if reportRequest != nil {
+		if err := c.providers.deliverReport(context.Background(), *reportRequest); err != nil {
+			c.setRunError(fmt.Errorf("deliver report for %q: %w", doneTask.ID, err))
 		}
 	}
 }
@@ -746,7 +896,7 @@ func (c *coordinator) enqueueNotification(nextTask *task) error {
 	}
 	queue, ok := c.queues[nextTask.Locator.ID]
 	if !ok {
-		return fmt.Errorf("unknown locator.id %q", nextTask.Locator.ID)
+		return fmt.Errorf("unknown local agent locator.id %q", nextTask.Locator.ID)
 	}
 	c.logTaskEvent("task enqueued", nextTask)
 	queue <- nextTask
@@ -756,6 +906,7 @@ func (c *coordinator) enqueueNotification(nextTask *task) error {
 func (c *coordinator) logTaskEvent(message string, nextTask *task) {
 	event := c.logger.Debug().
 		Str("task_id", nextTask.ID).
+		Str("session_id", nextTask.SessionID).
 		Interface("locator", nextTask.Locator).
 		Interface("report_to", nextTask.ReportTo).
 		Str("status", string(nextTask.Status))
@@ -774,7 +925,7 @@ func (c *coordinator) logTaskEvent(message string, nextTask *task) {
 	event.Msg(message)
 }
 
-func (c *coordinator) sendDoneLocked(result runResult) {
+func (c *coordinator) sendDoneLocked(result RunResult) {
 	if c.doneClosed {
 		return
 	}
@@ -782,25 +933,36 @@ func (c *coordinator) sendDoneLocked(result runResult) {
 	c.doneClosed = true
 }
 
-func formatNotificationTaskInput(doneTask *task) string {
-	prompt := strings.TrimSpace(doneTask.Output)
-	if doneTask.Error != "" {
-		return strings.Join([]string{
-			fmt.Sprintf("Task %s failed.", doneTask.ID),
-			"",
-			"Error:",
-			strings.TrimSpace(doneTask.Error),
-		}, "\n")
+func completionPromptInputFromTask(doneTask *task) CompletionPromptInput {
+	input := CompletionPromptInput{
+		TaskID:    doneTask.ID,
+		SessionID: doneTask.SessionID,
+		Source:    doneTask.Locator,
+		Status:    string(doneTask.Status),
+		Output:    doneTask.Output,
+		Error:     doneTask.Error,
 	}
-	if prompt == "" {
-		prompt = "(empty result)"
+	if doneTask.SourceTaskID != "" {
+		input.SourceTaskID = doneTask.SourceTaskID
 	}
-	return strings.Join([]string{
-		fmt.Sprintf("Task %s completed.", doneTask.ID),
-		"",
-		"Result:",
-		prompt,
-	}, "\n")
+	if doneTask.SourceLocator != nil {
+		input.Source = *doneTask.SourceLocator
+	}
+	return input
+}
+
+func buildReportRequest(doneTask *task, prompt string) *ReportRequest {
+	return &ReportRequest{
+		TaskID:        doneTask.ID,
+		SessionID:     doneTask.SessionID,
+		SourceTaskID:  doneTask.SourceTaskID,
+		SourceLocator: doneTask.Locator,
+		ReportTo:      doneTask.ReportTo,
+		Status:        string(doneTask.Status),
+		Prompt:        strings.TrimSpace(prompt),
+		Output:        doneTask.Output,
+		Error:         doneTask.Error,
+	}
 }
 
 func formatElapsed(d time.Duration) string {
@@ -853,34 +1015,57 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		_ = agentRuntime.Close()
 		return nil, fmt.Errorf("create %s runner: %w", cfg.AgentID, err)
 	}
-	created, err := sessionService.Create(ctx, &session.CreateRequest{
-		AppName:   cfg.AppName,
-		UserID:    cfg.UserID,
-		SessionID: cfg.AppName,
-	})
-	if err != nil {
-		_ = agentRuntime.Close()
-		return nil, fmt.Errorf("create %s session: %w", cfg.AgentID, err)
-	}
 	return &acpSession{
 		agent:          agentRuntime,
 		runner:         runner,
 		sessionService: sessionService,
 		appName:        cfg.AppName,
-		sessionID:      created.Session.ID(),
 		userID:         cfg.UserID,
 		logger:         logger,
+		sessions:       make(map[string]string),
 	}, nil
 }
 
-func (s *acpSession) RunTask(ctx context.Context, callID string, prompt string) (string, error) {
+func (s *acpSession) RunTask(ctx context.Context, sessionID string, callID string, prompt string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	resolvedSessionID, err := s.ensureSessionLocked(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
 	callLogger := s.logger.With().Str("call_id", callID).Logger()
-	_, last, err := runWithRunner(ctx, s.runner, s.sessionService, s.appName, s.userID, s.sessionID, prompt, func(output string) {
+	_, last, err := runWithRunner(ctx, s.runner, s.sessionService, s.appName, s.userID, resolvedSessionID, prompt, func(output string) {
 		callLogger.Debug().Str("output", output).Msg("task output")
 	})
 	return last, err
+}
+
+func (s *acpSession) ensureSessionLocked(ctx context.Context, sessionID string) (string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return "", errors.New("session_id is required")
+	}
+	if resolved, ok := s.sessions[sessionID]; ok {
+		return resolved, nil
+	}
+	if _, err := s.sessionService.Get(ctx, &session.GetRequest{
+		AppName:   s.appName,
+		UserID:    s.userID,
+		SessionID: sessionID,
+	}); err == nil {
+		s.sessions[sessionID] = sessionID
+		return sessionID, nil
+	}
+	created, err := s.sessionService.Create(ctx, &session.CreateRequest{
+		AppName:   s.appName,
+		UserID:    s.userID,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		return "", err
+	}
+	s.sessions[sessionID] = created.Session.ID()
+	return created.Session.ID(), nil
 }
 
 func (s *acpSession) Close() error {

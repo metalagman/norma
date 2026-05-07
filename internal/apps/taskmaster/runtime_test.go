@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/normahq/norma/internal/apps/taskmastercore"
 )
 
 func TestBuildCodexACPCommand(t *testing.T) {
@@ -30,7 +32,9 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"generic Taskmaster async root agent",
 		"one plain-text child agent named worker",
 		"taskmaster.schedule_task",
-		"human_output current_log",
+		"session_id",
+		"type: agent, kind: local, id: worker",
+		"type: sink, kind: human_output, id: current_log",
 		"completion goes only to the current log",
 		"background timer may also deliver simple hello world goals",
 		"does not finish on your turn completion",
@@ -76,19 +80,22 @@ func TestBackgroundGoalSourceEmitsHelloWorld(t *testing.T) {
 	fake := &fakeTicker{ch: tickCh}
 	source := backgroundGoalSource(time.Second, func(time.Duration) ticker { return fake })
 
-	got := make(chan string, 1)
+	got := make(chan taskmastercore.IngressRequest, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go source(ctx, func(prompt string) error {
-		got <- prompt
+	go source(ctx, func(req taskmastercore.IngressRequest) error {
+		got <- req
 		return nil
 	})
 
 	tickCh <- time.Now()
 	select {
-	case prompt := <-got:
-		if prompt != timerGoalMessage {
-			t.Fatalf("prompt = %q, want %q", prompt, timerGoalMessage)
+	case req := <-got:
+		if req.Prompt != timerGoalMessage {
+			t.Fatalf("prompt = %q, want %q", req.Prompt, timerGoalMessage)
+		}
+		if req.SessionID == "" {
+			t.Fatal("background goal session_id is empty")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("background goal source did not emit synthetic goal")

@@ -41,6 +41,7 @@ The MCP control namespace is:
 `schedule_task` still accepts:
 
 - `task_id`
+- `session_id`
 - `locator`
 - optional `report_to`
 - `prompt`
@@ -50,6 +51,7 @@ The only child locator in this wrapper is:
 ```json
 {
   "type": "agent",
+  "kind": "local",
   "id": "worker"
 }
 ```
@@ -59,6 +61,7 @@ Default completion reporting is:
 ```json
 {
   "type": "agent",
+  "kind": "local",
   "id": "taskmaster"
 }
 ```
@@ -67,7 +70,8 @@ Generic `taskmaster` also supports one special `report_to` sink:
 
 ```json
 {
-  "type": "human_output",
+  "type": "sink",
+  "kind": "human_output",
   "id": "current_log"
 }
 ```
@@ -79,11 +83,11 @@ If a child task uses that target, its completion is written to the current playg
 The generic flow is:
 
 1. CLI enqueues the initial goal to the root `taskmaster` agent.
-2. Root calls `taskmaster.schedule_task` to hand work to `worker`.
+2. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
 3. `worker` runs a plain-text prompt as a black box.
 4. Completion is either:
    - routed back to root through `report_to = agent`, or
-   - written to the log through `report_to = human_output`
+   - written to the log through `report_to = sink/human_output`
 5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
 6. On shutdown, the playground returns the latest plain-text output produced by the root agent.
 
@@ -97,6 +101,16 @@ Stdout remains reserved for:
 Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root goals with `hello world` prompt text.
 
 These timer goals are supplemental to the initial user goal and continue until the command context is canceled.
+
+## Reusable Core Notes
+
+The shared `taskmastercore` now supports:
+
+- root-only mode with zero child agents
+- session-aware agent turns keyed by explicit `session_id`
+- reusable locators with `type`, `kind`, and `id`
+- app-owned provider routing for non-local report or target addresses
+- a separate root-ingress API for external integrations
 
 ## Relation to Other Playgrounds
 

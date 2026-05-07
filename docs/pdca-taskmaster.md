@@ -51,11 +51,14 @@ Default `report_to` resolves to the PDCA root agent:
 ```json
 {
   "type": "agent",
+  "kind": "local",
   "id": "pdca-taskmaster"
 }
 ```
 
 This wrapper accepts only agent-based `report_to` targets. It does not support the generic `human_output` report sink.
+
+`taskmaster.schedule_task` also requires `session_id`. The root keeps the same session across PDCA turns for the same conversation.
 
 ## Relation to Other Playgrounds
 

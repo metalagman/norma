@@ -15,6 +15,8 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"Always start a new goal with plan.",
 		"taskmaster.schedule_task",
 		"taskmaster.finish",
+		"session_id",
+		"type: agent, kind: local, id: pdca-taskmaster",
 		"The child agents available in this wrapper are plan, do, check, and act.",
 	} {
 		if !strings.Contains(got, want) {

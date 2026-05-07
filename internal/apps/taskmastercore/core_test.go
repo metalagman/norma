@@ -1,7 +1,6 @@
 package taskmastercore
 
 import (
-	"bytes"
 	"context"
 	"strings"
 	"sync"
@@ -14,97 +13,94 @@ import (
 func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 	t.Parallel()
 
-	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), false)
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig(nil), map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    &fakeTaskRunner{},
+	})
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), true)
+	service := newService(zerolog.Nop(), NewAgentLocator(rootAgentID), true)
 	service.coordinator = coordinator
 
 	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
-		TaskID:  "task-worker",
-		Locator: NewAgentLocator("worker"),
-		Prompt:  "do work",
+		TaskID:    "task-worker",
+		SessionID: "session-a",
+		Locator:   NewAgentLocator("worker"),
+		Prompt:    "do work",
 	})
 	if err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
-	if out.ReportTo != NewAgentLocator("taskmaster") {
-		t.Fatalf("out.ReportTo = %+v, want taskmaster", out.ReportTo)
+	if out.ReportTo != NewAgentLocator(rootAgentID) {
+		t.Fatalf("out.ReportTo = %+v, want taskmaster root", out.ReportTo)
+	}
+	if out.SessionID != "session-a" {
+		t.Fatalf("out.SessionID = %q, want session-a", out.SessionID)
 	}
 }
 
-func TestScheduleTaskAllowsHumanOutputWhenEnabled(t *testing.T) {
+func TestScheduleTaskAllowsProviderReport(t *testing.T) {
 	t.Parallel()
 
-	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), true)
+	provider := &fakeProvider{
+		reportLocators: map[string]bool{locatorKey(NewHumanOutputLocator()): true},
+	}
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig([]Provider{provider}), map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    &fakeTaskRunner{},
+	})
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), true)
+	service := newService(zerolog.Nop(), NewAgentLocator(rootAgentID), true)
 	service.coordinator = coordinator
 
 	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
-		TaskID:   "task-worker",
-		Locator:  NewAgentLocator("worker"),
-		ReportTo: ptrLocator(NewHumanOutputLocator()),
-		Prompt:   "do work",
+		TaskID:    "task-worker",
+		SessionID: "session-a",
+		Locator:   NewAgentLocator("worker"),
+		ReportTo:  ptrLocator(NewHumanOutputLocator()),
+		Prompt:    "do work",
 	})
 	if err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
 	if out.ReportTo != NewHumanOutputLocator() {
-		t.Fatalf("out.ReportTo = %+v, want human_output current_log", out.ReportTo)
+		t.Fatalf("out.ReportTo = %+v, want human output locator", out.ReportTo)
 	}
 }
 
-func TestScheduleTaskRejectsHumanOutputWhenDisabled(t *testing.T) {
+func TestRootOnlyConfigAllowed(t *testing.T) {
 	t.Parallel()
 
-	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), false)
+	cfg := testConfig(nil)
+	cfg.ChildAgents = nil
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), cfg, map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+	})
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), true)
-	service.coordinator = coordinator
-
-	_, out, err := service.scheduleTask(context.Background(), nil, scheduleTaskInput{
-		TaskID:   "task-worker",
-		Locator:  NewAgentLocator("worker"),
-		ReportTo: ptrLocator(NewHumanOutputLocator()),
-		Prompt:   "do work",
-	})
-	if err != nil {
-		t.Fatalf("scheduleTask() error = %v", err)
-	}
-	if out.Status != "error" || !strings.Contains(out.Message, `unsupported report_to.type "human_output"`) {
-		t.Fatalf("scheduleTask() output = %+v", out)
+	if err := coordinator.ingest(IngressRequest{
+		ID:        "ingress-1",
+		SessionID: "session-a",
+		Prompt:    "hello",
+		Source:    NewCLILocator("cli"),
+	}); err != nil {
+		t.Fatalf("ingest() error = %v", err)
 	}
 }
 
 func TestFinishToolCanBeDisabled(t *testing.T) {
 	t.Parallel()
 
-	coordinator, cleanup := startTestCoordinatorWithConfig(t, zerolog.Nop(), Config{
-		RootAgentID: rootAgentID,
-		RootAgent: AgentConfig{
-			Name:        "root",
-			Instruction: "root",
-		},
-		ChildAgents: map[string]AgentConfig{
-			"worker": {
-				Name:        "worker",
-				Instruction: "worker",
-			},
-		},
-		DefaultReportTo:      NewAgentLocator(rootAgentID),
-		AllowHumanOutputSink: false,
-		AllowFinishTool:      false,
-		GoalPromptFormatter:  func(goal string) string { return goal },
-	}, map[string]taskRunner{
+	cfg := testConfig(nil)
+	cfg.AllowFinishTool = false
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), cfg, map[string]taskRunner{
 		rootAgentID: &fakeTaskRunner{},
 		"worker":    &fakeTaskRunner{},
 	})
 	defer cleanup()
 
-	service := newService(zerolog.Nop(), NewAgentLocator("taskmaster"), false)
+	service := newService(zerolog.Nop(), NewAgentLocator(rootAgentID), false)
 	service.coordinator = coordinator
 
 	_, out, err := service.finish(context.Background(), nil, finishInput{Summary: "done"})
@@ -116,147 +112,62 @@ func TestFinishToolCanBeDisabled(t *testing.T) {
 	}
 }
 
-func TestCoordinatorCreatesRootNotification(t *testing.T) {
+func TestCoordinatorCreatesRootNotificationWithSession(t *testing.T) {
 	t.Parallel()
 
-	rootRunner := &fakeTaskRunner{started: make(chan string, 1)}
+	rootRunner := &fakeTaskRunner{started: make(chan startedTask, 1)}
 	workerRunner := &fakeTaskRunner{result: "worker result"}
-	coordinator, cleanup := startTestCoordinatorWithRunners(t, zerolog.Nop(), false, rootRunner, workerRunner)
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig(nil), map[string]taskRunner{
+		rootAgentID: rootRunner,
+		"worker":    workerRunner,
+	})
 	defer cleanup()
 
-	if err := coordinator.scheduleTask("task-worker", NewAgentLocator("worker"), NewAgentLocator("taskmaster"), "do work"); err != nil {
+	if err := coordinator.scheduleTask("task-worker", "session-a", NewAgentLocator("worker"), NewAgentLocator(rootAgentID), "do work"); err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
 
 	select {
-	case prompt := <-rootRunner.started:
-		if !strings.Contains(prompt, "Task task-worker completed.") || !strings.Contains(prompt, "worker result") {
-			t.Fatalf("notification prompt = %q, want completion prompt", prompt)
+	case started := <-rootRunner.started:
+		if started.SessionID != "session-a" {
+			t.Fatalf("started.SessionID = %q, want session-a", started.SessionID)
+		}
+		if !strings.Contains(started.Prompt, "Session ID:\nsession-a") || !strings.Contains(started.Prompt, "worker result") {
+			t.Fatalf("notification prompt = %q, want session and result", started.Prompt)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("root did not receive completion notification")
 	}
 }
 
-func TestCoordinatorHumanOutputSkipsRootNotification(t *testing.T) {
+func TestExternalTargetDispatchUsesProvider(t *testing.T) {
 	t.Parallel()
 
-	logs := &lockedStringBuffer{}
-	logger := zerolog.New(logs).Level(zerolog.InfoLevel)
-	rootRunner := &fakeTaskRunner{started: make(chan string, 1)}
-	workerRunner := &fakeTaskRunner{result: "worker result"}
-	coordinator, cleanup := startTestCoordinatorWithRunners(t, logger, true, rootRunner, workerRunner)
-	defer cleanup()
-
-	if err := coordinator.scheduleTask("task-worker", NewAgentLocator("worker"), NewHumanOutputLocator(), "do work"); err != nil {
-		t.Fatalf("scheduleTask() error = %v", err)
+	external := NewLocator("chat", "telegram", "chat-42")
+	provider := &fakeProvider{
+		targetLocators:  map[string]bool{locatorKey(external): true},
+		dispatchStarted: make(chan DispatchRequest, 1),
 	}
-
-	select {
-	case prompt := <-rootRunner.started:
-		t.Fatalf("root unexpectedly got prompt %q from human_output report", prompt)
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if strings.Contains(logs.String(), "human output delivered") {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("logs = %q, want human output delivered entry", logs.String())
-}
-
-func TestQueuedRootTaskSkippedAfterFinish(t *testing.T) {
-	t.Parallel()
-
-	rootRunner := &fakeTaskRunner{
-		started: make(chan string, 2),
-		release: make(chan struct{}),
-	}
-	coordinator, cleanup := startTestCoordinatorWithRunners(t, zerolog.Nop(), false, rootRunner, &fakeTaskRunner{})
-	defer cleanup()
-
-	if err := coordinator.enqueueInitialGoal("initial goal"); err != nil {
-		t.Fatalf("enqueueInitialGoal() error = %v", err)
-	}
-	select {
-	case <-rootRunner.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("initial root task did not start")
-	}
-
-	if err := coordinator.enqueueBackgroundGoal("hello world"); err != nil {
-		t.Fatalf("enqueueBackgroundGoal() error = %v", err)
-	}
-	if err := coordinator.finish("done"); err != nil {
-		t.Fatalf("finish() error = %v", err)
-	}
-	close(rootRunner.release)
-
-	result, err := coordinator.waitResult(context.Background())
-	if err != nil {
-		t.Fatalf("waitResult() error = %v", err)
-	}
-	if result.Summary != "done" {
-		t.Fatalf("result.Summary = %q, want done", result.Summary)
-	}
-
-	select {
-	case prompt := <-rootRunner.started:
-		t.Fatalf("unexpected second root task started with prompt %q after finish", prompt)
-	case <-time.After(150 * time.Millisecond):
-	}
-}
-
-func TestCanceledTaskDuringShutdownIsNotTreatedAsFailure(t *testing.T) {
-	t.Parallel()
-
-	logs := &lockedStringBuffer{}
-	logger := zerolog.New(logs).Level(zerolog.DebugLevel)
-	rootRunner := &fakeTaskRunner{}
-	workerRunner := &fakeTaskRunner{
-		release: make(chan struct{}),
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cfg := Config{
-		RootAgentID: rootAgentID,
-		RootAgent: AgentConfig{
-			Name:        "root",
-			Instruction: "root",
-		},
-		ChildAgents: map[string]AgentConfig{
-			"worker": {
-				Name:        "worker",
-				Instruction: "worker",
-			},
-		},
-		DefaultReportTo:      NewAgentLocator(rootAgentID),
-		AllowHumanOutputSink: false,
-		AllowFinishTool:      true,
-		GoalPromptFormatter:  func(goal string) string { return goal },
-	}
-	coordinator, err := newCoordinator(logger, cfg)
-	if err != nil {
-		t.Fatalf("newCoordinator() error = %v", err)
-	}
-	coordinator.start(ctx, map[string]taskRunner{
-		rootAgentID: rootRunner,
-		"worker":    workerRunner,
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig([]Provider{provider}), map[string]taskRunner{
+		rootAgentID: &fakeTaskRunner{},
+		"worker":    &fakeTaskRunner{},
 	})
-	defer coordinator.wait()
+	defer cleanup()
 
-	if err := coordinator.scheduleTask("task-worker", NewAgentLocator("worker"), NewAgentLocator("taskmaster"), "do work"); err != nil {
+	if err := coordinator.scheduleTask("task-telegram", "session-telegram", external, NewAgentLocator(rootAgentID), "send outbound"); err != nil {
 		t.Fatalf("scheduleTask() error = %v", err)
 	}
-	waitForString(t, logs, `"message":"task started"`)
-	coordinator.beginShutdown()
-	cancel()
 
-	waitForString(t, logs, `"message":"task canceled during shutdown"`)
-	if strings.Contains(logs.String(), `"message":"task failed"`) {
-		t.Fatalf("logs = %q, do not want task failed log for expected shutdown cancel", logs.String())
+	select {
+	case req := <-provider.dispatchStarted:
+		if req.SessionID != "session-telegram" {
+			t.Fatalf("dispatch session_id = %q, want session-telegram", req.SessionID)
+		}
+		if req.Locator != external {
+			t.Fatalf("dispatch locator = %+v, want %+v", req.Locator, external)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider did not receive external dispatch")
 	}
 }
 
@@ -264,31 +175,19 @@ func TestWaitResultReturnsLatestRootOutputOnContextDone(t *testing.T) {
 	t.Parallel()
 
 	rootRunner := &fakeTaskRunner{result: "latest root summary"}
-	coordinator, cleanup := startTestCoordinatorWithConfig(t, zerolog.Nop(), Config{
-		RootAgentID: rootAgentID,
-		RootAgent: AgentConfig{
-			Name:        "root",
-			Instruction: "root",
-		},
-		ChildAgents: map[string]AgentConfig{
-			"worker": {
-				Name:        "worker",
-				Instruction: "worker",
-			},
-		},
-		DefaultReportTo:      NewAgentLocator(rootAgentID),
-		AllowHumanOutputSink: false,
-		AllowFinishTool:      false,
-		FinishOnContextDone:  true,
-		GoalPromptFormatter:  func(goal string) string { return goal },
-	}, map[string]taskRunner{
+	coordinator, cleanup := startTestCoordinator(t, zerolog.Nop(), testConfig(nil), map[string]taskRunner{
 		rootAgentID: rootRunner,
 		"worker":    &fakeTaskRunner{},
 	})
 	defer cleanup()
 
-	if err := coordinator.enqueueInitialGoal("initial goal"); err != nil {
-		t.Fatalf("enqueueInitialGoal() error = %v", err)
+	if err := coordinator.ingest(IngressRequest{
+		ID:        "ingress-1",
+		SessionID: "session-a",
+		Prompt:    "initial goal",
+		Source:    NewCLILocator("cli"),
+	}); err != nil {
+		t.Fatalf("ingest() error = %v", err)
 	}
 	waitForCondition(t, func() bool {
 		coordinator.mu.Lock()
@@ -312,13 +211,6 @@ func ptrLocator(locator Locator) *Locator {
 	return &locator
 }
 
-func waitForString(t *testing.T, logs *lockedStringBuffer, needle string) {
-	t.Helper()
-	waitForCondition(t, func() bool {
-		return strings.Contains(logs.String(), needle)
-	})
-}
-
 func waitForCondition(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -331,38 +223,7 @@ func waitForCondition(t *testing.T, cond func() bool) {
 	t.Fatal("condition not satisfied before timeout")
 }
 
-func startTestCoordinator(t *testing.T, logger zerolog.Logger, allowHumanOutput bool) (*coordinator, func()) {
-	t.Helper()
-	return startTestCoordinatorWithRunners(t, logger, allowHumanOutput, &fakeTaskRunner{}, &fakeTaskRunner{})
-}
-
-func startTestCoordinatorWithRunners(t *testing.T, logger zerolog.Logger, allowHumanOutput bool, rootRunner, workerRunner *fakeTaskRunner) (*coordinator, func()) {
-	t.Helper()
-	cfg := Config{
-		RootAgentID: rootAgentID,
-		RootAgent: AgentConfig{
-			Name:        "root",
-			Instruction: "root",
-		},
-		ChildAgents: map[string]AgentConfig{
-			"worker": {
-				Name:        "worker",
-				Instruction: "worker",
-			},
-		},
-		DefaultReportTo:      NewAgentLocator(rootAgentID),
-		AllowHumanOutputSink: allowHumanOutput,
-		AllowFinishTool:      true,
-		GoalPromptFormatter:  func(goal string) string { return goal },
-	}
-	runners := map[string]taskRunner{
-		rootAgentID: rootRunner,
-		"worker":    workerRunner,
-	}
-	return startTestCoordinatorWithConfig(t, logger, cfg, runners)
-}
-
-func startTestCoordinatorWithConfig(t *testing.T, logger zerolog.Logger, cfg Config, runners map[string]taskRunner) (*coordinator, func()) {
+func startTestCoordinator(t *testing.T, logger zerolog.Logger, cfg Config, runners map[string]taskRunner) (*coordinator, func()) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -377,19 +238,53 @@ func startTestCoordinatorWithConfig(t *testing.T, logger zerolog.Logger, cfg Con
 	}
 }
 
+func testConfig(providers []Provider) Config {
+	return Config{
+		RootAgentID: rootAgentID,
+		RootAgent: AgentConfig{
+			Name:        "root",
+			Instruction: "root",
+		},
+		ChildAgents: map[string]AgentConfig{
+			"worker": {
+				Name:        "worker",
+				Instruction: "worker",
+			},
+		},
+		DefaultReportTo: NewAgentLocator(rootAgentID),
+		AllowFinishTool: true,
+		Providers:       providers,
+		IngressPromptFormatter: func(req IngressRequest) string {
+			return strings.Join([]string{"Session ID:", req.SessionID, "", "Prompt:", req.Prompt}, "\n")
+		},
+		CompletionPromptFormatter: func(input CompletionPromptInput) string {
+			if input.Error != "" {
+				return strings.Join([]string{"Session ID:", input.SessionID, "", "Error:", input.Error}, "\n")
+			}
+			return strings.Join([]string{"Session ID:", input.SessionID, "", "Result:", input.Output}, "\n")
+		},
+		FinishOnContextDone: true,
+	}
+}
+
 const rootAgentID = "taskmaster"
+
+type startedTask struct {
+	SessionID string
+	Prompt    string
+}
 
 type fakeTaskRunner struct {
 	mu      sync.Mutex
 	result  string
 	err     error
-	started chan string
+	started chan startedTask
 	release chan struct{}
 }
 
-func (r *fakeTaskRunner) RunTask(ctx context.Context, _ string, taskText string) (string, error) {
+func (r *fakeTaskRunner) RunTask(ctx context.Context, sessionID string, _ string, taskText string) (string, error) {
 	if r.started != nil {
-		r.started <- taskText
+		r.started <- startedTask{SessionID: sessionID, Prompt: taskText}
 	}
 	if r.release != nil {
 		select {
@@ -403,19 +298,32 @@ func (r *fakeTaskRunner) RunTask(ctx context.Context, _ string, taskText string)
 	return r.result, r.err
 }
 
-type lockedStringBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+type fakeProvider struct {
+	targetLocators map[string]bool
+	reportLocators map[string]bool
+
+	dispatchStarted chan DispatchRequest
+	reports         chan ReportRequest
 }
 
-func (b *lockedStringBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
+func (p *fakeProvider) SupportsTarget(locator Locator) bool {
+	return p.targetLocators[locatorKey(locator)]
 }
 
-func (b *lockedStringBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
+func (p *fakeProvider) SupportsReport(locator Locator) bool {
+	return p.reportLocators[locatorKey(locator)]
+}
+
+func (p *fakeProvider) DispatchTask(_ context.Context, req DispatchRequest) error {
+	if p.dispatchStarted != nil {
+		p.dispatchStarted <- req
+	}
+	return nil
+}
+
+func (p *fakeProvider) DeliverReport(_ context.Context, req ReportRequest) error {
+	if p.reports != nil {
+		p.reports <- req
+	}
+	return nil
 }

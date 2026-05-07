@@ -25,18 +25,20 @@ type service struct {
 }
 
 type scheduleTaskInput struct {
-	TaskID   string   `json:"task_id"`
-	Locator  Locator  `json:"locator"`
-	ReportTo *Locator `json:"report_to,omitempty"`
-	Prompt   string   `json:"prompt"`
+	TaskID    string   `json:"task_id"`
+	SessionID string   `json:"session_id"`
+	Locator   Locator  `json:"locator"`
+	ReportTo  *Locator `json:"report_to,omitempty"`
+	Prompt    string   `json:"prompt"`
 }
 
 type scheduleTaskOutput struct {
-	TaskID   string  `json:"task_id"`
-	Locator  Locator `json:"locator"`
-	ReportTo Locator `json:"report_to"`
-	Status   string  `json:"status"`
-	Message  string  `json:"message,omitempty"`
+	TaskID    string  `json:"task_id"`
+	SessionID string  `json:"session_id"`
+	Locator   Locator `json:"locator"`
+	ReportTo  Locator `json:"report_to"`
+	Status    string  `json:"status"`
+	Message   string  `json:"message,omitempty"`
 }
 
 type finishInput struct {
@@ -57,7 +59,7 @@ func newService(logger zerolog.Logger, defaultReportTo Locator, allowFinishTool 
 }
 
 func newMCPServer(service *service) *mcp.Server {
-	instructions := "Use taskmaster.schedule_task to enqueue one child-agent task in the async run."
+	instructions := "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include task_id, session_id, locator, optional report_to, and prompt."
 	if service.allowFinishTool {
 		instructions += " Use taskmaster.finish to finish the async run."
 	}
@@ -67,7 +69,7 @@ func newMCPServer(service *service) *mcp.Server {
 	)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        scheduleTaskToolName,
-		Description: "Enqueue one child-agent task addressed by locator using a plain-text prompt. Optionally set report_to for completion reporting. Returns immediately after queueing.",
+		Description: "Enqueue one task addressed by locator using a plain-text prompt. Session context is required. Optionally set report_to for completion reporting. Returns immediately after queueing.",
 	}, service.scheduleTask)
 	if service.allowFinishTool {
 		mcp.AddTool(server, &mcp.Tool{
@@ -86,34 +88,37 @@ func startHTTPServer(ctx context.Context, service *service, addr string) (*httpS
 
 func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, input scheduleTaskInput) (*mcp.CallToolResult, scheduleTaskOutput, error) {
 	taskID := strings.TrimSpace(input.TaskID)
+	sessionID := strings.TrimSpace(input.SessionID)
 	locator, locatorErr := normalizeLocator(input.Locator)
 	reportTo, reportErr := normalizeReportLocator(input.ReportTo, s.defaultReportTo)
 	prompt := strings.TrimSpace(input.Prompt)
 	if s.coordinator == nil {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReportTo: reportTo, Status: "error", Message: "coordinator is not ready"}
+		out := scheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: "coordinator is not ready"}
 		return toolError(out.Message), out, nil
 	}
 	if locatorErr != nil {
-		out := scheduleTaskOutput{TaskID: taskID, Status: "error", Message: locatorErr.Error()}
+		out := scheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Status: "error", Message: locatorErr.Error()}
 		return toolError(out.Message), out, nil
 	}
 	if reportErr != nil {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, Status: "error", Message: reportErr.Error()}
+		out := scheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Locator: locator, Status: "error", Message: reportErr.Error()}
 		return toolError(out.Message), out, nil
 	}
-	if err := s.coordinator.scheduleTask(taskID, locator, reportTo, prompt); err != nil {
-		out := scheduleTaskOutput{TaskID: taskID, Locator: locator, ReportTo: reportTo, Status: "error", Message: err.Error()}
+	if err := s.coordinator.scheduleTask(taskID, sessionID, locator, reportTo, prompt); err != nil {
+		out := scheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: err.Error()}
 		return toolError(out.Message), out, nil
 	}
 	out := scheduleTaskOutput{
-		TaskID:   taskID,
-		Locator:  locator,
-		ReportTo: reportTo,
-		Status:   string(taskStatusQueued),
-		Message:  "task queued",
+		TaskID:    taskID,
+		SessionID: sessionID,
+		Locator:   locator,
+		ReportTo:  reportTo,
+		Status:    string(taskStatusQueued),
+		Message:   "task queued",
 	}
 	s.logger.Debug().
 		Str("task_id", taskID).
+		Str("session_id", sessionID).
 		Interface("locator", locator).
 		Interface("report_to", reportTo).
 		Msg("schedule_task accepted")
