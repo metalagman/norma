@@ -108,6 +108,17 @@ func locatorKey(locator Locator) string {
 	return fmt.Sprintf("%s:%s:%s", locator.Class, locator.Transport, locator.Key)
 }
 
+func locatorString(locator Locator) string {
+	return locatorKey(locator)
+}
+
+func locatorPtrString(locator *Locator) string {
+	if locator == nil {
+		return ""
+	}
+	return locatorString(*locator)
+}
+
 func isBuiltInSourceLocator(locator Locator) bool {
 	if locator.Class != LocatorClassIntegration {
 		return false

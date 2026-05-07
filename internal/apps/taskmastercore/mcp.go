@@ -119,8 +119,8 @@ func (s *service) scheduleTask(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	s.logger.Debug().
 		Str("task_id", taskID).
 		Str("session_id", sessionID).
-		Interface("locator", locator).
-		Interface("report_to", reportTo).
+		Str("locator", locatorString(locator)).
+		Str("report_to", locatorString(reportTo)).
 		Msg("schedule_task accepted")
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: out.Message}},

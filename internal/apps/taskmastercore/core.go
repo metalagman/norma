@@ -533,8 +533,8 @@ func (e *executor) run(ctx context.Context) {
 				e.logger.Debug().
 					Str("task_id", nextTask.ID).
 					Str("source_task_id", nextTask.SourceTaskID).
-					Interface("source_locator", nextTask.SourceLocator).
-					Interface("report_to", nextTask.ReportTo).
+					Str("source_locator", locatorPtrString(nextTask.SourceLocator)).
+					Str("report_to", locatorString(nextTask.ReportTo)).
 					Msg("notification task received")
 			}
 			if !e.coordinator.tryStartTask(nextTask) {
@@ -914,14 +914,14 @@ func (c *coordinator) logTaskEvent(message string, nextTask *task) {
 	event := c.logger.Debug().
 		Str("task_id", nextTask.ID).
 		Str("session_id", nextTask.SessionID).
-		Interface("locator", nextTask.Locator).
-		Interface("report_to", nextTask.ReportTo).
+		Str("locator", locatorString(nextTask.Locator)).
+		Str("report_to", locatorString(nextTask.ReportTo)).
 		Str("status", string(nextTask.Status))
 	if nextTask.SourceTaskID != "" {
 		event = event.Str("source_task_id", nextTask.SourceTaskID)
 	}
 	if nextTask.SourceLocator != nil {
-		event = event.Interface("source_locator", nextTask.SourceLocator)
+		event = event.Str("source_locator", locatorPtrString(nextTask.SourceLocator))
 	}
 	if nextTask.Output != "" {
 		event = event.Str("output", nextTask.Output)

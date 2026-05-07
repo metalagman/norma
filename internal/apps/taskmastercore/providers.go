@@ -130,9 +130,9 @@ func (p cliLogProvider) DeliverReport(_ context.Context, req ReportRequest) erro
 	p.logger.Info().
 		Str("task_id", req.TaskID).
 		Str("session_id", req.SessionID).
-		Interface("source_locator", req.SourceLocator).
-		Str("report_to", locatorKey(req.ReportTo)).
+		Str("source_locator", locatorString(req.SourceLocator)).
+		Str("report_to", locatorString(req.ReportTo)).
 		Str("message_text", message).
-		Msg("human output delivered")
+		Msg("cli log delivered")
 	return nil
 }

@@ -1,7 +1,9 @@
 package taskmastercore
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,6 +12,21 @@ import (
 
 	"github.com/rs/zerolog"
 )
+
+func TestLocatorStringUsesCanonicalFormat(t *testing.T) {
+	t.Parallel()
+
+	locator := NewTelegramHumanLocator(123456, 77)
+	if got := locatorString(locator); got != "human:telegram:123456:77" {
+		t.Fatalf("locatorString() = %q, want human:telegram:123456:77", got)
+	}
+	if got := locatorPtrString(&locator); got != "human:telegram:123456:77" {
+		t.Fatalf("locatorPtrString() = %q, want human:telegram:123456:77", got)
+	}
+	if got := locatorPtrString(nil); got != "" {
+		t.Fatalf("locatorPtrString(nil) = %q, want empty string", got)
+	}
+}
 
 func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 	t.Parallel()
@@ -226,6 +243,36 @@ func TestReportOnlyTargetDispatchFailsAndNotifiesRoot(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("root did not receive failure notification")
+	}
+}
+
+func TestCLILogProviderLogsCanonicalLocatorStrings(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	provider := NewCLILogProvider(logger)
+	req := ReportRequest{
+		TaskID:        "task-log",
+		SessionID:     "session-a",
+		SourceLocator: NewAgentLocator("worker"),
+		ReportTo:      NewCLILogLocator(),
+		Prompt:        "done",
+	}
+
+	if err := provider.DeliverReport(context.Background(), req); err != nil {
+		t.Fatalf("DeliverReport() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal log payload: %v", err)
+	}
+	if got := payload["source_locator"]; got != "agent:local:worker" {
+		t.Fatalf("source_locator = %#v, want agent:local:worker", got)
+	}
+	if got := payload["report_to"]; got != "integration:cli:log" {
+		t.Fatalf("report_to = %#v, want integration:cli:log", got)
 	}
 }
 
