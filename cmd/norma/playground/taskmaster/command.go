@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/normahq/norma/internal/apps/taskmaster"
 	"github.com/rs/zerolog/log"
@@ -18,9 +19,9 @@ type options struct {
 func Command() *cobra.Command {
 	opts := options{}
 	cmd := &cobra.Command{
-		Use:          "taskmaster",
+		Use:          "taskmaster [content]",
 		Short:        "Run the experimental generic Taskmaster async harness",
-		Args:         cobra.NoArgs,
+		Args:         cobra.ArbitraryArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workingDir, err := os.Getwd()
@@ -37,7 +38,7 @@ func Command() *cobra.Command {
 				Stdout:     cmd.OutOrStdout(),
 				Stderr:     cmd.ErrOrStderr(),
 				Logger:     &log.Logger,
-			})
+			}, strings.Join(args, " "))
 		},
 	}
 	cmd.Flags().StringVar(&opts.bridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@latest)")

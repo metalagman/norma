@@ -36,6 +36,7 @@ const (
 	defaultAgentName     = "Taskmaster"
 	defaultWorkerName    = "TaskmasterWorker"
 	defaultDescription   = "Workflow-agnostic async task harness"
+	bootstrapSessionID   = "cli-bootstrap"
 )
 
 type Config struct {
@@ -75,7 +76,7 @@ func BuildCodexACPCommand(bridgeBin string) []string {
 	return []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
 }
 
-func Run(ctx context.Context, cfg Config) error {
+func Run(ctx context.Context, cfg Config, initialContent string) error {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -181,6 +182,12 @@ func Run(ctx context.Context, cfg Config) error {
 			_ = runner.Close()
 		}
 		return err
+	}
+	if bootstrapTask := buildBootstrapTask(initialContent); bootstrapTask != nil {
+		if err := runtime.Enqueue(*bootstrapTask); err != nil {
+			_ = runtime.Stop(context.Background())
+			return err
+		}
 	}
 	go backgroundTaskSource(runCtx, runtime, timerContentInterval, newTicker)
 
@@ -336,6 +343,7 @@ func rootInstruction() string {
 		"The local root agent is {class: agent, transport: local, key: taskmaster}.",
 		"The current log sink is {class: integration, transport: cli, key: log}.",
 		"If you want async results to come back somewhere, set report_to to a registered target locator.",
+		"The optional CLI bootstrap source is {class: integration, transport: cli, key: input}.",
 		"The background timer source is {class: integration, transport: timer, key: default}.",
 		"A background timer may also deliver simple hello world task content to you while the run is active.",
 		"This generic run does not finish on your turn completion.",
@@ -359,6 +367,19 @@ func formatIngressContent(sessionID string, source taskmasterrt.Locator, content
 		"Content:",
 		strings.TrimSpace(content),
 	}, "\n")
+}
+
+func buildBootstrapTask(content string) *taskmasterrt.Task {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	task := &taskmasterrt.Task{
+		SessionID: bootstrapSessionID,
+		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
+		Content:   formatIngressContent(bootstrapSessionID, taskmasterrt.NewCLIInputLocator(), content),
+	}
+	return task
 }
 
 func locatorText(locator taskmasterrt.Locator) string {

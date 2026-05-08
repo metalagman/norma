@@ -2,6 +2,7 @@ package taskmaster
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,7 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"session_id",
 		"class: agent, transport: local, key: worker",
 		"class: integration, transport: cli, key: log",
+		"class: integration, transport: cli, key: input",
 		"If you want async results to come back somewhere, set report_to to a registered target locator.",
 		"background timer may also deliver simple hello world task content",
 		"does not finish on your turn completion",
@@ -79,10 +81,34 @@ func TestWorkerInstructionIsGenericPlainText(t *testing.T) {
 func TestFormatIngressContent(t *testing.T) {
 	t.Parallel()
 
-	got := formatIngressContent("session-a", taskmasterrt.NewTimerSourceLocator(), "hello")
-	for _, want := range []string{"Session ID:\nsession-a", "Source:\nintegration/timer/default", "Content:\nhello"} {
+	got := formatIngressContent("session-a", taskmasterrt.NewCLIInputLocator(), "hello")
+	for _, want := range []string{"Session ID:\nsession-a", "Source:\nintegration/cli/input", "Content:\nhello"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatIngressContent() = %q, want substring %q", got, want)
+		}
+	}
+}
+
+func TestBuildBootstrapTask(t *testing.T) {
+	t.Parallel()
+
+	if got := buildBootstrapTask("   "); got != nil {
+		t.Fatalf("buildBootstrapTask(blank) = %+v, want nil", got)
+	}
+
+	got := buildBootstrapTask("count go files")
+	if got == nil {
+		t.Fatal("buildBootstrapTask(non-empty) = nil, want task")
+	}
+	if got.SessionID != bootstrapSessionID {
+		t.Fatalf("SessionID = %q, want %q", got.SessionID, bootstrapSessionID)
+	}
+	if !reflect.DeepEqual(got.Locator, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
+		t.Fatalf("Locator = %+v, want root agent locator", got.Locator)
+	}
+	for _, want := range []string{"Source:\nintegration/cli/input", "Content:\ncount go files"} {
+		if !strings.Contains(got.Content, want) {
+			t.Fatalf("Content = %q, want substring %q", got.Content, want)
 		}
 	}
 }

@@ -5,6 +5,9 @@ Taskmaster is an experimental **generic async task harness** exposed as:
 ```bash
 norma playground taskmaster \
   --bridge-bin /path/to/codex-acp-bridge
+
+norma playground taskmaster "count total lines of the go files" \
+  --bridge-bin /path/to/codex-acp-bridge
 ```
 
 This surface is workflow-agnostic. It is not the structured PDCA runtime used by `norma loop`, and it is not the PDCA-specific async wrapper. For those, see [PDCA Loop](pdca-agent.md) and [PDCA Taskmaster](pdca-taskmaster.md).
@@ -81,16 +84,18 @@ If a child task uses that target, its completion is written to the current playg
 
 The generic flow is:
 
-1. The playground starts idle and exposes the async Taskmaster control surface.
-2. External callers enqueue plain-text task content by calling `taskmaster.schedule_task`.
+1. The playground starts and exposes the async Taskmaster control surface.
+2. If optional CLI content is provided, the wrapper enqueues one initial root task.
+   - source locator: `integration/cli/input`
+3. External callers may also enqueue plain-text task content by calling `taskmaster.schedule_task`.
    - target the root with locator `agent/local/taskmaster` to hand work to the root agent
-3. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
-4. `worker` runs plain-text task content as a black box.
-5. Completion is either:
+4. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
+5. `worker` runs plain-text task content as a black box.
+6. Completion is either:
    - routed back to root through `report_to = agent`, or
    - written to the log through `report_to = integration/cli/log`
-6. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
-7. On shutdown, the playground stops gracefully.
+7. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
+8. On shutdown, the playground stops gracefully.
 
 Stdout remains reserved for:
 
