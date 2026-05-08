@@ -19,7 +19,7 @@ type options struct {
 func Command() *cobra.Command {
 	opts := options{}
 	cmd := &cobra.Command{
-		Use:          "taskmaster <goal>",
+		Use:          "taskmaster <content>",
 		Short:        "Run the experimental generic Taskmaster async harness",
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
@@ -33,7 +33,7 @@ func Command() *cobra.Command {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
 			return taskmaster.Run(cmd.Context(), taskmaster.Config{
-				Goal:       strings.Join(args, " "),
+				Content:    strings.Join(args, " "),
 				WorkingDir: workingDir,
 				BridgeBin:  opts.bridgeBin,
 				Stdout:     cmd.OutOrStdout(),

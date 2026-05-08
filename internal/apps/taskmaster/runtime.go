@@ -29,18 +29,18 @@ import (
 )
 
 const (
-	taskmasterAgentID  = "taskmaster"
-	workerAgentID      = "worker"
-	timerGoalMessage   = "hello world"
-	timerGoalInterval  = 30 * time.Second
-	defaultAgentName   = "Taskmaster"
-	defaultWorkerName  = "TaskmasterWorker"
-	defaultDescription = "Workflow-agnostic async task harness"
-	initialSessionID   = "goal-session"
+	taskmasterAgentID    = "taskmaster"
+	workerAgentID        = "worker"
+	timerContentMessage  = "hello world"
+	timerContentInterval = 30 * time.Second
+	defaultAgentName     = "Taskmaster"
+	defaultWorkerName    = "TaskmasterWorker"
+	defaultDescription   = "Workflow-agnostic async task harness"
+	initialSessionID     = "content-session"
 )
 
 type Config struct {
-	Goal       string
+	Content    string
 	WorkingDir string
 	BridgeBin  string
 	Stdout     io.Writer
@@ -188,12 +188,12 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := runtime.Enqueue(taskmasterrt.Task{
 		SessionID: initialSessionID,
 		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		Content:   formatIngressContent(initialSessionID, taskmasterrt.NewCLIInputLocator(), cfg.Goal),
+		Content:   formatIngressContent(initialSessionID, taskmasterrt.NewCLIInputLocator(), cfg.Content),
 	}); err != nil {
 		_ = runtime.Stop(context.Background())
 		return err
 	}
-	go backgroundTaskSource(runCtx, runtime, timerGoalInterval, newTicker)
+	go backgroundTaskSource(runCtx, runtime, timerContentInterval, newTicker)
 
 	startedAt := time.Now()
 	select {
@@ -349,7 +349,7 @@ func rootInstruction() string {
 		"If you want async results to come back somewhere, set report_to to a registered target locator.",
 		"The CLI ingress source is {class: integration, transport: cli, key: input}.",
 		"The background timer source is {class: integration, transport: timer, key: default}.",
-		"A background timer may also deliver simple hello world goals to you while the run is active.",
+		"A background timer may also deliver simple hello world task content to you while the run is active.",
 		"This generic run does not finish on your turn completion.",
 		"It ends only when the host context is canceled, typically by a process signal such as SIGINT or SIGTERM.",
 		"Do not impose a fixed workflow or phase order on the work.",
@@ -368,7 +368,7 @@ func formatIngressContent(sessionID string, source taskmasterrt.Locator, content
 		"Source:",
 		locatorText(source),
 		"",
-		"Prompt:",
+		"Content:",
 		strings.TrimSpace(content),
 	}, "\n")
 }
@@ -392,7 +392,7 @@ func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, in
 			_ = runtime.Enqueue(taskmasterrt.Task{
 				SessionID: sessionID,
 				Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-				Content:   formatIngressContent(sessionID, source, timerGoalMessage),
+				Content:   formatIngressContent(sessionID, source, timerContentMessage),
 			})
 		}
 	}

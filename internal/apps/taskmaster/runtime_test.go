@@ -36,7 +36,7 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"class: agent, transport: local, key: worker",
 		"class: integration, transport: cli, key: log",
 		"If you want async results to come back somewhere, set report_to to a registered target locator.",
-		"background timer may also deliver simple hello world goals",
+		"background timer may also deliver simple hello world task content",
 		"does not finish on your turn completion",
 		"host context is canceled",
 		"Do not impose a fixed workflow or phase order",
@@ -80,7 +80,7 @@ func TestFormatIngressContent(t *testing.T) {
 	t.Parallel()
 
 	got := formatIngressContent("session-a", taskmasterrt.NewCLIInputLocator(), "hello")
-	for _, want := range []string{"Session ID:\nsession-a", "Source:\nintegration/cli/input", "Prompt:\nhello"} {
+	for _, want := range []string{"Session ID:\nsession-a", "Source:\nintegration/cli/input", "Content:\nhello"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatIngressContent() = %q, want substring %q", got, want)
 		}
@@ -113,14 +113,14 @@ func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 	tickCh <- time.Now()
 	select {
 	case started := <-rootRunner.started:
-		if !strings.Contains(started.Content, timerGoalMessage) {
+		if !strings.Contains(started.Content, timerContentMessage) {
 			t.Fatalf("started.Content = %q, want hello world content", started.Content)
 		}
 		if started.SessionID == "" {
 			t.Fatal("background task session_id is empty")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("background task source did not emit synthetic goal")
+		t.Fatal("background task source did not emit synthetic content")
 	}
 }
 

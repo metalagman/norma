@@ -16,6 +16,6 @@ func TestCommandValidation(t *testing.T) {
 	cmd = Command()
 	cmd.SetArgs([]string{})
 	if err := cmd.Execute(); err == nil {
-		t.Fatal("Command().Execute() error = nil, want missing goal error")
+		t.Fatal("Command().Execute() error = nil, want missing content error")
 	}
 }

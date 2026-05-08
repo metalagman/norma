@@ -3,7 +3,7 @@
 Taskmaster is an experimental **generic async task harness** exposed as:
 
 ```bash
-norma playground taskmaster "ship the goal" \
+norma playground taskmaster "ship the content" \
   --bridge-bin /path/to/codex-acp-bridge
 ```
 
@@ -95,13 +95,13 @@ Stdout remains reserved for:
 
 - `Total run time: ...`
 
-## Background Goals
+## Background Tasks
 
 Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root tasks with `hello world` content.
 
-Those synthetic goals use source locator `integration/timer/default`.
+Those synthetic tasks use source locator `integration/timer/default`.
 
-These timer goals are supplemental to the initial user goal and continue until the command context is canceled.
+These timer tasks are supplemental to the initial user-provided content and continue until the command context is canceled.
 
 ## Reusable Runtime
 
