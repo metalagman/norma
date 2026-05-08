@@ -54,6 +54,7 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"`verdict:`",
 		"`decision:`",
 		"current best summary",
+		"task_id",
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("rootInstruction() = %q, do not want substring %q", got, unwanted)

@@ -14,7 +14,6 @@ import (
 const defaultQueueDepth = 32
 
 type Task struct {
-	ID        string   `json:"task_id"`
 	SessionID string   `json:"session_id"`
 	Locator   Locator  `json:"locator"`
 	ReportTo  *Locator `json:"report_to,omitempty"`
@@ -44,12 +43,13 @@ const (
 )
 
 type taskState struct {
-	task       Task
-	status     taskStatus
-	output     string
-	errText    string
-	startedAt  time.Time
-	finishedAt time.Time
+	runtimeTaskID string
+	task          Task
+	status        taskStatus
+	output        string
+	errText       string
+	startedAt     time.Time
+	finishedAt    time.Time
 }
 
 type executor struct {
@@ -70,7 +70,7 @@ type coordinator struct {
 	requestStop     func()
 
 	mu            sync.Mutex
-	tasks         map[string]*taskState
+	nextTaskSeq   uint64
 	queues        map[string]chan *taskState
 	dispatchQueue chan *taskState
 	shuttingDown  bool
@@ -285,7 +285,6 @@ func newCoordinator(logger zerolog.Logger, cfg Config) (*coordinator, error) {
 		defaultReportTo: NewAgentLocator(rootID),
 		localRunnerIDs:  localRunnerIDs,
 		targets:         newTargetRegistry(cfg.Targets),
-		tasks:           make(map[string]*taskState),
 		queues:          queues,
 		dispatchQueue:   make(chan *taskState, defaultQueueDepth),
 	}, nil
@@ -305,7 +304,7 @@ func (e *executor) run(ctx context.Context) {
 			}
 			e.logger.Info().
 				Str("agent_id", e.agentID).
-				Str("task_id", nextTask.task.ID).
+				Str("runtime_task_id", nextTask.runtimeTaskID).
 				Str("session_id", nextTask.task.SessionID).
 				Str("task", nextTask.task.Content).
 				Msg("agent received task")
@@ -313,13 +312,13 @@ func (e *executor) run(ctx context.Context) {
 			if err != nil {
 				event := e.logger.Info().
 					Str("agent_id", e.agentID).
-					Str("task_id", nextTask.task.ID).
+					Str("runtime_task_id", nextTask.runtimeTaskID).
 					Str("session_id", nextTask.task.SessionID).
 					Str("error", err.Error())
 				if e.coordinator.isExpectedShutdownCancel(err) {
 					event = e.logger.Debug().
 						Str("agent_id", e.agentID).
-						Str("task_id", nextTask.task.ID).
+						Str("runtime_task_id", nextTask.runtimeTaskID).
 						Str("session_id", nextTask.task.SessionID).
 						Str("error", err.Error())
 					event.Msg("agent task canceled during shutdown")
@@ -329,7 +328,7 @@ func (e *executor) run(ctx context.Context) {
 			} else {
 				e.logger.Info().
 					Str("agent_id", e.agentID).
-					Str("task_id", nextTask.task.ID).
+					Str("runtime_task_id", nextTask.runtimeTaskID).
 					Str("session_id", nextTask.task.SessionID).
 					Str("result", strings.TrimSpace(output)).
 					Msg("agent finished task")
@@ -366,7 +365,6 @@ func (c *coordinator) wait() {
 }
 
 func (c *coordinator) enqueue(task Task) error {
-	taskID := strings.TrimSpace(task.ID)
 	sessionID := strings.TrimSpace(task.SessionID)
 	content := strings.TrimSpace(task.Content)
 	locator, err := NormalizeLocator(task.Locator)
@@ -376,9 +374,6 @@ func (c *coordinator) enqueue(task Task) error {
 	reportTo, err := normalizeReportLocator(task.ReportTo, c.defaultReportTo)
 	if err != nil {
 		return err
-	}
-	if taskID == "" {
-		return errors.New("task_id is required")
 	}
 	if sessionID == "" {
 		return errors.New("session_id is required")
@@ -398,12 +393,8 @@ func (c *coordinator) enqueue(task Task) error {
 	if c.shuttingDown {
 		return errors.New("runtime is stopping")
 	}
-	if _, exists := c.tasks[taskID]; exists {
-		return fmt.Errorf("task %q already exists", taskID)
-	}
 
 	queued := c.newQueuedTaskLocked(Task{
-		ID:        taskID,
 		SessionID: sessionID,
 		Locator:   locator,
 		ReportTo:  &reportTo,
@@ -448,11 +439,12 @@ func (c *coordinator) setFinalErr(err error) {
 }
 
 func (c *coordinator) newQueuedTaskLocked(task Task) *taskState {
+	c.nextTaskSeq++
 	nextTask := &taskState{
-		task:   task,
-		status: taskStatusQueued,
+		runtimeTaskID: fmt.Sprintf("task-%d", c.nextTaskSeq),
+		task:          task,
+		status:        taskStatusQueued,
 	}
-	c.tasks[task.ID] = nextTask
 	return nextTask
 }
 
@@ -543,7 +535,7 @@ func (c *coordinator) handleTaskResult(doneTask *taskState, output string, err e
 
 	if doneTask.task.Locator.Key == c.rootAgentID {
 		if err != nil {
-			c.finalErr = fmt.Errorf("%s task %q failed: %w", c.rootAgentID, doneTask.task.ID, err)
+			c.finalErr = fmt.Errorf("%s task failed: %w", c.rootAgentID, err)
 			c.shuttingDown = true
 			stop := c.requestStop
 			c.mu.Unlock()
@@ -566,17 +558,16 @@ func (c *coordinator) handleTaskResult(doneTask *taskState, output string, err e
 		reportTo = *doneTask.task.ReportTo
 	}
 	notification := Task{
-		ID:        doneTask.task.ID + ".notify",
 		SessionID: doneTask.task.SessionID,
 		Locator:   reportTo,
-		Content:   formatReportTask(doneTask.task.ID, doneTask.task.SessionID, doneTask.task.Locator, doneTask.output, err),
+		Content:   formatReportTask(doneTask.task.SessionID, doneTask.task.Locator, doneTask.output, err),
 	}
 	nextTask := c.newQueuedTaskLocked(notification)
 	c.logTaskEvent("notification task created", nextTask)
 	c.mu.Unlock()
 
 	if err := c.enqueueNotification(nextTask); err != nil {
-		c.setFinalErr(fmt.Errorf("enqueue notification for %q: %w", doneTask.task.ID, err))
+		c.setFinalErr(fmt.Errorf("enqueue notification: %w", err))
 		if c.requestStop != nil {
 			c.requestStop()
 		}
@@ -594,7 +585,7 @@ func (c *coordinator) enqueueNotification(nextTask *taskState) error {
 
 func (c *coordinator) logTaskEvent(message string, nextTask *taskState) {
 	event := c.logger.Debug().
-		Str("task_id", nextTask.task.ID).
+		Str("runtime_task_id", nextTask.runtimeTaskID).
 		Str("session_id", nextTask.task.SessionID).
 		Str("locator", nextTask.task.Locator.String()).
 		Str("status", string(nextTask.status))
@@ -619,7 +610,7 @@ func (c *coordinator) isExpectedShutdownCancel(err error) bool {
 	return c.shuttingDown
 }
 
-func formatReportTask(taskID string, sessionID string, source Locator, output string, err error) string {
+func formatReportTask(sessionID string, source Locator, output string, err error) string {
 	lines := []string{
 		"Session ID:",
 		strings.TrimSpace(sessionID),
@@ -630,7 +621,8 @@ func formatReportTask(taskID string, sessionID string, source Locator, output st
 	}
 	if err != nil {
 		lines = append(lines,
-			"Task "+strings.TrimSpace(taskID)+" failed.",
+			"Status:",
+			"failed",
 			"",
 			"Error:",
 			strings.TrimSpace(err.Error()),
@@ -642,7 +634,8 @@ func formatReportTask(taskID string, sessionID string, source Locator, output st
 		result = "(empty result)"
 	}
 	lines = append(lines,
-		"Task "+strings.TrimSpace(taskID)+" completed.",
+		"Status:",
+		"completed",
 		"",
 		"Result:",
 		result,

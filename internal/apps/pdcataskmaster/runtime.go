@@ -198,10 +198,9 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	if err := runtime.Enqueue(taskmasterrt.Task{
-		ID:        "goal-task",
-		SessionID: "goal-task",
+		SessionID: "goal-session",
 		Locator:   taskmasterrt.NewAgentLocator(rootAgentID),
-		Content:   formatIngressContent("goal-task", cfg.Goal),
+		Content:   formatIngressContent("goal-session", cfg.Goal),
 	}); err != nil {
 		_ = runtime.Stop(context.Background())
 		return err
@@ -249,7 +248,7 @@ func rootInstruction() string {
 		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
 		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
 		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to request stop after the current root turn.",
-		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and content.",
+		"Each scheduled task must include the current session_id, a locator, an optional report_to, and content.",
 		"Keep the same session_id when continuing the same PDCA conversation.",
 		"The report_to field means where async task results should be reported.",
 		"The local root agent locator is {class: agent, transport: local, key: pdca-taskmaster}.",
@@ -290,7 +289,7 @@ func startPDCAHTTPServer(ctx context.Context, service *taskmastermcp.Service, fi
 	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
 		server := sdkmcp.NewServer(
 			&sdkmcp.Implementation{Name: "norma-taskmaster", Version: "1.0.0"},
-			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include task_id, session_id, locator, optional report_to, and content."},
+			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include session_id, locator, optional report_to, and content."},
 		)
 		taskmastermcp.RegisterTools(server, service)
 		sdkmcp.AddTool(server, &sdkmcp.Tool{

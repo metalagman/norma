@@ -22,7 +22,6 @@ type Service struct {
 }
 
 type ScheduleTaskInput struct {
-	TaskID    string              `json:"task_id"`
 	SessionID string              `json:"session_id"`
 	Locator   taskmaster.Locator  `json:"locator"`
 	ReportTo  *taskmaster.Locator `json:"report_to,omitempty"`
@@ -30,7 +29,6 @@ type ScheduleTaskInput struct {
 }
 
 type ScheduleTaskOutput struct {
-	TaskID    string             `json:"task_id"`
 	SessionID string             `json:"session_id"`
 	Locator   taskmaster.Locator `json:"locator"`
 	ReportTo  taskmaster.Locator `json:"report_to"`
@@ -60,35 +58,32 @@ func RegisterTools(server *sdkmcp.Server, service *Service) {
 }
 
 func (s *Service) ScheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, input ScheduleTaskInput) (*sdkmcp.CallToolResult, ScheduleTaskOutput, error) {
-	taskID := strings.TrimSpace(input.TaskID)
 	sessionID := strings.TrimSpace(input.SessionID)
 	locator, locatorErr := taskmaster.NormalizeLocator(input.Locator)
 	reportTo, reportErr := normalizeReportTo(input.ReportTo, s.defaultReportTo)
 	content := strings.TrimSpace(input.Content)
 	if s.controller == nil {
-		out := ScheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: "controller is not ready"}
+		out := ScheduleTaskOutput{SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: "controller is not ready"}
 		return toolError(out.Message), out, nil
 	}
 	if locatorErr != nil {
-		out := ScheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Status: "error", Message: locatorErr.Error()}
+		out := ScheduleTaskOutput{SessionID: sessionID, Status: "error", Message: locatorErr.Error()}
 		return toolError(out.Message), out, nil
 	}
 	if reportErr != nil {
-		out := ScheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Locator: locator, Status: "error", Message: reportErr.Error()}
+		out := ScheduleTaskOutput{SessionID: sessionID, Locator: locator, Status: "error", Message: reportErr.Error()}
 		return toolError(out.Message), out, nil
 	}
 	if err := s.controller.Enqueue(taskmaster.Task{
-		ID:        taskID,
 		SessionID: sessionID,
 		Locator:   locator,
 		ReportTo:  &reportTo,
 		Content:   content,
 	}); err != nil {
-		out := ScheduleTaskOutput{TaskID: taskID, SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: err.Error()}
+		out := ScheduleTaskOutput{SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: err.Error()}
 		return toolError(out.Message), out, nil
 	}
 	out := ScheduleTaskOutput{
-		TaskID:    taskID,
 		SessionID: sessionID,
 		Locator:   locator,
 		ReportTo:  reportTo,
@@ -96,7 +91,6 @@ func (s *Service) ScheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, inp
 		Message:   "task queued",
 	}
 	s.logger.Debug().
-		Str("task_id", taskID).
 		Str("session_id", sessionID).
 		Str("locator", locator.String()).
 		Str("report_to", reportTo.String()).

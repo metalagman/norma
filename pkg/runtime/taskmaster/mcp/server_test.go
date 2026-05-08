@@ -16,7 +16,6 @@ func TestScheduleTaskUsesContentAndDefaultReportTo(t *testing.T) {
 	service.SetController(controller)
 
 	_, out, err := service.ScheduleTask(context.Background(), nil, ScheduleTaskInput{
-		TaskID:    "task-1",
 		SessionID: "session-a",
 		Locator:   taskmaster.NewAgentLocator("worker"),
 		Content:   "do work",

@@ -23,6 +23,9 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 			t.Fatalf("rootInstruction() = %q, want substring %q", got, want)
 		}
 	}
+	if strings.Contains(got, "task_id") {
+		t.Fatalf("rootInstruction() = %q, do not want task_id in public contract", got)
+	}
 }
 
 func TestChildAgentInstructionsUsePDCAContract(t *testing.T) {

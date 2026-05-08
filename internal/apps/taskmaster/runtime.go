@@ -36,7 +36,7 @@ const (
 	defaultAgentName   = "Taskmaster"
 	defaultWorkerName  = "TaskmasterWorker"
 	defaultDescription = "Workflow-agnostic async task harness"
-	initialTaskID      = "goal-task"
+	initialSessionID   = "goal-session"
 )
 
 type Config struct {
@@ -186,10 +186,9 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	if err := runtime.Enqueue(taskmasterrt.Task{
-		ID:        initialTaskID,
-		SessionID: initialTaskID,
+		SessionID: initialSessionID,
 		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		Content:   formatIngressContent(initialTaskID, taskmasterrt.NewCLIInputLocator(), cfg.Goal),
+		Content:   formatIngressContent(initialSessionID, taskmasterrt.NewCLIInputLocator(), cfg.Goal),
 	}); err != nil {
 		_ = runtime.Stop(context.Background())
 		return err
@@ -241,7 +240,7 @@ func startTaskmasterHTTPServer(ctx context.Context, service *taskmastermcp.Servi
 	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
 		server := sdkmcp.NewServer(
 			&sdkmcp.Implementation{Name: "norma-taskmaster", Version: "1.0.0"},
-			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include task_id, session_id, locator, optional report_to, and content."},
+			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include session_id, locator, optional report_to, and content."},
 		)
 		taskmastermcp.RegisterTools(server, service)
 		return server
@@ -341,7 +340,7 @@ func rootInstruction() string {
 		"Runtime task routing and bookkeeping are internal and are not shown to you directly.",
 		"You coordinate one plain-text child agent named worker.",
 		"Use only the taskmaster.schedule_task tool to enqueue worker tasks.",
-		"Each scheduled task must include a stable task_id, the current session_id, a locator, an optional report_to, and content.",
+		"Each scheduled task must include the current session_id, a locator, an optional report_to, and content.",
 		"Keep the same session_id when scheduling follow-up work for the same conversation.",
 		"The only local child locator in this wrapper is {class: agent, transport: local, key: worker}.",
 		"The report_to field uses the same locator schema as the target.",
@@ -388,13 +387,12 @@ func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, in
 			return
 		case <-t.Chan():
 			counter++
-			id := "timer-" + strconv.Itoa(counter)
+			sessionID := "timer-" + strconv.Itoa(counter)
 			source := taskmasterrt.NewTimerSourceLocator()
 			_ = runtime.Enqueue(taskmasterrt.Task{
-				ID:        id,
-				SessionID: id,
+				SessionID: sessionID,
 				Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-				Content:   formatIngressContent(id, source, timerGoalMessage),
+				Content:   formatIngressContent(sessionID, source, timerGoalMessage),
 			})
 		}
 	}

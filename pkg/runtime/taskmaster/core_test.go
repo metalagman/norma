@@ -31,7 +31,6 @@ func TestRootOnlyConfigAllowed(t *testing.T) {
 	defer cleanup()
 
 	if err := runtime.Enqueue(Task{
-		ID:        "ingress-1",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator(rootAgentID),
 		Content:   "hello",
@@ -43,14 +42,14 @@ func TestRootOnlyConfigAllowed(t *testing.T) {
 func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 	t.Parallel()
 
+	workerRunner := &fakeLocalRunner{started: make(chan startedTask, 1)}
 	runtime, cleanup := startTestRuntime(t, zerolog.Nop(), testConfig(nil), map[string]LocalRunner{
 		rootAgentID: &fakeLocalRunner{},
-		"worker":    &fakeLocalRunner{},
+		"worker":    workerRunner,
 	})
 	defer cleanup()
 
 	if err := runtime.Enqueue(Task{
-		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		Content:   "do work",
@@ -58,11 +57,13 @@ func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
-	runtime.coordinator.mu.Lock()
-	defer runtime.coordinator.mu.Unlock()
-	got := runtime.coordinator.tasks["task-worker"].task.ReportTo
-	if got == nil || !reflect.DeepEqual(*got, NewAgentLocator(rootAgentID)) {
-		t.Fatalf("report_to = %+v, want taskmaster root", got)
+	select {
+	case started := <-workerRunner.started:
+		if started.ReportTo == nil || !reflect.DeepEqual(*started.ReportTo, NewAgentLocator(rootAgentID)) {
+			t.Fatalf("report_to = %+v, want taskmaster root", started.ReportTo)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not receive task")
 	}
 }
 
@@ -77,7 +78,6 @@ func TestScheduleTaskAllowsExternalReportTarget(t *testing.T) {
 	defer cleanup()
 
 	if err := runtime.Enqueue(Task{
-		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		ReportTo:  ptrLocator(NewCLILogLocator()),
@@ -97,7 +97,6 @@ func TestEnqueueRejectsSourceOnlyTarget(t *testing.T) {
 	defer cleanup()
 
 	err := runtime.Enqueue(Task{
-		ID:        "task-source",
 		SessionID: "session-a",
 		Locator:   NewTimerSourceLocator(),
 		Content:   "do work",
@@ -117,7 +116,6 @@ func TestEnqueueRejectsSourceOnlyReportTo(t *testing.T) {
 	defer cleanup()
 
 	err := runtime.Enqueue(Task{
-		ID:        "task-report",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		ReportTo:  ptrLocator(NewCLIInputLocator()),
@@ -140,7 +138,6 @@ func TestCoordinatorCreatesRootNotificationWithSession(t *testing.T) {
 	defer cleanup()
 
 	if err := runtime.Enqueue(Task{
-		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		ReportTo:  ptrLocator(NewAgentLocator(rootAgentID)),
@@ -156,6 +153,9 @@ func TestCoordinatorCreatesRootNotificationWithSession(t *testing.T) {
 		}
 		if !strings.Contains(started.Content, "Session ID:\nsession-a") || !strings.Contains(started.Content, "worker result") {
 			t.Fatalf("notification content = %q, want session and result", started.Content)
+		}
+		if strings.Contains(started.Content, "task-worker") {
+			t.Fatalf("notification content = %q, do not want public task id", started.Content)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("root did not receive completion notification")
@@ -177,7 +177,6 @@ func TestExternalTargetDispatchUsesTarget(t *testing.T) {
 	defer cleanup()
 
 	if err := runtime.Enqueue(Task{
-		ID:        "task-telegram",
 		SessionID: "session-telegram",
 		Locator:   external,
 		Content:   "send outbound",
@@ -212,7 +211,6 @@ func TestReportOnlyTargetDispatchFailsAndNotifiesRoot(t *testing.T) {
 	defer cleanup()
 
 	if err := runtime.Enqueue(Task{
-		ID:        "task-log-target",
 		SessionID: "session-a",
 		Locator:   NewCLILogLocator(),
 		Content:   "do work",
@@ -237,7 +235,6 @@ func TestCLILogTargetLogsCanonicalLocatorStrings(t *testing.T) {
 	logger := zerolog.New(&buf)
 	target := NewCLILogTarget(logger)
 	task := Task{
-		ID:        "task-log",
 		SessionID: "session-a",
 		Locator:   NewCLILogLocator(),
 		Content:   "done",
@@ -292,7 +289,6 @@ func TestEnqueueRejectedDuringShutdown(t *testing.T) {
 	}
 
 	err := runtime.Enqueue(Task{
-		ID:        "task-worker",
 		SessionID: "session-a",
 		Locator:   NewAgentLocator("worker"),
 		Content:   "do work",
@@ -321,10 +317,10 @@ func TestQueuedTaskDoesNotStartAfterShutdownBegins(t *testing.T) {
 	}
 	defer func() { _ = runtime.Stop(context.Background()) }()
 
-	if err := runtime.Enqueue(Task{ID: "task-1", SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "first"}); err != nil {
+	if err := runtime.Enqueue(Task{SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "first"}); err != nil {
 		t.Fatalf("Enqueue(task-1) error = %v", err)
 	}
-	if err := runtime.Enqueue(Task{ID: "task-2", SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "second"}); err != nil {
+	if err := runtime.Enqueue(Task{SessionID: "session-a", Locator: NewAgentLocator("worker"), Content: "second"}); err != nil {
 		t.Fatalf("Enqueue(task-2) error = %v", err)
 	}
 
@@ -383,6 +379,8 @@ const rootAgentID = "taskmaster"
 
 type startedTask struct {
 	SessionID string
+	Locator   Locator
+	ReportTo  *Locator
 	Content   string
 }
 
@@ -396,7 +394,7 @@ type fakeLocalRunner struct {
 
 func (r *fakeLocalRunner) RunTask(ctx context.Context, task Task) (string, error) {
 	if r.started != nil {
-		r.started <- startedTask{SessionID: task.SessionID, Content: task.Content}
+		r.started <- startedTask(task)
 	}
 	if r.release != nil {
 		select {

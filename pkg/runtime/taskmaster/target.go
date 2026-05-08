@@ -81,7 +81,6 @@ func (t CLILogTarget) DispatchTask(_ context.Context, task Task) error {
 		message = "(empty task content)"
 	}
 	t.logger.Info().
-		Str("task_id", task.ID).
 		Str("session_id", task.SessionID).
 		Str("locator", task.Locator.String()).
 		Str("message_text", message).

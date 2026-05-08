@@ -85,7 +85,7 @@ func (r *runner) RunTask(ctx context.Context, task taskmaster.Task) (string, err
 	if err != nil {
 		return "", err
 	}
-	callLogger := r.logger.With().Str("call_id", task.ID).Logger()
+	callLogger := r.logger.With().Str("session_id", task.SessionID).Logger()
 	_, last, err := runWithRunner(ctx, r.runner, r.sessionService, r.appName, r.userID, resolvedSessionID, task.Content, func(output string) {
 		callLogger.Debug().Str("output", output).Msg("task output")
 	})

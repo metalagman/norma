@@ -19,11 +19,11 @@ func TestWrapReusesSessionByTaskSessionID(t *testing.T) {
 	runner := newTestRunner(t)
 	defer func() { _ = runner.Close() }()
 
-	first, err := runner.RunTask(context.Background(), taskmaster.Task{ID: "task-1", SessionID: "session-a", Content: "first"})
+	first, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-a", Content: "first"})
 	if err != nil {
 		t.Fatalf("RunTask(first) error = %v", err)
 	}
-	second, err := runner.RunTask(context.Background(), taskmaster.Task{ID: "task-2", SessionID: "session-a", Content: "second"})
+	second, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-a", Content: "second"})
 	if err != nil {
 		t.Fatalf("RunTask(second) error = %v", err)
 	}
@@ -42,11 +42,11 @@ func TestWrapIsolatesDistinctSessions(t *testing.T) {
 	runner := newTestRunner(t)
 	defer func() { _ = runner.Close() }()
 
-	first, err := runner.RunTask(context.Background(), taskmaster.Task{ID: "task-1", SessionID: "session-a", Content: "first"})
+	first, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-a", Content: "first"})
 	if err != nil {
 		t.Fatalf("RunTask(first) error = %v", err)
 	}
-	second, err := runner.RunTask(context.Background(), taskmaster.Task{ID: "task-2", SessionID: "session-b", Content: "second"})
+	second, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-b", Content: "second"})
 	if err != nil {
 		t.Fatalf("RunTask(second) error = %v", err)
 	}

@@ -40,7 +40,6 @@ The MCP control namespace is:
 
 `schedule_task` accepts:
 
-- `task_id`
 - `session_id`
 - `locator`
 - optional `report_to`
@@ -114,7 +113,7 @@ The unstable reusable runtime now lives under:
 
 That local runtime provides:
 
-- one public `Task` type with `content`
+- one public `Task` type with `session_id`, `locator`, optional `report_to`, and `content`
 - session-aware local agent turns keyed by explicit `session_id`
 - reusable locators with `class`, `transport`, `key`, and optional `address`
 - completion routing modeled as another task addressed to `report_to`
