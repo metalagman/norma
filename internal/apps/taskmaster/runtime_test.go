@@ -79,8 +79,8 @@ func TestWorkerInstructionIsGenericPlainText(t *testing.T) {
 func TestFormatIngressContent(t *testing.T) {
 	t.Parallel()
 
-	got := formatIngressContent("session-a", taskmasterrt.NewCLIInputLocator(), "hello")
-	for _, want := range []string{"Session ID:\nsession-a", "Source:\nintegration/cli/input", "Content:\nhello"} {
+	got := formatIngressContent("session-a", taskmasterrt.NewTimerSourceLocator(), "hello")
+	for _, want := range []string{"Session ID:\nsession-a", "Source:\nintegration/timer/default", "Content:\nhello"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatIngressContent() = %q, want substring %q", got, want)
 		}

@@ -14,8 +14,10 @@ func TestCommandValidation(t *testing.T) {
 	}
 
 	cmd = Command()
-	cmd.SetArgs([]string{})
-	if err := cmd.Execute(); err == nil {
-		t.Fatal("Command().Execute() error = nil, want missing content error")
+	if err := cmd.Args(cmd, []string{}); err != nil {
+		t.Fatalf("Args(no args) error = %v, want no-arg startup", err)
+	}
+	if err := cmd.Args(cmd, []string{"unexpected"}); err == nil {
+		t.Fatal("Args(extra arg) error = nil, want no-arg validation")
 	}
 }

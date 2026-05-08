@@ -3,7 +3,7 @@
 Taskmaster is an experimental **generic async task harness** exposed as:
 
 ```bash
-norma playground taskmaster "ship the content" \
+norma playground taskmaster \
   --bridge-bin /path/to/codex-acp-bridge
 ```
 
@@ -81,15 +81,16 @@ If a child task uses that target, its completion is written to the current playg
 
 The generic flow is:
 
-1. CLI enqueues the initial task content to the root `taskmaster` agent.
-   - source locator: `integration/cli/input`
-2. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
-3. `worker` runs plain-text task content as a black box.
-4. Completion is either:
+1. The playground starts idle and exposes the async Taskmaster control surface.
+2. External callers enqueue plain-text task content by calling `taskmaster.schedule_task`.
+   - target the root with locator `agent/local/taskmaster` to hand work to the root agent
+3. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
+4. `worker` runs plain-text task content as a black box.
+5. Completion is either:
    - routed back to root through `report_to = agent`, or
    - written to the log through `report_to = integration/cli/log`
-5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
-6. On shutdown, the playground stops gracefully.
+6. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
+7. On shutdown, the playground stops gracefully.
 
 Stdout remains reserved for:
 
@@ -101,7 +102,7 @@ Generic `taskmaster` also runs a background timer. While the run is active, it p
 
 Those synthetic tasks use source locator `integration/timer/default`.
 
-These timer tasks are supplemental to the initial user-provided content and continue until the command context is canceled.
+These timer tasks are supplemental background traffic and continue until the command context is canceled.
 
 ## Reusable Runtime
 

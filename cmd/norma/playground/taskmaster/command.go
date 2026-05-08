@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/normahq/norma/internal/apps/taskmaster"
 	"github.com/rs/zerolog/log"
@@ -19,9 +18,9 @@ type options struct {
 func Command() *cobra.Command {
 	opts := options{}
 	cmd := &cobra.Command{
-		Use:          "taskmaster <content>",
+		Use:          "taskmaster",
 		Short:        "Run the experimental generic Taskmaster async harness",
-		Args:         cobra.MinimumNArgs(1),
+		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workingDir, err := os.Getwd()
@@ -33,7 +32,6 @@ func Command() *cobra.Command {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
 			return taskmaster.Run(cmd.Context(), taskmaster.Config{
-				Content:    strings.Join(args, " "),
 				WorkingDir: workingDir,
 				BridgeBin:  opts.bridgeBin,
 				Stdout:     cmd.OutOrStdout(),

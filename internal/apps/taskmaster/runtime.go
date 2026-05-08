@@ -36,11 +36,9 @@ const (
 	defaultAgentName     = "Taskmaster"
 	defaultWorkerName    = "TaskmasterWorker"
 	defaultDescription   = "Workflow-agnostic async task harness"
-	initialSessionID     = "content-session"
 )
 
 type Config struct {
-	Content    string
 	WorkingDir string
 	BridgeBin  string
 	Stdout     io.Writer
@@ -182,15 +180,6 @@ func Run(ctx context.Context, cfg Config) error {
 		for _, runner := range localRunners {
 			_ = runner.Close()
 		}
-		return err
-	}
-
-	if err := runtime.Enqueue(taskmasterrt.Task{
-		SessionID: initialSessionID,
-		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		Content:   formatIngressContent(initialSessionID, taskmasterrt.NewCLIInputLocator(), cfg.Content),
-	}); err != nil {
-		_ = runtime.Stop(context.Background())
 		return err
 	}
 	go backgroundTaskSource(runCtx, runtime, timerContentInterval, newTicker)
@@ -347,7 +336,6 @@ func rootInstruction() string {
 		"The local root agent is {class: agent, transport: local, key: taskmaster}.",
 		"The current log sink is {class: integration, transport: cli, key: log}.",
 		"If you want async results to come back somewhere, set report_to to a registered target locator.",
-		"The CLI ingress source is {class: integration, transport: cli, key: input}.",
 		"The background timer source is {class: integration, transport: timer, key: default}.",
 		"A background timer may also deliver simple hello world task content to you while the run is active.",
 		"This generic run does not finish on your turn completion.",
