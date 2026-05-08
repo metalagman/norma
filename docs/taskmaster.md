@@ -8,6 +8,9 @@ norma playground taskmaster \
 
 norma playground taskmaster "count total lines of the go files" \
   --bridge-bin /path/to/codex-acp-bridge
+
+norma playground taskmaster-chat \
+  --bridge-bin /path/to/codex-acp-bridge
 ```
 
 This surface is workflow-agnostic. It is not the structured PDCA runtime used by `norma loop`, and it is not the PDCA-specific async wrapper. For those, see [PDCA Loop](pdca-agent.md) and [PDCA Taskmaster](pdca-taskmaster.md).
@@ -77,6 +80,19 @@ Stdout remains reserved for:
 Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root tasks with raw `hello world` content.
 
 These timer tasks are supplemental background traffic and continue until the command context is canceled.
+
+## Fake Chat Playground
+
+`taskmaster-chat` wraps the same single-agent runtime as a local fake chat harness:
+
+- stdin is the ingress
+- one fixed fake chat session id is reused for the whole process
+- each non-empty line is enqueued unchanged to the root agent
+- replies are routed to `human:fakechat:local` and rendered as:
+  - `taskmaster> ...`
+  - `you> ...`
+- the background timer is disabled in this mode
+- `/quit`, EOF, or process cancellation stops the run
 
 ## Reusable Runtime
 

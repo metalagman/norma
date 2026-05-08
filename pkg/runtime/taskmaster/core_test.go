@@ -20,6 +20,11 @@ func TestLocatorStringUsesCanonicalFormat(t *testing.T) {
 	if got := locator.String(); got != "human:telegram:123456:77" {
 		t.Fatalf("locator.String() = %q, want human:telegram:123456:77", got)
 	}
+
+	fakeChat := NewFakeChatHumanLocator("local")
+	if got := fakeChat.String(); got != "human:fakechat:local" {
+		t.Fatalf("locator.String() = %q, want human:fakechat:local", got)
+	}
 }
 
 func TestRootOnlyConfigAllowed(t *testing.T) {

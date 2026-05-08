@@ -40,6 +40,14 @@ func TestPlaygroundCommandRegistered(t *testing.T) {
 		t.Fatalf("subcommand = %q, want taskmaster", sub.Name())
 	}
 
+	sub, _, err = cmd.Find([]string{"taskmaster-chat"})
+	if err != nil {
+		t.Fatalf("find taskmaster-chat subcommand: %v", err)
+	}
+	if sub.Name() != "taskmaster-chat" {
+		t.Fatalf("subcommand = %q, want taskmaster-chat", sub.Name())
+	}
+
 	sub, _, err = cmd.Find([]string{"pdca-taskmaster"})
 	if err != nil {
 		t.Fatalf("find pdca-taskmaster subcommand: %v", err)

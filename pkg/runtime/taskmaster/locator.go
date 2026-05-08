@@ -13,6 +13,7 @@ const (
 	LocatorClassIntegration = "integration"
 
 	LocatorTransportCLI      = "cli"
+	LocatorTransportFakeChat = "fakechat"
 	LocatorTransportLocal    = "local"
 	LocatorTransportTelegram = "telegram"
 	LocatorTransportTimer    = "timer"
@@ -52,6 +53,14 @@ func NewCLILogLocator() Locator {
 
 func NewTimerSourceLocator() Locator {
 	return NewLocator(LocatorClassIntegration, LocatorTransportTimer, DefaultTimerKey)
+}
+
+func NewFakeChatHumanLocator(chatID string) Locator {
+	locator := NewLocator(LocatorClassHuman, LocatorTransportFakeChat, strings.TrimSpace(chatID))
+	locator.Address = map[string]any{
+		"chat_id": strings.TrimSpace(chatID),
+	}
+	return locator
 }
 
 func NewTelegramHumanLocator(chatID int64, topicID int) Locator {
