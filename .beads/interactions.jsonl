@@ -202,3 +202,4 @@
 {"id":"int-af8cfd96","kind":"field_change","created_at":"2026-05-08T03:00:35.240891429Z","actor":"Alexey Samoylov","issue_id":"norma-iuv5","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Implemented"}}
 {"id":"int-03b9f5a4","kind":"field_change","created_at":"2026-05-08T03:10:23.335435365Z","actor":"Alexey Samoylov","issue_id":"norma-uqcu","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Implemented"}}
 {"id":"int-5bbe07f1","kind":"field_change","created_at":"2026-05-08T03:18:28.021530836Z","actor":"Alexey Samoylov","issue_id":"norma-at48","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Implemented"}}
+{"id":"int-63bf0550","kind":"field_change","created_at":"2026-05-08T03:39:14.389001203Z","actor":"Alexey Samoylov","issue_id":"norma-hri6","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Implemented"}}
