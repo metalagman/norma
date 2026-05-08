@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/rs/zerolog"
 )
@@ -76,7 +75,7 @@ func (t CLILogTarget) Supports(locator Locator) bool {
 }
 
 func (t CLILogTarget) DispatchTask(_ context.Context, task Task) error {
-	message := strings.TrimSpace(task.Content)
+	message := task.Content
 	if message == "" {
 		message = "(empty task content)"
 	}

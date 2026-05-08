@@ -39,7 +39,7 @@ func TestRootOnlyConfigAllowed(t *testing.T) {
 	}
 }
 
-func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
+func TestScheduleTaskDoesNotDefaultReportTo(t *testing.T) {
 	t.Parallel()
 
 	workerRunner := &fakeLocalRunner{started: make(chan startedTask, 1)}
@@ -59,8 +59,8 @@ func TestScheduleTaskDefaultsReportToRoot(t *testing.T) {
 
 	select {
 	case started := <-workerRunner.started:
-		if started.ReportTo == nil || !reflect.DeepEqual(*started.ReportTo, NewAgentLocator(rootAgentID)) {
-			t.Fatalf("report_to = %+v, want taskmaster root", started.ReportTo)
+		if started.ReportTo != nil {
+			t.Fatalf("report_to = %+v, want nil", started.ReportTo)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker did not receive task")
@@ -162,6 +162,41 @@ func TestCoordinatorCreatesRootNotificationWithSession(t *testing.T) {
 	}
 }
 
+func TestRootTaskHonorsExplicitReportTo(t *testing.T) {
+	t.Parallel()
+
+	reportTo := NewTelegramHumanLocator(42, 9)
+	logTarget := &fakeTarget{
+		supportedLocators: map[string]bool{locatorKey(reportTo): true},
+		dispatchStarted:   make(chan Task, 1),
+	}
+	runtime, cleanup := startTestRuntime(t, zerolog.Nop(), testConfig([]Target{logTarget}), map[string]LocalRunner{
+		rootAgentID: &fakeLocalRunner{result: "root result"},
+	})
+	defer cleanup()
+
+	if err := runtime.Enqueue(Task{
+		SessionID: "session-root",
+		Locator:   NewAgentLocator(rootAgentID),
+		ReportTo:  &reportTo,
+		Content:   "root work",
+	}); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	select {
+	case task := <-logTarget.dispatchStarted:
+		if task.SessionID != "session-root" {
+			t.Fatalf("dispatch session_id = %q, want session-root", task.SessionID)
+		}
+		if task.Content == "" || !strings.Contains(task.Content, "root result") {
+			t.Fatalf("dispatch content = %q, want root result notification", task.Content)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("report_to target did not receive root notification")
+	}
+}
+
 func TestExternalTargetDispatchUsesTarget(t *testing.T) {
 	t.Parallel()
 
@@ -213,6 +248,7 @@ func TestReportOnlyTargetDispatchFailsAndNotifiesRoot(t *testing.T) {
 	if err := runtime.Enqueue(Task{
 		SessionID: "session-a",
 		Locator:   NewCLILogLocator(),
+		ReportTo:  ptrLocator(NewAgentLocator(rootAgentID)),
 		Content:   "do work",
 	}); err != nil {
 		t.Fatalf("Enqueue() error = %v", err)
@@ -298,6 +334,34 @@ func TestEnqueueRejectedDuringShutdown(t *testing.T) {
 	}
 }
 
+func TestEnqueuePreservesContentWhitespace(t *testing.T) {
+	t.Parallel()
+
+	workerRunner := &fakeLocalRunner{started: make(chan startedTask, 1)}
+	runtime, cleanup := startTestRuntime(t, zerolog.Nop(), testConfig(nil), map[string]LocalRunner{
+		rootAgentID: &fakeLocalRunner{},
+		"worker":    workerRunner,
+	})
+	defer cleanup()
+
+	if err := runtime.Enqueue(Task{
+		SessionID: "session-a",
+		Locator:   NewAgentLocator("worker"),
+		Content:   "  do work  ",
+	}); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	select {
+	case started := <-workerRunner.started:
+		if started.Content != "  do work  " {
+			t.Fatalf("started.Content = %q, want raw content", started.Content)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not receive task")
+	}
+}
+
 func TestQueuedTaskDoesNotStartAfterShutdownBegins(t *testing.T) {
 	t.Parallel()
 
@@ -345,6 +409,47 @@ func TestQueuedTaskDoesNotStartAfterShutdownBegins(t *testing.T) {
 	case started := <-workerRunner.started:
 		t.Fatalf("unexpected task started after shutdown: %+v", started)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestDuplicateNormalizedLocalRunnerIDsRejected(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(Config{
+		RootAgentID: rootAgentID,
+		LocalRunners: map[string]LocalRunner{
+			rootAgentID: &fakeLocalRunner{},
+			"Worker":    &fakeLocalRunner{},
+			"worker":    &fakeLocalRunner{},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate local runner ids") {
+		t.Fatalf("New() error = %v, want duplicate normalized runner rejection", err)
+	}
+}
+
+func TestMixedCaseLocalAgentLocatorRoutesToNormalizedRunner(t *testing.T) {
+	t.Parallel()
+
+	workerRunner := &fakeLocalRunner{started: make(chan startedTask, 1)}
+	runtime, cleanup := startTestRuntime(t, zerolog.Nop(), testConfig(nil), map[string]LocalRunner{
+		rootAgentID: &fakeLocalRunner{},
+		"worker":    workerRunner,
+	})
+	defer cleanup()
+
+	if err := runtime.Enqueue(Task{
+		SessionID: "session-a",
+		Locator:   NewLocator(LocatorClassAgent, LocatorTransportLocal, "Worker"),
+		Content:   "do work",
+	}); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	select {
+	case <-workerRunner.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not receive task")
 	}
 }
 

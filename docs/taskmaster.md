@@ -58,7 +58,7 @@ The only child locator in this wrapper is:
 }
 ```
 
-Default completion reporting is:
+Common root completion reporting target is:
 
 ```json
 {
@@ -78,7 +78,7 @@ Generic `taskmaster` also supports one special `report_to` sink:
 }
 ```
 
-If a child task uses that target, its completion is written to the current playground log and is **not** delivered back to the root agent.
+If a task uses that target, its completion is written to the current playground log and is **not** delivered back to the root agent.
 
 ## Runtime Flow
 
@@ -86,14 +86,15 @@ The generic flow is:
 
 1. The playground starts and exposes the async Taskmaster control surface.
 2. If optional CLI content is provided, the wrapper enqueues one initial root task.
-   - source locator: `integration/cli/input`
+   - the task payload is passed through unchanged
 3. External callers may also enqueue plain-text task content by calling `taskmaster.schedule_task`.
    - target the root with locator `agent/local/taskmaster` to hand work to the root agent
 4. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
 5. `worker` runs plain-text task content as a black box.
-6. Completion is either:
-   - routed back to root through `report_to = agent`, or
-   - written to the log through `report_to = integration/cli/log`
+6. If `report_to` is set, completion is delivered as another task to that locator.
+   - for example, route back to root with `report_to = agent/local/taskmaster`
+   - or write to the log with `report_to = integration/cli/log`
+   - if `report_to` is omitted, the task is fire-and-forget
 7. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
 8. On shutdown, the playground stops gracefully.
 
@@ -103,9 +104,7 @@ Stdout remains reserved for:
 
 ## Background Tasks
 
-Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root tasks with `hello world` content.
-
-Those synthetic tasks use source locator `integration/timer/default`.
+Generic `taskmaster` also runs a background timer. While the run is active, it periodically enqueues simple synthetic root tasks with raw `hello world` content.
 
 These timer tasks are supplemental background traffic and continue until the command context is canceled.
 

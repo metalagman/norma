@@ -34,7 +34,7 @@ func NewLocator(locatorClass string, transport string, key string) Locator {
 	return Locator{
 		Class:     strings.ToLower(strings.TrimSpace(locatorClass)),
 		Transport: strings.ToLower(strings.TrimSpace(transport)),
-		Key:       strings.TrimSpace(key),
+		Key:       normalizeLocatorKey(locatorClass, transport, key),
 	}
 }
 
@@ -90,6 +90,21 @@ func NormalizeLocator(locator Locator) (Locator, error) {
 	return normalized, nil
 }
 
+func normalizeLocatorKey(locatorClass string, transport string, key string) string {
+	normalizedClass := strings.ToLower(strings.TrimSpace(locatorClass))
+	normalizedTransport := strings.ToLower(strings.TrimSpace(transport))
+	normalizedKey := strings.TrimSpace(key)
+	switch {
+	case normalizedClass == LocatorClassAgent && normalizedTransport == LocatorTransportLocal:
+		return strings.ToLower(normalizedKey)
+	case normalizedClass == LocatorClassIntegration &&
+		(normalizedTransport == LocatorTransportCLI || normalizedTransport == LocatorTransportTimer):
+		return strings.ToLower(normalizedKey)
+	default:
+		return normalizedKey
+	}
+}
+
 func cloneAddress(address map[string]any) map[string]any {
 	if len(address) == 0 {
 		return nil
@@ -101,11 +116,15 @@ func cloneAddress(address map[string]any) map[string]any {
 	return cloned
 }
 
-func normalizeReportLocator(reportTo *Locator, defaultReportTo Locator) (Locator, error) {
+func normalizeReportLocator(reportTo *Locator) (*Locator, error) {
 	if reportTo == nil {
-		return defaultReportTo, nil
+		return nil, nil
 	}
-	return NormalizeLocator(*reportTo)
+	normalized, err := NormalizeLocator(*reportTo)
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
 }
 
 func locatorKey(locator Locator) string {

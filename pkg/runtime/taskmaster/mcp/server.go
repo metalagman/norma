@@ -16,9 +16,8 @@ type Controller interface {
 }
 
 type Service struct {
-	logger          zerolog.Logger
-	controller      Controller
-	defaultReportTo taskmaster.Locator
+	logger     zerolog.Logger
+	controller Controller
 }
 
 type ScheduleTaskInput struct {
@@ -29,17 +28,16 @@ type ScheduleTaskInput struct {
 }
 
 type ScheduleTaskOutput struct {
-	SessionID string             `json:"session_id"`
-	Locator   taskmaster.Locator `json:"locator"`
-	ReportTo  taskmaster.Locator `json:"report_to"`
-	Status    string             `json:"status"`
-	Message   string             `json:"message,omitempty"`
+	SessionID string              `json:"session_id"`
+	Locator   taskmaster.Locator  `json:"locator"`
+	ReportTo  *taskmaster.Locator `json:"report_to,omitempty"`
+	Status    string              `json:"status"`
+	Message   string              `json:"message,omitempty"`
 }
 
-func NewService(logger zerolog.Logger, defaultReportTo taskmaster.Locator) *Service {
+func NewService(logger zerolog.Logger) *Service {
 	return &Service{
-		logger:          logger,
-		defaultReportTo: defaultReportTo,
+		logger: logger,
 	}
 }
 
@@ -60,8 +58,8 @@ func RegisterTools(server *sdkmcp.Server, service *Service) {
 func (s *Service) ScheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, input ScheduleTaskInput) (*sdkmcp.CallToolResult, ScheduleTaskOutput, error) {
 	sessionID := strings.TrimSpace(input.SessionID)
 	locator, locatorErr := taskmaster.NormalizeLocator(input.Locator)
-	reportTo, reportErr := normalizeReportTo(input.ReportTo, s.defaultReportTo)
-	content := strings.TrimSpace(input.Content)
+	reportTo, reportErr := normalizeReportTo(input.ReportTo)
+	content := input.Content
 	if s.controller == nil {
 		out := ScheduleTaskOutput{SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: "controller is not ready"}
 		return toolError(out.Message), out, nil
@@ -77,7 +75,7 @@ func (s *Service) ScheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, inp
 	if err := s.controller.Enqueue(taskmaster.Task{
 		SessionID: sessionID,
 		Locator:   locator,
-		ReportTo:  &reportTo,
+		ReportTo:  reportTo,
 		Content:   content,
 	}); err != nil {
 		out := ScheduleTaskOutput{SessionID: sessionID, Locator: locator, ReportTo: reportTo, Status: "error", Message: err.Error()}
@@ -93,18 +91,29 @@ func (s *Service) ScheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, inp
 	s.logger.Debug().
 		Str("session_id", sessionID).
 		Str("locator", locator.String()).
-		Str("report_to", reportTo.String()).
+		Str("report_to", locatorString(reportTo)).
 		Msg("schedule_task accepted")
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: out.Message}},
 	}, out, nil
 }
 
-func normalizeReportTo(reportTo *taskmaster.Locator, defaultReportTo taskmaster.Locator) (taskmaster.Locator, error) {
+func normalizeReportTo(reportTo *taskmaster.Locator) (*taskmaster.Locator, error) {
 	if reportTo == nil {
-		return defaultReportTo, nil
+		return nil, nil
 	}
-	return taskmaster.NormalizeLocator(*reportTo)
+	normalized, err := taskmaster.NormalizeLocator(*reportTo)
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
+}
+
+func locatorString(locator *taskmaster.Locator) string {
+	if locator == nil {
+		return ""
+	}
+	return locator.String()
 }
 
 func toolError(message string) *sdkmcp.CallToolResult {

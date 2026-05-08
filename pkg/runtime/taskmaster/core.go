@@ -63,11 +63,10 @@ type executor struct {
 type coordinator struct {
 	logger zerolog.Logger
 
-	rootAgentID     string
-	defaultReportTo Locator
-	localRunnerIDs  map[string]struct{}
-	targets         targetRegistry
-	requestStop     func()
+	rootAgentID    string
+	localRunnerIDs map[string]struct{}
+	targets        targetRegistry
+	requestStop    func()
 
 	mu            sync.Mutex
 	nextTaskSeq   uint64
@@ -251,11 +250,16 @@ func validateConfig(cfg Config) error {
 
 	rootID := strings.ToLower(strings.TrimSpace(cfg.RootAgentID))
 	hasRoot := false
+	seenRunnerIDs := make(map[string]string, len(cfg.LocalRunners))
 	for runnerID, runner := range cfg.LocalRunners {
 		normalizedID := strings.ToLower(strings.TrimSpace(runnerID))
 		if normalizedID == "" {
 			return errors.New("local runner id is required")
 		}
+		if previousID, ok := seenRunnerIDs[normalizedID]; ok {
+			return fmt.Errorf("duplicate local runner ids %q and %q normalize to %q", previousID, runnerID, normalizedID)
+		}
+		seenRunnerIDs[normalizedID] = runnerID
 		if runner == nil {
 			return fmt.Errorf("local runner %q is nil", runnerID)
 		}
@@ -280,13 +284,12 @@ func newCoordinator(logger zerolog.Logger, cfg Config) (*coordinator, error) {
 	}
 
 	return &coordinator{
-		logger:          logger,
-		rootAgentID:     rootID,
-		defaultReportTo: NewAgentLocator(rootID),
-		localRunnerIDs:  localRunnerIDs,
-		targets:         newTargetRegistry(cfg.Targets),
-		queues:          queues,
-		dispatchQueue:   make(chan *taskState, defaultQueueDepth),
+		logger:         logger,
+		rootAgentID:    rootID,
+		localRunnerIDs: localRunnerIDs,
+		targets:        newTargetRegistry(cfg.Targets),
+		queues:         queues,
+		dispatchQueue:  make(chan *taskState, defaultQueueDepth),
 	}, nil
 }
 
@@ -366,12 +369,12 @@ func (c *coordinator) wait() {
 
 func (c *coordinator) enqueue(task Task) error {
 	sessionID := strings.TrimSpace(task.SessionID)
-	content := strings.TrimSpace(task.Content)
+	content := task.Content
 	locator, err := NormalizeLocator(task.Locator)
 	if err != nil {
 		return err
 	}
-	reportTo, err := normalizeReportLocator(task.ReportTo, c.defaultReportTo)
+	reportTo, err := normalizeReportLocator(task.ReportTo)
 	if err != nil {
 		return err
 	}
@@ -389,31 +392,41 @@ func (c *coordinator) enqueue(task Task) error {
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.shuttingDown {
+		c.mu.Unlock()
 		return errors.New("runtime is stopping")
 	}
 
 	queued := c.newQueuedTaskLocked(Task{
 		SessionID: sessionID,
 		Locator:   locator,
-		ReportTo:  &reportTo,
+		ReportTo:  reportTo,
 		Content:   content,
 	})
-	return c.enqueueQueuedTaskLocked(queued)
+	queue, err := c.resolveQueueLocked(queued.task.Locator)
+	c.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	c.logTaskEvent("task enqueued", queued)
+	queue <- queued
+	return nil
 }
 
-func (c *coordinator) validateReportTo(reportTo Locator) error {
-	if isBuiltInSourceLocator(reportTo) {
-		return fmt.Errorf("source locator %s cannot be used as report_to", reportTo)
-	}
-	if c.isLocalAgentTarget(reportTo) {
+func (c *coordinator) validateReportTo(reportTo *Locator) error {
+	if reportTo == nil {
 		return nil
 	}
-	if c.targets.supports(reportTo) {
+	if isBuiltInSourceLocator(*reportTo) {
+		return fmt.Errorf("source locator %s cannot be used as report_to", *reportTo)
+	}
+	if c.isLocalAgentTarget(*reportTo) {
 		return nil
 	}
-	return fmt.Errorf("unsupported report_to locator %s", reportTo)
+	if c.targets.supports(*reportTo) {
+		return nil
+	}
+	return fmt.Errorf("unsupported report_to locator %s", *reportTo)
 }
 
 func (c *coordinator) beginShutdown() {
@@ -448,18 +461,15 @@ func (c *coordinator) newQueuedTaskLocked(task Task) *taskState {
 	return nextTask
 }
 
-func (c *coordinator) enqueueQueuedTaskLocked(nextTask *taskState) error {
-	c.logTaskEvent("task enqueued", nextTask)
-	if c.isLocalAgentTarget(nextTask.task.Locator) {
-		queue, ok := c.queues[nextTask.task.Locator.Key]
+func (c *coordinator) resolveQueueLocked(locator Locator) (chan *taskState, error) {
+	if c.isLocalAgentTarget(locator) {
+		queue, ok := c.queues[locator.Key]
 		if !ok {
-			return fmt.Errorf("unknown local agent locator.key %q", nextTask.task.Locator.Key)
+			return nil, fmt.Errorf("unknown local agent locator.key %q", locator.Key)
 		}
-		queue <- nextTask
-		return nil
+		return queue, nil
 	}
-	c.dispatchQueue <- nextTask
-	return nil
+	return c.dispatchQueue, nil
 }
 
 func (c *coordinator) isLocalAgentTarget(locator Locator) bool {
@@ -533,54 +543,51 @@ func (c *coordinator) handleTaskResult(doneTask *taskState, output string, err e
 		c.logTaskEvent("task completed", doneTask)
 	}
 
-	if doneTask.task.Locator.Key == c.rootAgentID {
-		if err != nil {
-			c.finalErr = fmt.Errorf("%s task failed: %w", c.rootAgentID, err)
-			c.shuttingDown = true
-			stop := c.requestStop
-			c.mu.Unlock()
-			if stop != nil {
-				stop()
+	rootTask := doneTask.task.Locator.Key == c.rootAgentID
+	var nextTask *taskState
+	if !c.shuttingDown && doneTask.task.ReportTo != nil {
+		nextTask = c.newQueuedTaskLocked(Task{
+			SessionID: doneTask.task.SessionID,
+			Locator:   *doneTask.task.ReportTo,
+			Content:   formatReportTask(doneTask.task.SessionID, doneTask.task.Locator, doneTask.output, err),
+		})
+		c.logTaskEvent("notification task created", nextTask)
+	}
+	c.mu.Unlock()
+
+	if nextTask != nil {
+		if err := c.enqueueNotification(nextTask); err != nil {
+			c.setFinalErr(fmt.Errorf("enqueue notification: %w", err))
+			if c.requestStop != nil {
+				c.requestStop()
 			}
 			return
 		}
-		c.mu.Unlock()
-		return
 	}
-
-	if c.shuttingDown {
-		c.mu.Unlock()
-		return
-	}
-
-	reportTo := c.defaultReportTo
-	if doneTask.task.ReportTo != nil {
-		reportTo = *doneTask.task.ReportTo
-	}
-	notification := Task{
-		SessionID: doneTask.task.SessionID,
-		Locator:   reportTo,
-		Content:   formatReportTask(doneTask.task.SessionID, doneTask.task.Locator, doneTask.output, err),
-	}
-	nextTask := c.newQueuedTaskLocked(notification)
-	c.logTaskEvent("notification task created", nextTask)
-	c.mu.Unlock()
-
-	if err := c.enqueueNotification(nextTask); err != nil {
-		c.setFinalErr(fmt.Errorf("enqueue notification: %w", err))
+	if rootTask && err != nil {
+		c.setFinalErr(fmt.Errorf("%s task failed: %w", c.rootAgentID, err))
 		if c.requestStop != nil {
 			c.requestStop()
 		}
+		return
 	}
 }
 
 func (c *coordinator) enqueueNotification(nextTask *taskState) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.shuttingDown {
+		c.mu.Unlock()
 		return errors.New("runtime is stopping")
 	}
-	return c.enqueueQueuedTaskLocked(nextTask)
+	queue, err := c.resolveQueueLocked(nextTask.task.Locator)
+	if err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	c.logTaskEvent("task enqueued", nextTask)
+	c.mu.Unlock()
+	queue <- nextTask
+	return nil
 }
 
 func (c *coordinator) logTaskEvent(message string, nextTask *taskState) {

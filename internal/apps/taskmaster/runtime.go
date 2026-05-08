@@ -102,7 +102,7 @@ func Run(ctx context.Context, cfg Config, initialContent string) error {
 	filteredStderr := &shutdownAwareStderr{writer: stderr, shuttingDown: shuttingDown}
 
 	serviceLogger := baseLogger.With().Str("surface", "taskmaster").Logger()
-	service := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(taskmasterAgentID))
+	service := taskmastermcp.NewService(serviceLogger)
 	server, err := startTaskmasterHTTPServer(runCtx, service)
 	if err != nil {
 		return err
@@ -343,9 +343,7 @@ func rootInstruction() string {
 		"The local root agent is {class: agent, transport: local, key: taskmaster}.",
 		"The current log sink is {class: integration, transport: cli, key: log}.",
 		"If you want async results to come back somewhere, set report_to to a registered target locator.",
-		"The optional CLI bootstrap source is {class: integration, transport: cli, key: input}.",
-		"The background timer source is {class: integration, transport: timer, key: default}.",
-		"A background timer may also deliver simple hello world task content to you while the run is active.",
+		"The host may enqueue optional CLI bootstrap tasks and periodic timer tasks while the run is active.",
 		"This generic run does not finish on your turn completion.",
 		"It ends only when the host context is canceled, typically by a process signal such as SIGINT or SIGTERM.",
 		"Do not impose a fixed workflow or phase order on the work.",
@@ -356,34 +354,16 @@ func rootInstruction() string {
 	}, "\n")
 }
 
-func formatIngressContent(sessionID string, source taskmasterrt.Locator, content string) string {
-	return strings.Join([]string{
-		"Session ID:",
-		strings.TrimSpace(sessionID),
-		"",
-		"Source:",
-		locatorText(source),
-		"",
-		"Content:",
-		strings.TrimSpace(content),
-	}, "\n")
-}
-
 func buildBootstrapTask(content string) *taskmasterrt.Task {
-	content = strings.TrimSpace(content)
 	if content == "" {
 		return nil
 	}
 	task := &taskmasterrt.Task{
 		SessionID: bootstrapSessionID,
 		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		Content:   formatIngressContent(bootstrapSessionID, taskmasterrt.NewCLIInputLocator(), content),
+		Content:   content,
 	}
 	return task
-}
-
-func locatorText(locator taskmasterrt.Locator) string {
-	return strings.Join([]string{locator.Class, locator.Transport, locator.Key}, "/")
 }
 
 func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, interval time.Duration, makeTicker func(time.Duration) ticker) {
@@ -397,11 +377,10 @@ func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, in
 		case <-t.Chan():
 			counter++
 			sessionID := "timer-" + strconv.Itoa(counter)
-			source := taskmasterrt.NewTimerSourceLocator()
 			_ = runtime.Enqueue(taskmasterrt.Task{
 				SessionID: sessionID,
 				Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-				Content:   formatIngressContent(sessionID, source, timerContentMessage),
+				Content:   timerContentMessage,
 			})
 		}
 	}

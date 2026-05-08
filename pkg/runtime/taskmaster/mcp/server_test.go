@@ -12,13 +12,13 @@ func TestScheduleTaskUsesContentAndDefaultReportTo(t *testing.T) {
 	t.Parallel()
 
 	controller := &fakeController{}
-	service := NewService(zerolog.Nop(), taskmaster.NewAgentLocator("taskmaster"))
+	service := NewService(zerolog.Nop())
 	service.SetController(controller)
 
 	_, out, err := service.ScheduleTask(context.Background(), nil, ScheduleTaskInput{
 		SessionID: "session-a",
 		Locator:   taskmaster.NewAgentLocator("worker"),
-		Content:   "do work",
+		Content:   "  do work  ",
 	})
 	if err != nil {
 		t.Fatalf("ScheduleTask() error = %v", err)
@@ -26,11 +26,11 @@ func TestScheduleTaskUsesContentAndDefaultReportTo(t *testing.T) {
 	if out.Status != "queued" {
 		t.Fatalf("status = %q, want queued", out.Status)
 	}
-	if controller.lastTask.Content != "do work" {
-		t.Fatalf("content = %q, want do work", controller.lastTask.Content)
+	if controller.lastTask.Content != "  do work  " {
+		t.Fatalf("content = %q, want raw content", controller.lastTask.Content)
 	}
-	if controller.lastTask.ReportTo == nil || controller.lastTask.ReportTo.Key != "taskmaster" {
-		t.Fatalf("report_to = %+v, want default root report_to", controller.lastTask.ReportTo)
+	if controller.lastTask.ReportTo != nil {
+		t.Fatalf("report_to = %+v, want nil", controller.lastTask.ReportTo)
 	}
 }
 

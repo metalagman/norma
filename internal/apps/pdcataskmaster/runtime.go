@@ -92,7 +92,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	serviceLogger := baseLogger.With().Str("surface", "pdca-taskmaster").Logger()
-	scheduleService := taskmastermcp.NewService(serviceLogger, taskmasterrt.NewAgentLocator(rootAgentID))
+	scheduleService := taskmastermcp.NewService(serviceLogger)
 	finishRequested := &atomic.Bool{}
 	stopAfterRootTurn := make(chan struct{}, 1)
 	server, err := startPDCAHTTPServer(ctx, scheduleService, finishRequested)
