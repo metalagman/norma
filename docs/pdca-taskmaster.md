@@ -34,50 +34,43 @@ This wrapper preserves the existing strict PDCA prompt contract:
 
 ## Control Surface
 
-The control-tool namespace is the same as generic Taskmaster:
+The app-owned control-tool namespace in this wrapper is:
 
 - `taskmaster.schedule_task`
 
-Routing remains async and locator-based, but child locators are the PDCA child agents:
+Routing remains async, but the app-owned tool uses flat target names for the PDCA child agents:
 
 - `plan`
 - `do`
 - `check`
 - `act`
 
-Each child uses local agent address shape: `class=agent`, `transport=local`, `key=<role>`.
-
 The normal PDCA completion target is the PDCA root agent:
 
-```json
-{
-  "class": "agent",
-  "transport": "local",
-  "key": "pdca-taskmaster"
-}
+```text
+root
 ```
 
-This wrapper accepts only agent-based `report_to` targets. It does not support the generic `integration/cli/log` report sink, and completion routing happens only when `report_to` is explicitly set.
+This wrapper accepts flat local names such as `root`, `plan`, `do`, `check`, and `act`. It does not support the generic `integration/cli/log` report sink, and completion routing happens only when `report_to` is explicitly set.
 
 `taskmaster.schedule_task` also requires `session_id`. The root keeps the same session across PDCA turns for the same conversation.
 
-`taskmaster.finish` still exists in this wrapper, but it is wrapper-owned. It is not part of the shared reusable `pkg/runtime/taskmaster` MCP package.
+`taskmaster.finish` still exists in this wrapper, but it is wrapper-owned. The entire MCP surface is app-owned here; it is not part of shared `pkg/runtime/taskmaster`.
 
 This wrapper is now built on the local reusable runtime packages:
 
 - `pkg/runtime/taskmaster`
-- `pkg/runtime/taskmaster/mcp`
 - `pkg/runtime/taskmaster/adk`
 
 Its app-level wiring is wrapper-owned:
 
 - the wrapper builds `agent.Agent` instances with `agentfactory`
-- the wrapper creates the MCP server instance and registers Taskmaster tools
+- the wrapper creates the MCP server instance and registers its own PDCA control tools
 - `pkg/runtime/taskmaster/adk` only wraps those built agents as local runners
 
 ## Relation to Other Playgrounds
 
-- `taskmaster` = generic async harness with one `worker`
+- `taskmaster` = generic inbox runner
 - `pdca-taskmaster` = async PDCA wrapper
 - `pdca-sync` = sync PDCA playground
 

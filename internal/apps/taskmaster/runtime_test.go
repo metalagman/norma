@@ -8,6 +8,7 @@ import (
 	"time"
 
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
+	"github.com/rs/zerolog"
 )
 
 func TestBuildCodexACPCommand(t *testing.T) {
@@ -30,18 +31,14 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 
 	got := rootInstruction()
 	for _, want := range []string{
-		"generic Taskmaster async root agent",
-		"one plain-text child agent named worker",
-		"taskmaster.schedule_task",
-		"session_id",
-		"class: agent, transport: local, key: worker",
-		"class: integration, transport: cli, key: log",
-		"If you want async results to come back somewhere, set report_to to a registered target locator.",
+		"generic Taskmaster inbox agent",
 		"optional CLI bootstrap tasks and periodic timer tasks",
+		"host may also route your plain-text result to the current log sink",
 		"does not finish on your turn completion",
 		"host context is canceled",
 		"Do not impose a fixed workflow or phase order",
 		"plain-text task content",
+		"Return only the useful result as plain text",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rootInstruction() = %q, want substring %q", got, want)
@@ -51,6 +48,8 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 		"strict PDCA",
 		"plan -> do -> check -> act",
 		"plan, do, check, and act",
+		"one plain-text child agent named worker",
+		"taskmaster.schedule_task",
 		"taskmaster.finish",
 		"`verdict:`",
 		"`decision:`",
@@ -59,20 +58,6 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("rootInstruction() = %q, do not want substring %q", got, unwanted)
-		}
-	}
-}
-
-func TestWorkerInstructionIsGenericPlainText(t *testing.T) {
-	t.Parallel()
-
-	for _, want := range []string{
-		"generic plain-text worker",
-		"Return only the useful result as plain text",
-		"Do not use JSON, schemas, field names, or code fences",
-	} {
-		if !strings.Contains(workerInstruction, want) {
-			t.Fatalf("workerInstruction = %q, want substring %q", workerInstruction, want)
 		}
 	}
 }
@@ -94,6 +79,9 @@ func TestBuildBootstrapTask(t *testing.T) {
 	if !reflect.DeepEqual(got.Locator, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
 		t.Fatalf("Locator = %+v, want root agent locator", got.Locator)
 	}
+	if got.ReportTo == nil || !reflect.DeepEqual(*got.ReportTo, taskmasterrt.NewCLILogLocator()) {
+		t.Fatalf("ReportTo = %+v, want CLI log locator", got.ReportTo)
+	}
 	if got.Content != "  count go files  " {
 		t.Fatalf("Content = %q, want raw bootstrap content", got.Content)
 	}
@@ -109,6 +97,7 @@ func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 	runtime, err := taskmasterrt.New(taskmasterrt.Config{
 		RootAgentID:  taskmasterAgentID,
 		LocalRunners: map[string]taskmasterrt.LocalRunner{taskmasterAgentID: rootRunner},
+		Targets:      []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(zerolog.Nop())},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -127,6 +116,9 @@ func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 	case started := <-rootRunner.started:
 		if started.Content != timerContentMessage {
 			t.Fatalf("started.Content = %q, want raw timer content", started.Content)
+		}
+		if started.ReportTo == nil || !reflect.DeepEqual(*started.ReportTo, taskmasterrt.NewCLILogLocator()) {
+			t.Fatalf("started.ReportTo = %+v, want CLI log locator", started.ReportTo)
 		}
 		if started.SessionID == "" {
 			t.Fatal("background task session_id is empty")
@@ -147,6 +139,7 @@ func (t *fakeTicker) Stop() { t.stopped = true }
 
 type startedTask struct {
 	SessionID string
+	ReportTo  *taskmasterrt.Locator
 	Content   string
 }
 
@@ -156,7 +149,7 @@ type fakeLocalRunner struct {
 
 func (r *fakeLocalRunner) RunTask(_ context.Context, task taskmasterrt.Task) (string, error) {
 	if r.started != nil {
-		r.started <- startedTask{SessionID: task.SessionID, Content: task.Content}
+		r.started <- startedTask{SessionID: task.SessionID, ReportTo: task.ReportTo, Content: task.Content}
 	}
 	return "", nil
 }

@@ -5,11 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,23 +15,18 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
 	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
-	taskmastermcp "github.com/normahq/norma/pkg/runtime/taskmaster/mcp"
 	"github.com/normahq/runtime/agentconfig"
 	"github.com/normahq/runtime/agentfactory"
-	"github.com/normahq/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 )
 
 const (
 	taskmasterAgentID    = "taskmaster"
-	workerAgentID        = "worker"
 	timerContentMessage  = "hello world"
 	timerContentInterval = 30 * time.Second
 	defaultAgentName     = "Taskmaster"
-	defaultWorkerName    = "TaskmasterWorker"
 	defaultDescription   = "Workflow-agnostic async task harness"
 	bootstrapSessionID   = "cli-bootstrap"
 )
@@ -46,13 +38,6 @@ type Config struct {
 	Stderr     io.Writer
 	Logger     *zerolog.Logger
 }
-
-var workerInstruction = strings.Join([]string{
-	"You are a generic plain-text worker in an async task harness.",
-	"Execute the assigned prompt as directly as you can.",
-	"Return only the useful result as plain text.",
-	"Do not use JSON, schemas, field names, or code fences unless the prompt explicitly requires them.",
-}, "\n")
 
 type ticker interface {
 	Chan() <-chan time.Time
@@ -101,67 +86,34 @@ func Run(ctx context.Context, cfg Config, initialContent string) error {
 	}
 	filteredStderr := &shutdownAwareStderr{writer: stderr, shuttingDown: shuttingDown}
 
-	serviceLogger := baseLogger.With().Str("surface", "taskmaster").Logger()
-	service := taskmastermcp.NewService(serviceLogger)
-	server, err := startTaskmasterHTTPServer(runCtx, service)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = server.Close() }()
-
 	command := BuildCodexACPCommand(cfg.BridgeBin)
 	agentRegistry := map[string]agentconfig.Config{
 		taskmasterAgentID: newCodexACPConfig(command),
-		workerAgentID:     newCodexACPConfig(command),
-	}
-	mcpServers := map[string]agentconfig.MCPServerConfig{
-		"taskmaster": {
-			Type: agentconfig.MCPServerTypeHTTP,
-			URL:  "http://" + server.addr,
-		},
 	}
 	factoryOpts := []agentfactory.Option{
 		agentfactory.WithPermissionHandler(autoAllowPermission),
 		agentfactory.WithStderrWriter(filteredStderr),
 	}
-	factory := agentfactory.New(agentRegistry, mcpregistry.New(mcpServers), factoryOpts...)
+	factory := agentfactory.New(agentRegistry, nil, factoryOpts...)
 
-	childRunner, err := buildLocalRunner(runCtx, factory, localRunnerConfig{
-		AgentID:     workerAgentID,
-		AppName:     "taskmaster-" + workerAgentID,
-		Name:        defaultWorkerName,
-		Description: "Generic async worker child agent",
-		Instruction: workerInstruction,
+	rootRunner, err := buildLocalRunner(runCtx, factory, localRunnerConfig{
+		AgentID:     taskmasterAgentID,
+		AppName:     "taskmaster-" + taskmasterAgentID,
+		Name:        defaultAgentName,
+		Description: defaultDescription,
+		Instruction: rootInstruction(),
 		WorkingDir:  cfg.WorkingDir,
 		UserID:      taskmasterAgentID,
-		Logger: baseLogger.With().
-			Str("agent_id", workerAgentID).
-			Logger(),
-	})
-	if err != nil {
-		return err
-	}
-	rootRunner, err := buildLocalRunner(runCtx, factory, localRunnerConfig{
-		AgentID:      taskmasterAgentID,
-		AppName:      "taskmaster-" + taskmasterAgentID,
-		Name:         defaultAgentName,
-		Description:  defaultDescription,
-		Instruction:  rootInstruction(),
-		WorkingDir:   cfg.WorkingDir,
-		UserID:       taskmasterAgentID,
-		MCPServerIDs: sortedMCPServerIDs(mcpServers),
 		Logger: baseLogger.With().
 			Str("agent_id", taskmasterAgentID).
 			Logger(),
 	})
 	if err != nil {
-		_ = childRunner.Close()
 		return err
 	}
 
 	localRunners := map[string]taskmasterrt.LocalRunner{
 		taskmasterAgentID: rootRunner,
-		workerAgentID:     childRunner,
 	}
 
 	runtime, err := taskmasterrt.New(taskmasterrt.Config{
@@ -176,7 +128,6 @@ func Run(ctx context.Context, cfg Config, initialContent string) error {
 		}
 		return err
 	}
-	service.SetController(runtime)
 	if err := runtime.Start(runCtx); err != nil {
 		for _, runner := range localRunners {
 			_ = runner.Close()
@@ -212,54 +163,14 @@ func Run(ctx context.Context, cfg Config, initialContent string) error {
 }
 
 type localRunnerConfig struct {
-	AgentID      string
-	AppName      string
-	Name         string
-	Description  string
-	Instruction  string
-	WorkingDir   string
-	UserID       string
-	MCPServerIDs []string
-	Logger       zerolog.Logger
-}
-
-type taskmasterHTTPServer struct {
-	addr       string
-	httpServer *http.Server
-}
-
-func startTaskmasterHTTPServer(ctx context.Context, service *taskmastermcp.Service) (*taskmasterHTTPServer, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("listen: %w", err)
-	}
-	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
-		server := sdkmcp.NewServer(
-			&sdkmcp.Implementation{Name: "norma-taskmaster", Version: "1.0.0"},
-			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include session_id, locator, optional report_to, and content."},
-		)
-		taskmastermcp.RegisterTools(server, service)
-		return server
-	}, &sdkmcp.StreamableHTTPOptions{})
-	httpServer := &http.Server{Handler: handler}
-	go func() {
-		<-ctx.Done()
-		_ = httpServer.Close()
-	}()
-	go func() {
-		_ = httpServer.Serve(listener)
-	}()
-	return &taskmasterHTTPServer{
-		addr:       listener.Addr().String(),
-		httpServer: httpServer,
-	}, nil
-}
-
-func (s *taskmasterHTTPServer) Close() error {
-	if s == nil || s.httpServer == nil {
-		return nil
-	}
-	return s.httpServer.Close()
+	AgentID     string
+	AppName     string
+	Name        string
+	Description string
+	Instruction string
+	WorkingDir  string
+	UserID      string
+	Logger      zerolog.Logger
 }
 
 func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.LocalRunner, error) {
@@ -273,7 +184,6 @@ func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg lo
 		Description:      cfg.Description,
 		Instruction:      cfg.Instruction,
 		WorkingDirectory: cfg.WorkingDir,
-		MCPServerIDs:     append([]string(nil), cfg.MCPServerIDs...),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create %s agent: %w", cfg.AgentID, err)
@@ -303,18 +213,6 @@ func newCodexACPConfig(command []string) agentconfig.Config {
 	}
 }
 
-func sortedMCPServerIDs(mcpServers map[string]agentconfig.MCPServerConfig) []string {
-	if len(mcpServers) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(mcpServers))
-	for id := range mcpServers {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-	return ids
-}
-
 func autoAllowPermission(_ context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	for _, option := range req.Options {
 		if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
@@ -331,26 +229,17 @@ func autoAllowPermission(_ context.Context, req acp.RequestPermissionRequest) (a
 
 func rootInstruction() string {
 	return strings.Join([]string{
-		"You are the generic Taskmaster async root agent named taskmaster.",
+		"You are the generic Taskmaster inbox agent named taskmaster.",
 		"You receive only plain-text task content as your turn input.",
 		"Runtime task routing and bookkeeping are internal and are not shown to you directly.",
-		"You coordinate one plain-text child agent named worker.",
-		"Use only the taskmaster.schedule_task tool to enqueue worker tasks.",
-		"Each scheduled task must include the current session_id, a locator, an optional report_to, and content.",
-		"Keep the same session_id when scheduling follow-up work for the same conversation.",
-		"The only local child locator in this wrapper is {class: agent, transport: local, key: worker}.",
-		"The report_to field uses the same locator schema as the target.",
-		"The local root agent is {class: agent, transport: local, key: taskmaster}.",
-		"The current log sink is {class: integration, transport: cli, key: log}.",
-		"If you want async results to come back somewhere, set report_to to a registered target locator.",
 		"The host may enqueue optional CLI bootstrap tasks and periodic timer tasks while the run is active.",
+		"The host may also route your plain-text result to the current log sink.",
 		"This generic run does not finish on your turn completion.",
 		"It ends only when the host context is canceled, typically by a process signal such as SIGINT or SIGTERM.",
 		"Do not impose a fixed workflow or phase order on the work.",
-		"Pass only the minimal plain-text context needed for the worker task.",
 		"Do not invent extra routing protocol, schemas, or structured envelopes in prompts.",
-		"The worker returns freeform plain text. Do not require JSON, field names, or code fences unless the task itself calls for them.",
-		"Do not do worker work yourself. Only coordinate tasks through the worker.",
+		"Return only the useful result as plain text.",
+		"Do not use JSON, field names, or code fences unless the task itself calls for them.",
 	}, "\n")
 }
 
@@ -358,9 +247,11 @@ func buildBootstrapTask(content string) *taskmasterrt.Task {
 	if content == "" {
 		return nil
 	}
+	reportTo := taskmasterrt.NewCLILogLocator()
 	task := &taskmasterrt.Task{
 		SessionID: bootstrapSessionID,
 		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
+		ReportTo:  &reportTo,
 		Content:   content,
 	}
 	return task
@@ -377,9 +268,11 @@ func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, in
 		case <-t.Chan():
 			counter++
 			sessionID := "timer-" + strconv.Itoa(counter)
+			reportTo := taskmasterrt.NewCLILogLocator()
 			_ = runtime.Enqueue(taskmasterrt.Task{
 				SessionID: sessionID,
 				Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
+				ReportTo:  &reportTo,
 				Content:   timerContentMessage,
 			})
 		}

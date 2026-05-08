@@ -16,7 +16,8 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 		"taskmaster.schedule_task",
 		"taskmaster.finish",
 		"session_id",
-		"class: agent, transport: local, key: pdca-taskmaster",
+		"target values are plan, do, check, and act",
+		"report_to root",
 		"The child agents available in this wrapper are plan, do, check, and act.",
 	} {
 		if !strings.Contains(got, want) {
@@ -25,6 +26,14 @@ func TestRootInstructionDefinesStrictPDCA(t *testing.T) {
 	}
 	if strings.Contains(got, "task_id") {
 		t.Fatalf("rootInstruction() = %q, do not want task_id in public contract", got)
+	}
+	for _, unwanted := range []string{
+		"class: agent, transport: local, key: pdca-taskmaster",
+		"locator",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("rootInstruction() = %q, do not want substring %q", got, unwanted)
+		}
 	}
 }
 

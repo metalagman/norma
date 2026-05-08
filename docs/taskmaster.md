@@ -14,49 +14,22 @@ This surface is workflow-agnostic. It is not the structured PDCA runtime used by
 
 ## What It Is
 
-Generic `taskmaster` boots:
-
-- one root agent named `taskmaster`
-- one child worker agent named `worker`
+Generic `taskmaster` boots one root agent named `taskmaster`.
 
 Both are fixed to:
 
 - agent type: `codex_acp`
 - model: `gpt-5.3-codex`
 
-The runtime shape is still queue-based:
+The runtime shape is queue-based:
 
-- one inbox queue per agent
-- one serial executor per inbox
-- coordinator-owned task scheduling
-- locator-based child routing
+- one inbox queue for the taskmaster agent
+- one serial executor for that inbox
+- host-owned task submission
 - completion routing through `report_to`
 - plain-text prompts and plain-text outputs
 
-The root agent is workflow-agnostic. It schedules work to `worker`, interprets plain-text follow-up tasks, and keeps the run moving while the process stays alive.
-
-## Control Surface
-
-The MCP control namespace is:
-
-- `taskmaster.schedule_task`
-
-`schedule_task` accepts:
-
-- `session_id`
-- `locator`
-- optional `report_to`
-- `content`
-
-The only child locator in this wrapper is:
-
-```json
-{
-  "class": "agent",
-  "transport": "local",
-  "key": "worker"
-}
-```
+The root agent is workflow-agnostic. It processes the plain-text tasks that the host enqueues and keeps the run moving while the process stays alive.
 
 Common root completion reporting target is:
 
@@ -84,19 +57,16 @@ If a task uses that target, its completion is written to the current playground 
 
 The generic flow is:
 
-1. The playground starts and exposes the async Taskmaster control surface.
+1. The playground starts the Taskmaster inbox runner.
 2. If optional CLI content is provided, the wrapper enqueues one initial root task.
    - the task payload is passed through unchanged
-3. External callers may also enqueue plain-text task content by calling `taskmaster.schedule_task`.
-   - target the root with locator `agent/local/taskmaster` to hand work to the root agent
-4. Root calls `taskmaster.schedule_task` with the current `session_id` to hand work to `worker`.
-5. `worker` runs plain-text task content as a black box.
-6. If `report_to` is set, completion is delivered as another task to that locator.
+3. The background timer may enqueue additional root tasks while the run is active.
+4. If `report_to` is set, completion is delivered as another task to that locator.
    - for example, route back to root with `report_to = agent/local/taskmaster`
    - or write to the log with `report_to = integration/cli/log`
    - if `report_to` is omitted, the task is fire-and-forget
-7. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
-8. On shutdown, the playground stops gracefully.
+5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
+6. On shutdown, the playground stops gracefully.
 
 Stdout remains reserved for:
 
@@ -113,7 +83,6 @@ These timer tasks are supplemental background traffic and continue until the com
 The unstable reusable runtime now lives under:
 
 - `pkg/runtime/taskmaster`
-- `pkg/runtime/taskmaster/mcp`
 - `pkg/runtime/taskmaster/adk`
 
 That local runtime provides:
@@ -123,14 +92,12 @@ That local runtime provides:
 - reusable locators with `class`, `transport`, `key`, and optional `address`
 - completion routing modeled as another task addressed to `report_to`
 - lifecycle-style control: `New`, `Start`, `Stop`, `Done`, `Err`, `Enqueue`
-- shared MCP tool registration for `taskmaster.schedule_task`
 - an ADK wrapper that turns an already-built `agent.Agent` into a `taskmaster.LocalRunner`
 
 The app owns all app-level wiring:
 
 - building `agent.Agent` instances with `agentfactory`
-- creating the MCP server instance
-- registering Taskmaster tools on that server
+- creating any ingress protocol such as MCP, CLI bootstrap, or timers
 - injecting the wrapped local runners into `pkg/runtime/taskmaster`
 
 ## Relation to Other Playgrounds

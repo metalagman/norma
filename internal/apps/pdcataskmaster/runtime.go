@@ -17,7 +17,6 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
 	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
-	taskmastermcp "github.com/normahq/norma/pkg/runtime/taskmaster/mcp"
 	"github.com/normahq/runtime/agentconfig"
 	"github.com/normahq/runtime/agentfactory"
 	"github.com/normahq/runtime/mcpregistry"
@@ -92,7 +91,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	serviceLogger := baseLogger.With().Str("surface", "pdca-taskmaster").Logger()
-	scheduleService := taskmastermcp.NewService(serviceLogger)
+	scheduleService := newScheduleService(serviceLogger)
 	finishRequested := &atomic.Bool{}
 	stopAfterRootTurn := make(chan struct{}, 1)
 	server, err := startPDCAHTTPServer(ctx, scheduleService, finishRequested)
@@ -200,7 +199,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := runtime.Enqueue(taskmasterrt.Task{
 		SessionID: "goal-session",
 		Locator:   taskmasterrt.NewAgentLocator(rootAgentID),
-		Content:   formatIngressContent("goal-session", cfg.Goal),
+		Content:   cfg.Goal,
 	}); err != nil {
 		_ = runtime.Stop(context.Background())
 		return err
@@ -229,16 +228,6 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func formatIngressContent(sessionID string, content string) string {
-	return strings.Join([]string{
-		"Session ID:",
-		strings.TrimSpace(sessionID),
-		"",
-		"Goal:",
-		strings.TrimSpace(content),
-	}, "\n")
-}
-
 func rootInstruction() string {
 	return strings.Join([]string{
 		"You are the PDCA Taskmaster async root agent named pdca-taskmaster.",
@@ -248,11 +237,10 @@ func rootInstruction() string {
 		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
 		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
 		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to request stop after the current root turn.",
-		"Each scheduled task must include the current session_id, a locator, an optional report_to, and content.",
+		"Each scheduled task must include the current session_id, a target, an optional report_to, and content.",
 		"Keep the same session_id when continuing the same PDCA conversation.",
-		"The report_to field means where async task results should be reported.",
-		"The local root agent locator is {class: agent, transport: local, key: pdca-taskmaster}.",
-		"The child agent locators are local agent locators with ids plan, do, check, and act.",
+		"The target values are plan, do, check, and act.",
+		"Use report_to root when you need the child result to come back to you asynchronously.",
 		"The child agents available in this wrapper are plan, do, check, and act.",
 		"Treat plan, do, check, and act as strict PDCA phases, not generic workers.",
 		"After a plan completion, schedule do. After a do completion, schedule check. After a check completion, schedule act.",
@@ -281,7 +269,7 @@ type pdcaHTTPServer struct {
 	httpServer *http.Server
 }
 
-func startPDCAHTTPServer(ctx context.Context, service *taskmastermcp.Service, finishRequested *atomic.Bool) (*pdcaHTTPServer, error) {
+func startPDCAHTTPServer(ctx context.Context, service *scheduleService, finishRequested *atomic.Bool) (*pdcaHTTPServer, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("listen: %w", err)
@@ -289,18 +277,9 @@ func startPDCAHTTPServer(ctx context.Context, service *taskmastermcp.Service, fi
 	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
 		server := sdkmcp.NewServer(
 			&sdkmcp.Implementation{Name: "norma-taskmaster", Version: "1.0.0"},
-			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one task in the async run. Every scheduled task must include session_id, locator, optional report_to, and content."},
+			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one PDCA child task. Every scheduled task must include session_id, target, optional report_to, and content. Valid targets are plan, do, check, and act. Use report_to=root for async child results."},
 		)
-		taskmastermcp.RegisterTools(server, service)
-		sdkmcp.AddTool(server, &sdkmcp.Tool{
-			Name:        "taskmaster.finish",
-			Description: "Request runtime stop after the current root turn returns.",
-		}, func(_ context.Context, _ *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, map[string]string, error) {
-			finishRequested.Store(true)
-			return &sdkmcp.CallToolResult{
-				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "finish requested"}},
-			}, map[string]string{"status": "requested"}, nil
-		})
+		registerControlTools(server, service, finishRequested)
 		return server
 	}, &sdkmcp.StreamableHTTPOptions{})
 	httpServer := &http.Server{Handler: handler}
