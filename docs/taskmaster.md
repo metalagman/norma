@@ -28,11 +28,12 @@ The runtime shape is queue-based:
 
 - one inbox queue for the taskmaster agent
 - one serial executor for that inbox
-- host-owned task submission
-- completion routing through `report_to`
+- host-owned message submission
+- app-owned outcome routing
+- optional multi-message emission while a node is running
 - plain-text prompts and plain-text outputs
 
-The root agent is workflow-agnostic. It processes the plain-text tasks that the host enqueues and keeps the run moving while the process stays alive.
+The root agent is workflow-agnostic. It processes the plain-text job messages that the host enqueues and keeps the run moving while the process stays alive.
 
 Common root completion reporting target is:
 
@@ -44,7 +45,7 @@ Common root completion reporting target is:
 }
 ```
 
-Generic `taskmaster` also supports one special `report_to` sink:
+Generic `taskmaster` routes root outcomes to one app-owned sink:
 
 ```json
 {
@@ -54,20 +55,17 @@ Generic `taskmaster` also supports one special `report_to` sink:
 }
 ```
 
-If a task uses that target, its completion is written to the current playground log and is **not** delivered back to the root agent.
+Messages sent to that target are written to the current playground log and are **not** delivered back to the root agent.
 
 ## Runtime Flow
 
 The generic flow is:
 
 1. The playground starts the Taskmaster inbox runner.
-2. If optional CLI content is provided, the wrapper enqueues one initial root task.
-   - the task payload is passed through unchanged
-3. The background timer may enqueue additional root tasks while the run is active.
-4. If `report_to` is set, completion is delivered as another task to that locator.
-   - for example, route back to root with `report_to = agent/local/taskmaster`
-   - or write to the log with `report_to = integration/cli/log`
-   - if `report_to` is omitted, the task is fire-and-forget
+2. If optional CLI content is provided, the wrapper enqueues one initial root job message.
+   - the message content is passed through unchanged
+3. The background timer may enqueue additional root job messages while the run is active.
+4. The app-level outcome router converts root outcomes into notification/error messages for `integration/cli/log`.
 5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
 6. On shutdown, the playground stops gracefully.
 
@@ -87,7 +85,7 @@ These timer tasks are supplemental background traffic and continue until the com
 
 - stdin is the ingress
 - one fixed fake chat session id is reused for the whole process
-- each non-empty line is enqueued unchanged to the root agent
+- each non-empty line is enqueued unchanged to the root agent as a job message
 - replies are routed to `human:fakechat:local` and rendered as:
   - `taskmaster> ...`
   - `you> ...`
@@ -103,18 +101,19 @@ The unstable reusable runtime now lives under:
 
 That local runtime provides:
 
-- one public `Task` type with `session_id`, `locator`, optional `report_to`, and `content`
+- one public `Message` type with `id`, `session_id`, `kind`, `from`, `to`, optional `parent_id`, `content`, and optional `metadata`
+- a `Node` interface that receives one message, can emit many addressed messages while running, and returns one terminal outcome
 - session-aware local agent turns keyed by explicit `session_id`
 - reusable locators with `class`, `transport`, `key`, and optional `address`
-- completion routing modeled as another task addressed to `report_to`
+- app-owned outcome routing modeled as additional addressed messages
 - lifecycle-style control: `New`, `Start`, `Stop`, `Done`, `Err`, `Enqueue`
-- an ADK wrapper that turns an already-built `agent.Agent` into a `taskmaster.LocalRunner`
+- an ADK wrapper that turns an already-built `agent.Agent` into a `taskmaster.Node`
 
 The app owns all app-level wiring:
 
 - building `agent.Agent` instances with `agentfactory`
 - creating any ingress protocol such as MCP, CLI bootstrap, or timers
-- injecting the wrapped local runners into `pkg/runtime/taskmaster`
+- injecting the wrapped local nodes into `pkg/runtime/taskmaster`
 
 ## Relation to Other Playgrounds
 

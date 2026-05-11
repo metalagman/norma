@@ -36,7 +36,7 @@ type runner struct {
 	sessionState   map[string]any
 }
 
-func Wrap(inner agent.Agent, cfg Config) (taskmaster.LocalRunner, error) {
+func Wrap(inner agent.Agent, cfg Config) (taskmaster.Node, error) {
 	if inner == nil {
 		return nil, errors.New("agent is required")
 	}
@@ -78,18 +78,21 @@ func Wrap(inner agent.Agent, cfg Config) (taskmaster.LocalRunner, error) {
 	return result, nil
 }
 
-func (r *runner) RunTask(ctx context.Context, task taskmaster.Task) (string, error) {
+func (r *runner) Run(ctx context.Context, msg taskmaster.Message, _ taskmaster.EmitFunc) taskmaster.Outcome {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	resolvedSessionID, err := r.ensureSessionLocked(ctx, task.SessionID)
+	resolvedSessionID, err := r.ensureSessionLocked(ctx, msg.SessionID)
 	if err != nil {
-		return "", err
+		return taskmaster.Outcome{Status: taskmaster.OutcomeStatusFailed, Err: err}
 	}
-	callLogger := r.logger.With().Str("session_id", task.SessionID).Logger()
-	_, last, err := runWithRunner(ctx, r.runner, r.sessionService, r.appName, r.userID, resolvedSessionID, task.Content, func(output string) {
+	callLogger := r.logger.With().Str("session_id", msg.SessionID).Logger()
+	_, last, err := runWithRunner(ctx, r.runner, r.sessionService, r.appName, r.userID, resolvedSessionID, msg.Content, func(output string) {
 		callLogger.Debug().Str("output", output).Msg("task output")
 	})
-	return last, err
+	if err != nil {
+		return taskmaster.Outcome{Status: taskmaster.OutcomeStatusFailed, Err: err}
+	}
+	return taskmaster.Outcome{Status: taskmaster.OutcomeStatusCompleted, Content: last}
 }
 
 func (r *runner) ensureSessionLocked(ctx context.Context, sessionID string) (string, error) {

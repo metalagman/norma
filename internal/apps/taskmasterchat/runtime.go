@@ -40,7 +40,7 @@ type Config struct {
 }
 
 type taskEnqueuer interface {
-	Enqueue(task taskmasterrt.Task) error
+	Enqueue(msg taskmasterrt.Message) error
 }
 
 func Run(ctx context.Context, cfg Config) error {
@@ -100,17 +100,18 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	runtime, err := taskmasterrt.New(taskmasterrt.Config{
-		Logger:       &baseLogger,
-		RootAgentID:  taskmasterAgentID,
-		LocalRunners: map[string]taskmasterrt.LocalRunner{taskmasterAgentID: rootRunner},
-		Targets:      []taskmasterrt.Target{newFakeChatTarget(console)},
+		Logger:        &baseLogger,
+		RootNodeID:    taskmasterAgentID,
+		Nodes:         map[string]taskmasterrt.Node{taskmasterAgentID: rootRunner},
+		Targets:       []taskmasterrt.Target{newFakeChatTarget(console)},
+		OutcomeRouter: routeRootOutcomeTo(taskmasterrt.NewFakeChatHumanLocator(fakeChatID)),
 	})
 	if err != nil {
-		_ = rootRunner.Close()
+		closeNode(rootRunner)
 		return err
 	}
 	if err := runtime.Start(runCtx); err != nil {
-		_ = rootRunner.Close()
+		closeNode(rootRunner)
 		return err
 	}
 
@@ -157,7 +158,7 @@ type localRunnerConfig struct {
 	Logger      zerolog.Logger
 }
 
-func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.LocalRunner, error) {
+func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.Node, error) {
 	sessionState, err := factory.BuildSessionState(cfg.AgentID, cfg.WorkingDir)
 	if err != nil {
 		return nil, fmt.Errorf("build session state for %s: %w", cfg.AgentID, err)
@@ -227,18 +228,18 @@ func rootInstruction() string {
 	}, "\n")
 }
 
-func buildChatTask(content string) *taskmasterrt.Task {
+func buildChatMessage(content string) *taskmasterrt.Message {
 	if content == "" {
 		return nil
 	}
-	reportTo := taskmasterrt.NewFakeChatHumanLocator(fakeChatID)
-	task := &taskmasterrt.Task{
+	message := &taskmasterrt.Message{
 		SessionID: fakeChatSessionID,
-		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		ReportTo:  &reportTo,
+		Kind:      taskmasterrt.MessageKindJob,
+		From:      taskmasterrt.NewFakeChatHumanLocator(fakeChatID),
+		To:        taskmasterrt.NewAgentLocator(taskmasterAgentID),
 		Content:   content,
 	}
-	return task
+	return message
 }
 
 func enqueueChatInputs(ctx context.Context, input io.Reader, console *chatConsole, runtime taskEnqueuer) error {
@@ -258,14 +259,14 @@ func enqueueChatInputs(ctx context.Context, input io.Reader, console *chatConsol
 		if strings.TrimSpace(line) == "/quit" {
 			return nil
 		}
-		task := buildChatTask(line)
-		if task == nil {
+		message := buildChatMessage(line)
+		if message == nil {
 			if err := console.writePrompt(); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := runtime.Enqueue(*task); err != nil {
+		if err := runtime.Enqueue(*message); err != nil {
 			if writeErr := console.writeSystemLine("enqueue error: " + err.Error()); writeErr != nil {
 				return writeErr
 			}
@@ -293,8 +294,47 @@ func (t fakeChatTarget) Supports(locator taskmasterrt.Locator) bool {
 		locator.Transport == taskmasterrt.LocatorTransportFakeChat
 }
 
-func (t fakeChatTarget) DispatchTask(_ context.Context, task taskmasterrt.Task) error {
-	return t.console.writeReply(task.Content)
+func (t fakeChatTarget) DispatchMessage(_ context.Context, msg taskmasterrt.Message) error {
+	return t.console.writeReply(msg.Content)
+}
+
+func routeRootOutcomeTo(target taskmasterrt.Locator) taskmasterrt.OutcomeRouter {
+	return func(msg taskmasterrt.Message, outcome taskmasterrt.Outcome) []taskmasterrt.Message {
+		if !isTaskmasterAgent(msg.To) {
+			return nil
+		}
+		kind := taskmasterrt.MessageKindNotification
+		content := outcome.Content
+		if outcome.Err != nil || outcome.Status == taskmasterrt.OutcomeStatusFailed {
+			kind = taskmasterrt.MessageKindError
+			if outcome.Err != nil {
+				content = outcome.Err.Error()
+			}
+		}
+		return []taskmasterrt.Message{{
+			Kind:    kind,
+			From:    msg.To,
+			To:      target,
+			Content: content,
+		}}
+	}
+}
+
+func isTaskmasterAgent(locator taskmasterrt.Locator) bool {
+	return locator.Class == taskmasterrt.LocatorClassAgent &&
+		locator.Transport == taskmasterrt.LocatorTransportLocal &&
+		locator.Key == taskmasterAgentID
+}
+
+type closeableNode interface {
+	Close() error
+}
+
+func closeNode(node taskmasterrt.Node) {
+	closer, ok := node.(closeableNode)
+	if ok {
+		_ = closer.Close()
+	}
 }
 
 type chatConsole struct {

@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func TestScheduleTaskMapsFlatTargetAndReportTo(t *testing.T) {
+func TestScheduleTaskMapsFlatTarget(t *testing.T) {
 	t.Parallel()
 
 	controller := &fakeScheduleController{}
@@ -19,7 +19,6 @@ func TestScheduleTaskMapsFlatTargetAndReportTo(t *testing.T) {
 	_, out, err := service.ScheduleTask(context.Background(), nil, scheduleTaskInput{
 		SessionID: "session-a",
 		Target:    "plan",
-		ReportTo:  "root",
 		Content:   "ship the goal",
 	})
 	if err != nil {
@@ -28,14 +27,17 @@ func TestScheduleTaskMapsFlatTargetAndReportTo(t *testing.T) {
 	if out.Status != "queued" {
 		t.Fatalf("status = %q, want queued", out.Status)
 	}
-	if !reflect.DeepEqual(controller.lastTask.Locator, taskmasterrt.NewAgentLocator("plan")) {
-		t.Fatalf("target locator = %+v, want plan", controller.lastTask.Locator)
+	if controller.lastMessage.Kind != taskmasterrt.MessageKindJob {
+		t.Fatalf("kind = %q, want job", controller.lastMessage.Kind)
 	}
-	if controller.lastTask.ReportTo == nil || !reflect.DeepEqual(*controller.lastTask.ReportTo, taskmasterrt.NewAgentLocator(rootAgentID)) {
-		t.Fatalf("report_to = %+v, want root locator", controller.lastTask.ReportTo)
+	if !reflect.DeepEqual(controller.lastMessage.From, taskmasterrt.NewAgentLocator(rootAgentID)) {
+		t.Fatalf("from = %+v, want root locator", controller.lastMessage.From)
 	}
-	if controller.lastTask.Content != "ship the goal" {
-		t.Fatalf("content = %q, want raw content", controller.lastTask.Content)
+	if !reflect.DeepEqual(controller.lastMessage.To, taskmasterrt.NewAgentLocator("plan")) {
+		t.Fatalf("target locator = %+v, want plan", controller.lastMessage.To)
+	}
+	if controller.lastMessage.Content != "ship the goal" {
+		t.Fatalf("content = %q, want raw content", controller.lastMessage.Content)
 	}
 }
 
@@ -59,10 +61,10 @@ func TestScheduleTaskRejectsUnsupportedTarget(t *testing.T) {
 }
 
 type fakeScheduleController struct {
-	lastTask taskmasterrt.Task
+	lastMessage taskmasterrt.Message
 }
 
-func (c *fakeScheduleController) Enqueue(task taskmasterrt.Task) error {
-	c.lastTask = task
+func (c *fakeScheduleController) Enqueue(msg taskmasterrt.Message) error {
+	c.lastMessage = msg
 	return nil
 }

@@ -17,22 +17,22 @@ func TestWrapReusesSessionByTaskSessionID(t *testing.T) {
 	t.Parallel()
 
 	runner := newTestRunner(t)
-	defer func() { _ = runner.Close() }()
+	defer closeTestNode(t, runner)
 
-	first, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-a", Content: "first"})
-	if err != nil {
-		t.Fatalf("RunTask(first) error = %v", err)
+	first := runner.Run(context.Background(), testMessage("session-a", "first"), nil)
+	if first.Err != nil {
+		t.Fatalf("Run(first) error = %v", first.Err)
 	}
-	second, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-a", Content: "second"})
-	if err != nil {
-		t.Fatalf("RunTask(second) error = %v", err)
+	second := runner.Run(context.Background(), testMessage("session-a", "second"), nil)
+	if second.Err != nil {
+		t.Fatalf("Run(second) error = %v", second.Err)
 	}
 
-	if first != "echo:first #1" {
-		t.Fatalf("first output = %q, want echo:first #1", first)
+	if first.Content != "echo:first #1" {
+		t.Fatalf("first output = %q, want echo:first #1", first.Content)
 	}
-	if second != "echo:second #2" {
-		t.Fatalf("second output = %q, want echo:second #2", second)
+	if second.Content != "echo:second #2" {
+		t.Fatalf("second output = %q, want echo:second #2", second.Content)
 	}
 }
 
@@ -40,22 +40,22 @@ func TestWrapIsolatesDistinctSessions(t *testing.T) {
 	t.Parallel()
 
 	runner := newTestRunner(t)
-	defer func() { _ = runner.Close() }()
+	defer closeTestNode(t, runner)
 
-	first, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-a", Content: "first"})
-	if err != nil {
-		t.Fatalf("RunTask(first) error = %v", err)
+	first := runner.Run(context.Background(), testMessage("session-a", "first"), nil)
+	if first.Err != nil {
+		t.Fatalf("Run(first) error = %v", first.Err)
 	}
-	second, err := runner.RunTask(context.Background(), taskmaster.Task{SessionID: "session-b", Content: "second"})
-	if err != nil {
-		t.Fatalf("RunTask(second) error = %v", err)
+	second := runner.Run(context.Background(), testMessage("session-b", "second"), nil)
+	if second.Err != nil {
+		t.Fatalf("Run(second) error = %v", second.Err)
 	}
 
-	if first != "echo:first #1" {
-		t.Fatalf("first output = %q, want echo:first #1", first)
+	if first.Content != "echo:first #1" {
+		t.Fatalf("first output = %q, want echo:first #1", first.Content)
 	}
-	if second != "echo:second #1" {
-		t.Fatalf("second output = %q, want echo:second #1", second)
+	if second.Content != "echo:second #1" {
+		t.Fatalf("second output = %q, want echo:second #1", second.Content)
 	}
 }
 
@@ -74,7 +74,11 @@ func TestWrapCloseClosesInnerAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Wrap() error = %v", err)
 	}
-	if err := runner.Close(); err != nil {
+	closer, ok := runner.(interface{ Close() error })
+	if !ok {
+		t.Fatal("Wrap() result does not expose Close")
+	}
+	if err := closer.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
 	if !closable.closed {
@@ -82,7 +86,7 @@ func TestWrapCloseClosesInnerAgent(t *testing.T) {
 	}
 }
 
-func newTestRunner(t *testing.T) taskmaster.LocalRunner {
+func newTestRunner(t *testing.T) taskmaster.Node {
 	t.Helper()
 
 	inner, err := newCountingAgent()
@@ -98,6 +102,27 @@ func newTestRunner(t *testing.T) taskmaster.LocalRunner {
 		t.Fatalf("Wrap() error = %v", err)
 	}
 	return runner
+}
+
+func closeTestNode(t *testing.T, node taskmaster.Node) {
+	t.Helper()
+
+	closer, ok := node.(interface{ Close() error })
+	if ok {
+		if err := closer.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	}
+}
+
+func testMessage(sessionID string, content string) taskmaster.Message {
+	return taskmaster.Message{
+		SessionID: sessionID,
+		Kind:      taskmaster.MessageKindJob,
+		From:      taskmaster.NewCLIInputLocator(),
+		To:        taskmaster.NewAgentLocator("root"),
+		Content:   content,
+	}
 }
 
 type closableAgent struct {

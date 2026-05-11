@@ -125,17 +125,6 @@ func cloneAddress(address map[string]any) map[string]any {
 	return cloned
 }
 
-func normalizeReportLocator(reportTo *Locator) (*Locator, error) {
-	if reportTo == nil {
-		return nil, nil
-	}
-	normalized, err := NormalizeLocator(*reportTo)
-	if err != nil {
-		return nil, err
-	}
-	return &normalized, nil
-}
-
 func locatorKey(locator Locator) string {
 	return fmt.Sprintf("%s:%s:%s", locator.Class, locator.Transport, locator.Key)
 }

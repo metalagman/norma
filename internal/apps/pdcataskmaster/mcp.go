@@ -17,7 +17,7 @@ const (
 )
 
 type scheduleController interface {
-	Enqueue(task taskmasterrt.Task) error
+	Enqueue(msg taskmasterrt.Message) error
 }
 
 type scheduleService struct {
@@ -28,14 +28,12 @@ type scheduleService struct {
 type scheduleTaskInput struct {
 	SessionID string `json:"session_id"`
 	Target    string `json:"target"`
-	ReportTo  string `json:"report_to,omitempty"`
 	Content   string `json:"content"`
 }
 
 type scheduleTaskOutput struct {
 	SessionID string `json:"session_id"`
 	Target    string `json:"target"`
-	ReportTo  string `json:"report_to,omitempty"`
 	Status    string `json:"status"`
 	Message   string `json:"message,omitempty"`
 }
@@ -54,7 +52,7 @@ func registerControlTools(server *sdkmcp.Server, service *scheduleService, finis
 	}
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        scheduleTaskToolName,
-		Description: "Enqueue one PDCA child task. Provide session_id, target, optional report_to, and content. Valid targets are plan, do, check, and act. Use report_to=root for async child results.",
+		Description: "Enqueue one PDCA child message. Provide session_id, target, and content. Valid targets are plan, do, check, and act. Child outcomes return to the root workflow by runtime policy.",
 	}, service.ScheduleTask)
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        finishToolName,
@@ -70,39 +68,33 @@ func registerControlTools(server *sdkmcp.Server, service *scheduleService, finis
 func (s *scheduleService) ScheduleTask(_ context.Context, _ *sdkmcp.CallToolRequest, input scheduleTaskInput) (*sdkmcp.CallToolResult, scheduleTaskOutput, error) {
 	sessionID := strings.TrimSpace(input.SessionID)
 	targetName, targetLocator, targetErr := normalizeTarget(input.Target)
-	reportToName, reportToLocator, reportToErr := normalizeReportTo(input.ReportTo)
 	if s.controller == nil {
-		out := scheduleTaskOutput{SessionID: sessionID, Target: targetName, ReportTo: reportToName, Status: "error", Message: "controller is not ready"}
+		out := scheduleTaskOutput{SessionID: sessionID, Target: targetName, Status: "error", Message: "controller is not ready"}
 		return toolError(out.Message), out, nil
 	}
 	if targetErr != nil {
 		out := scheduleTaskOutput{SessionID: sessionID, Status: "error", Message: targetErr.Error()}
 		return toolError(out.Message), out, nil
 	}
-	if reportToErr != nil {
-		out := scheduleTaskOutput{SessionID: sessionID, Target: targetName, Status: "error", Message: reportToErr.Error()}
-		return toolError(out.Message), out, nil
-	}
-	if err := s.controller.Enqueue(taskmasterrt.Task{
+	if err := s.controller.Enqueue(taskmasterrt.Message{
 		SessionID: sessionID,
-		Locator:   targetLocator,
-		ReportTo:  reportToLocator,
+		Kind:      taskmasterrt.MessageKindJob,
+		From:      taskmasterrt.NewAgentLocator(rootAgentID),
+		To:        targetLocator,
 		Content:   input.Content,
 	}); err != nil {
-		out := scheduleTaskOutput{SessionID: sessionID, Target: targetName, ReportTo: reportToName, Status: "error", Message: err.Error()}
+		out := scheduleTaskOutput{SessionID: sessionID, Target: targetName, Status: "error", Message: err.Error()}
 		return toolError(out.Message), out, nil
 	}
 	out := scheduleTaskOutput{
 		SessionID: sessionID,
 		Target:    targetName,
-		ReportTo:  reportToName,
 		Status:    "queued",
-		Message:   "task queued",
+		Message:   "message queued",
 	}
 	s.logger.Debug().
 		Str("session_id", sessionID).
 		Str("target", targetName).
-		Str("report_to", reportToName).
 		Msg("schedule_task accepted")
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: out.Message}},
@@ -116,23 +108,6 @@ func normalizeTarget(raw string) (string, taskmasterrt.Locator, error) {
 		return target, taskmasterrt.NewAgentLocator(target), nil
 	default:
 		return "", taskmasterrt.Locator{}, fmt.Errorf("unsupported target %q", raw)
-	}
-}
-
-func normalizeReportTo(raw string) (string, *taskmasterrt.Locator, error) {
-	reportTo := strings.ToLower(strings.TrimSpace(raw))
-	if reportTo == "" {
-		return "", nil, nil
-	}
-	switch reportTo {
-	case "root":
-		locator := taskmasterrt.NewAgentLocator(rootAgentID)
-		return reportTo, &locator, nil
-	case "plan", "do", "check", "act":
-		locator := taskmasterrt.NewAgentLocator(reportTo)
-		return reportTo, &locator, nil
-	default:
-		return "", nil, fmt.Errorf("unsupported report_to %q", raw)
 	}
 }
 

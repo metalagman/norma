@@ -12,7 +12,7 @@ var ErrUnsupported = errors.New("unsupported locator operation")
 
 type Target interface {
 	Supports(locator Locator) bool
-	DispatchTask(ctx context.Context, task Task) error
+	DispatchMessage(ctx context.Context, msg Message) error
 }
 
 type targetRegistry struct {
@@ -38,14 +38,14 @@ func (r targetRegistry) supports(locator Locator) bool {
 	return false
 }
 
-func (r targetRegistry) dispatchTask(ctx context.Context, task Task) error {
+func (r targetRegistry) dispatchMessage(ctx context.Context, msg Message) error {
 	supported := false
 	for _, target := range r.targets {
-		if !target.Supports(task.Locator) {
+		if !target.Supports(msg.To) {
 			continue
 		}
 		supported = true
-		err := target.DispatchTask(ctx, task)
+		err := target.DispatchMessage(ctx, msg)
 		if err == nil {
 			return nil
 		}
@@ -55,9 +55,9 @@ func (r targetRegistry) dispatchTask(ctx context.Context, task Task) error {
 		return err
 	}
 	if supported {
-		return fmt.Errorf("unsupported dispatch for locator %s", task.Locator)
+		return fmt.Errorf("unsupported dispatch for locator %s", msg.To)
 	}
-	return fmt.Errorf("no target for locator %s", task.Locator)
+	return fmt.Errorf("no target for locator %s", msg.To)
 }
 
 type CLILogTarget struct {
@@ -74,14 +74,16 @@ func (t CLILogTarget) Supports(locator Locator) bool {
 		locator.Key == CLILogKey
 }
 
-func (t CLILogTarget) DispatchTask(_ context.Context, task Task) error {
-	message := task.Content
+func (t CLILogTarget) DispatchMessage(_ context.Context, msg Message) error {
+	message := msg.Content
 	if message == "" {
-		message = "(empty task content)"
+		message = "(empty message content)"
 	}
 	t.logger.Info().
-		Str("session_id", task.SessionID).
-		Str("locator", task.Locator.String()).
+		Str("message_id", msg.ID).
+		Str("session_id", msg.SessionID).
+		Str("kind", msg.Kind).
+		Str("locator", msg.To.String()).
 		Str("message_text", message).
 		Msg("cli log delivered")
 	return nil

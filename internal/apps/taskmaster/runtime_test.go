@@ -62,25 +62,28 @@ func TestRootInstructionDefinesGenericCoordinator(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrapTask(t *testing.T) {
+func TestBuildBootstrapMessage(t *testing.T) {
 	t.Parallel()
 
-	if got := buildBootstrapTask(""); got != nil {
-		t.Fatalf("buildBootstrapTask(empty) = %+v, want nil", got)
+	if got := buildBootstrapMessage(""); got != nil {
+		t.Fatalf("buildBootstrapMessage(empty) = %+v, want nil", got)
 	}
 
-	got := buildBootstrapTask("  count go files  ")
+	got := buildBootstrapMessage("  count go files  ")
 	if got == nil {
-		t.Fatal("buildBootstrapTask(non-empty) = nil, want task")
+		t.Fatal("buildBootstrapMessage(non-empty) = nil, want message")
 	}
 	if got.SessionID != bootstrapSessionID {
 		t.Fatalf("SessionID = %q, want %q", got.SessionID, bootstrapSessionID)
 	}
-	if !reflect.DeepEqual(got.Locator, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
-		t.Fatalf("Locator = %+v, want root agent locator", got.Locator)
+	if got.Kind != taskmasterrt.MessageKindJob {
+		t.Fatalf("Kind = %q, want job", got.Kind)
 	}
-	if got.ReportTo == nil || !reflect.DeepEqual(*got.ReportTo, taskmasterrt.NewCLILogLocator()) {
-		t.Fatalf("ReportTo = %+v, want CLI log locator", got.ReportTo)
+	if !reflect.DeepEqual(got.From, taskmasterrt.NewCLIInputLocator()) {
+		t.Fatalf("From = %+v, want CLI input locator", got.From)
+	}
+	if !reflect.DeepEqual(got.To, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
+		t.Fatalf("To = %+v, want root agent locator", got.To)
 	}
 	if got.Content != "  count go files  " {
 		t.Fatalf("Content = %q, want raw bootstrap content", got.Content)
@@ -95,9 +98,9 @@ func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 
 	rootRunner := &fakeLocalRunner{started: make(chan startedTask, 1)}
 	runtime, err := taskmasterrt.New(taskmasterrt.Config{
-		RootAgentID:  taskmasterAgentID,
-		LocalRunners: map[string]taskmasterrt.LocalRunner{taskmasterAgentID: rootRunner},
-		Targets:      []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(zerolog.Nop())},
+		RootNodeID: taskmasterAgentID,
+		Nodes:      map[string]taskmasterrt.Node{taskmasterAgentID: rootRunner},
+		Targets:    []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(zerolog.Nop())},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -117,8 +120,11 @@ func TestBackgroundTaskSourceEmitsHelloWorld(t *testing.T) {
 		if started.Content != timerContentMessage {
 			t.Fatalf("started.Content = %q, want raw timer content", started.Content)
 		}
-		if started.ReportTo == nil || !reflect.DeepEqual(*started.ReportTo, taskmasterrt.NewCLILogLocator()) {
-			t.Fatalf("started.ReportTo = %+v, want CLI log locator", started.ReportTo)
+		if !reflect.DeepEqual(started.From, taskmasterrt.NewTimerSourceLocator()) {
+			t.Fatalf("started.From = %+v, want timer source locator", started.From)
+		}
+		if !reflect.DeepEqual(started.To, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
+			t.Fatalf("started.To = %+v, want root agent locator", started.To)
 		}
 		if started.SessionID == "" {
 			t.Fatal("background task session_id is empty")
@@ -139,7 +145,8 @@ func (t *fakeTicker) Stop() { t.stopped = true }
 
 type startedTask struct {
 	SessionID string
-	ReportTo  *taskmasterrt.Locator
+	From      taskmasterrt.Locator
+	To        taskmasterrt.Locator
 	Content   string
 }
 
@@ -147,11 +154,11 @@ type fakeLocalRunner struct {
 	started chan startedTask
 }
 
-func (r *fakeLocalRunner) RunTask(_ context.Context, task taskmasterrt.Task) (string, error) {
+func (r *fakeLocalRunner) Run(_ context.Context, msg taskmasterrt.Message, _ taskmasterrt.EmitFunc) taskmasterrt.Outcome {
 	if r.started != nil {
-		r.started <- startedTask{SessionID: task.SessionID, ReportTo: task.ReportTo, Content: task.Content}
+		r.started <- startedTask{SessionID: msg.SessionID, From: msg.From, To: msg.To, Content: msg.Content}
 	}
-	return "", nil
+	return taskmasterrt.Outcome{Status: taskmasterrt.OutcomeStatusCompleted}
 }
 
 func (r *fakeLocalRunner) Close() error {

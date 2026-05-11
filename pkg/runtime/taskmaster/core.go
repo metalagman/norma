@@ -13,49 +13,80 @@ import (
 
 const defaultQueueDepth = 32
 
-type Task struct {
-	SessionID string   `json:"session_id"`
-	Locator   Locator  `json:"locator"`
-	ReportTo  *Locator `json:"report_to,omitempty"`
-	Content   string   `json:"content"`
+const (
+	MessageKindJob          = "job"
+	MessageKindProgress     = "progress"
+	MessageKindNotification = "notification"
+	MessageKindResult       = "result"
+	MessageKindError        = "error"
+
+	OutcomeStatusCompleted = "completed"
+	OutcomeStatusFailed    = "failed"
+	OutcomeStatusStopped   = "stopped"
+)
+
+type Message struct {
+	ID        string         `json:"id"`
+	SessionID string         `json:"session_id"`
+	Kind      string         `json:"kind"`
+	From      Locator        `json:"from"`
+	To        Locator        `json:"to"`
+	ParentID  string         `json:"parent_id,omitempty"`
+	Content   string         `json:"content"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
-type LocalRunner interface {
-	RunTask(ctx context.Context, task Task) (string, error)
+type Outcome struct {
+	Status   string
+	Content  string
+	Metadata map[string]any
+	Err      error
+}
+
+type EmitFunc func(ctx context.Context, msg Message) error
+
+type Node interface {
+	Run(ctx context.Context, msg Message, emit EmitFunc) Outcome
+}
+
+type closeableNode interface {
 	Close() error
 }
 
+type OutcomeRouter func(msg Message, outcome Outcome) []Message
+
 type Config struct {
-	Logger       *zerolog.Logger
-	RootAgentID  string
-	LocalRunners map[string]LocalRunner
-	Targets      []Target
+	Logger        *zerolog.Logger
+	RootNodeID    string
+	Nodes         map[string]Node
+	Targets       []Target
+	OutcomeRouter OutcomeRouter
 }
 
-type taskStatus string
+type messageStatus string
 
 const (
-	taskStatusQueued     taskStatus = "queued"
-	taskStatusRunning    taskStatus = "running"
-	taskStatusCompleted  taskStatus = "completed"
-	taskStatusDispatched taskStatus = "dispatched"
-	taskStatusFailed     taskStatus = "failed"
+	messageStatusQueued     messageStatus = "queued"
+	messageStatusRunning    messageStatus = "running"
+	messageStatusCompleted  messageStatus = "completed"
+	messageStatusDispatched messageStatus = "dispatched"
+	messageStatusFailed     messageStatus = "failed"
+	messageStatusDropped    messageStatus = "dropped"
 )
 
-type taskState struct {
-	runtimeTaskID string
-	task          Task
-	status        taskStatus
-	output        string
-	errText       string
-	startedAt     time.Time
-	finishedAt    time.Time
+type messageState struct {
+	message    Message
+	status     messageStatus
+	outcome    Outcome
+	errText    string
+	startedAt  time.Time
+	finishedAt time.Time
 }
 
 type executor struct {
-	agentID     string
-	queue       <-chan *taskState
-	runner      LocalRunner
+	nodeID      string
+	queue       <-chan *messageState
+	node        Node
 	coordinator *coordinator
 	logger      zerolog.Logger
 }
@@ -63,17 +94,19 @@ type executor struct {
 type coordinator struct {
 	logger zerolog.Logger
 
-	rootAgentID    string
-	localRunnerIDs map[string]struct{}
-	targets        targetRegistry
-	requestStop    func()
+	rootNodeID    string
+	nodeIDs       map[string]struct{}
+	targets       targetRegistry
+	outcomeRouter OutcomeRouter
+	requestStop   func()
 
-	mu            sync.Mutex
-	nextTaskSeq   uint64
-	queues        map[string]chan *taskState
-	dispatchQueue chan *taskState
-	shuttingDown  bool
-	finalErr      error
+	mu             sync.Mutex
+	nextMessageSeq uint64
+	parentSeq      map[string]uint64
+	queues         map[string]chan *messageState
+	dispatchQueue  chan *messageState
+	shuttingDown   bool
+	finalErr       error
 
 	wg sync.WaitGroup
 }
@@ -81,11 +114,11 @@ type coordinator struct {
 type Runtime struct {
 	logger zerolog.Logger
 
-	rootAgentID string
+	rootNodeID  string
 	coordinator *coordinator
 
-	localIDs     []string
-	localRunners map[string]LocalRunner
+	nodeIDs []string
+	nodes   map[string]Node
 
 	startMu  sync.Mutex
 	started  bool
@@ -110,28 +143,28 @@ func New(cfg Config) (*Runtime, error) {
 		baseLogger = &logger
 	}
 	logger := baseLogger.With().Logger()
-	rootID := strings.ToLower(strings.TrimSpace(cfg.RootAgentID))
+	rootID := strings.ToLower(strings.TrimSpace(cfg.RootNodeID))
 
 	coordinator, err := newCoordinator(logger, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	localRunners := make(map[string]LocalRunner, len(cfg.LocalRunners))
-	localIDs := make([]string, 0, len(cfg.LocalRunners))
-	for id, runner := range cfg.LocalRunners {
+	nodes := make(map[string]Node, len(cfg.Nodes))
+	nodeIDs := make([]string, 0, len(cfg.Nodes))
+	for id, node := range cfg.Nodes {
 		normalizedID := strings.ToLower(strings.TrimSpace(id))
-		localRunners[normalizedID] = runner
-		localIDs = append(localIDs, normalizedID)
+		nodes[normalizedID] = node
+		nodeIDs = append(nodeIDs, normalizedID)
 	}
 
 	runtime := &Runtime{
-		logger:       logger,
-		rootAgentID:  rootID,
-		coordinator:  coordinator,
-		localIDs:     localIDs,
-		localRunners: localRunners,
-		done:         make(chan struct{}),
+		logger:      logger,
+		rootNodeID:  rootID,
+		coordinator: coordinator,
+		nodeIDs:     nodeIDs,
+		nodes:       nodes,
+		done:        make(chan struct{}),
 	}
 	coordinator.requestStop = runtime.requestStop
 	return runtime, nil
@@ -145,19 +178,19 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	r.started = true
 	r.runCtx, r.cancel = context.WithCancel(ctx)
-	r.coordinator.start(r.runCtx, r.localRunners)
+	r.coordinator.start(r.runCtx, r.nodes)
 	go r.shutdownOnContextDone()
 	return nil
 }
 
-func (r *Runtime) Enqueue(task Task) error {
+func (r *Runtime) Enqueue(msg Message) error {
 	r.startMu.Lock()
 	started := r.started
 	r.startMu.Unlock()
 	if !started {
 		return errors.New("runtime is not started")
 	}
-	return r.coordinator.enqueue(task)
+	return r.coordinator.enqueue(context.Background(), msg, false)
 }
 
 func (r *Runtime) Stop(ctx context.Context) error {
@@ -207,7 +240,7 @@ func (r *Runtime) shutdownOnContextDone() {
 		r.coordinator.beginShutdown()
 		r.coordinator.wait()
 		r.setErr(r.coordinator.runtimeErr())
-		closeErr := r.closeRunners()
+		closeErr := r.closeNodes()
 		if closeErr != nil && r.Err() == nil {
 			r.setErr(closeErr)
 		}
@@ -215,14 +248,15 @@ func (r *Runtime) shutdownOnContextDone() {
 	})
 }
 
-func (r *Runtime) closeRunners() error {
+func (r *Runtime) closeNodes() error {
 	var errs []string
-	for _, id := range r.localIDs {
-		runner := r.localRunners[id]
-		if runner == nil {
+	for _, id := range r.nodeIDs {
+		node := r.nodes[id]
+		closer, ok := node.(closeableNode)
+		if !ok || closer == nil {
 			continue
 		}
-		if err := runner.Close(); err != nil {
+		if err := closer.Close(); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
@@ -241,55 +275,57 @@ func (r *Runtime) setErr(err error) {
 }
 
 func validateConfig(cfg Config) error {
-	if strings.TrimSpace(cfg.RootAgentID) == "" {
-		return errors.New("root agent id is required")
+	if strings.TrimSpace(cfg.RootNodeID) == "" {
+		return errors.New("root node id is required")
 	}
-	if len(cfg.LocalRunners) == 0 {
-		return errors.New("at least one local runner is required")
+	if len(cfg.Nodes) == 0 {
+		return errors.New("at least one node is required")
 	}
 
-	rootID := strings.ToLower(strings.TrimSpace(cfg.RootAgentID))
+	rootID := strings.ToLower(strings.TrimSpace(cfg.RootNodeID))
 	hasRoot := false
-	seenRunnerIDs := make(map[string]string, len(cfg.LocalRunners))
-	for runnerID, runner := range cfg.LocalRunners {
-		normalizedID := strings.ToLower(strings.TrimSpace(runnerID))
+	seenNodeIDs := make(map[string]string, len(cfg.Nodes))
+	for nodeID, node := range cfg.Nodes {
+		normalizedID := strings.ToLower(strings.TrimSpace(nodeID))
 		if normalizedID == "" {
-			return errors.New("local runner id is required")
+			return errors.New("node id is required")
 		}
-		if previousID, ok := seenRunnerIDs[normalizedID]; ok {
-			return fmt.Errorf("duplicate local runner ids %q and %q normalize to %q", previousID, runnerID, normalizedID)
+		if previousID, ok := seenNodeIDs[normalizedID]; ok {
+			return fmt.Errorf("duplicate node ids %q and %q normalize to %q", previousID, nodeID, normalizedID)
 		}
-		seenRunnerIDs[normalizedID] = runnerID
-		if runner == nil {
-			return fmt.Errorf("local runner %q is nil", runnerID)
+		seenNodeIDs[normalizedID] = nodeID
+		if node == nil {
+			return fmt.Errorf("node %q is nil", nodeID)
 		}
 		if normalizedID == rootID {
 			hasRoot = true
 		}
 	}
 	if !hasRoot {
-		return fmt.Errorf("root local runner %q is missing", cfg.RootAgentID)
+		return fmt.Errorf("root node %q is missing", cfg.RootNodeID)
 	}
 	return nil
 }
 
 func newCoordinator(logger zerolog.Logger, cfg Config) (*coordinator, error) {
-	rootID := strings.ToLower(strings.TrimSpace(cfg.RootAgentID))
-	localRunnerIDs := make(map[string]struct{}, len(cfg.LocalRunners))
-	queues := make(map[string]chan *taskState, len(cfg.LocalRunners))
-	for runnerID := range cfg.LocalRunners {
-		normalizedID := strings.ToLower(strings.TrimSpace(runnerID))
-		localRunnerIDs[normalizedID] = struct{}{}
-		queues[normalizedID] = make(chan *taskState, defaultQueueDepth)
+	rootID := strings.ToLower(strings.TrimSpace(cfg.RootNodeID))
+	nodeIDs := make(map[string]struct{}, len(cfg.Nodes))
+	queues := make(map[string]chan *messageState, len(cfg.Nodes))
+	for nodeID := range cfg.Nodes {
+		normalizedID := strings.ToLower(strings.TrimSpace(nodeID))
+		nodeIDs[normalizedID] = struct{}{}
+		queues[normalizedID] = make(chan *messageState, defaultQueueDepth)
 	}
 
 	return &coordinator{
-		logger:         logger,
-		rootAgentID:    rootID,
-		localRunnerIDs: localRunnerIDs,
-		targets:        newTargetRegistry(cfg.Targets),
-		queues:         queues,
-		dispatchQueue:  make(chan *taskState, defaultQueueDepth),
+		logger:        logger,
+		rootNodeID:    rootID,
+		nodeIDs:       nodeIDs,
+		targets:       newTargetRegistry(cfg.Targets),
+		outcomeRouter: cfg.OutcomeRouter,
+		parentSeq:     make(map[string]uint64),
+		queues:        queues,
+		dispatchQueue: make(chan *messageState, defaultQueueDepth),
 	}, nil
 }
 
@@ -298,57 +334,58 @@ func (e *executor) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case nextTask := <-e.queue:
-			if nextTask == nil {
+		case next := <-e.queue:
+			if next == nil {
 				continue
 			}
-			if !e.coordinator.tryStartTask(nextTask) {
+			if !e.coordinator.tryStartMessage(next) {
 				continue
 			}
 			e.logger.Info().
-				Str("agent_id", e.agentID).
-				Str("runtime_task_id", nextTask.runtimeTaskID).
-				Str("session_id", nextTask.task.SessionID).
-				Str("task", nextTask.task.Content).
-				Msg("agent received task")
-			output, err := e.runner.RunTask(ctx, nextTask.task)
-			if err != nil {
+				Str("node_id", e.nodeID).
+				Str("message_id", next.message.ID).
+				Str("session_id", next.message.SessionID).
+				Str("kind", next.message.Kind).
+				Str("message", next.message.Content).
+				Msg("node received message")
+			outcome := e.node.Run(ctx, next.message, e.coordinator.emitFunc(next))
+			if outcome.Err != nil {
 				event := e.logger.Info().
-					Str("agent_id", e.agentID).
-					Str("runtime_task_id", nextTask.runtimeTaskID).
-					Str("session_id", nextTask.task.SessionID).
-					Str("error", err.Error())
-				if e.coordinator.isExpectedShutdownCancel(err) {
+					Str("node_id", e.nodeID).
+					Str("message_id", next.message.ID).
+					Str("session_id", next.message.SessionID).
+					Str("error", outcome.Err.Error())
+				if e.coordinator.isExpectedShutdownCancel(outcome.Err) {
 					event = e.logger.Debug().
-						Str("agent_id", e.agentID).
-						Str("runtime_task_id", nextTask.runtimeTaskID).
-						Str("session_id", nextTask.task.SessionID).
-						Str("error", err.Error())
-					event.Msg("agent task canceled during shutdown")
+						Str("node_id", e.nodeID).
+						Str("message_id", next.message.ID).
+						Str("session_id", next.message.SessionID).
+						Str("error", outcome.Err.Error())
+					event.Msg("node message canceled during shutdown")
 				} else {
-					event.Msg("agent finished task")
+					event.Msg("node finished message")
 				}
 			} else {
 				e.logger.Info().
-					Str("agent_id", e.agentID).
-					Str("runtime_task_id", nextTask.runtimeTaskID).
-					Str("session_id", nextTask.task.SessionID).
-					Str("result", strings.TrimSpace(output)).
-					Msg("agent finished task")
+					Str("node_id", e.nodeID).
+					Str("message_id", next.message.ID).
+					Str("session_id", next.message.SessionID).
+					Str("result", strings.TrimSpace(outcome.Content)).
+					Msg("node finished message")
 			}
-			e.coordinator.handleTaskResult(nextTask, output, err)
+			e.coordinator.handleNodeOutcome(context.Background(), next, outcome)
 		}
 	}
 }
 
-func (c *coordinator) start(ctx context.Context, runners map[string]LocalRunner) {
-	for agentID, runner := range runners {
+func (c *coordinator) start(ctx context.Context, nodes map[string]Node) {
+	for nodeID, node := range nodes {
 		exec := &executor{
-			agentID:     agentID,
-			queue:       c.queues[agentID],
-			runner:      runner,
+			nodeID:      nodeID,
+			queue:       c.queues[nodeID],
+			node:        node,
 			coordinator: c,
-			logger:      c.logger.With().Str("agent_id", agentID).Logger(),
+			logger:      c.logger.With().Str("node_id", nodeID).Logger(),
 		}
 		c.wg.Add(1)
 		go func(e *executor) {
@@ -367,27 +404,27 @@ func (c *coordinator) wait() {
 	c.wg.Wait()
 }
 
-func (c *coordinator) enqueue(task Task) error {
-	sessionID := strings.TrimSpace(task.SessionID)
-	content := task.Content
-	locator, err := NormalizeLocator(task.Locator)
+func (c *coordinator) emitFunc(parent *messageState) EmitFunc {
+	return func(ctx context.Context, msg Message) error {
+		if strings.TrimSpace(msg.SessionID) == "" {
+			msg.SessionID = parent.message.SessionID
+		}
+		if isZeroLocator(msg.From) {
+			msg.From = parent.message.To
+		}
+		if strings.TrimSpace(msg.ParentID) == "" {
+			msg.ParentID = parent.message.ID
+		}
+		if msg.Metadata == nil {
+			msg.Metadata = make(map[string]any, 1)
+		}
+		return c.enqueue(ctx, msg, isBestEffortKind(msg.Kind))
+	}
+}
+
+func (c *coordinator) enqueue(ctx context.Context, msg Message, bestEffort bool) error {
+	msg, err := NormalizeMessage(msg)
 	if err != nil {
-		return err
-	}
-	reportTo, err := normalizeReportLocator(task.ReportTo)
-	if err != nil {
-		return err
-	}
-	if sessionID == "" {
-		return errors.New("session_id is required")
-	}
-	if content == "" {
-		return errors.New("content is required")
-	}
-	if isBuiltInSourceLocator(locator) {
-		return fmt.Errorf("source locator %s cannot be used as a target", locator)
-	}
-	if err := c.validateReportTo(reportTo); err != nil {
 		return err
 	}
 
@@ -396,37 +433,117 @@ func (c *coordinator) enqueue(task Task) error {
 		c.mu.Unlock()
 		return errors.New("runtime is stopping")
 	}
-
-	queued := c.newQueuedTaskLocked(Task{
-		SessionID: sessionID,
-		Locator:   locator,
-		ReportTo:  reportTo,
-		Content:   content,
-	})
-	queue, err := c.resolveQueueLocked(queued.task.Locator)
+	if strings.TrimSpace(msg.ID) == "" {
+		c.nextMessageSeq++
+		msg.ID = fmt.Sprintf("msg-%d", c.nextMessageSeq)
+	}
+	if msg.ParentID != "" {
+		c.parentSeq[msg.ParentID]++
+		msg.Metadata = cloneMetadata(msg.Metadata)
+		if msg.Metadata == nil {
+			msg.Metadata = make(map[string]any, 1)
+		}
+		msg.Metadata["sequence"] = c.parentSeq[msg.ParentID]
+	}
+	queued := &messageState{
+		message: msg,
+		status:  messageStatusQueued,
+	}
+	queue, err := c.resolveQueueLocked(queued.message.To)
 	c.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	c.logTaskEvent("task enqueued", queued)
-	queue <- queued
-	return nil
+	c.logMessageEvent("message enqueued", queued)
+	if bestEffort {
+		select {
+		case queue <- queued:
+		default:
+			queued.status = messageStatusDropped
+			c.logMessageEvent("message dropped because destination queue is full", queued)
+		}
+		return nil
+	}
+	select {
+	case queue <- queued:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-func (c *coordinator) validateReportTo(reportTo *Locator) error {
-	if reportTo == nil {
-		return nil
+func NormalizeMessage(msg Message) (Message, error) {
+	normalized := Message{
+		ID:        strings.TrimSpace(msg.ID),
+		SessionID: strings.TrimSpace(msg.SessionID),
+		Kind:      strings.ToLower(strings.TrimSpace(msg.Kind)),
+		ParentID:  strings.TrimSpace(msg.ParentID),
+		Content:   msg.Content,
+		Metadata:  cloneMetadata(msg.Metadata),
 	}
-	if isBuiltInSourceLocator(*reportTo) {
-		return fmt.Errorf("source locator %s cannot be used as report_to", *reportTo)
+	if normalized.SessionID == "" {
+		return Message{}, errors.New("message.session_id is required")
 	}
-	if c.isLocalAgentTarget(*reportTo) {
-		return nil
+	if normalized.Kind == "" {
+		return Message{}, errors.New("message.kind is required")
 	}
-	if c.targets.supports(*reportTo) {
-		return nil
+	if !isKnownMessageKind(normalized.Kind) {
+		return Message{}, fmt.Errorf("unsupported message.kind %q", msg.Kind)
 	}
-	return fmt.Errorf("unsupported report_to locator %s", *reportTo)
+	if isZeroLocator(msg.From) {
+		return Message{}, errors.New("message.from is required")
+	}
+	from, err := NormalizeLocator(msg.From)
+	if err != nil {
+		return Message{}, fmt.Errorf("message.from: %w", err)
+	}
+	to, err := NormalizeLocator(msg.To)
+	if err != nil {
+		return Message{}, fmt.Errorf("message.to: %w", err)
+	}
+	if isBuiltInSourceLocator(to) {
+		return Message{}, fmt.Errorf("source locator %s cannot be used as a target", to)
+	}
+	normalized.From = from
+	normalized.To = to
+	return normalized, nil
+}
+
+func isKnownMessageKind(kind string) bool {
+	switch kind {
+	case MessageKindJob, MessageKindProgress, MessageKindNotification, MessageKindResult, MessageKindError:
+		return true
+	default:
+		return false
+	}
+}
+
+func isBestEffortKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case MessageKindProgress, MessageKindNotification:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeOutcome(outcome Outcome) Outcome {
+	outcome.Status = strings.ToLower(strings.TrimSpace(outcome.Status))
+	if outcome.Err != nil {
+		outcome.Status = OutcomeStatusFailed
+	}
+	if outcome.Status == "" {
+		outcome.Status = OutcomeStatusCompleted
+	}
+	switch outcome.Status {
+	case OutcomeStatusCompleted, OutcomeStatusFailed, OutcomeStatusStopped:
+	default:
+		outcome.Err = fmt.Errorf("unsupported outcome status %q", outcome.Status)
+		outcome.Status = OutcomeStatusFailed
+	}
+	outcome.Content = strings.TrimSpace(outcome.Content)
+	outcome.Metadata = cloneMetadata(outcome.Metadata)
+	return outcome
 }
 
 func (c *coordinator) beginShutdown() {
@@ -451,32 +568,25 @@ func (c *coordinator) setFinalErr(err error) {
 	c.shuttingDown = true
 }
 
-func (c *coordinator) newQueuedTaskLocked(task Task) *taskState {
-	c.nextTaskSeq++
-	nextTask := &taskState{
-		runtimeTaskID: fmt.Sprintf("task-%d", c.nextTaskSeq),
-		task:          task,
-		status:        taskStatusQueued,
-	}
-	return nextTask
-}
-
-func (c *coordinator) resolveQueueLocked(locator Locator) (chan *taskState, error) {
-	if c.isLocalAgentTarget(locator) {
+func (c *coordinator) resolveQueueLocked(locator Locator) (chan *messageState, error) {
+	if c.isLocalNodeTarget(locator) {
 		queue, ok := c.queues[locator.Key]
 		if !ok {
-			return nil, fmt.Errorf("unknown local agent locator.key %q", locator.Key)
+			return nil, fmt.Errorf("unknown local node locator.key %q", locator.Key)
 		}
 		return queue, nil
 	}
-	return c.dispatchQueue, nil
+	if c.targets.supports(locator) {
+		return c.dispatchQueue, nil
+	}
+	return nil, fmt.Errorf("unsupported target locator %s", locator)
 }
 
-func (c *coordinator) isLocalAgentTarget(locator Locator) bool {
+func (c *coordinator) isLocalNodeTarget(locator Locator) bool {
 	if locator.Class != LocatorClassAgent || locator.Transport != LocatorTransportLocal {
 		return false
 	}
-	_, ok := c.localRunnerIDs[locator.Key]
+	_, ok := c.nodeIDs[locator.Key]
 	return ok
 }
 
@@ -485,87 +595,108 @@ func (c *coordinator) runDispatchLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case nextTask := <-c.dispatchQueue:
-			if nextTask == nil {
+		case next := <-c.dispatchQueue:
+			if next == nil {
 				continue
 			}
-			if !c.tryStartTask(nextTask) {
+			if !c.tryStartMessage(next) {
 				continue
 			}
-			if err := c.targets.dispatchTask(ctx, nextTask.task); err != nil {
-				c.handleTaskResult(nextTask, "", err)
+			if err := c.targets.dispatchMessage(ctx, next.message); err != nil {
+				c.handleDispatchFailure(context.Background(), next, err)
 				continue
 			}
-			c.handleDispatchHandoff(nextTask)
+			c.handleDispatchHandoff(next)
 		}
 	}
 }
 
-func (c *coordinator) handleDispatchHandoff(dispatchedTask *taskState) {
+func (c *coordinator) handleDispatchHandoff(dispatched *messageState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	dispatchedTask.finishedAt = time.Now().UTC()
-	dispatchedTask.status = taskStatusDispatched
-	c.logTaskEvent("task dispatched", dispatchedTask)
+	dispatched.finishedAt = time.Now().UTC()
+	dispatched.status = messageStatusDispatched
+	c.logMessageEvent("message dispatched", dispatched)
 }
 
-func (c *coordinator) tryStartTask(nextTask *taskState) bool {
+func (c *coordinator) handleDispatchFailure(ctx context.Context, failed *messageState, err error) {
+	c.mu.Lock()
+	failed.finishedAt = time.Now().UTC()
+	failed.status = messageStatusFailed
+	failed.errText = err.Error()
+	c.logMessageEvent("message dispatch failed", failed)
+	shouldReport := failed.message.Kind == MessageKindJob && !isZeroLocator(failed.message.From) && !isBuiltInSourceLocator(failed.message.From)
+	c.mu.Unlock()
+
+	if !shouldReport {
+		return
+	}
+	errorMsg := Message{
+		SessionID: failed.message.SessionID,
+		Kind:      MessageKindError,
+		From:      failed.message.To,
+		To:        failed.message.From,
+		ParentID:  failed.message.ID,
+		Content:   err.Error(),
+	}
+	if enqueueErr := c.enqueue(ctx, errorMsg, false); enqueueErr != nil {
+		c.setFinalErr(fmt.Errorf("enqueue dispatch error message: %w", enqueueErr))
+		if c.requestStop != nil {
+			c.requestStop()
+		}
+	}
+}
+
+func (c *coordinator) tryStartMessage(next *messageState) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.shuttingDown {
-		c.logTaskEvent("task skipped during shutdown", nextTask)
+		next.status = messageStatusDropped
+		c.logMessageEvent("message skipped during shutdown", next)
 		return false
 	}
 	now := time.Now().UTC()
-	nextTask.startedAt = now
-	nextTask.status = taskStatusRunning
-	c.logTaskEvent("task started", nextTask)
+	next.startedAt = now
+	next.status = messageStatusRunning
+	c.logMessageEvent("message started", next)
 	return true
 }
 
-func (c *coordinator) handleTaskResult(doneTask *taskState, output string, err error) {
-	c.mu.Lock()
-	doneTask.finishedAt = time.Now().UTC()
-	doneTask.output = strings.TrimSpace(output)
-	if err != nil {
-		if c.shuttingDown && errors.Is(err, context.Canceled) {
-			doneTask.status = taskStatusFailed
-			doneTask.errText = err.Error()
-			c.logTaskEvent("task canceled during shutdown", doneTask)
-			c.mu.Unlock()
-			return
-		}
-		doneTask.status = taskStatusFailed
-		doneTask.errText = err.Error()
-		c.logTaskEvent("task failed", doneTask)
-	} else {
-		doneTask.status = taskStatusCompleted
-		c.logTaskEvent("task completed", doneTask)
-	}
+func (c *coordinator) handleNodeOutcome(ctx context.Context, done *messageState, outcome Outcome) {
+	outcome = normalizeOutcome(outcome)
 
-	rootTask := doneTask.task.Locator.Key == c.rootAgentID
-	var nextTask *taskState
-	if !c.shuttingDown && doneTask.task.ReportTo != nil {
-		nextTask = c.newQueuedTaskLocked(Task{
-			SessionID: doneTask.task.SessionID,
-			Locator:   *doneTask.task.ReportTo,
-			Content:   formatReportTask(doneTask.task.SessionID, doneTask.task.Locator, doneTask.output, err),
-		})
-		c.logTaskEvent("notification task created", nextTask)
+	c.mu.Lock()
+	done.finishedAt = time.Now().UTC()
+	done.outcome = outcome
+	if outcome.Err != nil || outcome.Status == OutcomeStatusFailed {
+		done.status = messageStatusFailed
+		if outcome.Err != nil {
+			done.errText = outcome.Err.Error()
+		}
+		c.logMessageEvent("message failed", done)
+	} else {
+		done.status = messageStatusCompleted
+		c.logMessageEvent("message completed", done)
 	}
+	rootMessage := done.message.To.Key == c.rootNodeID
+	shuttingDown := c.shuttingDown
+	router := c.outcomeRouter
 	c.mu.Unlock()
 
-	if nextTask != nil {
-		if err := c.enqueueNotification(nextTask); err != nil {
-			c.setFinalErr(fmt.Errorf("enqueue notification: %w", err))
-			if c.requestStop != nil {
-				c.requestStop()
+	if !shuttingDown && router != nil {
+		for _, routed := range router(done.message, outcome) {
+			routed = normalizeRoutedOutcomeMessage(done.message, outcome, routed)
+			if err := c.enqueue(ctx, routed, isBestEffortKind(routed.Kind)); err != nil {
+				c.setFinalErr(fmt.Errorf("enqueue routed outcome: %w", err))
+				if c.requestStop != nil {
+					c.requestStop()
+				}
+				return
 			}
-			return
 		}
 	}
-	if rootTask && err != nil {
-		c.setFinalErr(fmt.Errorf("%s task failed: %w", c.rootAgentID, err))
+	if rootMessage && outcome.Err != nil {
+		c.setFinalErr(fmt.Errorf("%s message failed: %w", c.rootNodeID, outcome.Err))
 		if c.requestStop != nil {
 			c.requestStop()
 		}
@@ -573,37 +704,42 @@ func (c *coordinator) handleTaskResult(doneTask *taskState, output string, err e
 	}
 }
 
-func (c *coordinator) enqueueNotification(nextTask *taskState) error {
-	c.mu.Lock()
-	if c.shuttingDown {
-		c.mu.Unlock()
-		return errors.New("runtime is stopping")
+func normalizeRoutedOutcomeMessage(parent Message, outcome Outcome, routed Message) Message {
+	if strings.TrimSpace(routed.SessionID) == "" {
+		routed.SessionID = parent.SessionID
 	}
-	queue, err := c.resolveQueueLocked(nextTask.task.Locator)
-	if err != nil {
-		c.mu.Unlock()
-		return err
+	if strings.TrimSpace(routed.Kind) == "" {
+		if outcome.Err != nil || outcome.Status == OutcomeStatusFailed {
+			routed.Kind = MessageKindError
+		} else {
+			routed.Kind = MessageKindResult
+		}
 	}
-	c.logTaskEvent("task enqueued", nextTask)
-	c.mu.Unlock()
-	queue <- nextTask
-	return nil
+	if isZeroLocator(routed.From) {
+		routed.From = parent.To
+	}
+	if strings.TrimSpace(routed.ParentID) == "" {
+		routed.ParentID = parent.ID
+	}
+	return routed
 }
 
-func (c *coordinator) logTaskEvent(message string, nextTask *taskState) {
+func (c *coordinator) logMessageEvent(message string, next *messageState) {
 	event := c.logger.Debug().
-		Str("runtime_task_id", nextTask.runtimeTaskID).
-		Str("session_id", nextTask.task.SessionID).
-		Str("locator", nextTask.task.Locator.String()).
-		Str("status", string(nextTask.status))
-	if nextTask.task.ReportTo != nil {
-		event = event.Str("report_to", nextTask.task.ReportTo.String())
+		Str("message_id", next.message.ID).
+		Str("session_id", next.message.SessionID).
+		Str("kind", next.message.Kind).
+		Str("from", next.message.From.String()).
+		Str("to", next.message.To.String()).
+		Str("status", string(next.status))
+	if next.message.ParentID != "" {
+		event = event.Str("parent_id", next.message.ParentID)
 	}
-	if nextTask.output != "" {
-		event = event.Str("output", nextTask.output)
+	if next.outcome.Content != "" {
+		event = event.Str("output", next.outcome.Content)
 	}
-	if nextTask.errText != "" {
-		event = event.Str("error", nextTask.errText)
+	if next.errText != "" {
+		event = event.Str("error", next.errText)
 	}
 	event.Msg(message)
 }
@@ -617,35 +753,17 @@ func (c *coordinator) isExpectedShutdownCancel(err error) bool {
 	return c.shuttingDown
 }
 
-func formatReportTask(sessionID string, source Locator, output string, err error) string {
-	lines := []string{
-		"Session ID:",
-		strings.TrimSpace(sessionID),
-		"",
-		"Source:",
-		strings.Join([]string{source.Class, source.Transport, source.Key}, "/"),
-		"",
+func isZeroLocator(locator Locator) bool {
+	return locator.Class == "" && locator.Transport == "" && locator.Key == "" && len(locator.Address) == 0
+}
+
+func cloneMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
 	}
-	if err != nil {
-		lines = append(lines,
-			"Status:",
-			"failed",
-			"",
-			"Error:",
-			strings.TrimSpace(err.Error()),
-		)
-		return strings.Join(lines, "\n")
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
 	}
-	result := strings.TrimSpace(output)
-	if result == "" {
-		result = "(empty result)"
-	}
-	lines = append(lines,
-		"Status:",
-		"completed",
-		"",
-		"Result:",
-		result,
-	)
-	return strings.Join(lines, "\n")
+	return cloned
 }

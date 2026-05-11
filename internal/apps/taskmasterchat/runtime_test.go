@@ -36,25 +36,28 @@ func TestRootInstructionDefinesFakeChatCoordinator(t *testing.T) {
 	}
 }
 
-func TestBuildChatTask(t *testing.T) {
+func TestBuildChatMessage(t *testing.T) {
 	t.Parallel()
 
-	if got := buildChatTask(""); got != nil {
-		t.Fatalf("buildChatTask(empty) = %+v, want nil", got)
+	if got := buildChatMessage(""); got != nil {
+		t.Fatalf("buildChatMessage(empty) = %+v, want nil", got)
 	}
 
-	got := buildChatTask("  hello world  ")
+	got := buildChatMessage("  hello world  ")
 	if got == nil {
-		t.Fatal("buildChatTask(non-empty) = nil, want task")
+		t.Fatal("buildChatMessage(non-empty) = nil, want message")
 	}
 	if got.SessionID != fakeChatSessionID {
 		t.Fatalf("SessionID = %q, want %q", got.SessionID, fakeChatSessionID)
 	}
-	if !reflect.DeepEqual(got.Locator, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
-		t.Fatalf("Locator = %+v, want root agent locator", got.Locator)
+	if got.Kind != taskmasterrt.MessageKindJob {
+		t.Fatalf("Kind = %q, want job", got.Kind)
 	}
-	if got.ReportTo == nil || !reflect.DeepEqual(*got.ReportTo, taskmasterrt.NewFakeChatHumanLocator(fakeChatID)) {
-		t.Fatalf("ReportTo = %+v, want fake chat locator", got.ReportTo)
+	if !reflect.DeepEqual(got.From, taskmasterrt.NewFakeChatHumanLocator(fakeChatID)) {
+		t.Fatalf("From = %+v, want fake chat locator", got.From)
+	}
+	if !reflect.DeepEqual(got.To, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
+		t.Fatalf("To = %+v, want root agent locator", got.To)
 	}
 	if got.Content != "  hello world  " {
 		t.Fatalf("Content = %q, want raw content", got.Content)
@@ -71,21 +74,24 @@ func TestEnqueueChatInputsUsesSingleSessionAndIgnoresEmptyLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enqueueChatInputs() error = %v", err)
 	}
-	if len(runtime.tasks) != 2 {
-		t.Fatalf("enqueued tasks = %d, want 2", len(runtime.tasks))
+	if len(runtime.messages) != 2 {
+		t.Fatalf("enqueued messages = %d, want 2", len(runtime.messages))
 	}
-	if runtime.tasks[0].Content != "hello" {
-		t.Fatalf("first content = %q, want hello", runtime.tasks[0].Content)
+	if runtime.messages[0].Content != "hello" {
+		t.Fatalf("first content = %q, want hello", runtime.messages[0].Content)
 	}
-	if runtime.tasks[1].Content != "   " {
-		t.Fatalf("second content = %q, want raw spaces", runtime.tasks[1].Content)
+	if runtime.messages[1].Content != "   " {
+		t.Fatalf("second content = %q, want raw spaces", runtime.messages[1].Content)
 	}
-	for _, task := range runtime.tasks {
-		if task.SessionID != fakeChatSessionID {
-			t.Fatalf("SessionID = %q, want %q", task.SessionID, fakeChatSessionID)
+	for _, msg := range runtime.messages {
+		if msg.SessionID != fakeChatSessionID {
+			t.Fatalf("SessionID = %q, want %q", msg.SessionID, fakeChatSessionID)
 		}
-		if task.ReportTo == nil || !reflect.DeepEqual(*task.ReportTo, taskmasterrt.NewFakeChatHumanLocator(fakeChatID)) {
-			t.Fatalf("ReportTo = %+v, want fake chat locator", task.ReportTo)
+		if !reflect.DeepEqual(msg.From, taskmasterrt.NewFakeChatHumanLocator(fakeChatID)) {
+			t.Fatalf("From = %+v, want fake chat locator", msg.From)
+		}
+		if !reflect.DeepEqual(msg.To, taskmasterrt.NewAgentLocator(taskmasterAgentID)) {
+			t.Fatalf("To = %+v, want root agent locator", msg.To)
 		}
 	}
 }
@@ -103,12 +109,14 @@ func TestFakeChatTargetDispatchesFormattedReply(t *testing.T) {
 	if target.Supports(taskmasterrt.NewTelegramHumanLocator(1, 2)) {
 		t.Fatal("fake chat target supports telegram locator, want fake chat only")
 	}
-	if err := target.DispatchTask(context.Background(), taskmasterrt.Task{
+	if err := target.DispatchMessage(context.Background(), taskmasterrt.Message{
 		SessionID: fakeChatSessionID,
-		Locator:   locator,
+		Kind:      taskmasterrt.MessageKindNotification,
+		From:      taskmasterrt.NewAgentLocator(taskmasterAgentID),
+		To:        locator,
 		Content:   "done",
 	}); err != nil {
-		t.Fatalf("DispatchTask() error = %v", err)
+		t.Fatalf("DispatchMessage() error = %v", err)
 	}
 	if got := writer.String(); got != "taskmaster> done\nyou> " {
 		t.Fatalf("output = %q, want fake chat reply format", got)
@@ -116,10 +124,10 @@ func TestFakeChatTargetDispatchesFormattedReply(t *testing.T) {
 }
 
 type fakeEnqueuer struct {
-	tasks []taskmasterrt.Task
+	messages []taskmasterrt.Message
 }
 
-func (f *fakeEnqueuer) Enqueue(task taskmasterrt.Task) error {
-	f.tasks = append(f.tasks, task)
+func (f *fakeEnqueuer) Enqueue(msg taskmasterrt.Message) error {
+	f.messages = append(f.messages, msg)
 	return nil
 }

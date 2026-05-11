@@ -38,20 +38,16 @@ The app-owned control-tool namespace in this wrapper is:
 
 - `taskmaster.schedule_task`
 
-Routing remains async, but the app-owned tool uses flat target names for the PDCA child agents:
+Routing remains async, but the app-owned tool uses flat target names for the PDCA child nodes:
 
 - `plan`
 - `do`
 - `check`
 - `act`
 
-The normal PDCA completion target is the PDCA root agent:
+The normal PDCA completion target is the PDCA root agent. Child outcomes are routed back to the root by the wrapper's runtime outcome policy.
 
-```text
-root
-```
-
-This wrapper accepts flat local names such as `root`, `plan`, `do`, `check`, and `act`. It does not support the generic `integration/cli/log` report sink, and completion routing happens only when `report_to` is explicitly set.
+This wrapper accepts flat local target names `plan`, `do`, `check`, and `act`. It does not expose the generic `integration/cli/log` sink.
 
 `taskmaster.schedule_task` also requires `session_id`. The root keeps the same session across PDCA turns for the same conversation.
 
@@ -66,7 +62,7 @@ Its app-level wiring is wrapper-owned:
 
 - the wrapper builds `agent.Agent` instances with `agentfactory`
 - the wrapper creates the MCP server instance and registers its own PDCA control tools
-- `pkg/runtime/taskmaster/adk` only wraps those built agents as local runners
+- `pkg/runtime/taskmaster/adk` only wraps those built agents as local nodes
 
 ## Relation to Other Playgrounds
 

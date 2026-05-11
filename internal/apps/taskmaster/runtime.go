@@ -112,30 +112,31 @@ func Run(ctx context.Context, cfg Config, initialContent string) error {
 		return err
 	}
 
-	localRunners := map[string]taskmasterrt.LocalRunner{
+	nodes := map[string]taskmasterrt.Node{
 		taskmasterAgentID: rootRunner,
 	}
 
 	runtime, err := taskmasterrt.New(taskmasterrt.Config{
-		Logger:       &baseLogger,
-		RootAgentID:  taskmasterAgentID,
-		LocalRunners: localRunners,
-		Targets:      []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(baseLogger)},
+		Logger:        &baseLogger,
+		RootNodeID:    taskmasterAgentID,
+		Nodes:         nodes,
+		Targets:       []taskmasterrt.Target{taskmasterrt.NewCLILogTarget(baseLogger)},
+		OutcomeRouter: routeRootOutcomeTo(taskmasterrt.NewCLILogLocator()),
 	})
 	if err != nil {
-		for _, runner := range localRunners {
-			_ = runner.Close()
+		for _, node := range nodes {
+			closeNode(node)
 		}
 		return err
 	}
 	if err := runtime.Start(runCtx); err != nil {
-		for _, runner := range localRunners {
-			_ = runner.Close()
+		for _, node := range nodes {
+			closeNode(node)
 		}
 		return err
 	}
-	if bootstrapTask := buildBootstrapTask(initialContent); bootstrapTask != nil {
-		if err := runtime.Enqueue(*bootstrapTask); err != nil {
+	if bootstrapMessage := buildBootstrapMessage(initialContent); bootstrapMessage != nil {
+		if err := runtime.Enqueue(*bootstrapMessage); err != nil {
 			_ = runtime.Stop(context.Background())
 			return err
 		}
@@ -173,7 +174,7 @@ type localRunnerConfig struct {
 	Logger      zerolog.Logger
 }
 
-func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.LocalRunner, error) {
+func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.Node, error) {
 	sessionState, err := factory.BuildSessionState(cfg.AgentID, cfg.WorkingDir)
 	if err != nil {
 		return nil, fmt.Errorf("build session state for %s: %w", cfg.AgentID, err)
@@ -243,18 +244,18 @@ func rootInstruction() string {
 	}, "\n")
 }
 
-func buildBootstrapTask(content string) *taskmasterrt.Task {
+func buildBootstrapMessage(content string) *taskmasterrt.Message {
 	if content == "" {
 		return nil
 	}
-	reportTo := taskmasterrt.NewCLILogLocator()
-	task := &taskmasterrt.Task{
+	message := &taskmasterrt.Message{
 		SessionID: bootstrapSessionID,
-		Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-		ReportTo:  &reportTo,
+		Kind:      taskmasterrt.MessageKindJob,
+		From:      taskmasterrt.NewCLIInputLocator(),
+		To:        taskmasterrt.NewAgentLocator(taskmasterAgentID),
 		Content:   content,
 	}
-	return task
+	return message
 }
 
 func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, interval time.Duration, makeTicker func(time.Duration) ticker) {
@@ -268,14 +269,53 @@ func backgroundTaskSource(ctx context.Context, runtime *taskmasterrt.Runtime, in
 		case <-t.Chan():
 			counter++
 			sessionID := "timer-" + strconv.Itoa(counter)
-			reportTo := taskmasterrt.NewCLILogLocator()
-			_ = runtime.Enqueue(taskmasterrt.Task{
+			_ = runtime.Enqueue(taskmasterrt.Message{
 				SessionID: sessionID,
-				Locator:   taskmasterrt.NewAgentLocator(taskmasterAgentID),
-				ReportTo:  &reportTo,
+				Kind:      taskmasterrt.MessageKindJob,
+				From:      taskmasterrt.NewTimerSourceLocator(),
+				To:        taskmasterrt.NewAgentLocator(taskmasterAgentID),
 				Content:   timerContentMessage,
 			})
 		}
+	}
+}
+
+func routeRootOutcomeTo(target taskmasterrt.Locator) taskmasterrt.OutcomeRouter {
+	return func(msg taskmasterrt.Message, outcome taskmasterrt.Outcome) []taskmasterrt.Message {
+		if !isTaskmasterAgent(msg.To) {
+			return nil
+		}
+		kind := taskmasterrt.MessageKindNotification
+		content := outcome.Content
+		if outcome.Err != nil || outcome.Status == taskmasterrt.OutcomeStatusFailed {
+			kind = taskmasterrt.MessageKindError
+			if outcome.Err != nil {
+				content = outcome.Err.Error()
+			}
+		}
+		return []taskmasterrt.Message{{
+			Kind:    kind,
+			From:    msg.To,
+			To:      target,
+			Content: content,
+		}}
+	}
+}
+
+func isTaskmasterAgent(locator taskmasterrt.Locator) bool {
+	return locator.Class == taskmasterrt.LocatorClassAgent &&
+		locator.Transport == taskmasterrt.LocatorTransportLocal &&
+		locator.Key == taskmasterAgentID
+}
+
+type closeableNode interface {
+	Close() error
+}
+
+func closeNode(node taskmasterrt.Node) {
+	closer, ok := node.(closeableNode)
+	if ok {
+		_ = closer.Close()
 	}
 }
 

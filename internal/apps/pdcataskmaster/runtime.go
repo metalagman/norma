@@ -122,11 +122,11 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	factory := agentfactory.New(agentRegistry, mcpregistry.New(mcpServers), factoryOpts...)
 
-	childRunners := make(map[string]taskmasterrt.LocalRunner, len(childAgentInstructions))
+	childNodes := make(map[string]taskmasterrt.Node, len(childAgentInstructions))
 	childIDs := []string{"act", "check", "do", "plan"}
 	slices.Sort(childIDs)
 	for _, agentID := range childIDs {
-		childRunner, buildErr := buildLocalRunner(ctx, factory, localRunnerConfig{
+		childNode, buildErr := buildLocalRunner(ctx, factory, localRunnerConfig{
 			AgentID:     agentID,
 			AppName:     "taskmaster-" + agentID,
 			Name:        "PDCATaskmaster" + upperFirst(agentID),
@@ -139,12 +139,12 @@ func Run(ctx context.Context, cfg Config) error {
 				Logger(),
 		})
 		if buildErr != nil {
-			for _, created := range childRunners {
-				_ = created.Close()
+			for _, created := range childNodes {
+				closeNode(created)
 			}
 			return buildErr
 		}
-		childRunners[agentID] = childRunner
+		childNodes[agentID] = childNode
 	}
 
 	rootRunnerInner, err := buildLocalRunner(ctx, factory, localRunnerConfig{
@@ -161,8 +161,8 @@ func Run(ctx context.Context, cfg Config) error {
 			Logger(),
 	})
 	if err != nil {
-		for _, runner := range childRunners {
-			_ = runner.Close()
+		for _, node := range childNodes {
+			closeNode(node)
 		}
 		return err
 	}
@@ -172,33 +172,36 @@ func Run(ctx context.Context, cfg Config) error {
 		stopReady:       stopAfterRootTurn,
 	}
 
-	localRunners := map[string]taskmasterrt.LocalRunner{rootAgentID: rootRunner}
-	for id, runner := range childRunners {
-		localRunners[id] = runner
+	nodes := map[string]taskmasterrt.Node{rootAgentID: rootRunner}
+	for id, node := range childNodes {
+		nodes[id] = node
 	}
 
 	runtime, err := taskmasterrt.New(taskmasterrt.Config{
-		Logger:       &baseLogger,
-		RootAgentID:  rootAgentID,
-		LocalRunners: localRunners,
+		Logger:        &baseLogger,
+		RootNodeID:    rootAgentID,
+		Nodes:         nodes,
+		OutcomeRouter: routeChildOutcomeToRoot(),
 	})
 	if err != nil {
-		for _, runner := range localRunners {
-			_ = runner.Close()
+		for _, node := range nodes {
+			closeNode(node)
 		}
 		return err
 	}
 	scheduleService.SetController(runtime)
 	if err := runtime.Start(ctx); err != nil {
-		for _, runner := range localRunners {
-			_ = runner.Close()
+		for _, node := range nodes {
+			closeNode(node)
 		}
 		return err
 	}
 
-	if err := runtime.Enqueue(taskmasterrt.Task{
+	if err := runtime.Enqueue(taskmasterrt.Message{
 		SessionID: "goal-session",
-		Locator:   taskmasterrt.NewAgentLocator(rootAgentID),
+		Kind:      taskmasterrt.MessageKindJob,
+		From:      taskmasterrt.NewCLIInputLocator(),
+		To:        taskmasterrt.NewAgentLocator(rootAgentID),
 		Content:   cfg.Goal,
 	}); err != nil {
 		_ = runtime.Stop(context.Background())
@@ -236,11 +239,11 @@ func rootInstruction() string {
 		"You are running a strict PDCA workflow over child agents.",
 		"Run phases in this exact order for each iteration: plan -> do -> check -> act.",
 		"Always start a new goal with plan. Do not skip phases and do not reorder them.",
-		"Use only the taskmaster.schedule_task tool to enqueue child-agent tasks, and taskmaster.finish to request stop after the current root turn.",
-		"Each scheduled task must include the current session_id, a target, an optional report_to, and content.",
+		"Use only the taskmaster.schedule_task tool to enqueue child-agent messages, and taskmaster.finish to request stop after the current root turn.",
+		"Each scheduled message must include the current session_id, a target, and content.",
 		"Keep the same session_id when continuing the same PDCA conversation.",
 		"The target values are plan, do, check, and act.",
-		"Use report_to root when you need the child result to come back to you asynchronously.",
+		"Child outcomes are routed back to you asynchronously by runtime policy.",
 		"The child agents available in this wrapper are plan, do, check, and act.",
 		"Treat plan, do, check, and act as strict PDCA phases, not generic workers.",
 		"After a plan completion, schedule do. After a do completion, schedule check. After a check completion, schedule act.",
@@ -277,7 +280,7 @@ func startPDCAHTTPServer(ctx context.Context, service *scheduleService, finishRe
 	handler := sdkmcp.NewStreamableHTTPHandler(func(_ *http.Request) *sdkmcp.Server {
 		server := sdkmcp.NewServer(
 			&sdkmcp.Implementation{Name: "norma-taskmaster", Version: "1.0.0"},
-			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one PDCA child task. Every scheduled task must include session_id, target, optional report_to, and content. Valid targets are plan, do, check, and act. Use report_to=root for async child results."},
+			&sdkmcp.ServerOptions{Instructions: "Use taskmaster.schedule_task to enqueue one PDCA child message. Every scheduled message must include session_id, target, and content. Valid targets are plan, do, check, and act. Child outcomes return to the root workflow by runtime policy."},
 		)
 		registerControlTools(server, service, finishRequested)
 		return server
@@ -304,14 +307,14 @@ func (s *pdcaHTTPServer) Close() error {
 }
 
 type finishAwareRunner struct {
-	inner           taskmasterrt.LocalRunner
+	inner           taskmasterrt.Node
 	finishRequested *atomic.Bool
 	stopReady       chan struct{}
 	once            sync.Once
 }
 
-func (r *finishAwareRunner) RunTask(ctx context.Context, task taskmasterrt.Task) (string, error) {
-	output, err := r.inner.RunTask(ctx, task)
+func (r *finishAwareRunner) Run(ctx context.Context, msg taskmasterrt.Message, emit taskmasterrt.EmitFunc) taskmasterrt.Outcome {
+	outcome := r.inner.Run(ctx, msg, emit)
 	if r.finishRequested.Load() {
 		r.once.Do(func() {
 			select {
@@ -320,11 +323,12 @@ func (r *finishAwareRunner) RunTask(ctx context.Context, task taskmasterrt.Task)
 			}
 		})
 	}
-	return output, err
+	return outcome
 }
 
 func (r *finishAwareRunner) Close() error {
-	return r.inner.Close()
+	closeNode(r.inner)
+	return nil
 }
 
 type localRunnerConfig struct {
@@ -339,7 +343,7 @@ type localRunnerConfig struct {
 	Logger       zerolog.Logger
 }
 
-func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.LocalRunner, error) {
+func buildLocalRunner(ctx context.Context, factory *agentfactory.Factory, cfg localRunnerConfig) (taskmasterrt.Node, error) {
 	sessionState, err := factory.BuildSessionState(cfg.AgentID, cfg.WorkingDir)
 	if err != nil {
 		return nil, fmt.Errorf("build session state for %s: %w", cfg.AgentID, err)
@@ -411,4 +415,43 @@ func upperFirst(value string) string {
 		return ""
 	}
 	return strings.ToUpper(value[:1]) + value[1:]
+}
+
+func routeChildOutcomeToRoot() taskmasterrt.OutcomeRouter {
+	return func(msg taskmasterrt.Message, outcome taskmasterrt.Outcome) []taskmasterrt.Message {
+		if isRootAgent(msg.To) {
+			return nil
+		}
+		kind := taskmasterrt.MessageKindResult
+		content := outcome.Content
+		if outcome.Err != nil || outcome.Status == taskmasterrt.OutcomeStatusFailed {
+			kind = taskmasterrt.MessageKindError
+			if outcome.Err != nil {
+				content = outcome.Err.Error()
+			}
+		}
+		return []taskmasterrt.Message{{
+			Kind:    kind,
+			From:    msg.To,
+			To:      taskmasterrt.NewAgentLocator(rootAgentID),
+			Content: content,
+		}}
+	}
+}
+
+func isRootAgent(locator taskmasterrt.Locator) bool {
+	return locator.Class == taskmasterrt.LocatorClassAgent &&
+		locator.Transport == taskmasterrt.LocatorTransportLocal &&
+		locator.Key == rootAgentID
+}
+
+type closeableNode interface {
+	Close() error
+}
+
+func closeNode(node taskmasterrt.Node) {
+	closer, ok := node.(closeableNode)
+	if ok {
+		_ = closer.Close()
+	}
 }
