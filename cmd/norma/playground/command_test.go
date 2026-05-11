@@ -32,7 +32,15 @@ const (
 
 func TestPlaygroundCommandRegistered(t *testing.T) {
 	cmd := Command()
-	sub, _, err := cmd.Find([]string{"taskmaster"})
+	sub, _, err := cmd.Find([]string{"goalkeeper"})
+	if err != nil {
+		t.Fatalf("find goalkeeper subcommand: %v", err)
+	}
+	if sub.Name() != "goalkeeper" {
+		t.Fatalf("subcommand = %q, want goalkeeper", sub.Name())
+	}
+
+	sub, _, err = cmd.Find([]string{"taskmaster"})
 	if err != nil {
 		t.Fatalf("find taskmaster subcommand: %v", err)
 	}

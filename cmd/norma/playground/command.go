@@ -1,6 +1,7 @@
 package playgroundcmd
 
 import (
+	goalkeepercmd "github.com/normahq/norma/cmd/norma/playground/goalkeeper"
 	pdcasynccmd "github.com/normahq/norma/cmd/norma/playground/pdcasync"
 	pdcataskmastercmd "github.com/normahq/norma/cmd/norma/playground/pdcataskmaster"
 	taskmastercmd "github.com/normahq/norma/cmd/norma/playground/taskmaster"
@@ -19,6 +20,7 @@ func Command() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(goalkeepercmd.Command())
 	cmd.AddCommand(pdcasynccmd.Command())
 	cmd.AddCommand(pdcataskmastercmd.Command())
 	cmd.AddCommand(taskmastercmd.Command())
