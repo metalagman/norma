@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"strings"
 	"sync"
@@ -64,6 +65,11 @@ type acpRuntimeConfig struct {
 type runtimeDeps struct {
 	newACPAgent func(context.Context, acpRuntimeConfig) (closableAgent, error)
 	runAgent    func(context.Context, agent.Agent, string, func(string)) (string, error)
+}
+
+type stepLogSpec struct {
+	Index int
+	ID    string
 }
 
 // Run executes the Goalkeeper playground workflow once.
@@ -142,7 +148,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 	}
 	defer closeAgent(logger, validator)
 
-	workflow, err := newWorkflowAgent(worker, validator)
+	workflow, err := newWorkflowAgent(worker, validator, logger)
 	if err != nil {
 		return err
 	}
@@ -160,6 +166,11 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		return err
 	}
 	elapsed := formatElapsed(time.Since(startedAt))
+	verdict, goalReached := parseVerdict(result)
+	logger.Info().
+		Str("verdict", verdict).
+		Bool("goal_reached", goalReached).
+		Msg("goalkeeper validation completed")
 	logger.Info().
 		Bool("has_result", strings.TrimSpace(result) != "").
 		Str("elapsed", elapsed).
@@ -187,14 +198,78 @@ func newACPAgent(ctx context.Context, cfg acpRuntimeConfig) (closableAgent, erro
 	return agentRuntime, nil
 }
 
-func newWorkflowAgent(worker, validator agent.Agent) (agent.Agent, error) {
+func newWorkflowAgent(worker, validator agent.Agent, logger zerolog.Logger) (agent.Agent, error) {
+	workerStep, err := newLoggedStepAgent(worker, stepLogSpec{Index: 1, ID: workerAgentID}, logger)
+	if err != nil {
+		return nil, err
+	}
+	validatorStep, err := newLoggedStepAgent(validator, stepLogSpec{Index: 2, ID: validatorAgentID}, logger)
+	if err != nil {
+		return nil, err
+	}
 	return sequentialagent.New(sequentialagent.Config{
 		AgentConfig: agent.Config{
 			Name:        rootAgentName,
 			Description: "Runs a worker agent and then a validator agent for one goal.",
-			SubAgents:   []agent.Agent{worker, validator},
+			SubAgents:   []agent.Agent{workerStep, validatorStep},
 		},
 	})
+}
+
+func newLoggedStepAgent(inner agent.Agent, spec stepLogSpec, logger zerolog.Logger) (agent.Agent, error) {
+	return agent.New(agent.Config{
+		Name:        inner.Name(),
+		Description: inner.Description(),
+		SubAgents:   inner.SubAgents(),
+		Run: func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return runLoggedStep(ctx, inner, spec, logger)
+		},
+	})
+}
+
+func runLoggedStep(
+	ctx agent.InvocationContext,
+	inner agent.Agent,
+	spec stepLogSpec,
+	logger zerolog.Logger,
+) iter.Seq2[*session.Event, error] {
+	return func(yield func(*session.Event, error) bool) {
+		startedAt := time.Now()
+		stepLogger := logger.With().
+			Int("step_index", spec.Index).
+			Str("step", spec.ID).
+			Str("agent_name", inner.Name()).
+			Str("invocation_id", ctx.InvocationID()).
+			Str("session_id", ctx.Session().ID()).
+			Logger()
+		stepLogger.Info().Msg("goalkeeper step started")
+
+		eventCount := 0
+		responseLen := 0
+		for ev, err := range inner.Run(ctx) {
+			if err != nil {
+				stepLogger.Error().
+					Err(err).
+					Int("event_count", eventCount).
+					Dur("duration", time.Since(startedAt)).
+					Msg("goalkeeper step failed")
+				yield(nil, err)
+				return
+			}
+			if ev != nil {
+				eventCount++
+				responseLen += len(contentText(ev.Content))
+			}
+			if !yield(ev, nil) {
+				return
+			}
+		}
+		stepLogger.Info().
+			Int("event_count", eventCount).
+			Int("response_len", responseLen).
+			Dur("duration", time.Since(startedAt)).
+			Msg("goalkeeper step completed")
+	}
 }
 
 func runWorkflowAgent(ctx context.Context, a agent.Agent, prompt string, onOutput func(string)) (string, error) {
@@ -262,6 +337,8 @@ func validatorInstruction() string {
 		"Inspect the current working directory as needed.",
 		"Do not intentionally mutate files or continue the worker's implementation work.",
 		"Start with exactly `verdict: pass` or `verdict: fail`.",
+		"`verdict: pass` means the goal was reached.",
+		"`verdict: fail` means the goal was not reached.",
 		"Then provide brief evidence and a concise final summary.",
 	}, "\n")
 }
@@ -303,6 +380,19 @@ func contentText(content *genai.Content) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func parseVerdict(output string) (string, bool) {
+	firstLine, _, _ := strings.Cut(strings.TrimSpace(output), "\n")
+	line := strings.ToLower(strings.TrimSpace(firstLine))
+	switch line {
+	case "verdict: pass":
+		return "pass", true
+	case "verdict: fail":
+		return "fail", false
+	default:
+		return "unknown", false
+	}
 }
 
 func closeAgent(logger zerolog.Logger, a closableAgent) {

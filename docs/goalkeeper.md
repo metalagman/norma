@@ -52,6 +52,14 @@ verdict: fail
 
 Validation is report-only in this playground. A failed verdict is printed for the human/operator to inspect; the command does not parse the verdict or retry automatically.
 
+The runtime also emits structured zerolog events for:
+- workflow start and completion
+- worker step start and completion
+- validator step start and completion
+- validation completion with `verdict` and `goal_reached`
+
+`goal_reached=true` is logged only when the validator response starts with `verdict: pass`. `verdict: fail`, missing verdicts, and malformed verdicts are logged as not reached without changing command exit behavior.
+
 ## Relation to Other Playgrounds
 
 - `taskmaster` = generic async inbox runner
