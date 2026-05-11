@@ -100,7 +100,7 @@ func TestWorkflowLogsStepLifecycle(t *testing.T) {
 	t.Parallel()
 
 	var logs bytes.Buffer
-	logger := zerolog.New(&logs)
+	logger := zerolog.New(&logs).Level(zerolog.InfoLevel)
 	worker := mustNewTestAgent(t, workerAgentName, func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		return func(yield func(*session.Event, error) bool) {
 			yield(textEvent(ctx.InvocationID(), "worker result"), nil)
@@ -119,6 +119,7 @@ func TestWorkflowLogsStepLifecycle(t *testing.T) {
 	_ = runTestAgentOnce(t, workflow, "Goal:\nship")
 
 	events := decodeLogEvents(t, logs.String())
+	events = findLogEvents(events, "goalkeeper step started", "goalkeeper step completed")
 	wantMessages := []string{
 		"goalkeeper step started",
 		"goalkeeper step completed",
@@ -141,6 +142,61 @@ func TestWorkflowLogsStepLifecycle(t *testing.T) {
 	}
 	if events[3]["event_count"].(float64) != 1 || events[3]["response_len"].(float64) == 0 {
 		t.Fatalf("validator completion event = %#v, want event count and response length", events[3])
+	}
+}
+
+func TestWorkflowLogsFinalModelTextInDebug(t *testing.T) {
+	prevLevel := zerolog.GlobalLevel()
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	t.Cleanup(func() {
+		zerolog.SetGlobalLevel(prevLevel)
+	})
+
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs).Level(zerolog.DebugLevel)
+	worker := mustNewTestAgent(t, workerAgentName, func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			yield(textEventPartial(ctx.InvocationID(), "worker partial"), nil)
+			yield(contentEvent(ctx.InvocationID(), false,
+				&genai.Part{Text: "hidden worker thought", Thought: true},
+				&genai.Part{Text: "worker final"},
+			), nil)
+		}
+	})
+	validator := mustNewTestAgent(t, validatorAgentName, func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			yield(textEventPartial(ctx.InvocationID(), "validator partial"), nil)
+			yield(contentEvent(ctx.InvocationID(), false,
+				&genai.Part{Text: "hidden validator thought", Thought: true},
+				&genai.Part{Text: "verdict: pass\nvalidator final"},
+			), nil)
+		}
+	})
+
+	workflow, err := newWorkflowAgent(worker, validator, logger)
+	if err != nil {
+		t.Fatalf("newWorkflowAgent() error = %v", err)
+	}
+	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	if got != "verdict: pass\nvalidator final" {
+		t.Fatalf("workflow output = %q, want final visible validator text", got)
+	}
+
+	events := findLogEvents(decodeLogEvents(t, logs.String()), "goalkeeper model final text")
+	if len(events) != 2 {
+		t.Fatalf("final text log count = %d, want 2; logs=%s", len(events), logs.String())
+	}
+	if events[0]["step"] != workerAgentID || events[0]["text"] != "worker final" {
+		t.Fatalf("worker final text event = %#v, want worker final text", events[0])
+	}
+	if events[1]["step"] != validatorAgentID || events[1]["text"] != "verdict: pass\nvalidator final" {
+		t.Fatalf("validator final text event = %#v, want validator final text", events[1])
+	}
+	for _, event := range events {
+		text, _ := event["text"].(string)
+		if strings.Contains(text, "partial") || strings.Contains(text, "hidden") {
+			t.Fatalf("final text log = %#v, want no partial chunks or thoughts", event)
+		}
 	}
 }
 
@@ -177,7 +233,9 @@ func TestRunPrintsValidatorResultAndClosesAgents(t *testing.T) {
 			if len(a.SubAgents()) != 2 {
 				t.Fatalf("workflow subagents = %d, want 2", len(a.SubAgents()))
 			}
-			onOutput("verdict: pass")
+			if onOutput != nil {
+				t.Fatalf("onOutput callback = %p, want nil", onOutput)
+			}
 			return "verdict: pass\nall good", nil
 		},
 	})
@@ -323,6 +381,21 @@ func TestParseVerdict(t *testing.T) {
 	}
 }
 
+func TestContentTextIgnoresThoughtParts(t *testing.T) {
+	t.Parallel()
+
+	content := &genai.Content{
+		Role: genai.RoleModel,
+		Parts: []*genai.Part{
+			{Text: "hidden reasoning", Thought: true},
+			{Text: "visible answer"},
+		},
+	}
+	if got := contentText(content); got != "visible answer" {
+		t.Fatalf("contentText() = %q, want visible answer only", got)
+	}
+}
+
 type testClosableAgent struct {
 	agent.Agent
 	closed bool
@@ -390,8 +463,24 @@ func runTestAgentOnce(t *testing.T, ag agent.Agent, prompt string) string {
 }
 
 func textEvent(invocationID string, text string) *session.Event {
+	return textEventWithPartial(invocationID, text, false)
+}
+
+func textEventPartial(invocationID string, text string) *session.Event {
+	return textEventWithPartial(invocationID, text, true)
+}
+
+func textEventWithPartial(invocationID string, text string, partial bool) *session.Event {
 	ev := session.NewEvent(invocationID)
 	ev.Content = genai.NewContentFromText(text, genai.RoleModel)
+	ev.Partial = partial
+	return ev
+}
+
+func contentEvent(invocationID string, partial bool, parts ...*genai.Part) *session.Event {
+	ev := session.NewEvent(invocationID)
+	ev.Content = &genai.Content{Role: genai.RoleModel, Parts: parts}
+	ev.Partial = partial
 	return ev
 }
 
@@ -423,4 +512,19 @@ func findLogEvent(events []map[string]any, message string) map[string]any {
 		}
 	}
 	return nil
+}
+
+func findLogEvents(events []map[string]any, messages ...string) []map[string]any {
+	allowed := make(map[string]bool, len(messages))
+	for _, message := range messages {
+		allowed[message] = true
+	}
+	var matches []map[string]any
+	for _, event := range events {
+		message, _ := event["message"].(string)
+		if allowed[message] {
+			matches = append(matches, event)
+		}
+	}
+	return matches
 }

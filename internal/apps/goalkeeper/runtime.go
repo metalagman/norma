@@ -159,9 +159,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		Strs("command", command).
 		Int("goal_len", len(goal)).
 		Msg("goalkeeper started")
-	result, err := deps.runAgent(ctx, workflow, prompt, func(output string) {
-		logger.Debug().Str("output", strings.TrimSpace(output)).Msg("goalkeeper workflow output")
-	})
+	result, err := deps.runAgent(ctx, workflow, prompt, nil)
 	if err != nil {
 		return err
 	}
@@ -246,6 +244,7 @@ func runLoggedStep(
 
 		eventCount := 0
 		responseLen := 0
+		finalText := ""
 		for ev, err := range inner.Run(ctx) {
 			if err != nil {
 				stepLogger.Error().
@@ -258,11 +257,21 @@ func runLoggedStep(
 			}
 			if ev != nil {
 				eventCount++
-				responseLen += len(contentText(ev.Content))
+				text := contentText(ev.Content)
+				responseLen += len(text)
+				if ev.IsFinalResponse() && text != "" {
+					finalText = text
+				}
 			}
 			if !yield(ev, nil) {
 				return
 			}
+		}
+		if trimmed := strings.TrimSpace(finalText); trimmed != "" {
+			logger.Debug().
+				Str("step", spec.ID).
+				Str("text", trimmed).
+				Msg("goalkeeper model final text")
 		}
 		stepLogger.Info().
 			Int("event_count", eventCount).
@@ -375,7 +384,7 @@ func contentText(content *genai.Content) string {
 	}
 	var parts []string
 	for _, part := range content.Parts {
-		if part != nil && strings.TrimSpace(part.Text) != "" {
+		if part != nil && !part.Thought && strings.TrimSpace(part.Text) != "" {
 			parts = append(parts, strings.TrimSpace(part.Text))
 		}
 	}

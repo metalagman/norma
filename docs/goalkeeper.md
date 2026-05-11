@@ -58,6 +58,8 @@ The runtime also emits structured zerolog events for:
 - validator step start and completion
 - validation completion with `verdict` and `goal_reached`
 
+When `--debug` is enabled, the runtime also logs one `goalkeeper model final text` event per child step with the step name and the complete final visible model text. It does not log partial chunks or thought parts.
+
 `goal_reached=true` is logged only when the validator response starts with `verdict: pass`. `verdict: fail`, missing verdicts, and malformed verdicts are logged as not reached without changing command exit behavior.
 
 ## Relation to Other Playgrounds
