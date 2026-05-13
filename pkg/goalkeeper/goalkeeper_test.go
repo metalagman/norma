@@ -18,9 +18,9 @@ func TestNewRequiresWorker(t *testing.T) {
 	validator := mustNewTestAgent(t, "validator", func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		return func(func(*session.Event, error) bool) {}
 	})
-	workflow, err := New(nil, validator)
+	workflow, err := New(NewOptions(nil, validator))
 	if err == nil {
-		t.Fatalf("New(nil, validator) error = nil, want validation error")
+		t.Fatalf("New(NewOptions(nil, validator)) error = nil, want validation error")
 	}
 	if workflow != nil {
 		t.Fatalf("New(nil, validator) workflow = %v, want nil", workflow)
@@ -33,9 +33,9 @@ func TestNewRequiresValidator(t *testing.T) {
 	worker := mustNewTestAgent(t, "worker", func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		return func(func(*session.Event, error) bool) {}
 	})
-	workflow, err := New(worker, nil)
+	workflow, err := New(NewOptions(worker, nil))
 	if err == nil {
-		t.Fatalf("New(worker, nil) error = nil, want validation error")
+		t.Fatalf("New(NewOptions(worker, nil)) error = nil, want validation error")
 	}
 	if workflow != nil {
 		t.Fatalf("New(worker, nil) workflow = %v, want nil", workflow)
@@ -68,7 +68,7 @@ func TestWorkflowRunsWorkerThenValidatorWithSharedSession(t *testing.T) {
 		}
 	})
 
-	workflow, err := New(worker, validator)
+	workflow, err := New(NewOptions(worker, validator))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

@@ -204,7 +204,7 @@ func newWorkflowAgent(worker, validator agent.Agent, logger zerolog.Logger) (age
 	if err != nil {
 		return nil, err
 	}
-	return goalkeeperworkflow.New(workerStep, validatorStep)
+	return goalkeeperworkflow.New(goalkeeperworkflow.NewOptions(workerStep, validatorStep))
 }
 
 func newLoggedStepAgent(inner agent.Agent, spec stepLogSpec, logger zerolog.Logger) (agent.Agent, error) {

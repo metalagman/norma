@@ -9,9 +9,8 @@ import (
 
 const rootAgentName = "Goalkeeper"
 
-// New creates a Goalkeeper workflow agent that runs worker and then validator.
-func New(worker agent.Agent, validator agent.Agent, setters ...OptOptionsSetter) (agent.Agent, error) {
-	opts := NewOptions(worker, validator, setters...)
+// New creates a Goalkeeper workflow agent from options.
+func New(opts Options) (agent.Agent, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("validate goalkeeper options: %w", err)
 	}
