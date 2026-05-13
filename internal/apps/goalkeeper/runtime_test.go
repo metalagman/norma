@@ -36,12 +36,21 @@ func TestInstructionsDefineWorkerAndValidator(t *testing.T) {
 	worker := workerInstruction()
 	for _, want := range []string{
 		"Goalkeeper worker agent",
+		"Use the available goal and context.",
 		"Do the requested work in the current working directory.",
-		"If this is a retry",
-		"Return a concise plain-text summary",
+		"Return a concise plain-text summary of what changed and what evidence supports it.",
 	} {
 		if !strings.Contains(worker, want) {
 			t.Fatalf("workerInstruction() = %q, want substring %q", worker, want)
+		}
+	}
+	for _, forbidden := range []string{
+		"validator",
+		"retry",
+		"shared ADK session",
+	} {
+		if strings.Contains(worker, forbidden) {
+			t.Fatalf("workerInstruction() = %q, want no substring %q", worker, forbidden)
 		}
 	}
 

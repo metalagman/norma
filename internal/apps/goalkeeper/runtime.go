@@ -343,10 +343,10 @@ func workerInstruction() string {
 	return strings.Join([]string{
 		"You are the Goalkeeper worker agent.",
 		"You receive one user goal as plain text.",
+		"Use the available goal and context.",
 		"Do the requested work in the current working directory.",
-		"If this is a retry, use prior validator feedback from the shared ADK session context before changing files.",
-		"Return a concise plain-text summary of what you did and the evidence the validator should inspect.",
-		"Do not validate the final result beyond immediate sanity checks.",
+		"Return a concise plain-text summary of what changed and what evidence supports it.",
+		"Run only lightweight sanity checks directly relevant to the work unless the goal asks for broader verification.",
 	}, "\n")
 }
 
