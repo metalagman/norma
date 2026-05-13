@@ -522,7 +522,9 @@ func metadataEvents(events []*session.Event, kind string) []*session.Event {
 
 func countStoredStepEvents(storedSession session.Session) int {
 	count := 0
-	for ev := range storedSession.Events().All() {
+	events := storedSession.Events()
+	for i := 0; i < events.Len(); i++ {
+		ev := events.At(i)
 		if ev != nil && ev.CustomMetadata[metadataEventKey] != nil {
 			count++
 		}

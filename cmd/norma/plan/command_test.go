@@ -48,6 +48,7 @@ func TestTuiCommand_IsRunnable(t *testing.T) {
 
 	if tuiCmd == nil {
 		t.Fatal("tui subcommand not found")
+		return
 	}
 
 	if tuiCmd.RunE == nil && tuiCmd.Run == nil {
@@ -63,6 +64,7 @@ func TestWebCommand_IsRunnable(t *testing.T) {
 
 	if webCmd == nil {
 		t.Fatal("web subcommand not found")
+		return
 	}
 
 	if webCmd.RunE == nil && webCmd.Run == nil {
@@ -78,6 +80,7 @@ func TestReplCommand_IsRunnable(t *testing.T) {
 
 	if replCmd == nil {
 		t.Fatal("repl subcommand not found")
+		return
 	}
 
 	if replCmd.RunE == nil && replCmd.Run == nil {
@@ -117,6 +120,7 @@ func TestPlanCommand_TuiSubcommandResolved(t *testing.T) {
 
 	if tuiCmd == nil {
 		t.Fatal("plan tui subcommand not found")
+		return
 	}
 
 	if tuiCmd.RunE == nil && tuiCmd.Run == nil {
@@ -136,6 +140,7 @@ func TestPlanCommand_ReplSubcommandResolved(t *testing.T) {
 
 	if replCmd == nil {
 		t.Fatal("plan repl subcommand not found")
+		return
 	}
 
 	if replCmd.RunE == nil && replCmd.Run == nil {

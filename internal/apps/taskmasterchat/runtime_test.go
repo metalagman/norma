@@ -46,6 +46,7 @@ func TestBuildChatMessage(t *testing.T) {
 	got := buildChatMessage("  hello world  ")
 	if got == nil {
 		t.Fatal("buildChatMessage(non-empty) = nil, want message")
+		return
 	}
 	if got.SessionID != fakeChatSessionID {
 		t.Fatalf("SessionID = %q, want %q", got.SessionID, fakeChatSessionID)

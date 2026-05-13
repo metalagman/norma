@@ -403,6 +403,7 @@ func structuredResultMap(t *testing.T, result *mcp.CallToolResult) map[string]an
 	t.Helper()
 	if result == nil {
 		t.Fatal("result is nil")
+		return nil
 	}
 	switch typed := result.StructuredContent.(type) {
 	case map[string]any:

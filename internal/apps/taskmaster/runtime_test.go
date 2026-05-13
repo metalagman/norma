@@ -72,6 +72,7 @@ func TestBuildBootstrapMessage(t *testing.T) {
 	got := buildBootstrapMessage("  count go files  ")
 	if got == nil {
 		t.Fatal("buildBootstrapMessage(non-empty) = nil, want message")
+		return
 	}
 	if got.SessionID != bootstrapSessionID {
 		t.Fatalf("SessionID = %q, want %q", got.SessionID, bootstrapSessionID)

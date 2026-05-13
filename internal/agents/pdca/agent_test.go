@@ -164,6 +164,7 @@ func TestCoerceTaskStateHandlesUnexpectedType(t *testing.T) {
 	got := coerceTaskState("unexpected")
 	if got == nil {
 		t.Fatalf("coerceTaskState(unexpected) returned nil")
+		return
 	}
 	if got.Plan != nil || got.Do != nil || got.Check != nil || got.Act != nil {
 		t.Fatalf("coerceTaskState(unexpected) should return empty state")
@@ -376,6 +377,7 @@ func TestStepFailureResponseIncludesSummaryAndExitCode(t *testing.T) {
 	resp := stepFailureResponse(RoleCheck, errors.New("structured output mismatch"), 2)
 	if resp == nil {
 		t.Fatal("stepFailureResponse() returned nil response")
+		return
 	}
 	if resp.Status != statusError {
 		t.Fatalf("resp.Status = %q, want %q", resp.Status, "error")
