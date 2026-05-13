@@ -12,7 +12,8 @@ import (
 )
 
 type options struct {
-	bridgeBin string
+	bridgeBin     string
+	maxIterations uint
 }
 
 // Command builds the `norma playground goalkeeper` command.
@@ -33,15 +34,17 @@ func Command() *cobra.Command {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
 			return goalkeeper.Run(cmd.Context(), goalkeeper.Config{
-				Goal:       strings.Join(args, " "),
-				WorkingDir: workingDir,
-				BridgeBin:  opts.bridgeBin,
-				Stdout:     cmd.OutOrStdout(),
-				Stderr:     cmd.ErrOrStderr(),
-				Logger:     &log.Logger,
+				Goal:          strings.Join(args, " "),
+				WorkingDir:    workingDir,
+				BridgeBin:     opts.bridgeBin,
+				MaxIterations: opts.maxIterations,
+				Stdout:        cmd.OutOrStdout(),
+				Stderr:        cmd.ErrOrStderr(),
+				Logger:        &log.Logger,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&opts.bridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@latest)")
+	cmd.Flags().UintVar(&opts.maxIterations, "max-iterations", 5, "maximum worker-validator retry iterations")
 	return cmd
 }

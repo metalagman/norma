@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	defaultAgentType = "codex_acp"
-	defaultModel     = "gpt-5.3-codex"
+	defaultAgentType     = "codex_acp"
+	defaultModel         = "gpt-5.3-codex"
+	defaultMaxIterations = uint(5)
 
 	workerAgentID      = "worker"
 	validatorAgentID   = "validator"
@@ -37,12 +38,13 @@ const (
 
 // Config configures the Goalkeeper playground run.
 type Config struct {
-	Goal       string
-	WorkingDir string
-	BridgeBin  string
-	Stdout     io.Writer
-	Stderr     io.Writer
-	Logger     *zerolog.Logger
+	Goal          string
+	WorkingDir    string
+	BridgeBin     string
+	MaxIterations uint
+	Stdout        io.Writer
+	Stderr        io.Writer
+	Logger        *zerolog.Logger
 }
 
 type closableAgent interface {
@@ -92,6 +94,10 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 	workingDir := strings.TrimSpace(cfg.WorkingDir)
 	if workingDir == "" {
 		workingDir = "."
+	}
+	maxIterations := cfg.MaxIterations
+	if maxIterations == 0 {
+		maxIterations = defaultMaxIterations
 	}
 
 	stdout := cfg.Stdout
@@ -147,7 +153,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 	}
 	defer closeAgent(logger, validator)
 
-	workflow, err := newWorkflowAgent(worker, validator, logger)
+	workflow, err := newWorkflowAgent(worker, validator, maxIterations, logger)
 	if err != nil {
 		return err
 	}
@@ -157,6 +163,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		Str("working_dir", workingDir).
 		Strs("command", command).
 		Int("goal_len", len(goal)).
+		Uint("max_iterations", maxIterations).
 		Msg("goalkeeper started")
 	result, err := deps.runAgent(ctx, workflow, prompt, nil)
 	if err != nil {
@@ -172,7 +179,13 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		Bool("has_result", strings.TrimSpace(result) != "").
 		Str("elapsed", elapsed).
 		Msg("goalkeeper completed")
-	return writeRunOutput(stdout, strings.TrimSpace(result), elapsed)
+	if err := writeRunOutput(stdout, strings.TrimSpace(result), elapsed); err != nil {
+		return err
+	}
+	if goalReached {
+		return nil
+	}
+	return fmt.Errorf("goalkeeper validation did not pass: verdict=%s", verdict)
 }
 
 func newACPAgent(ctx context.Context, cfg acpRuntimeConfig) (closableAgent, error) {
@@ -195,7 +208,7 @@ func newACPAgent(ctx context.Context, cfg acpRuntimeConfig) (closableAgent, erro
 	return agentRuntime, nil
 }
 
-func newWorkflowAgent(worker, validator agent.Agent, logger zerolog.Logger) (agent.Agent, error) {
+func newWorkflowAgent(worker, validator agent.Agent, maxIterations uint, logger zerolog.Logger) (agent.Agent, error) {
 	workerStep, err := newLoggedStepAgent(worker, stepLogSpec{Index: 1, ID: workerAgentID}, logger)
 	if err != nil {
 		return nil, err
@@ -204,7 +217,11 @@ func newWorkflowAgent(worker, validator agent.Agent, logger zerolog.Logger) (age
 	if err != nil {
 		return nil, err
 	}
-	return goalkeeperworkflow.New(goalkeeperworkflow.NewOptions(workerStep, validatorStep))
+	return goalkeeperworkflow.New(goalkeeperworkflow.NewOptions(
+		workerStep,
+		validatorStep,
+		goalkeeperworkflow.WithMaxIterations(maxIterations),
+	))
 }
 
 func newLoggedStepAgent(inner agent.Agent, spec stepLogSpec, logger zerolog.Logger) (agent.Agent, error) {
@@ -327,6 +344,7 @@ func workerInstruction() string {
 		"You are the Goalkeeper worker agent.",
 		"You receive one user goal as plain text.",
 		"Do the requested work in the current working directory.",
+		"If this is a retry, use prior validator feedback from the shared ADK session context before changing files.",
 		"Return a concise plain-text summary of what you did and the evidence the validator should inspect.",
 		"Do not validate the final result beyond immediate sanity checks.",
 	}, "\n")

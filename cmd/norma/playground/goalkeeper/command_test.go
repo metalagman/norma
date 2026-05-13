@@ -12,6 +12,9 @@ func TestCommandValidation(t *testing.T) {
 	if cmd.Flags().Lookup("bridge-bin") == nil {
 		t.Fatal("Command() missing --bridge-bin flag")
 	}
+	if cmd.Flags().Lookup("max-iterations") == nil {
+		t.Fatal("Command() missing --max-iterations flag")
+	}
 
 	cmd = Command()
 	cmd.SetArgs([]string{})

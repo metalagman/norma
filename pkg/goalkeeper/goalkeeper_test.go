@@ -81,6 +81,179 @@ func TestWorkflowRunsWorkerThenValidatorWithSharedSession(t *testing.T) {
 	}
 }
 
+func TestWorkflowPassVerdictEscalatesAndStopsAfterOneIteration(t *testing.T) {
+	t.Parallel()
+
+	var workerRuns int
+	var validatorRuns int
+	worker := mustNewTestAgent(t, "worker", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			workerRuns++
+			yield(textEvent(ctx.InvocationID(), "worker result"), nil)
+		}
+	})
+	validator := mustNewTestAgent(t, "validator", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			validatorRuns++
+			yield(textEvent(ctx.InvocationID(), "verdict: pass\nall good"), nil)
+		}
+	})
+
+	workflow, err := New(NewOptions(worker, validator))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	if got != "verdict: pass\nall good" {
+		t.Fatalf("workflow output = %q, want validator pass output", got)
+	}
+	if workerRuns != 1 || validatorRuns != 1 {
+		t.Fatalf("workerRuns, validatorRuns = %d, %d; want 1, 1", workerRuns, validatorRuns)
+	}
+}
+
+func TestWorkflowFailThenPassRetriesUntilPass(t *testing.T) {
+	t.Parallel()
+
+	var order []string
+	var validatorRuns int
+	worker := mustNewTestAgent(t, "worker", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			order = append(order, "worker")
+			yield(textEvent(ctx.InvocationID(), "worker result"), nil)
+		}
+	})
+	validator := mustNewTestAgent(t, "validator", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			validatorRuns++
+			order = append(order, "validator")
+			if validatorRuns == 1 {
+				yield(textEvent(ctx.InvocationID(), "verdict: fail\nretry with feedback"), nil)
+				return
+			}
+			yield(textEvent(ctx.InvocationID(), "verdict: pass\nfixed"), nil)
+		}
+	})
+
+	workflow, err := New(NewOptions(worker, validator))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	if got != "verdict: pass\nfixed" {
+		t.Fatalf("workflow output = %q, want second validator pass output", got)
+	}
+	if strings.Join(order, ",") != "worker,validator,worker,validator" {
+		t.Fatalf("order = %v, want two worker-validator iterations", order)
+	}
+}
+
+func TestWorkflowRepeatedFailStopsAtMaxIterations(t *testing.T) {
+	t.Parallel()
+
+	var workerRuns int
+	var validatorRuns int
+	worker := mustNewTestAgent(t, "worker", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			workerRuns++
+			yield(textEvent(ctx.InvocationID(), "worker result"), nil)
+		}
+	})
+	validator := mustNewTestAgent(t, "validator", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(yield func(*session.Event, error) bool) {
+			validatorRuns++
+			yield(textEvent(ctx.InvocationID(), "verdict: fail\nnot yet"), nil)
+		}
+	})
+
+	workflow, err := New(NewOptions(worker, validator, WithMaxIterations(3)))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	if got != "verdict: fail\nnot yet" {
+		t.Fatalf("workflow output = %q, want final validator fail output", got)
+	}
+	if workerRuns != 3 || validatorRuns != 3 {
+		t.Fatalf("workerRuns, validatorRuns = %d, %d; want 3, 3", workerRuns, validatorRuns)
+	}
+}
+
+func TestWorkflowPassVerdictRequiresExactVisiblePrefix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		event func(string) *session.Event
+	}{
+		{
+			name: "leading space",
+			event: func(invocationID string) *session.Event {
+				return textEvent(invocationID, " verdict: pass\nnot exact")
+			},
+		},
+		{
+			name: "thought only",
+			event: func(invocationID string) *session.Event {
+				ev := session.NewEvent(invocationID)
+				ev.Content = &genai.Content{
+					Role: genai.RoleModel,
+					Parts: []*genai.Part{
+						{Text: "verdict: pass\nhidden", Thought: true},
+						{Text: "verdict: fail\nvisible"},
+					},
+				}
+				return ev
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var validatorRuns int
+			worker := mustNewTestAgent(t, "worker", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+				return func(yield func(*session.Event, error) bool) {
+					yield(textEvent(ctx.InvocationID(), "worker result"), nil)
+				}
+			})
+			validator := mustNewTestAgent(t, "validator", func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+				return func(yield func(*session.Event, error) bool) {
+					validatorRuns++
+					yield(tc.event(ctx.InvocationID()), nil)
+				}
+			})
+
+			workflow, err := New(NewOptions(worker, validator, WithMaxIterations(2)))
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			_ = runTestAgentOnce(t, workflow, "Goal:\nship")
+			if validatorRuns != 2 {
+				t.Fatalf("validatorRuns = %d, want 2", validatorRuns)
+			}
+		})
+	}
+}
+
+func TestNewRejectsZeroMaxIterations(t *testing.T) {
+	t.Parallel()
+
+	worker := mustNewTestAgent(t, "worker", func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(func(*session.Event, error) bool) {}
+	})
+	validator := mustNewTestAgent(t, "validator", func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(func(*session.Event, error) bool) {}
+	})
+	workflow, err := New(NewOptions(worker, validator, WithMaxIterations(0)))
+	if err == nil {
+		t.Fatalf("New(WithMaxIterations(0)) error = nil, want validation error")
+	}
+	if workflow != nil {
+		t.Fatalf("New(WithMaxIterations(0)) workflow = %v, want nil", workflow)
+	}
+}
+
 func mustNewTestAgent(
 	t *testing.T,
 	name string,
@@ -152,7 +325,7 @@ func contentText(content *genai.Content) string {
 	}
 	var parts []string
 	for _, part := range content.Parts {
-		if part != nil && strings.TrimSpace(part.Text) != "" {
+		if part != nil && !part.Thought && strings.TrimSpace(part.Text) != "" {
 			parts = append(parts, strings.TrimSpace(part.Text))
 		}
 	}

@@ -37,6 +37,7 @@ func TestInstructionsDefineWorkerAndValidator(t *testing.T) {
 	for _, want := range []string{
 		"Goalkeeper worker agent",
 		"Do the requested work in the current working directory.",
+		"If this is a retry",
 		"Return a concise plain-text summary",
 	} {
 		if !strings.Contains(worker, want) {
@@ -83,7 +84,7 @@ func TestWorkflowRunsWorkerThenValidatorWithSharedSession(t *testing.T) {
 		}
 	})
 
-	workflow, err := newWorkflowAgent(worker, validator, zerolog.Nop())
+	workflow, err := newWorkflowAgent(worker, validator, defaultMaxIterations, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("newWorkflowAgent() error = %v", err)
 	}
@@ -112,7 +113,7 @@ func TestWorkflowLogsStepLifecycle(t *testing.T) {
 		}
 	})
 
-	workflow, err := newWorkflowAgent(worker, validator, logger)
+	workflow, err := newWorkflowAgent(worker, validator, defaultMaxIterations, logger)
 	if err != nil {
 		t.Fatalf("newWorkflowAgent() error = %v", err)
 	}
@@ -173,7 +174,7 @@ func TestWorkflowLogsFinalModelTextInDebug(t *testing.T) {
 		}
 	})
 
-	workflow, err := newWorkflowAgent(worker, validator, logger)
+	workflow, err := newWorkflowAgent(worker, validator, defaultMaxIterations, logger)
 	if err != nil {
 		t.Fatalf("newWorkflowAgent() error = %v", err)
 	}
@@ -269,6 +270,55 @@ func TestRunPrintsValidatorResultAndClosesAgents(t *testing.T) {
 	}
 }
 
+func TestRunPrintsResultAndErrorsOnNonPass(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		result string
+	}{
+		{
+			name:   "fail",
+			result: "verdict: fail\nmissing evidence",
+		},
+		{
+			name:   "unknown",
+			result: "missing verdict",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout bytes.Buffer
+			err := run(context.Background(), Config{
+				Goal:   "ship",
+				Stdout: &stdout,
+				Stderr: &bytes.Buffer{},
+				Logger: ptrLogger(zerolog.Nop()),
+			}, runtimeDeps{
+				newACPAgent: func(_ context.Context, cfg acpRuntimeConfig) (closableAgent, error) {
+					return &testClosableAgent{Agent: mustNewTestAgent(t, cfg.Name, func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
+						return func(func(*session.Event, error) bool) {}
+					})}, nil
+				},
+				runAgent: func(context.Context, agent.Agent, string, func(string)) (string, error) {
+					return tc.result, nil
+				},
+			})
+			if err == nil {
+				t.Fatalf("run() error = nil, want non-pass verdict error")
+			}
+			if !strings.Contains(stdout.String(), tc.result+"\n") {
+				t.Fatalf("stdout = %q, want final result %q", stdout.String(), tc.result)
+			}
+			if !strings.Contains(stdout.String(), "Total run time: ") {
+				t.Fatalf("stdout = %q, want total run time", stdout.String())
+			}
+		})
+	}
+}
+
 func TestRunLogsFinalVerdict(t *testing.T) {
 	t.Parallel()
 
@@ -311,8 +361,11 @@ func TestRunLogsFinalVerdict(t *testing.T) {
 					return tc.result, nil
 				},
 			})
-			if err != nil {
-				t.Fatalf("run() error = %v", err)
+			if tc.wantGoalReached && err != nil {
+				t.Fatalf("run() error = %v, want nil", err)
+			}
+			if !tc.wantGoalReached && err == nil {
+				t.Fatalf("run() error = nil, want non-pass verdict error")
 			}
 
 			events := decodeLogEvents(t, logs.String())

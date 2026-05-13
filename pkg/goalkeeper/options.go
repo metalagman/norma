@@ -6,6 +6,7 @@ import "google.golang.org/adk/agent"
 
 // Options configures the Goalkeeper workflow agent.
 type Options struct {
-	worker    agent.Agent `option:"mandatory" validate:"required"`
-	validator agent.Agent `option:"mandatory" validate:"required"`
+	worker        agent.Agent `option:"mandatory" validate:"required"`
+	validator     agent.Agent `option:"mandatory" validate:"required"`
+	maxIterations uint        `default:"5" validate:"gt=0"`
 }

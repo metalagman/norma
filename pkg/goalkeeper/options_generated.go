@@ -21,6 +21,8 @@ func NewOptions(
 
 	// Setting defaults from field tag (if present)
 
+	o.maxIterations = 5
+
 	o.worker = worker
 	o.validator = validator
 
@@ -30,10 +32,15 @@ func NewOptions(
 	return o
 }
 
+func WithMaxIterations(opt uint) OptOptionsSetter {
+	return func(o *Options) { o.maxIterations = opt }
+}
+
 func (o *Options) Validate() error {
 	errs := new(errors461e464ebed9.ValidationErrors)
 	errs.Add(errors461e464ebed9.NewValidationError("worker", _validate_Options_worker(o)))
 	errs.Add(errors461e464ebed9.NewValidationError("validator", _validate_Options_validator(o)))
+	errs.Add(errors461e464ebed9.NewValidationError("maxIterations", _validate_Options_maxIterations(o)))
 	return errs.AsError()
 }
 
@@ -47,6 +54,13 @@ func _validate_Options_worker(o *Options) error {
 func _validate_Options_validator(o *Options) error {
 	if err := validator461e464ebed9.GetValidatorFor(o).Var(o.validator, "required"); err != nil {
 		return fmt461e464ebed9.Errorf("field `validator` did not pass the test: %w", err)
+	}
+	return nil
+}
+
+func _validate_Options_maxIterations(o *Options) error {
+	if err := validator461e464ebed9.GetValidatorFor(o).Var(o.maxIterations, "gt=0"); err != nil {
+		return fmt461e464ebed9.Errorf("field `maxIterations` did not pass the test: %w", err)
 	}
 	return nil
 }
