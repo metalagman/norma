@@ -10,6 +10,7 @@ require (
 	github.com/coder/acp-go-sdk v0.12.0
 	github.com/go-playground/validator/v10 v10.30.2
 	github.com/joho/godotenv v1.5.1
+	github.com/kazhuravlev/options-gen v0.55.5
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/normahq/runtime v0.0.1
 	github.com/pressly/goose/v3 v3.16.0
@@ -157,7 +158,6 @@ require (
 	github.com/jjti/go-spancheck v0.6.5 // indirect
 	github.com/julz/importas v0.2.0 // indirect
 	github.com/karamaru-alpha/copyloopvar v1.2.2 // indirect
-	github.com/kazhuravlev/options-gen v0.55.5 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kisielk/errcheck v1.10.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.6 // indirect

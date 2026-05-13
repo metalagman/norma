@@ -12,10 +12,10 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	goalkeeperworkflow "github.com/normahq/norma/pkg/goalkeeper"
 	"github.com/normahq/runtime/acpagent"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/workflowagents/sequentialagent"
 	adkrunner "google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -25,7 +25,6 @@ const (
 	defaultAgentType = "codex_acp"
 	defaultModel     = "gpt-5.3-codex"
 
-	rootAgentName      = "Goalkeeper"
 	workerAgentID      = "worker"
 	validatorAgentID   = "validator"
 	workerAgentName    = "GoalkeeperWorker"
@@ -205,13 +204,7 @@ func newWorkflowAgent(worker, validator agent.Agent, logger zerolog.Logger) (age
 	if err != nil {
 		return nil, err
 	}
-	return sequentialagent.New(sequentialagent.Config{
-		AgentConfig: agent.Config{
-			Name:        rootAgentName,
-			Description: "Runs a worker agent and then a validator agent for one goal.",
-			SubAgents:   []agent.Agent{workerStep, validatorStep},
-		},
-	})
+	return goalkeeperworkflow.New(workerStep, validatorStep)
 }
 
 func newLoggedStepAgent(inner agent.Agent, spec stepLogSpec, logger zerolog.Logger) (agent.Agent, error) {
