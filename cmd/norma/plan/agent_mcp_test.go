@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
 )
 
 func TestPlannerMCPServersAddsTasksServerAndMergesConfigured(t *testing.T) {

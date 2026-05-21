@@ -17,8 +17,8 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
 	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
-	"github.com/normahq/runtime/agentconfig"
-	"github.com/normahq/runtime/agentfactory"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	"github.com/rs/zerolog"
 )
 

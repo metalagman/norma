@@ -13,7 +13,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/runtime/acpagent"
+	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"google.golang.org/adk/agent"

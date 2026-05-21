@@ -33,19 +33,19 @@ tasks:
       - go test ./...
 
   test:integration:opencode:
-    desc: Run OpenCode ACP integration tests for github.com/normahq/runtime/acpagent (requires real opencode and local config)
+    desc: Run OpenCode ACP integration tests for github.com/normahq/norma/pkg/runtime/acpagent (requires real opencode and local config)
     cmds:
-      - go test -tags='integration,opencode' -count=1 github.com/normahq/runtime/acpagent
+      - go test -tags='integration,opencode' -count=1 github.com/normahq/norma/pkg/runtime/acpagent
 
   test:integration:codex:
-    desc: Run Codex ACP bridge integration tests for github.com/normahq/runtime/acpagent (requires npx, bridge package, and Codex auth/network)
+    desc: Run Codex ACP bridge integration tests for github.com/normahq/norma/pkg/runtime/acpagent (requires npx, bridge package, and Codex auth/network)
     cmds:
-      - go test -tags='integration,codex' -count=1 github.com/normahq/runtime/acpagent
+      - go test -tags='integration,codex' -count=1 github.com/normahq/norma/pkg/runtime/acpagent
 
   test:integration:acp:
-    desc: Run all ACP integration tests for github.com/normahq/runtime/acpagent
+    desc: Run all ACP integration tests for github.com/normahq/norma/pkg/runtime/acpagent
     cmds:
-      - go test -tags='integration,opencode,codex' -count=1 github.com/normahq/runtime/acpagent
+      - go test -tags='integration,opencode,codex' -count=1 github.com/normahq/norma/pkg/runtime/acpagent
 
   lint:
     desc: Run golangci-lint

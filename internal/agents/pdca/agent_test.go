@@ -15,9 +15,9 @@ import (
 
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/runtime/agentconfig"
-	runtimeconfig "github.com/normahq/runtime/appconfig"
-	"github.com/normahq/runtime/structuredagent"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/norma/pkg/runtime/structuredagent"
 )
 
 const (

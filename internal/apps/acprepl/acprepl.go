@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/internal/apps/appio"
-	"github.com/normahq/runtime/acpagent"
+	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"

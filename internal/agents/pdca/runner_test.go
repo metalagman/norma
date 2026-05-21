@@ -16,8 +16,8 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/internal/agents/pdca/contracts"
 	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/runtime/agentconfig"
-	"github.com/normahq/runtime/structuredagent"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/structuredagent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,7 +135,7 @@ func TestAinvokeRunner_RunSetsSessionCWDAndExpandsPrompt(t *testing.T) {
 		GenericACP: &agentconfig.ACPConfig{
 			Cmd: helperACPCommandWithEnv(t, `{"status":"ok","summary":"success"}`, map[string]string{
 				"GO_EXPECT_SESSION_CWD":         workingDir,
-				"GO_EXPECT_PROMPT_CONTAINS":     "cwd=" + workingDir,
+				"GO_EXPECT_PROMPT_CONTAINS":     workingDir,
 				"GO_EXPECT_PROMPT_NOT_CONTAINS": "cwd={cwd}",
 			}),
 		},

@@ -1,7 +1,7 @@
 // Package config provides configuration loading and management for norma.
 package config
 
-import "github.com/normahq/runtime/appconfig"
+import "github.com/normahq/norma/pkg/runtime/appconfig"
 
 // ExpandEnv expands $VAR and ${VAR} placeholders in the provided text.
 func ExpandEnv(input string) (string, error) {

@@ -17,9 +17,9 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
 	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
-	"github.com/normahq/runtime/agentconfig"
-	"github.com/normahq/runtime/agentfactory"
-	"github.com/normahq/runtime/mcpregistry"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/agentfactory"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 )
 

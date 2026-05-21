@@ -13,7 +13,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	goalkeeperworkflow "github.com/normahq/norma/pkg/goalkeeper"
-	"github.com/normahq/runtime/acpagent"
+	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	adkrunner "google.golang.org/adk/runner"

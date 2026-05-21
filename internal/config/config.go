@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/normahq/runtime/agentconfig"
-	runtimeconfig "github.com/normahq/runtime/appconfig"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 // Config is the root configuration.

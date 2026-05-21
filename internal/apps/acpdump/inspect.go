@@ -10,7 +10,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/norma/internal/apps/appio"
 	"github.com/normahq/norma/internal/logging"
-	"github.com/normahq/runtime/acpagent"
+	"github.com/normahq/norma/pkg/runtime/acpagent"
 )
 
 const unknownValue = "unknown"
