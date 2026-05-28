@@ -112,8 +112,9 @@ func WithPublishEnabled(enabled bool) ToolsetOption {
 	})
 }
 
-// Toolset builds ADK function tools for actor_send, actor_ask, and optionally actor_publish.
-func Toolset(sys *actorlayer.System, opts ...ToolsetOption) tool.Toolset {
+// Toolset builds ADK function tools for actor_send, actor_ask, and optionally
+// actor_publish.
+func Toolset(sys *actorlayer.System, opts ...ToolsetOption) (tool.Toolset, error) {
 	cfg := ToolsetConfig{
 		DefaultAskTimeout: defaultAskTimeout,
 		MaxAskTimeout:     defaultAskTimeout,
@@ -147,30 +148,32 @@ func Toolset(sys *actorlayer.System, opts ...ToolsetOption) tool.Toolset {
 		Name:        toolNameActorSend,
 		Description: "Send an asynchronous message to an allowed actor",
 	}, svc.actorSend)
+	if sendErr != nil {
+		return nil, fmt.Errorf("actor tools: create %s tool: %w", toolNameActorSend, sendErr)
+	}
 
 	askTool, askErr := functiontool.New(functiontool.Config{
 		Name:        toolNameActorAsk,
 		Description: "Send a request to an allowed actor and wait for a reply",
 	}, svc.actorAsk)
+	if askErr != nil {
+		return nil, fmt.Errorf("actor tools: create %s tool: %w", toolNameActorAsk, askErr)
+	}
 
 	tools := make([]tool.Tool, 0, 3)
-	if sendErr == nil {
-		tools = append(tools, sendTool)
-	}
-	if askErr == nil {
-		tools = append(tools, askTool)
-	}
+	tools = append(tools, sendTool, askTool)
 	if cfg.EnablePublish {
 		publishTool, publishErr := functiontool.New(functiontool.Config{
 			Name:        toolNameActorPublish,
 			Description: "Publish an event payload to actorlayer topic subscribers",
 		}, svc.actorPublish)
-		if publishErr == nil {
-			tools = append(tools, publishTool)
+		if publishErr != nil {
+			return nil, fmt.Errorf("actor tools: create %s tool: %w", toolNameActorPublish, publishErr)
 		}
+		tools = append(tools, publishTool)
 	}
 
-	return &staticToolset{name: "actor_tools", tools: tools}
+	return &staticToolset{name: "actor_tools", tools: tools}, nil
 }
 
 // Message wraps tool payload with an optional topic hint.

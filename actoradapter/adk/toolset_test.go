@@ -19,7 +19,10 @@ func TestToolsetExposesSendAndAsk(t *testing.T) {
 	sys := newSystem(t)
 	defer shutdownSystem(t, sys)
 
-	ts := Toolset(sys)
+	ts, err := Toolset(sys)
+	if err != nil {
+		t.Fatalf("Toolset() error = %v", err)
+	}
 	tools, err := ts.Tools(nil)
 	if err != nil {
 		t.Fatalf("Tools() error = %v", err)
@@ -43,7 +46,10 @@ func TestToolsetExposesPublishWhenEnabled(t *testing.T) {
 	sys := newSystem(t)
 	defer shutdownSystem(t, sys)
 
-	ts := Toolset(sys, WithPublishEnabled(true))
+	ts, err := Toolset(sys, WithPublishEnabled(true))
+	if err != nil {
+		t.Fatalf("Toolset() error = %v", err)
+	}
 	tools, err := ts.Tools(nil)
 	if err != nil {
 		t.Fatalf("Tools() error = %v", err)

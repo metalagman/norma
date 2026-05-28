@@ -37,7 +37,7 @@ type Config struct {
 // Props builds actorlayer props that host an ADK runner-backed behavior.
 func Props(cfg Config) actorlayer.Props {
 	return actorlayer.Props{
-		Kind: "adkactor",
+		Kind: "adk",
 		NewBehavior: func(actorlayer.SpawnContext) (actorlayer.Behavior, error) {
 			resolved, err := withDefaults(cfg)
 			if err != nil {
@@ -63,7 +63,7 @@ func Props(cfg Config) actorlayer.Props {
 
 func withDefaults(cfg Config) (Config, error) {
 	if cfg.Agent == nil {
-		return Config{}, fmt.Errorf("adkactor: agent is required")
+		return Config{}, fmt.Errorf("adk: agent is required")
 	}
 	if cfg.AppName == "" {
 		cfg.AppName = "actorlayer"

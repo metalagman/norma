@@ -66,7 +66,7 @@ func newAgentBehavior(cfg Config, r runRunner) *AgentBehavior {
 // Receive runs the configured ADK runner and maps events to actor replies/actions.
 func (b *AgentBehavior) Receive(ctx actorlayer.Context, env actorlayer.Envelope) error {
 	if b.runner == nil {
-		return b.fail(ctx, env, errors.New("adkactor: runner is nil"))
+		return b.fail(ctx, env, errors.New("adk: runner is nil"))
 	}
 
 	content, err := b.cfg.Codec.ToContent(env)
@@ -87,7 +87,7 @@ func (b *AgentBehavior) Receive(ctx actorlayer.Context, env actorlayer.Envelope)
 		}
 
 		if b.cfg.ReplyMode == ReplyFinalAndPublishEvents {
-			if pubErr := ctx.Publish(ctx, "adkactor.event", event); pubErr != nil {
+			if pubErr := ctx.Publish(ctx, "adk.event", event); pubErr != nil {
 				return b.fail(ctx, env, pubErr)
 			}
 		}
@@ -161,12 +161,12 @@ func (b *AgentBehavior) handleActions(ctx actorlayer.Context, event *session.Eve
 	case TransferADKInternal:
 		return nil
 	case TransferReject:
-		return fmt.Errorf("adkactor: transfer/escalation rejected by policy")
+		return fmt.Errorf("adk: transfer/escalation rejected by policy")
 	case TransferToActorTell, TransferToActorAsk:
 		if actions.TransferToAgent != "" {
 			target, ok := b.cfg.TransferTargets[actions.TransferToAgent]
 			if !ok {
-				return fmt.Errorf("adkactor: missing transfer target for agent %q", actions.TransferToAgent)
+				return fmt.Errorf("adk: missing transfer target for agent %q", actions.TransferToAgent)
 			}
 			msg := ActionMessage{
 				Type:   "transfer",
@@ -180,7 +180,7 @@ func (b *AgentBehavior) handleActions(ctx actorlayer.Context, event *session.Eve
 		}
 		if actions.Escalate {
 			if b.cfg.EscalationTarget == nil {
-				return fmt.Errorf("adkactor: escalation target is not configured")
+				return fmt.Errorf("adk: escalation target is not configured")
 			}
 			msg := ActionMessage{
 				Type:   "escalate",

@@ -329,7 +329,7 @@ func TestTransferPolicyAskMissingTargetReturnsAskError(t *testing.T) {
 
 func testConfig() Config {
 	return Config{
-		AppName:       "adkactor-test",
+		AppName:       "adk-test",
 		SessionPolicy: ConversationSession("conversation_id"),
 		UserPolicy:    HeaderUser("user_id", "system"),
 		Codec:         TextCodec(),
@@ -341,7 +341,7 @@ func spawnADKActor(t *testing.T, sys *actorlayer.System, cfg Config, r runRunner
 	t.Helper()
 
 	ref, err := sys.Spawn(context.Background(), "adk", actorlayer.Props{
-		Kind: "adkactor-test",
+		Kind: "adk-test",
 		NewBehavior: func(actorlayer.SpawnContext) (actorlayer.Behavior, error) {
 			return newAgentBehavior(cfg, r), nil
 		},
