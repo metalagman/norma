@@ -72,3 +72,4 @@ When `--debug` is enabled, the runtime also logs one `goalkeeper model final tex
 - `pdca-taskmaster` = async PDCA wrapper
 - `pdca-sync` = sync PDCA coordinator wrapper
 - `goalkeeper` = deterministic worker -> validator loop
+- `goalkeeper-actor` = actorlayer-based worker/validator loop with coordinator actor

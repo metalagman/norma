@@ -490,7 +490,8 @@ func (a *Agent) runInstructionBootstrap(
 		Int("instruction_len", len(instructions)).
 		Msg("initializing acp session instructions")
 
-	updates, resultCh, err := a.client.Prompt(ctx, remoteSessionID, instructions)
+	bootstrapCtx := context.WithValue(ctx, suppressLastChunkLogContextKey, true)
+	updates, resultCh, err := a.client.Prompt(bootstrapCtx, remoteSessionID, instructions)
 	if err != nil {
 		return fmt.Errorf("initialize acp session instructions: %w", err)
 	}

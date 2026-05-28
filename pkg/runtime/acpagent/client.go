@@ -41,6 +41,10 @@ const (
 	idleUpdateWindow = 20 * time.Millisecond
 )
 
+type promptContextKey string
+
+const suppressLastChunkLogContextKey promptContextKey = "acpagent.suppress_last_chunk_log"
+
 // PermissionHandler decides how ACP permission requests should be handled.
 // It returns a response with the selected outcome or an error if the request
 // could not be processed.
@@ -524,7 +528,9 @@ func (c *Client) promptWithBlocks(
 			Prompt:    promptBlocks,
 		})
 		waitForUpdateIdle(ctx, active.signal)
-		c.logLastChunkInSeries(activeSessionID)
+		if !suppressLastChunkLogFromContext(ctx) {
+			c.logLastChunkInSeries(activeSessionID)
+		}
 		if err != nil {
 			l.Error().Err(err).Str("session_id", sessionID).Msg("acp session/prompt failed")
 			resultCh <- PromptResult{Err: err}
@@ -540,6 +546,14 @@ func (c *Client) promptWithBlocks(
 	}()
 
 	return updates, resultCh, nil
+}
+
+func suppressLastChunkLogFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	suppress, ok := ctx.Value(suppressLastChunkLogContextKey).(bool)
+	return ok && suppress
 }
 
 // Close stops the ACP subprocess and waits for cleanup to finish.

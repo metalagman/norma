@@ -179,7 +179,9 @@ profiles:
 - [NormaLoop Orchestration](docs/normaloop-agent.md)
 - [Swarm Harness](docs/swarm.md)
 - [Goalkeeper Playground](docs/goalkeeper.md)
+- [Goalkeeper Actor Playground](docs/goalkeeper-actor.md)
 - [Taskmaster Playground](docs/taskmaster.md)
+- [Actorlayer Runtime (Actor Model over ADK)](docs/actorlayer.md)
 
 ### 4. Create a Task & Run
 ```bash
