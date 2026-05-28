@@ -66,6 +66,46 @@ func TestCodexACPIntegration_PromptRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCodexACPIntegration_ResumeSessionRoundTrip(t *testing.T) {
+	workingDir := requireCodexEnvironment(t)
+	client, stderr := newCodexACPClient(t, workingDir)
+
+	initResp := mustInitializeCodexACP(t, client, stderr)
+	if initResp.AgentCapabilities.SessionCapabilities.Resume == nil {
+		t.Skip("codex ACP runtime does not advertise session/resume capability")
+	}
+
+	sess := mustNewCodexACPSession(t, client, stderr, workingDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), codexIntegrationTimeout)
+	defer cancel()
+	if _, err := client.ResumeSessionWithMeta(ctx, string(sess.SessionId), workingDir, nil, map[string]any{
+		"resume_reason": "integration-test",
+	}); err != nil {
+		failCodexWithDetails(t, "session/resume failed", err, stderr.String())
+	}
+
+	updates, resultCh, err := client.Prompt(ctx, string(sess.SessionId), "Reply with one short word.")
+	if err != nil {
+		failCodexWithDetails(t, "session/prompt failed to start after session/resume", err, stderr.String())
+	}
+
+	updatesSeen := 0
+	for range updates {
+		updatesSeen++
+	}
+	result := <-resultCh
+	if result.Err != nil {
+		failCodexWithDetails(t, "session/prompt returned error after session/resume", result.Err, stderr.String())
+	}
+	if result.Response.StopReason == "" {
+		failCodexWithDetails(t, "session/prompt returned empty stop_reason after session/resume", nil, stderr.String())
+	}
+	if updatesSeen == 0 {
+		failCodexWithDetails(t, "session/prompt produced no updates after session/resume", nil, stderr.String())
+	}
+}
+
 func TestCodexACPIntegration_AgentRun(t *testing.T) {
 	workingDir := requireCodexEnvironment(t)
 
