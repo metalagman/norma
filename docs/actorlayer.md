@@ -1,13 +1,13 @@
 # Actorlayer: Actor Runtime over ADK
 
-`actorlayer` is an in-process actor runtime for `norma`. It provides actor-model runtime semantics (addressable refs, mailboxes, lifecycle, supervision) and hosts ADK agents through `actorlayer/adkactor`.
+`actorlayer` is an in-process actor runtime for `norma`. It provides actor-model runtime semantics (addressable refs, mailboxes, lifecycle, supervision) and hosts ADK agents through `actoradapter/adk`.
 
 This document tracks the implementation based on ADR-0001 (`actorlayer` over ADK).
 
 ## Package Layout
 
 - `actorlayer/`: core actor runtime.
-- `actorlayer/adkactor/`: ADK adapter layer.
+- `actoradapter/adk/`: ADK adapter layer.
 - `actorlayer/persistence/`: persistence extension interfaces.
 
 ## Current Capabilities
@@ -41,7 +41,7 @@ This document tracks the implementation based on ADR-0001 (`actorlayer` over ADK
 - Observer hooks (`Observer`) with `StatsObserver` counters.
 - Tracing hooks (`Tracer`) with span points for spawn/tell/ask/receive.
 
-### ADK adapter (`adkactor`)
+### ADK adapter (`adk`)
 
 - `Props(cfg)` for spawning ADK-hosted actors.
 - Session/user mapping policies:
@@ -145,7 +145,7 @@ sys, _ := actorlayer.NewSystem(actorlayer.Config{
 
 ## Verification Coverage
 
-`actorlayer` and `adkactor` tests cover:
+`actorlayer` and `adk` tests cover:
 
 - sequential processing for one actor
 - concurrency across actors

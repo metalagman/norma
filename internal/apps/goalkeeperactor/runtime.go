@@ -11,8 +11,8 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	adk "github.com/normahq/norma/actoradapter/adk"
 	"github.com/normahq/norma/actorlayer"
-	"github.com/normahq/norma/actorlayer/adkactor"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	"github.com/rs/zerolog"
@@ -162,30 +162,30 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 	}()
 
 	sessions := session.InMemoryService()
-	workerRef, err := sys.Spawn(ctx, workerActorID, adkactor.Props(adkactor.Config{
+	workerRef, err := sys.Spawn(ctx, workerActorID, adk.Props(adk.Config{
 		AppName:           appName,
 		Agent:             worker,
 		SessionService:    sessions,
 		RunConfig:         agent.RunConfig{},
 		SessionPolicy:     conversationActorSession(headerConversationID, workerActorID),
-		UserPolicy:        adkactor.HeaderUser(headerUserID, userID),
-		Codec:             adkactor.TextCodec(),
-		ReplyMode:         adkactor.ReplyFinal,
+		UserPolicy:        adk.HeaderUser(headerUserID, userID),
+		Codec:             adk.TextCodec(),
+		ReplyMode:         adk.ReplyFinal,
 		AutoCreateSession: true,
 	}), actorlayer.WithActorID(workerActorID))
 	if err != nil {
 		return fmt.Errorf("spawn worker actor: %w", err)
 	}
 
-	validatorRef, err := sys.Spawn(ctx, validatorActorID, adkactor.Props(adkactor.Config{
+	validatorRef, err := sys.Spawn(ctx, validatorActorID, adk.Props(adk.Config{
 		AppName:           appName,
 		Agent:             validator,
 		SessionService:    sessions,
 		RunConfig:         agent.RunConfig{},
 		SessionPolicy:     conversationActorSession(headerConversationID, validatorActorID),
-		UserPolicy:        adkactor.HeaderUser(headerUserID, userID),
-		Codec:             adkactor.TextCodec(),
-		ReplyMode:         adkactor.ReplyFinal,
+		UserPolicy:        adk.HeaderUser(headerUserID, userID),
+		Codec:             adk.TextCodec(),
+		ReplyMode:         adk.ReplyFinal,
 		AutoCreateSession: true,
 	}), actorlayer.WithActorID(validatorActorID))
 	if err != nil {
@@ -566,7 +566,7 @@ type conversationActorSessionPolicy struct {
 	actorID    string
 }
 
-func conversationActorSession(headerName string, actorID string) adkactor.SessionPolicy {
+func conversationActorSession(headerName string, actorID string) adk.SessionPolicy {
 	return conversationActorSessionPolicy{
 		headerName: headerName,
 		actorID:    strings.TrimSpace(actorID),
@@ -574,7 +574,7 @@ func conversationActorSession(headerName string, actorID string) adkactor.Sessio
 }
 
 func (p conversationActorSessionPolicy) SessionID(env actorlayer.Envelope, self actorlayer.Ref) string {
-	base := adkactor.ConversationSession(p.headerName).SessionID(env, self)
+	base := adk.ConversationSession(p.headerName).SessionID(env, self)
 	role := p.actorID
 	if role == "" {
 		role = string(self.ID())

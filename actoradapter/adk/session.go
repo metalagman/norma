@@ -1,4 +1,4 @@
-package adkactor
+package adk
 
 import (
 	"fmt"
