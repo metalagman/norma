@@ -200,6 +200,10 @@ const (
 // [SessionStateKey].session_id is persisted as a mirror for visibility and is
 // not authoritative for resume targeting.
 //
+// Restored sessions always reapply startup instructions on the first
+// post-resume invocation so session-start context derived from current ADK
+// state is refreshed before the user prompt runs.
+//
 // If no override is provided, Config.WorkingDir is used as ACP session cwd.
 // The first ACP session created for an ADK session is reused for subsequent
 // invocations in that same ADK session.
@@ -695,7 +699,7 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 				remoteSessionID: cfg.sessionID,
 				cwd:             cfg.cwd,
 				metaJSON:        cfg.metaJSON,
-				instructionInit: instructionInitDone,
+				instructionInit: instructionInitPending,
 			}
 			event := logger.Debug().
 				Str("adk_session_id", adkSessionID).

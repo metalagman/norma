@@ -1703,10 +1703,10 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 	}
 }
 
-func TestAgentSkipsInstructionBootstrapAfterResume(t *testing.T) {
+func TestAgentReappliesInstructionBootstrapAfterResume(t *testing.T) {
 	workingDir := t.TempDir()
 	sessionID := "session-resume-bootstrap"
-	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
+	expectedPromptsRaw, err := json.Marshal([]string{"bootstrap instruction", "hello", "again"})
 	if err != nil {
 		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
 	}
@@ -1750,9 +1750,14 @@ func TestAgentSkipsInstructionBootstrapAfterResume(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	finalText := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
-	if finalText != sessionID+":hello" {
-		t.Fatalf("final text = %q, want %q", finalText, sessionID+":hello")
+	first := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if first != sessionID+":hello" {
+		t.Fatalf("first final text = %q, want %q", first, sessionID+":hello")
+	}
+
+	second := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("again", genai.RoleUser), agent.RunConfig{}))
+	if second != sessionID+":again" {
+		t.Fatalf("second final text = %q, want %q", second, sessionID+":again")
 	}
 }
 
