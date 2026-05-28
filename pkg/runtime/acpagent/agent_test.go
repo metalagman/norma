@@ -1460,8 +1460,9 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 		State: map[string]any{
 			"cwd": workingDir,
 			"acp_session": map[string]any{
-				"session_id": sessionID,
-				"meta":       meta,
+				"session_id":          sessionID,
+				persistedSessionIDKey: sessionID,
+				"meta":                meta,
 			},
 		},
 	})
@@ -1484,6 +1485,138 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 	}
 }
 
+func TestAgentIgnoresCallerSessionIDWhenNoPersistedSessionID(t *testing.T) {
+	const acpSessionID = "session-1"
+
+	workingDir := t.TempDir()
+	callerSessionID := "caller-provided-session"
+	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_PROMPTS": string(expectedPromptsRaw),
+		}),
+		WorkingDir: workingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"session_id": callerSessionID,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	finalText, finalSessionState := collectFinalTextAndSessionState(
+		t,
+		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
+	)
+	if finalText != testSessionOneHello {
+		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
+	}
+	if got := finalSessionState["session_id"]; got != acpSessionID {
+		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, acpSessionID)
+	}
+	if got := finalSessionState[persistedSessionIDKey]; got != acpSessionID {
+		t.Fatalf("final %s.%s = %v, want %s", SessionStateKey, persistedSessionIDKey, got, acpSessionID)
+	}
+}
+
+func TestAgentLoadsSessionWhenResumeUnsupported(t *testing.T) {
+	workingDir := t.TempDir()
+	sessionID := "session-load-1"
+	meta := map[string]any{
+		"codex": map[string]any{
+			"approvalMode": "manual",
+		},
+	}
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("json.Marshal(meta) error = %v", err)
+	}
+	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_FAIL_RESUME_METHOD_NOT_FOUND": "1",
+			"GO_EXPECT_LOAD_SESSION_ID":       sessionID,
+			"GO_EXPECT_LOAD_SESSION_CWD":      workingDir,
+			"GO_EXPECT_LOAD_META_RAW":         string(metaJSON),
+			"GO_EXPECT_PROMPTS":               string(expectedPromptsRaw),
+		}),
+		WorkingDir: workingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				persistedSessionIDKey: sessionID,
+				"meta":                meta,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	finalText, finalSessionState := collectFinalTextAndSessionState(
+		t,
+		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
+	)
+	if finalText != sessionID+":hello" {
+		t.Fatalf("final text = %q, want %q", finalText, sessionID+":hello")
+	}
+	if got := finalSessionState["session_id"]; got != sessionID {
+		t.Fatalf("final %s.session_id = %v, want %q", SessionStateKey, got, sessionID)
+	}
+	if got := finalSessionState[persistedSessionIDKey]; got != sessionID {
+		t.Fatalf("final %s.%s = %v, want %q", SessionStateKey, persistedSessionIDKey, got, sessionID)
+	}
+}
+
 func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -1494,6 +1627,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 			name: "unsupported",
 			env: map[string]string{
 				"GO_FAIL_RESUME_METHOD_NOT_FOUND": "1",
+				"GO_FAIL_LOAD_METHOD_NOT_FOUND":   "1",
 			},
 			sessionID: "missing-session",
 		},
@@ -1546,7 +1680,8 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				State: map[string]any{
 					"cwd": workingDir,
 					"acp_session": map[string]any{
-						"session_id": tc.sessionID,
+						"session_id":          tc.sessionID,
+						persistedSessionIDKey: tc.sessionID,
 					},
 				},
 			})
@@ -1606,7 +1741,8 @@ func TestAgentSkipsInstructionBootstrapAfterResume(t *testing.T) {
 		State: map[string]any{
 			"cwd": workingDir,
 			"acp_session": map[string]any{
-				"session_id": sessionID,
+				"session_id":          sessionID,
+				persistedSessionIDKey: sessionID,
 			},
 		},
 	})
@@ -2524,16 +2660,85 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedResumeSessionID := os.Getenv("GO_EXPECT_RESUME_SESSION_ID")
 	expectedResumeSessionCWD := os.Getenv("GO_EXPECT_RESUME_SESSION_CWD")
 	expectedResumeMetaRaw := os.Getenv("GO_EXPECT_RESUME_META_RAW")
+	expectedLoadSessionID := os.Getenv("GO_EXPECT_LOAD_SESSION_ID")
+	expectedLoadSessionCWD := os.Getenv("GO_EXPECT_LOAD_SESSION_CWD")
+	expectedLoadMetaRaw := os.Getenv("GO_EXPECT_LOAD_META_RAW")
 	expectedPromptsRaw := os.Getenv("GO_EXPECT_PROMPTS")
 	forceNewSessionID := os.Getenv("GO_FORCE_NEW_SESSION_ID")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
 	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
 	failResumeMethodNotFound := os.Getenv("GO_FAIL_RESUME_METHOD_NOT_FOUND") == "1"
 	failResumeEntityNotFound := os.Getenv("GO_FAIL_RESUME_ENTITY_NOT_FOUND") == "1"
+	failLoadMethodNotFound := os.Getenv("GO_FAIL_LOAD_METHOD_NOT_FOUND") == "1"
+	failLoadEntityNotFound := os.Getenv("GO_FAIL_LOAD_ENTITY_NOT_FOUND") == "1"
 	failFirstPromptEntityNotFound := os.Getenv("GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND") == "1"
 	var expectedPrompts []string
 	if strings.TrimSpace(expectedPromptsRaw) != "" {
 		must(json.Unmarshal([]byte(expectedPromptsRaw), &expectedPrompts))
+	}
+	handleSessionRestore := func(
+		msg helperEnvelope,
+		method string,
+		expectedSessionID string,
+		expectedCWD string,
+		expectedMetaRaw string,
+		failMethodNotFound bool,
+		failEntityNotFound bool,
+	) {
+		if failMethodNotFound {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error:   &helperError{Code: -32601, Message: "unsupported"},
+			})
+			return
+		}
+		var req helperSessionRestoreRequest
+		must(json.Unmarshal(msg.Params, &req))
+		if expectedSessionID != "" && req.SessionID != expectedSessionID {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected %s sessionId: %q, want %q", method, req.SessionID, expectedSessionID)},
+			})
+			return
+		}
+		if expectedCWD != "" && req.Cwd != expectedCWD {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected %s cwd: %q, want %q", method, req.Cwd, expectedCWD)},
+			})
+			return
+		}
+		if expectedMetaRaw != "" {
+			var reqRaw struct {
+				Meta json.RawMessage `json:"_meta"`
+			}
+			must(json.Unmarshal(msg.Params, &reqRaw))
+			gotRaw := compactJSONForCompare(reqRaw.Meta)
+			wantRaw := compactJSONForCompare([]byte(expectedMetaRaw))
+			if gotRaw != wantRaw {
+				writeEnvelope(stdout, helperEnvelope{
+					JSONRPC: "2.0",
+					ID:      msg.ID,
+					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected raw %s _meta payload: %q, want %q", method, gotRaw, wantRaw)},
+				})
+				return
+			}
+		}
+		if failEntityNotFound {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error: &helperError{
+					Code:    500,
+					Message: "Requested entity was not found.",
+				},
+			})
+			return
+		}
+		writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperSessionRestoreResponse{})})
 	}
 
 	for scanner.Scan() {
@@ -2656,60 +2861,25 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			}
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperNewSessionResponse{SessionID: sessionID})})
 		case acp.AgentMethodSessionResume:
-			if failResumeMethodNotFound {
-				writeEnvelope(stdout, helperEnvelope{
-					JSONRPC: "2.0",
-					ID:      msg.ID,
-					Error:   &helperError{Code: -32601, Message: "unsupported"},
-				})
-				continue
-			}
-			var req helperResumeSessionRequest
-			must(json.Unmarshal(msg.Params, &req))
-			if expectedResumeSessionID != "" && req.SessionID != expectedResumeSessionID {
-				writeEnvelope(stdout, helperEnvelope{
-					JSONRPC: "2.0",
-					ID:      msg.ID,
-					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected session/resume sessionId: %q, want %q", req.SessionID, expectedResumeSessionID)},
-				})
-				continue
-			}
-			if expectedResumeSessionCWD != "" && req.Cwd != expectedResumeSessionCWD {
-				writeEnvelope(stdout, helperEnvelope{
-					JSONRPC: "2.0",
-					ID:      msg.ID,
-					Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected session/resume cwd: %q, want %q", req.Cwd, expectedResumeSessionCWD)},
-				})
-				continue
-			}
-			if expectedResumeMetaRaw != "" {
-				var reqRaw struct {
-					Meta json.RawMessage `json:"_meta"`
-				}
-				must(json.Unmarshal(msg.Params, &reqRaw))
-				gotRaw := compactJSONForCompare(reqRaw.Meta)
-				wantRaw := compactJSONForCompare([]byte(expectedResumeMetaRaw))
-				if gotRaw != wantRaw {
-					writeEnvelope(stdout, helperEnvelope{
-						JSONRPC: "2.0",
-						ID:      msg.ID,
-						Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected raw session/resume _meta payload: %q, want %q", gotRaw, wantRaw)},
-					})
-					continue
-				}
-			}
-			if failResumeEntityNotFound {
-				writeEnvelope(stdout, helperEnvelope{
-					JSONRPC: "2.0",
-					ID:      msg.ID,
-					Error: &helperError{
-						Code:    500,
-						Message: "Requested entity was not found.",
-					},
-				})
-				continue
-			}
-			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperResumeSessionResponse{})})
+			handleSessionRestore(
+				msg,
+				"session/resume",
+				expectedResumeSessionID,
+				expectedResumeSessionCWD,
+				expectedResumeMetaRaw,
+				failResumeMethodNotFound,
+				failResumeEntityNotFound,
+			)
+		case acp.AgentMethodSessionLoad:
+			handleSessionRestore(
+				msg,
+				"session/load",
+				expectedLoadSessionID,
+				expectedLoadSessionCWD,
+				expectedLoadMetaRaw,
+				failLoadMethodNotFound,
+				failLoadEntityNotFound,
+			)
 		case acp.AgentMethodSessionSetModel:
 			if disableSetModel {
 				writeEnvelope(stdout, helperEnvelope{
@@ -2968,14 +3138,14 @@ type helperNewSessionRequest struct {
 	McpServers []acp.McpServer `json:"mcpServers,omitempty"`
 }
 
-type helperResumeSessionRequest struct {
+type helperSessionRestoreRequest struct {
 	Meta       map[string]any  `json:"_meta,omitempty"`
 	Cwd        string          `json:"cwd"`
 	McpServers []acp.McpServer `json:"mcpServers,omitempty"`
 	SessionID  string          `json:"sessionId"`
 }
 
-type helperResumeSessionResponse struct{}
+type helperSessionRestoreResponse struct{}
 
 type helperPromptResponse struct {
 	StopReason string `json:"stopReason"`

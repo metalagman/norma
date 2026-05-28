@@ -18,7 +18,6 @@
 //
 //	map[string]any{
 //	  acpagent.SessionStateKey: map[string]any{
-//	    "session_id": "session-123", // optional; attempted via ACP session/resume
 //	    "meta": map[string]any{ // optional; forwarded to ACP session/new _meta
 //	      "codex": map[string]any{"approvalMode": "manual"},
 //	    },
@@ -28,9 +27,13 @@
 // Behavior:
 //   - If `state[sessionstate.CWDKey]` is set, it overrides [Config.WorkingDir]
 //     for ACP session creation.
-//   - If `state[SessionStateKey].session_id` is set, the runtime attempts
-//     ACP session/resume first and falls back to session/new when resume is
-//     unsupported or the referenced session no longer exists.
+//   - The adapter persists a canonical ACP session ID under
+//     `state[SessionStateKey].persisted_session_id` and uses that value for
+//     ACP session/resume first, then session/load when resume is unsupported.
+//   - `state[SessionStateKey].session_id` mirrors the canonical value for
+//     visibility, but it is not authoritative for resume targeting.
+//   - If no canonical persisted session id is present, the runtime creates
+//     a new ACP session.
 //   - If `state[SessionStateKey].meta` is set, it is passed through to ACP
 //     session/new._meta and session/resume._meta.
 //   - Overrides are read when the ACP session is first created for the ADK
@@ -39,6 +42,7 @@
 // Invalid override values (for example, non-string `state[sessionstate.CWDKey]`,
 // non-object `state[SessionStateKey]`, non-object `state[SessionStateKey].meta`,
 // non-string `state[SessionStateKey].session_id`,
+// non-string `state[SessionStateKey].persisted_session_id`,
 // or a cwd that is not a valid existing directory) cause invocation failure
 // before ACP session creation.
 //

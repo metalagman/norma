@@ -369,40 +369,105 @@ func (c *Client) ResumeSessionWithMeta(
 	mcpServers []acp.McpServer,
 	meta map[string]any,
 ) (acp.ResumeSessionResponse, error) {
-	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return acp.ResumeSessionResponse{}, errSessionIDRequired
+	trimmedSessionID, normalizedMCP, reqMeta, err := normalizeSessionRestoreInput(sessionID, mcpServers, meta)
+	if err != nil {
+		return acp.ResumeSessionResponse{}, err
 	}
-	if mcpServers == nil {
-		mcpServers = []acp.McpServer{}
-	}
+	c.logSessionRestoreStart(ctx, "session/resume", trimmedSessionID, cwd, normalizedMCP)
 
 	req := acp.ResumeSessionRequest{
 		SessionId:  acp.SessionId(trimmedSessionID),
 		Cwd:        cwd,
-		McpServers: mcpServers,
+		McpServers: normalizedMCP,
 	}
-	reqMeta := cloneAnyMap(meta)
 	if len(reqMeta) > 0 {
 		req.Meta = reqMeta
 	}
-
-	l := c.loggerForContext(ctx)
-	l.Debug().
-		Str("session_id", trimmedSessionID).
-		Str("cwd", cwd).
-		Int("mcp_servers", len(mcpServers)).
-		Msg("sending acp session/resume")
-
 	resp, err := c.conn.ResumeSession(ctx, req)
 	if err != nil {
 		return acp.ResumeSessionResponse{}, err
 	}
-
-	l.Debug().
-		Str("session_id", trimmedSessionID).
-		Msg("acp session/resume succeeded")
+	c.logSessionRestoreSuccess(ctx, "session/resume", trimmedSessionID)
 	return resp, nil
+}
+
+// LoadSession loads an existing ACP session in the provided working directory.
+//
+// The ACP protocol requires cwd to be an absolute path.
+func (c *Client) LoadSession(ctx context.Context, sessionID, cwd string, mcpServers []acp.McpServer) (acp.LoadSessionResponse, error) {
+	return c.LoadSessionWithMeta(ctx, sessionID, cwd, mcpServers, nil)
+}
+
+// LoadSessionWithMeta loads an existing ACP session in the provided working
+// directory and sends optional _meta extensions with the load request.
+//
+// The ACP protocol requires cwd to be an absolute path.
+func (c *Client) LoadSessionWithMeta(
+	ctx context.Context,
+	sessionID,
+	cwd string,
+	mcpServers []acp.McpServer,
+	meta map[string]any,
+) (acp.LoadSessionResponse, error) {
+	trimmedSessionID, normalizedMCP, reqMeta, err := normalizeSessionRestoreInput(sessionID, mcpServers, meta)
+	if err != nil {
+		return acp.LoadSessionResponse{}, err
+	}
+	c.logSessionRestoreStart(ctx, "session/load", trimmedSessionID, cwd, normalizedMCP)
+
+	req := acp.LoadSessionRequest{
+		SessionId:  acp.SessionId(trimmedSessionID),
+		Cwd:        cwd,
+		McpServers: normalizedMCP,
+	}
+	if len(reqMeta) > 0 {
+		req.Meta = reqMeta
+	}
+	resp, err := c.conn.LoadSession(ctx, req)
+	if err != nil {
+		return acp.LoadSessionResponse{}, err
+	}
+	c.logSessionRestoreSuccess(ctx, "session/load", trimmedSessionID)
+	return resp, nil
+}
+
+func normalizeSessionRestoreInput(
+	sessionID string,
+	mcpServers []acp.McpServer,
+	meta map[string]any,
+) (trimmedSessionID string, normalizedMCP []acp.McpServer, reqMeta map[string]any, err error) {
+	trimmedSessionID = strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return "", nil, nil, errSessionIDRequired
+	}
+	normalizedMCP = mcpServers
+	if normalizedMCP == nil {
+		normalizedMCP = []acp.McpServer{}
+	}
+	reqMeta = cloneAnyMap(meta)
+	return trimmedSessionID, normalizedMCP, reqMeta, nil
+}
+
+func (c *Client) logSessionRestoreStart(
+	ctx context.Context,
+	method string,
+	sessionID string,
+	cwd string,
+	mcpServers []acp.McpServer,
+) {
+	l := c.loggerForContext(ctx)
+	l.Debug().
+		Str("session_id", sessionID).
+		Str("cwd", cwd).
+		Int("mcp_servers", len(mcpServers)).
+		Msg("sending acp " + method)
+}
+
+func (c *Client) logSessionRestoreSuccess(ctx context.Context, method, sessionID string) {
+	l := c.loggerForContext(ctx)
+	l.Debug().
+		Str("session_id", sessionID).
+		Msg("acp " + method + " succeeded")
 }
 
 // CreateSessionWithMeta creates a new ACP session with optional session/new

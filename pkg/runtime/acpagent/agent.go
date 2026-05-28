@@ -156,7 +156,10 @@ const (
 	//
 	// The value at this key must be an object with optional fields:
 	//   - "meta" (object): forwarded to ACP session/new._meta
-	//   - "session_id" (string): preferred ACP session id to resume first
+	//   - "session_id" (string): ACP session id persisted by this adapter
+	//     for diagnostics and downstream visibility.
+	//   - "persisted_session_id" (string): canonical ACP session id persisted
+	//     by this adapter and used for ACP session/resume.
 	//
 	// Set it before the first invocation in a given ADK session; once that ADK
 	// session is bound to an ACP session, later changes do not rebind.
@@ -167,6 +170,8 @@ const (
 	// event.Actions.StateDelta[PlanStateKey] as the authoritative full plan
 	// replacement snapshot.
 	PlanStateKey = "acp_plan"
+	// persistedSessionIDKey stores the canonical ACP session id used for resume.
+	persistedSessionIDKey = "persisted_session_id"
 )
 
 var _ adkagent.Agent = (*Agent)(nil)
@@ -188,8 +193,12 @@ const (
 //   - [sessionstate.CWDKey] (string): override ACP session/new cwd
 //   - [SessionStateKey].meta (object): forwarded to ACP session/new._meta and
 //     session/resume._meta
-//   - [SessionStateKey].session_id (string): if set, the agent attempts
-//     session/resume before falling back to session/new
+//
+// ACP session IDs are agent-owned. The adapter persists a canonical ACP session
+// id under [SessionStateKey].persisted_session_id and uses that value for
+// session/resume (falling back to session/load when resume is unsupported).
+// [SessionStateKey].session_id is persisted as a mirror for visibility and is
+// not authoritative for resume targeting.
 //
 // If no override is provided, Config.WorkingDir is used as ACP session cwd.
 // The first ACP session created for an ADK session is reused for subsequent
@@ -414,7 +423,8 @@ func (a *Agent) maybePersistSessionState(event *session.Event, adkSessionID stri
 	}
 
 	acpState := map[string]any{
-		"session_id": binding.remoteSessionID,
+		"session_id":          binding.remoteSessionID,
+		persistedSessionIDKey: binding.remoteSessionID,
 	}
 	if strings.TrimSpace(binding.metaJSON) != "" && binding.metaJSON != "{}" {
 		var meta map[string]any
@@ -702,7 +712,41 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 			return cfg.sessionID, nil
 		}
 
-		if !isACPMethodNotFoundError(err) && !isACPSessionNotFoundError(err) {
+		if isACPMethodNotFoundError(err) {
+			loadResp, loadErr := a.client.LoadSessionWithMeta(ctx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
+			if loadErr == nil {
+				if err := a.client.applySessionModelAndMode(ctx, cfg.sessionID, a.sessionModel, a.sessionMode, loadResp.Models, loadResp.Modes); err != nil {
+					return "", err
+				}
+				a.bindingByADK[adkSessionID] = acpSessionBinding{
+					remoteSessionID: cfg.sessionID,
+					cwd:             cfg.cwd,
+					metaJSON:        cfg.metaJSON,
+					instructionInit: instructionInitDone,
+				}
+				event := logger.Debug().
+					Str("adk_session_id", adkSessionID).
+					Str("acp_session_id", cfg.sessionID).
+					Str("cwd", cfg.cwd).
+					RawJSON("meta", []byte(cfg.metaJSON))
+				if a.sessionModel != "" {
+					event = event.Str("model", a.sessionModel)
+				}
+				if a.sessionMode != "" {
+					event = event.Str("mode", a.sessionMode)
+				}
+				event.Msg("loaded acp session for adk session")
+				return cfg.sessionID, nil
+			}
+			if !isACPMethodNotFoundError(loadErr) && !isACPSessionNotFoundError(loadErr) {
+				return "", fmt.Errorf("load acp session %q: %w", cfg.sessionID, loadErr)
+			}
+			logger.Warn().
+				Err(loadErr).
+				Str("adk_session_id", adkSessionID).
+				Str("acp_session_id", cfg.sessionID).
+				Msg("acp session load unavailable; falling back to session/new")
+		} else if !isACPSessionNotFoundError(err) {
 			return "", fmt.Errorf("resume acp session %q: %w", cfg.sessionID, err)
 		}
 		logger.Warn().
@@ -775,11 +819,16 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 		cfg.meta = cloneAnyMap(meta)
 	}
 	if rawSessionID, ok := state["session_id"]; ok {
-		sessionID, ok := rawSessionID.(string)
-		if !ok {
+		if _, ok := rawSessionID.(string); !ok {
 			return acpSessionConfig{}, fmt.Errorf("adk session state %q.session_id must be a string; got %T", SessionStateKey, rawSessionID)
 		}
-		cfg.sessionID = strings.TrimSpace(sessionID)
+	}
+	if rawPersistedSessionID, ok := state[persistedSessionIDKey]; ok {
+		persistedSessionID, ok := rawPersistedSessionID.(string)
+		if !ok {
+			return acpSessionConfig{}, fmt.Errorf("adk session state %q.%s must be a string; got %T", SessionStateKey, persistedSessionIDKey, rawPersistedSessionID)
+		}
+		cfg.sessionID = strings.TrimSpace(persistedSessionID)
 	}
 
 	return normalizeACPConfigCWD(cfg)
