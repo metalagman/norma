@@ -31,6 +31,32 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	}
 }
 
+func TestWithAgentContextLogger(t *testing.T) {
+	t.Parallel()
+
+	var logBuf bytes.Buffer
+	baseLogger := zerolog.New(&logBuf).Level(zerolog.TraceLevel).With().
+		Str("component", "playground.goalkeeper_actor").
+		Logger()
+
+	ctx := withAgentContextLogger(context.Background(), baseLogger, workerAgentID)
+	zerolog.Ctx(ctx).Debug().Msg("test-log")
+
+	logLine := logBuf.String()
+	if !strings.Contains(logLine, `"component":"playground.goalkeeper_actor"`) {
+		t.Fatalf("log = %q, want component field", logLine)
+	}
+	if !strings.Contains(logLine, `"agent_id":"worker"`) {
+		t.Fatalf("log = %q, want agent_id field", logLine)
+	}
+	if !strings.Contains(logLine, `"level":"debug"`) {
+		t.Fatalf("log = %q, want debug level", logLine)
+	}
+	if !strings.Contains(logLine, `"message":"test-log"`) {
+		t.Fatalf("log = %q, want test message", logLine)
+	}
+}
+
 func TestRunPrintsResultAndClosesAgents(t *testing.T) {
 	t.Parallel()
 

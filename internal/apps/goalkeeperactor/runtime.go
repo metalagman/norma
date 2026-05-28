@@ -264,7 +264,8 @@ func newACPAgent(ctx context.Context, cfg acpRuntimeConfig) (closableAgent, erro
 		agentfactory.WithPermissionHandler(autoAllowPermission),
 		agentfactory.WithStderrWriter(cfg.Stderr),
 	)
-	built, err := factory.Build(ctx, agentfactory.BuildRequest{
+	buildCtx := withAgentContextLogger(ctx, cfg.Logger, cfg.AgentID)
+	built, err := factory.Build(buildCtx, agentfactory.BuildRequest{
 		AgentID:          cfg.AgentID,
 		Name:             cfg.Name,
 		Description:      cfg.Description,
@@ -278,6 +279,14 @@ func newACPAgent(ctx context.Context, cfg acpRuntimeConfig) (closableAgent, erro
 		return closable, nil
 	}
 	return nonClosableAgent{Agent: built}, nil
+}
+
+func withAgentContextLogger(ctx context.Context, logger zerolog.Logger, agentID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	agentLogger := logger.With().Str("agent_id", strings.TrimSpace(agentID)).Logger()
+	return agentLogger.WithContext(ctx)
 }
 
 type nonClosableAgent struct {
