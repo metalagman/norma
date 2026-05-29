@@ -294,6 +294,62 @@ func TestRuntimeDifferentLanesConcurrent(t *testing.T) {
 	}
 }
 
+func TestRuntimeLaneStatusReportsActiveLanes(t *testing.T) {
+	rt, err := New(Config{Resolver: testResolver{laneKey: "lane-1"}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	started := make(chan struct{})
+	releaseA := make(chan struct{})
+	releaseB := make(chan struct{})
+	completed := make(chan struct{}, 2)
+	go func() {
+		_ = rt.Handle(context.Background(), &testDelivery{env: "task-a"}, func(context.Context, Delivery) error {
+			close(started)
+			<-releaseA
+			completed <- struct{}{}
+			return nil
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first handler start")
+	}
+
+	status := rt.LaneStatus()
+	if status.Active != 1 {
+		t.Fatalf("LaneStatus().Active = %d, want 1", status.Active)
+	}
+
+	go func() {
+		_ = rt.Handle(context.Background(), &testDelivery{env: "task-b"}, func(context.Context, Delivery) error {
+			<-releaseB
+			completed <- struct{}{}
+			return nil
+		})
+	}()
+
+	close(releaseA)
+	<-completed
+	close(releaseB)
+	<-completed
+
+	deadline := time.After(time.Second)
+	for {
+		status := rt.LaneStatus()
+		if status.Active == 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for lanes to clear: %#v", status)
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
 func TestNewDispatchRuntimeReturnsErrorForMissingRegistry(t *testing.T) {
 	rt, err := NewDispatchRuntime(RuntimeConfig{AddressOf: func(any) (string, error) { return "", nil }, Retry: retryNever()})
 	if rt != nil {

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,11 @@ type Config struct {
 	Retry       RetryPolicy
 	Sink        EventSink
 	LaneIdleTTL time.Duration
+}
+
+type LaneStatus struct {
+	Active int
+	Keys   []string
 }
 
 const unknownLaneKey = "unknown"
@@ -256,6 +262,24 @@ func (r *Runtime) Handle(ctx context.Context, delivery Delivery, handler Handler
 	delay := r.cfg.Retry.Backoff(max(delivery.Attempt()-1, 0))
 	r.emit(ctx, Event{Type: EventRetrying, Reason: err.Error(), RetryDelay: delay, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
 	return delivery.Retry(ctx, delay, err.Error())
+}
+
+func (r *Runtime) LaneStatus() LaneStatus {
+	if r == nil {
+		return LaneStatus{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	r.pruneLanesLocked(now)
+	keys := make([]string, 0, len(r.lanes))
+	for key, lane := range r.lanes {
+		if lane != nil && lane.active > 0 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return LaneStatus{Active: len(keys), Keys: keys}
 }
 
 func (r *Runtime) EmitInProgress(ctx context.Context, delivery Delivery) {
