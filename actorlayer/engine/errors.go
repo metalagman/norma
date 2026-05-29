@@ -1,11 +1,12 @@
 package engine
 
 import (
-	"errors"
 	"fmt"
+
+	actorlayer "github.com/normahq/norma/actorlayer"
 )
 
-var ErrActorNotFound = errors.New("actor not found")
+var ErrActorNotFound = actorlayer.ErrActorNotFound
 
 // ResolveError is returned when a dispatch address cannot be resolved.
 // It wraps ErrActorNotFound to support errors.Is checks while preserving

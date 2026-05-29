@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	actorlayer "github.com/normahq/norma/actorlayer"
 	"github.com/normahq/norma/actorlayer/dispatch"
 )
 
@@ -12,10 +13,11 @@ func TestResolveError(t *testing.T) {
 	t.Parallel()
 
 	err := &ResolveError{Address: "session:404"}
-	if got := err.Error(); got != "actor not found: session:404" {
-		t.Fatalf("err.Error() = %q, want %q", got, "actor not found: session:404")
+	want := actorlayer.ErrActorNotFound.Error() + ": session:404"
+	if got := err.Error(); got != want {
+		t.Fatalf("err.Error() = %q, want %q", got, want)
 	}
-	if !errors.Is(err, ErrActorNotFound) {
+	if !errors.Is(err, actorlayer.ErrActorNotFound) {
 		t.Fatal("errors.Is(err, ErrActorNotFound) = false, want true")
 	}
 }
