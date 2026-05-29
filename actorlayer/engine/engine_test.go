@@ -3,11 +3,85 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/normahq/norma/actorlayer/dispatch"
 )
+
+type testRuntimeDelivery struct {
+	env        any
+	attempt    int
+	max        int
+	acked      bool
+	retried    bool
+	deadletter bool
+}
+
+func (d *testRuntimeDelivery) Envelope() any { return d.env }
+func (d *testRuntimeDelivery) Attempt() int {
+	if d.attempt <= 0 {
+		return 1
+	}
+	return d.attempt
+}
+func (d *testRuntimeDelivery) MaxAttempts() int               { return d.max }
+func (*testRuntimeDelivery) InProgress(context.Context) error { return nil }
+func (d *testRuntimeDelivery) Ack(context.Context) error {
+	d.acked = true
+	return nil
+}
+func (d *testRuntimeDelivery) Retry(context.Context, time.Duration, string) error {
+	d.retried = true
+	return nil
+}
+func (d *testRuntimeDelivery) DeadLetter(context.Context, string) error {
+	d.deadletter = true
+	return nil
+}
+
+type envelope struct {
+	to string
+}
+
+type testDispatchActor struct {
+	address string
+	err     error
+	calls   int
+}
+
+func (a *testDispatchActor) Address() string { return a.address }
+func (a *testDispatchActor) Handle(_ context.Context, _ any) error {
+	a.calls++
+	return a.err
+}
+
+type testDispatchSource struct {
+	items []Delivery
+}
+
+func (s testDispatchSource) Run(_ context.Context, handler Handler) error {
+	for _, d := range s.items {
+		if err := handler(context.Background(), d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func retryNever() RetryPolicy {
+	return RetryPolicy{IsRetryable: func(error) bool { return false }}
+}
+
+func retryAlways() RetryPolicy {
+	return RetryPolicy{
+		IsRetryable: func(error) bool { return true },
+		Backoff:     func(int) time.Duration { return time.Millisecond },
+	}
+}
 
 type testDelivery struct {
 	env         any
@@ -217,6 +291,135 @@ func TestRuntimeDifferentLanesConcurrent(t *testing.T) {
 		if err := <-done; err != nil {
 			t.Fatalf("Handle() error = %v", err)
 		}
+	}
+}
+
+func TestNewDispatchRuntimeReturnsErrorForMissingRegistry(t *testing.T) {
+	rt, err := NewDispatchRuntime(RuntimeConfig{AddressOf: func(any) (string, error) { return "", nil }, Retry: retryNever()})
+	if rt != nil {
+		t.Fatalf("NewDispatchRuntime() runtime = %#v, want nil", rt)
+	}
+	if err == nil || err.Error() != "runtime registry is required" {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+}
+
+func TestNewDispatchRuntimeReturnsErrorForMissingAddressResolver(t *testing.T) {
+	rt, err := NewDispatchRuntime(RuntimeConfig{Registry: dispatch.NewMemoryRegistry()})
+	if rt != nil {
+		t.Fatalf("NewDispatchRuntime() runtime = %#v, want nil", rt)
+	}
+	if err == nil || err.Error() != "runtime address resolver is required" {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+}
+
+func TestDispatchRuntimeHandleAckOnSuccess(t *testing.T) {
+	registry := dispatch.NewMemoryRegistry()
+	actor := &testDispatchActor{address: "session:*"}
+	if err := registry.Register(actor); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	rt, err := NewDispatchRuntime(RuntimeConfig{
+		Registry: registry,
+		AddressOf: func(env any) (string, error) {
+			v, ok := env.(envelope)
+			if !ok {
+				return "", fmt.Errorf("bad envelope")
+			}
+			return v.to, nil
+		},
+		Retry: retryNever(),
+	})
+	if err != nil {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+	d := &testRuntimeDelivery{env: envelope{to: "session:s-1"}}
+	if err := rt.Handle(context.Background(), d); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !d.acked {
+		t.Fatal("Ack() was not called")
+	}
+	if actor.calls != 1 {
+		t.Fatalf("actor calls = %d, want 1", actor.calls)
+	}
+}
+
+func TestDispatchRuntimeDeadlettersOnResolveFailure(t *testing.T) {
+	registry := dispatch.NewMemoryRegistry()
+	rt, err := NewDispatchRuntime(RuntimeConfig{
+		Registry: registry,
+		AddressOf: func(env any) (string, error) {
+			v := env.(envelope)
+			return v.to, nil
+		},
+		Retry: retryNever(),
+	})
+	if err != nil {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+	d := &testRuntimeDelivery{env: envelope{to: "session:s-404"}}
+	if err := rt.Handle(context.Background(), d); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !d.deadletter {
+		t.Fatal("DeadLetter() was not called")
+	}
+}
+
+func TestDispatchRuntimeRetriesOnActorError(t *testing.T) {
+	registry := dispatch.NewMemoryRegistry()
+	if err := registry.Register(&testDispatchActor{address: "session:*", err: errors.New("temporary")}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	rt, err := NewDispatchRuntime(RuntimeConfig{
+		Registry: registry,
+		AddressOf: func(env any) (string, error) {
+			v := env.(envelope)
+			return v.to, nil
+		},
+		Retry: retryAlways(),
+	})
+	if err != nil {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+	d := &testRuntimeDelivery{env: envelope{to: "session:s-1"}}
+	if err := rt.Handle(context.Background(), d); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !d.retried {
+		t.Fatal("Retry() was not called")
+	}
+}
+
+func TestDispatchRuntimeRunsSource(t *testing.T) {
+	registry := dispatch.NewMemoryRegistry()
+	actor := &testDispatchActor{address: "session:*"}
+	if err := registry.Register(actor); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	rt, err := NewDispatchRuntime(RuntimeConfig{
+		Registry: registry,
+		AddressOf: func(env any) (string, error) {
+			v := env.(envelope)
+			return v.to, nil
+		},
+		Retry: retryNever(),
+	})
+	if err != nil {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+	deliveries := []Delivery{
+		&testRuntimeDelivery{env: envelope{to: "session:s-1"}},
+		&testRuntimeDelivery{env: envelope{to: "session:s-2"}},
+	}
+	source := testDispatchSource{items: deliveries}
+	if err := rt.Run(context.Background(), source); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got := actor.calls; got != 2 {
+		t.Fatalf("actor calls = %d, want 2", got)
 	}
 }
 
