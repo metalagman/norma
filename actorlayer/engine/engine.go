@@ -146,7 +146,7 @@ func (r *DispatchRuntime) handleDelivery(ctx context.Context, delivery Delivery)
 	}
 	actor, found := r.registry.Resolve(strings.ToLower(address))
 	if !found {
-		return fmt.Errorf("actor not found: %s", strings.TrimSpace(address))
+		return &ResolveError{Address: strings.TrimSpace(address)}
 	}
 	return actor.Handle(ctx, delivery.Envelope())
 }
