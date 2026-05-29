@@ -19,6 +19,7 @@ type testRuntimeDelivery struct {
 	acked      bool
 	retried    bool
 	deadletter bool
+	lastReason string
 }
 
 func (d *testRuntimeDelivery) Envelope() any { return d.env }
@@ -38,7 +39,8 @@ func (d *testRuntimeDelivery) Retry(context.Context, time.Duration, string) erro
 	d.retried = true
 	return nil
 }
-func (d *testRuntimeDelivery) DeadLetter(context.Context, string) error {
+func (d *testRuntimeDelivery) DeadLetter(_ context.Context, reason string) error {
+	d.lastReason = reason
 	d.deadletter = true
 	return nil
 }
@@ -51,11 +53,15 @@ type testDispatchActor struct {
 	address string
 	err     error
 	calls   int
+	run     func(context.Context, any) error
 }
 
 func (a *testDispatchActor) Address() string { return a.address }
 func (a *testDispatchActor) Handle(_ context.Context, _ any) error {
 	a.calls++
+	if a.run != nil {
+		return a.run(context.Background(), nil)
+	}
 	return a.err
 }
 
@@ -424,6 +430,57 @@ func TestDispatchRuntimeDeadlettersOnResolveFailure(t *testing.T) {
 	}
 }
 
+func TestDispatchRuntimeLaneStatus(t *testing.T) {
+	registry := dispatch.NewMemoryRegistry()
+	release := make(chan struct{})
+	actor := &testDispatchActor{
+		address: "session:*",
+		run: func(_ context.Context, _ any) error {
+			<-release
+			return nil
+		},
+	}
+	if err := registry.Register(actor); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	rt, err := NewDispatchRuntime(RuntimeConfig{
+		Registry: registry,
+		AddressOf: func(env any) (string, error) {
+			return env.(envelope).to, nil
+		},
+		Retry: retryNever(),
+	})
+	if err != nil {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+	if got := rt.LaneStatus().Active; got != 0 {
+		t.Fatalf("LaneStatus().Active = %d, want 0", got)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- rt.Handle(context.Background(), &testRuntimeDelivery{env: envelope{to: "session:s-1"}})
+	}()
+	deadline := time.After(time.Second)
+	for {
+		status := rt.LaneStatus()
+		if status.Active == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for in-flight lane, status = %#v", status)
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if got := rt.LaneStatus().Active; got != 0 {
+		t.Fatalf("LaneStatus().Active after completion = %d, want 0", got)
+	}
+}
+
 func TestDispatchRuntimeRetriesOnActorError(t *testing.T) {
 	registry := dispatch.NewMemoryRegistry()
 	if err := registry.Register(&testDispatchActor{address: "session:*", err: errors.New("temporary")}); err != nil {
@@ -476,6 +533,57 @@ func TestDispatchRuntimeRunsSource(t *testing.T) {
 	}
 	if got := actor.calls; got != 2 {
 		t.Fatalf("actor calls = %d, want 2", got)
+	}
+}
+
+func TestDispatchRuntimeResolvesCaseInsensitiveAddress(t *testing.T) {
+	registry := dispatch.NewMemoryRegistry()
+	actor := &testDispatchActor{address: "session:*"}
+	if err := registry.Register(actor); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	rt, err := NewDispatchRuntime(RuntimeConfig{
+		Registry: registry,
+		AddressOf: func(env any) (string, error) {
+			return "  sEsSiOn:*  ", nil
+		},
+		Retry: retryNever(),
+	})
+	if err != nil {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+	d := &testRuntimeDelivery{env: envelope{to: "x"}}
+	if err := rt.Handle(context.Background(), d); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if actor.calls != 1 {
+		t.Fatalf("actor calls = %d, want 1", actor.calls)
+	}
+}
+
+func TestDispatchRuntimeRejectsBlankAddress(t *testing.T) {
+	registry := dispatch.NewMemoryRegistry()
+	if err := registry.Register(&testDispatchActor{address: "session:*"}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	rt, err := NewDispatchRuntime(RuntimeConfig{
+		Registry:  registry,
+		AddressOf: func(env any) (string, error) { return "   ", nil },
+		Retry:     retryNever(),
+	})
+	if err != nil {
+		t.Fatalf("NewDispatchRuntime() error = %v", err)
+	}
+	delivery := &testRuntimeDelivery{env: envelope{to: "x"}}
+	err = rt.Handle(context.Background(), delivery)
+	if err != nil {
+		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+	if !delivery.deadletter {
+		t.Fatal("DeadLetter() was not called")
+	}
+	if delivery.lastReason != "empty actor address" {
+		t.Fatalf("DeadLetter reason = %q, want %q", delivery.lastReason, "empty actor address")
 	}
 }
 

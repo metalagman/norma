@@ -128,12 +128,23 @@ func (r *DispatchRuntime) Run(ctx context.Context, source Source) error {
 	return r.runtime.Run(ctx, source, r.handleDelivery)
 }
 
+func (r *DispatchRuntime) LaneStatus() LaneStatus {
+	if r == nil || r.runtime == nil {
+		return LaneStatus{}
+	}
+	return r.runtime.LaneStatus()
+}
+
 func (r *DispatchRuntime) handleDelivery(ctx context.Context, delivery Delivery) error {
 	address, err := r.addressOf(delivery.Envelope())
 	if err != nil {
 		return err
 	}
-	actor, found := r.registry.Resolve(address)
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return fmt.Errorf("empty actor address")
+	}
+	actor, found := r.registry.Resolve(strings.ToLower(address))
 	if !found {
 		return fmt.Errorf("actor not found: %s", strings.TrimSpace(address))
 	}
