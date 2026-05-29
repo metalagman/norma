@@ -12,10 +12,13 @@ import (
 
 const unknownLaneKey = "unknown"
 
+// AddressResolver extracts a dispatch address from a delivery envelope.
 type AddressResolver func(envelope any) (string, error)
 
+// LaneKeyResolver derives the engine lane key for one delivery envelope.
 type LaneKeyResolver func(envelope any) string
 
+// Config configures the engine-backed runtime dispatcher.
 type Config struct {
 	Registry    dispatch.Registry
 	AddressOf   AddressResolver
@@ -25,12 +28,14 @@ type Config struct {
 	LaneIdleTTL time.Duration
 }
 
+// Runtime dispatches engine deliveries to actors resolved from a registry.
 type Runtime struct {
 	engine    *actorengine.Runtime
 	registry  dispatch.Registry
 	addressOf AddressResolver
 }
 
+// New constructs a Runtime backed by actorlayer/engine lane serialization.
 func New(cfg Config) (*Runtime, error) {
 	if cfg.Registry == nil {
 		return nil, fmt.Errorf("runtime registry is required")
@@ -50,6 +55,7 @@ func New(cfg Config) (*Runtime, error) {
 	return &Runtime{engine: engine, registry: cfg.Registry, addressOf: cfg.AddressOf}, nil
 }
 
+// Handle executes one engine delivery through registry dispatch.
 func (r *Runtime) Handle(ctx context.Context, delivery actorengine.Delivery) error {
 	if delivery == nil {
 		return nil
@@ -60,6 +66,7 @@ func (r *Runtime) Handle(ctx context.Context, delivery actorengine.Delivery) err
 	return r.engine.Handle(ctx, delivery, r.handleDelivery)
 }
 
+// Run consumes deliveries from source and handles them with registry dispatch.
 func (r *Runtime) Run(ctx context.Context, source actorengine.Source) error {
 	if r == nil || r.engine == nil {
 		return fmt.Errorf("runtime engine is required")

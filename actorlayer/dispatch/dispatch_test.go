@@ -2,7 +2,7 @@ package dispatch
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
 )
 
@@ -46,7 +46,7 @@ func TestMemoryRegistryRegisterRejectsEmptyAddress(t *testing.T) {
 	if err == nil {
 		t.Fatal("Register() error = nil, want non-nil")
 	}
-	if !errors.Is(err, err) {
-		t.Fatalf("Register() error = %v", err)
+	if !strings.Contains(err.Error(), "actor address is required") {
+		t.Fatalf("Register() error = %v, want actor address message", err)
 	}
 }
