@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/normahq/norma/actorlayer"
+	"github.com/normahq/norma/pkg/actorlayer"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 )

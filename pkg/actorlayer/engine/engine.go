@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/normahq/norma/actorlayer/dispatch"
+	"github.com/normahq/norma/pkg/actorlayer/dispatch"
 )
 
 type Delivery interface {

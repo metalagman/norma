@@ -18,7 +18,7 @@ func TestCorePackageHasNoADKDependencies(t *testing.T) {
 	forbidden := []string{
 		"google.golang.org/adk",
 		"google.golang.org/genai",
-		"github.com/normahq/norma/actoradapter/",
+		"github.com/normahq/norma/pkg/actoradapter/",
 	}
 
 	for _, entry := range entries {

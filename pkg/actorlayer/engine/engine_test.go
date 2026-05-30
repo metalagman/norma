@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/normahq/norma/actorlayer/dispatch"
+	"github.com/normahq/norma/pkg/actorlayer/dispatch"
 )
 
 type testRuntimeDelivery struct {

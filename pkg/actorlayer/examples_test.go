@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/normahq/norma/actorlayer"
+	"github.com/normahq/norma/pkg/actorlayer"
 )
 
 func ExampleAsk() {

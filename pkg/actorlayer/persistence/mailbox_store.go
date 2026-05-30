@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/normahq/norma/actorlayer"
+	"github.com/normahq/norma/pkg/actorlayer"
 )
 
 // MailboxStore defines persistent mailbox operations for at-least-once delivery.

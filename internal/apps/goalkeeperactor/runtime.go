@@ -11,8 +11,8 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	adk "github.com/normahq/norma/actoradapter/adk"
-	"github.com/normahq/norma/actorlayer"
+	adk "github.com/normahq/norma/pkg/actoradapter/adk"
+	"github.com/normahq/norma/pkg/actorlayer"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	"github.com/rs/zerolog"

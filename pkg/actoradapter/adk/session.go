@@ -3,7 +3,7 @@ package adk
 import (
 	"fmt"
 
-	"github.com/normahq/norma/actorlayer"
+	"github.com/normahq/norma/pkg/actorlayer"
 )
 
 // SessionPolicy resolves the ADK session ID for an incoming envelope.
