@@ -2338,6 +2338,18 @@ func TestAgentRunUsesInvocationLogger(t *testing.T) {
 	if !strings.Contains(invocationLogs, `"source":"invocation"`) {
 		t.Fatalf("invocation log missing source marker: %q", invocationLogs)
 	}
+	for _, mustContain := range []string{
+		`"session_id":"` + sess.Session.ID() + `"`,
+		`"adk_session_id":"` + sess.Session.ID() + `"`,
+		`"acp_session_id":"` + testSessionOneID + `"`,
+	} {
+		if !strings.Contains(invocationLogs, mustContain) {
+			t.Fatalf("invocation log missing %q: %q", mustContain, invocationLogs)
+		}
+	}
+	if strings.Contains(invocationLogs, `"session_id":"`+testSessionOneID+`"`) {
+		t.Fatalf("invocation log reused ACP session id as session_id: %q", invocationLogs)
+	}
 	for _, mustContain := range []string{"starting adk invocation", "sending acp session/prompt"} {
 		if !strings.Contains(invocationLogs, mustContain) {
 			t.Fatalf("invocation log missing %q: %q", mustContain, invocationLogs)

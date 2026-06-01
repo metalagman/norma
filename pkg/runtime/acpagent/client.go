@@ -321,7 +321,7 @@ func (c *Client) NewSessionWithMeta(
 		Str("cwd", cwd).
 		Int("mcp_servers", len(mcpServers))
 	if desiredSessionID != "" {
-		logEvent = logEvent.Str("session_id", desiredSessionID)
+		logEvent = logEvent.Str("requested_acp_session_id", desiredSessionID)
 	}
 	logEvent.Msg("sending acp session/new")
 
@@ -336,14 +336,14 @@ func (c *Client) NewSessionWithMeta(
 	}
 	if desiredSessionID != "" && acpSessionID != desiredSessionID {
 		l.Warn().
-			Str("session_id", desiredSessionID).
+			Str("requested_acp_session_id", desiredSessionID).
 			Str("acp_session_id", acpSessionID).
 			Msg("acp session/new returned different session id; using ACP session id")
 	}
 
 	successEvent := l.Debug().Str("acp_session_id", acpSessionID)
 	if desiredSessionID != "" {
-		successEvent = successEvent.Str("session_id", desiredSessionID)
+		successEvent = successEvent.Str("requested_acp_session_id", desiredSessionID)
 	}
 	successEvent.Msg("acp session/new succeeded")
 	return resp, nil
@@ -473,7 +473,7 @@ func (c *Client) logSessionRestoreStart(
 ) {
 	l := c.loggerForContext(ctx)
 	l.Debug().
-		Str("session_id", sessionID).
+		Str("acp_session_id", sessionID).
 		Str("cwd", cwd).
 		Int("mcp_servers", len(mcpServers)).
 		Msg("sending acp " + method)
@@ -482,7 +482,7 @@ func (c *Client) logSessionRestoreStart(
 func (c *Client) logSessionRestoreSuccess(ctx context.Context, method, sessionID string) {
 	l := c.loggerForContext(ctx)
 	l.Debug().
-		Str("session_id", sessionID).
+		Str("acp_session_id", sessionID).
 		Msg("acp " + method + " succeeded")
 }
 
@@ -527,7 +527,7 @@ func (c *Client) applySessionModelAndMode(
 		if err := c.SetSessionModel(ctx, sessionID, trimmedModel); err != nil {
 			if isACPMethodNotFoundError(err) {
 				l.Debug().
-					Str("session_id", sessionID).
+					Str("acp_session_id", sessionID).
 					Str("model", trimmedModel).
 					Msg("acp session/set_model unsupported; continuing")
 			} else {
@@ -543,7 +543,7 @@ func (c *Client) applySessionModelAndMode(
 		if err := c.SetSessionMode(ctx, sessionID, trimmedMode); err != nil {
 			if isACPMethodNotFoundError(err) {
 				l.Debug().
-					Str("session_id", sessionID).
+					Str("acp_session_id", sessionID).
 					Str("mode", trimmedMode).
 					Msg("acp session/set_mode unsupported; continuing")
 			} else {
@@ -568,7 +568,7 @@ func (c *Client) SetSessionModel(ctx context.Context, sessionID, model string) e
 
 	l := c.loggerForContext(ctx)
 	l.Debug().
-		Str("session_id", sessionID).
+		Str("acp_session_id", sessionID).
 		Str("model", trimmedModel).
 		Msg("sending acp session/set_model")
 	_, err := c.conn.UnstableSetSessionModel(ctx, acp.UnstableSetSessionModelRequest{
@@ -579,7 +579,7 @@ func (c *Client) SetSessionModel(ctx context.Context, sessionID, model string) e
 		return err
 	}
 	l.Debug().
-		Str("session_id", sessionID).
+		Str("acp_session_id", sessionID).
 		Str("model", trimmedModel).
 		Msg("acp session/set_model succeeded")
 	return nil
@@ -597,7 +597,7 @@ func (c *Client) SetSessionMode(ctx context.Context, sessionID, mode string) err
 
 	l := c.loggerForContext(ctx)
 	l.Debug().
-		Str("session_id", sessionID).
+		Str("acp_session_id", sessionID).
 		Str("mode", trimmedMode).
 		Msg("sending acp session/set_mode")
 	_, err := c.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
@@ -608,7 +608,7 @@ func (c *Client) SetSessionMode(ctx context.Context, sessionID, mode string) err
 		return err
 	}
 	l.Debug().
-		Str("session_id", sessionID).
+		Str("acp_session_id", sessionID).
 		Str("mode", trimmedMode).
 		Msg("acp session/set_mode succeeded")
 	return nil
@@ -688,7 +688,7 @@ func (c *Client) promptWithBlocks(
 
 	promptBlocks := append([]acp.ContentBlock(nil), prompt...)
 	logEvent := l.Debug().
-		Str("session_id", sessionID).
+		Str("acp_session_id", sessionID).
 		Int("prompt_blocks", len(promptBlocks))
 	if promptLen > 0 {
 		logEvent = logEvent.Int("prompt_len", promptLen)
@@ -709,13 +709,13 @@ func (c *Client) promptWithBlocks(
 			c.logLastChunkInSeries(activeSessionID)
 		}
 		if err != nil {
-			l.Error().Err(err).Str("session_id", sessionID).Msg("acp session/prompt failed")
+			l.Error().Err(err).Str("acp_session_id", sessionID).Msg("acp session/prompt failed")
 			resultCh <- PromptResult{Err: err}
 			return
 		}
 
 		l.Debug().
-			Str("session_id", sessionID).
+			Str("acp_session_id", sessionID).
 			Str("stop_reason", string(resp.StopReason)).
 			Interface("usage", resp.Usage).
 			Msg("acp session/prompt completed")
@@ -794,7 +794,7 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 		title = *params.ToolCall.Title
 	}
 	l.Debug().
-		Str("session_id", string(params.SessionId)).
+		Str("acp_session_id", string(params.SessionId)).
 		Str("title", title).
 		Int("option_count", len(params.Options)).
 		Msg("received acp permission request")
@@ -802,11 +802,11 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 	if c.permissionHandler != nil {
 		resp, err := c.permissionHandler(ctx, params)
 		if err != nil {
-			l.Error().Err(err).Str("session_id", string(params.SessionId)).Msg("permission handler failed")
+			l.Error().Err(err).Str("acp_session_id", string(params.SessionId)).Msg("permission handler failed")
 			return acp.RequestPermissionResponse{}, err
 		}
 		l.Debug().
-			Str("session_id", string(params.SessionId)).
+			Str("acp_session_id", string(params.SessionId)).
 			Str("outcome", permissionOutcomeLabel(resp.Outcome)).
 			Msg("permission handler returned")
 		return resp, nil
@@ -816,7 +816,7 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 		if option.Kind == acp.PermissionOptionKindRejectOnce || option.Kind == acp.PermissionOptionKindRejectAlways {
 			resp := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeSelected(option.OptionId)}
 			l.Debug().
-				Str("session_id", string(params.SessionId)).
+				Str("acp_session_id", string(params.SessionId)).
 				Str("option_id", string(option.OptionId)).
 				Str("option_kind", string(option.Kind)).
 				Msg("permission auto-selected reject option")
@@ -825,7 +825,7 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 	}
 
 	resp := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
-	l.Debug().Str("session_id", string(params.SessionId)).Msg("permission auto-cancelled")
+	l.Debug().Str("acp_session_id", string(params.SessionId)).Msg("permission auto-cancelled")
 	return resp, nil
 }
 
@@ -833,7 +833,7 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 func (c *Client) SessionUpdate(ctx context.Context, params acp.SessionNotification) error {
 	l := c.loggerForContext(ctx)
 	logEvent := l.Trace().
-		Str("session_id", string(params.SessionId)).
+		Str("acp_session_id", string(params.SessionId)).
 		Str("update_kind", sessionUpdateKind(params.Update))
 	logACPUpdateContentFields(logEvent, params.Update)
 	logACPUpdateChunkFields(logEvent, params.Update)
@@ -905,7 +905,7 @@ func (c *Client) logLastChunkInSeries(sessionID acp.SessionId) {
 	}
 
 	logEvent := sessionLogger.Debug().
-		Str("session_id", string(sessionID)).
+		Str("acp_session_id", string(sessionID)).
 		Str("update_kind", last.kind).
 		Bool("partial", last.partial).
 		Bool("thought", last.thought).
@@ -929,7 +929,7 @@ func (c *Client) enqueueUpdateFromWire(ext ExtendedSessionNotification) {
 	select {
 	case c.updates <- ext:
 	default:
-		c.logger.Warn().Str("session_id", string(ext.SessionId)).Msg("dropping ordered wire update due to full buffer")
+		c.logger.Warn().Str("acp_session_id", string(ext.SessionId)).Msg("dropping ordered wire update due to full buffer")
 	}
 }
 
@@ -993,7 +993,7 @@ func (c *Client) dispatchSessionUpdate(ext ExtendedSessionNotification) {
 		}
 	}
 	logEvent := sessionLogger.Trace().
-		Str("session_id", string(ext.SessionId)).
+		Str("acp_session_id", string(ext.SessionId)).
 		Str("update_kind", updateType)
 
 	if updateType == unknownValue {

@@ -298,7 +298,7 @@ func (a *Agent) Close() error {
 
 func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
-		logger := a.invocationLogger(ctx)
+		baseLogger := a.invocationLogger(ctx)
 
 		instructions, err := a.resolveInstructions(ctx)
 		if err != nil {
@@ -313,23 +313,24 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 
 		adkSessionID := ctx.Session().ID()
-		remoteSessionID, err := a.ensureRemoteSession(ctx, logger, adkSessionID)
+		logCtx, logger := a.sessionLogger(ctx, baseLogger, adkSessionID)
+
+		remoteSessionID, err := a.ensureRemoteSession(ctx, logCtx, logger, adkSessionID)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
-		if err := a.ensureInstructionInitialized(ctx, logger, adkSessionID, remoteSessionID, instructions); err != nil {
+		if err := a.ensureInstructionInitialized(logCtx, logger, adkSessionID, remoteSessionID, instructions); err != nil {
 			yield(nil, err)
 			return
 		}
 
 		logger.Debug().
-			Str("adk_session_id", adkSessionID).
 			Str("acp_session_id", remoteSessionID).
 			Int("prompt_len", len(prompt)).
 			Msg("starting adk invocation")
 
-		updates, resultCh, err := a.client.Prompt(ctx, remoteSessionID, prompt)
+		updates, resultCh, err := a.client.Prompt(logCtx, remoteSessionID, prompt)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -380,7 +381,6 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		}
 
 		logger.Debug().
-			Str("adk_session_id", adkSessionID).
 			Str("acp_session_id", remoteSessionID).
 			Msg("completed adk invocation")
 
@@ -437,7 +437,7 @@ func (a *Agent) maybePersistSessionState(event *session.Event, adkSessionID stri
 }
 
 func (a *Agent) ensureInstructionInitialized(
-	ctx adkagent.InvocationContext,
+	ctx context.Context,
 	logger zerolog.Logger,
 	adkSessionID string,
 	remoteSessionID string,
@@ -488,7 +488,7 @@ func (a *Agent) ensureInstructionInitialized(
 			a.bindingByADK[adkSessionID] = binding
 			a.sessionMu.Unlock()
 
-			initErr := a.runInstructionBootstrap(ctx, logger, adkSessionID, remoteSessionID, instructions)
+			initErr := a.runInstructionBootstrap(ctx, logger, remoteSessionID, instructions)
 
 			a.sessionMu.Lock()
 			updated, ok := a.bindingByADK[adkSessionID]
@@ -519,14 +519,12 @@ func (a *Agent) ensureInstructionInitialized(
 }
 
 func (a *Agent) runInstructionBootstrap(
-	ctx adkagent.InvocationContext,
+	ctx context.Context,
 	logger zerolog.Logger,
-	adkSessionID string,
 	remoteSessionID string,
 	instructions string,
 ) error {
 	logger.Debug().
-		Str("adk_session_id", adkSessionID).
 		Str("acp_session_id", remoteSessionID).
 		Int("instruction_len", len(instructions)).
 		Msg("initializing acp session instructions")
@@ -561,7 +559,6 @@ func (a *Agent) runInstructionBootstrap(
 	}
 
 	logger.Debug().
-		Str("adk_session_id", adkSessionID).
 		Str("acp_session_id", remoteSessionID).
 		Msg("acp session instructions initialized")
 	return nil
@@ -576,6 +573,14 @@ func (a *Agent) invocationLogger(ctx context.Context) zerolog.Logger {
 		return a.logger
 	}
 	return ctxLogger.With().Str("subcomponent", "acpagent.agent").Logger()
+}
+
+func (a *Agent) sessionLogger(ctx context.Context, base zerolog.Logger, adkSessionID string) (context.Context, zerolog.Logger) {
+	logger := base.With().
+		Str("session_id", adkSessionID).
+		Str("adk_session_id", adkSessionID).
+		Logger()
+	return logger.WithContext(ctx), logger
 }
 
 func (a *Agent) logADKEvent(logger zerolog.Logger, ev *session.Event, msg string) {
@@ -654,7 +659,7 @@ func mapACPLegacyUsageToUsageMetadata(usage map[string]any) *genai.GenerateConte
 	return m
 }
 
-func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerolog.Logger, adkSessionID string) (string, error) {
+func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx context.Context, logger zerolog.Logger, adkSessionID string) (string, error) {
 	a.sessionMu.Lock()
 	defer a.sessionMu.Unlock()
 
@@ -666,17 +671,15 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 	if binding, ok := a.bindingByADK[adkSessionID]; ok && binding.remoteSessionID != "" {
 		if binding.cwd != cfg.cwd || binding.metaJSON != cfg.metaJSON || (cfg.sessionID != "" && binding.remoteSessionID != cfg.sessionID) {
 			logger.Warn().
-				Str("adk_session_id", adkSessionID).
 				Str("acp_session_id", binding.remoteSessionID).
 				Str("bound_cwd", binding.cwd).
 				Str("requested_cwd", cfg.cwd).
-				Str("requested_session_id", cfg.sessionID).
+				Str("requested_acp_session_id", cfg.sessionID).
 				RawJSON("bound_meta", []byte(binding.metaJSON)).
 				RawJSON("requested_meta", []byte(cfg.metaJSON)).
 				Msg("acp session config changed for existing adk session; keeping existing acp session binding")
 		}
 		logger.Debug().
-			Str("adk_session_id", adkSessionID).
 			Str("acp_session_id", binding.remoteSessionID).
 			Msg("reusing acp session for adk session")
 		return binding.remoteSessionID, nil
@@ -685,13 +688,13 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 	if cfg.sessionID != "" {
 		resumeSupported := a.client.SupportsSessionResume()
 		if resumeSupported {
-			resumeResp, err := a.client.ResumeSessionWithMeta(ctx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
+			resumeResp, err := a.client.ResumeSessionWithMeta(logCtx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
 			if err == nil {
-				if err := a.client.applySessionModelAndMode(ctx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
+				if err := a.client.applySessionModelAndMode(logCtx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
 					return "", err
 				}
 				a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
-				a.logBoundRemoteSession(logger, "resumed acp session for adk session", adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON)
+				a.logBoundRemoteSession(logger, "resumed acp session for adk session", cfg.sessionID, cfg.cwd, cfg.metaJSON)
 				if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
 					return "", err
 				}
@@ -701,7 +704,6 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 			if isACPSessionNotFoundError(err) {
 				logger.Warn().
 					Err(err).
-					Str("adk_session_id", adkSessionID).
 					Str("acp_session_id", cfg.sessionID).
 					Msg("acp session resume unavailable; falling back to session/new")
 			} else {
@@ -709,18 +711,17 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 			}
 		} else {
 			logger.Debug().
-				Str("adk_session_id", adkSessionID).
 				Str("acp_session_id", cfg.sessionID).
 				Msg("acp agent does not advertise session/resume capability; using session/new")
 		}
 	}
-	resp, err := a.client.CreateSessionWithMeta(ctx, cfg.cwd, a.sessionModel, a.sessionMode, a.mcpServers, cfg.meta)
+	resp, err := a.client.CreateSessionWithMeta(logCtx, cfg.cwd, a.sessionModel, a.sessionMode, a.mcpServers, cfg.meta)
 	if err != nil {
 		return "", err
 	}
 	sessionID := string(resp.SessionId)
 	a.bindRemoteSession(adkSessionID, sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
-	a.logBoundRemoteSession(logger, "created new acp session for adk session", adkSessionID, sessionID, cfg.cwd, cfg.metaJSON)
+	a.logBoundRemoteSession(logger, "created new acp session for adk session", sessionID, cfg.cwd, cfg.metaJSON)
 	if err := a.persistRemoteSessionBinding(ctx, sessionID, cfg.metaJSON); err != nil {
 		return "", err
 	}
@@ -745,13 +746,11 @@ func (a *Agent) bindRemoteSession(
 func (a *Agent) logBoundRemoteSession(
 	logger zerolog.Logger,
 	message string,
-	adkSessionID string,
 	remoteSessionID string,
 	cwd string,
 	metaJSON string,
 ) {
 	event := logger.Debug().
-		Str("adk_session_id", adkSessionID).
 		Str("acp_session_id", remoteSessionID).
 		Str("cwd", cwd).
 		RawJSON("meta", []byte(metaJSON))
