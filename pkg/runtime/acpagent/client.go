@@ -608,7 +608,27 @@ func isACPSessionNotFoundError(err error) bool {
 	if !errors.As(err, &reqErr) {
 		return false
 	}
-	return strings.Contains(strings.ToLower(reqErr.Message), "not found")
+	if strings.Contains(strings.ToLower(reqErr.Message), "not found") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(acpRequestErrorDataString(reqErr.Data)), "session not found")
+}
+
+func acpRequestErrorDataString(data any) string {
+	switch value := data.(type) {
+	case nil:
+		return ""
+	case string:
+		return value
+	case []byte:
+		return string(value)
+	default:
+		encoded, err := json.Marshal(value)
+		if err == nil {
+			return string(encoded)
+		}
+		return fmt.Sprint(value)
+	}
 }
 
 // Prompt sends a prompt to an ACP session and streams session updates.

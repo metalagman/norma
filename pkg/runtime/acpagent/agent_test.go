@@ -216,6 +216,58 @@ func TestClientCreateSessionFailsOnSetModeRequestError(t *testing.T) {
 	}
 }
 
+func TestIsACPSessionNotFoundError(t *testing.T) {
+	testCases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "message contains not found",
+			err: &acp.RequestError{
+				Code:    -32000,
+				Message: "Requested entity was not found.",
+			},
+			want: true,
+		},
+		{
+			name: "data string contains session not found",
+			err: &acp.RequestError{
+				Code:    -32602,
+				Message: "Invalid params",
+				Data:    "session not found",
+			},
+			want: true,
+		},
+		{
+			name: "data object contains session not found",
+			err: &acp.RequestError{
+				Code:    -32602,
+				Message: "Invalid params",
+				Data:    map[string]any{"detail": "session not found"},
+			},
+			want: true,
+		},
+		{
+			name: "invalid params without stale session text",
+			err: &acp.RequestError{
+				Code:    -32602,
+				Message: "Invalid params",
+				Data:    "workspace not found",
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isACPSessionNotFoundError(tc.err); got != tc.want {
+				t.Fatalf("isACPSessionNotFoundError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestClientSuppressesPeerDisconnectInfoByDefault(t *testing.T) {
 	prev := zerolog.GlobalLevel()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
@@ -1638,6 +1690,13 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 			},
 			sessionID: "stale-session",
 		},
+		{
+			name: "invalid params with session not found data",
+			env: map[string]string{
+				"GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
+			},
+			sessionID: "stale-session-data",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2674,6 +2733,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	disableSetMode := os.Getenv("GO_DISABLE_SET_MODE") == "1"
 	failResumeMethodNotFound := os.Getenv("GO_FAIL_RESUME_METHOD_NOT_FOUND") == "1"
 	failResumeEntityNotFound := os.Getenv("GO_FAIL_RESUME_ENTITY_NOT_FOUND") == "1"
+	failResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
 	failLoadMethodNotFound := os.Getenv("GO_FAIL_LOAD_METHOD_NOT_FOUND") == "1"
 	failLoadEntityNotFound := os.Getenv("GO_FAIL_LOAD_ENTITY_NOT_FOUND") == "1"
 	failFirstPromptEntityNotFound := os.Getenv("GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND") == "1"
@@ -2739,6 +2799,18 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 				Error: &helperError{
 					Code:    500,
 					Message: "Requested entity was not found.",
+				},
+			})
+			return
+		}
+		if method == "session/resume" && failResumeInvalidParamsSessionNotFound {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error: &helperError{
+					Code:    -32602,
+					Message: "Invalid params",
+					Data:    "session not found",
 				},
 			})
 			return
@@ -3118,6 +3190,7 @@ type helperEnvelope struct {
 type helperError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 type helperInitializeResponse struct {
