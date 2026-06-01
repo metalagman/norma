@@ -195,7 +195,12 @@ const (
 //
 // ACP session IDs are agent-owned. The adapter persists the canonical ACP
 // session id under [SessionStateKey].session_id and uses that value for
-// session/resume (falling back to session/load when resume is unsupported).
+// session/resume when the ACP agent advertises resume capability.
+//
+// ACP session/load is not used by this adapter. Per ACP v1, load replays prior
+// history; until that replay is intentionally mapped into ADK-visible history,
+// the adapter restores only through session/resume or creates a new ACP
+// session.
 //
 // Restored sessions always reapply startup instructions on the first
 // post-resume invocation so session-start context derived from current ADK
@@ -678,50 +683,37 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 	}
 
 	if cfg.sessionID != "" {
-		resumeResp, err := a.client.ResumeSessionWithMeta(ctx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
-		if err == nil {
-			if err := a.client.applySessionModelAndMode(ctx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
-				return "", err
-			}
-			a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
-			a.logBoundRemoteSession(logger, "resumed acp session for adk session", adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON)
-			if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
-				return "", err
-			}
-			return cfg.sessionID, nil
-		}
-
-		if isACPMethodNotFoundError(err) {
-			loadResp, loadErr := a.client.LoadSessionWithMeta(ctx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
-			if loadErr == nil {
-				if err := a.client.applySessionModelAndMode(ctx, cfg.sessionID, a.sessionModel, a.sessionMode, loadResp.Models, loadResp.Modes); err != nil {
+		resumeSupported := a.client.SupportsSessionResume()
+		if resumeSupported {
+			resumeResp, err := a.client.ResumeSessionWithMeta(ctx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
+			if err == nil {
+				if err := a.client.applySessionModelAndMode(ctx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
 					return "", err
 				}
-				a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON, instructionInitDone)
-				a.logBoundRemoteSession(logger, "loaded acp session for adk session", adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON)
+				a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
+				a.logBoundRemoteSession(logger, "resumed acp session for adk session", adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON)
 				if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
 					return "", err
 				}
 				return cfg.sessionID, nil
 			}
-			if !isACPMethodNotFoundError(loadErr) && !isACPSessionNotFoundError(loadErr) {
-				return "", fmt.Errorf("load acp session %q: %w", cfg.sessionID, loadErr)
+
+			if isACPSessionNotFoundError(err) {
+				logger.Warn().
+					Err(err).
+					Str("adk_session_id", adkSessionID).
+					Str("acp_session_id", cfg.sessionID).
+					Msg("acp session resume unavailable; falling back to session/new")
+			} else {
+				return "", fmt.Errorf("resume acp session %q: %w", cfg.sessionID, err)
 			}
-			logger.Warn().
-				Err(loadErr).
+		} else {
+			logger.Debug().
 				Str("adk_session_id", adkSessionID).
 				Str("acp_session_id", cfg.sessionID).
-				Msg("acp session load unavailable; falling back to session/new")
-		} else if !isACPSessionNotFoundError(err) {
-			return "", fmt.Errorf("resume acp session %q: %w", cfg.sessionID, err)
+				Msg("acp agent does not advertise session/resume capability; using session/new")
 		}
-		logger.Warn().
-			Err(err).
-			Str("adk_session_id", adkSessionID).
-			Str("acp_session_id", cfg.sessionID).
-			Msg("acp session resume unavailable; falling back to session/new")
 	}
-
 	resp, err := a.client.CreateSessionWithMeta(ctx, cfg.cwd, a.sessionModel, a.sessionMode, a.mcpServers, cfg.meta)
 	if err != nil {
 		return "", err

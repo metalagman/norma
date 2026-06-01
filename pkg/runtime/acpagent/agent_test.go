@@ -1486,6 +1486,7 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_SUPPORT_SESSION_RESUME":    "1",
 			"GO_EXPECT_RESUME_SESSION_ID":  sessionID,
 			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
 			"GO_EXPECT_RESUME_META_RAW":    string(metaJSON),
@@ -1548,6 +1549,7 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_SUPPORT_SESSION_RESUME":    "1",
 			"GO_EXPECT_RESUME_SESSION_ID":  callerSessionID,
 			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
 			"GO_EXPECT_PROMPTS":            string(expectedPromptsRaw),
@@ -1594,73 +1596,14 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	}
 }
 
-func TestAgentIgnoresLegacyPersistedSessionIDWithoutSessionID(t *testing.T) {
+func TestAgentUsesNewSessionWhenResumeCapabilityMissing(t *testing.T) {
 	workingDir := t.TempDir()
-	legacySessionID := "legacy-session"
-	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
-	if err != nil {
-		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
-	}
-
-	a, err := New(Config{
-		Context: context.Background(),
-		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_PROMPTS": string(expectedPromptsRaw),
-		}),
-		WorkingDir: workingDir,
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer func() { _ = a.Close() }()
-
-	sessionService := session.InMemoryService()
-	r, err := runnerpkg.New(runnerpkg.Config{
-		AppName:        "test-app",
-		Agent:          a,
-		SessionService: sessionService,
-	})
-	if err != nil {
-		t.Fatalf("runner.New() error = %v", err)
-	}
-	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
-		AppName: "test-app",
-		UserID:  "test-user",
-		State: map[string]any{
-			"cwd": workingDir,
-			"acp_session": map[string]any{
-				"persisted_session_id": legacySessionID,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-
-	finalText, finalSessionState := collectFinalTextAndSessionState(
-		t,
-		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
-	)
-	if finalText != testSessionOneHello {
-		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
-	}
-	if got := finalSessionState["session_id"]; got != testSessionOneID {
-		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
-	}
-}
-
-func TestAgentLoadsSessionWhenResumeUnsupported(t *testing.T) {
-	workingDir := t.TempDir()
-	sessionID := "session-load-1"
+	sessionID := "session-new-when-no-resume"
 	meta := map[string]any{
 		"codex": map[string]any{
 			"approvalMode": "manual",
 		},
 	}
-	metaJSON, err := json.Marshal(meta)
-	if err != nil {
-		t.Fatalf("json.Marshal(meta) error = %v", err)
-	}
 	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
 	if err != nil {
 		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
@@ -1669,11 +1612,10 @@ func TestAgentLoadsSessionWhenResumeUnsupported(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_FAIL_RESUME_METHOD_NOT_FOUND": "1",
-			"GO_EXPECT_LOAD_SESSION_ID":       sessionID,
-			"GO_EXPECT_LOAD_SESSION_CWD":      workingDir,
-			"GO_EXPECT_LOAD_META_RAW":         string(metaJSON),
-			"GO_EXPECT_PROMPTS":               string(expectedPromptsRaw),
+			"GO_SUPPORT_LOAD_SESSION":  "1",
+			"GO_FAIL_IF_RESUME_CALLED": "1",
+			"GO_FAIL_IF_LOAD_CALLED":   "1",
+			"GO_EXPECT_PROMPTS":        string(expectedPromptsRaw),
 		}),
 		WorkingDir: workingDir,
 	})
@@ -1710,11 +1652,11 @@ func TestAgentLoadsSessionWhenResumeUnsupported(t *testing.T) {
 		t,
 		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
 	)
-	if finalText != sessionID+":hello" {
-		t.Fatalf("final text = %q, want %q", finalText, sessionID+":hello")
+	if finalText != testSessionOneHello {
+		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
 	}
-	if got := finalSessionState["session_id"]; got != sessionID {
-		t.Fatalf("final %s.session_id = %v, want %q", SessionStateKey, got, sessionID)
+	if got := finalSessionState["session_id"]; got != testSessionOneID {
+		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
 	}
 }
 
@@ -1725,16 +1667,17 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 		sessionID string
 	}{
 		{
-			name: "unsupported",
+			name: "resume capability missing",
 			env: map[string]string{
-				"GO_FAIL_RESUME_METHOD_NOT_FOUND": "1",
-				"GO_FAIL_LOAD_METHOD_NOT_FOUND":   "1",
+				"GO_FAIL_IF_RESUME_CALLED": "1",
+				"GO_FAIL_IF_LOAD_CALLED":   "1",
 			},
 			sessionID: "missing-session",
 		},
 		{
 			name: "missing",
 			env: map[string]string{
+				"GO_SUPPORT_SESSION_RESUME":       "1",
 				"GO_FAIL_RESUME_ENTITY_NOT_FOUND": "1",
 			},
 			sessionID: "stale-session",
@@ -1742,6 +1685,9 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 		{
 			name: "invalid params with session not found data",
 			env: map[string]string{
+				"GO_SUPPORT_SESSION_RESUME":                       "1",
+				"GO_SUPPORT_LOAD_SESSION":                         "1",
+				"GO_FAIL_IF_LOAD_CALLED":                          "1",
 				"GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
 			},
 			sessionID: "stale-session-data",
@@ -1835,8 +1781,11 @@ func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
 	firstAgent, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_SUPPORT_SESSION_RESUME":                             "1",
+			"GO_SUPPORT_LOAD_SESSION":                               "1",
+			"GO_FAIL_IF_LOAD_CALLED":                                "1",
 			"GO_FAIL_FIRST_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
-			"GO_EXPECT_PROMPTS": string(firstPromptsRaw),
+			"GO_EXPECT_PROMPTS":                                     string(firstPromptsRaw),
 		}),
 		WorkingDir: workingDir,
 	})
@@ -1892,6 +1841,7 @@ func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
 	secondAgent, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_SUPPORT_SESSION_RESUME":    "1",
 			"GO_EXPECT_RESUME_SESSION_ID":  testSessionOneID,
 			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
 			"GO_EXPECT_PROMPTS":            string(secondPromptsRaw),
@@ -1932,6 +1882,7 @@ func TestAgentReappliesInstructionBootstrapAfterResume(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_SUPPORT_SESSION_RESUME":    "1",
 			"GO_EXPECT_PROMPTS":            string(expectedPromptsRaw),
 			"GO_EXPECT_RESUME_SESSION_ID":  sessionID,
 			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
@@ -2885,6 +2836,8 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedLoadSessionID := os.Getenv("GO_EXPECT_LOAD_SESSION_ID")
 	expectedLoadSessionCWD := os.Getenv("GO_EXPECT_LOAD_SESSION_CWD")
 	expectedLoadMetaRaw := os.Getenv("GO_EXPECT_LOAD_META_RAW")
+	supportSessionResume := os.Getenv("GO_SUPPORT_SESSION_RESUME") == "1"
+	supportLoadSession := os.Getenv("GO_SUPPORT_LOAD_SESSION") == "1"
 	expectedPromptsRaw := os.Getenv("GO_EXPECT_PROMPTS")
 	forceNewSessionID := os.Getenv("GO_FORCE_NEW_SESSION_ID")
 	disableSetModel := os.Getenv("GO_DISABLE_SET_MODEL") == "1"
@@ -2896,6 +2849,8 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	failLoadMethodNotFound := os.Getenv("GO_FAIL_LOAD_METHOD_NOT_FOUND") == "1"
 	failLoadEntityNotFound := os.Getenv("GO_FAIL_LOAD_ENTITY_NOT_FOUND") == "1"
 	failFirstPromptEntityNotFound := os.Getenv("GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND") == "1"
+	failIfResumeCalled := os.Getenv("GO_FAIL_IF_RESUME_CALLED") == "1"
+	failIfLoadCalled := os.Getenv("GO_FAIL_IF_LOAD_CALLED") == "1"
 	resumeCount := 0
 	var expectedPrompts []string
 	if strings.TrimSpace(expectedPromptsRaw) != "" {
@@ -2910,6 +2865,22 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 		failMethodNotFound bool,
 		failEntityNotFound bool,
 	) {
+		if method == acp.AgentMethodSessionResume && failIfResumeCalled {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error:   &helperError{Code: -32000, Message: "session/resume should not have been called"},
+			})
+			return
+		}
+		if method == acp.AgentMethodSessionLoad && failIfLoadCalled {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error:   &helperError{Code: -32000, Message: "session/load should not have been called"},
+			})
+			return
+		}
 		if method == acp.AgentMethodSessionResume {
 			resumeCount++
 		}
@@ -3016,7 +2987,19 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 				})
 				continue
 			}
-			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperInitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber})})
+			initResp := helperInitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber}
+			if supportSessionResume || supportLoadSession {
+				initResp.AgentCapabilities = &helperAgentCapabilities{}
+				if supportLoadSession {
+					initResp.AgentCapabilities.LoadSession = true
+				}
+				if supportSessionResume {
+					initResp.AgentCapabilities.SessionCapabilities = &helperSessionCapabilities{
+						Resume: &helperSessionResumeCapabilities{},
+					}
+				}
+			}
+			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(initResp)})
 		case acp.AgentMethodSessionNew:
 			var req helperNewSessionRequest
 			must(json.Unmarshal(msg.Params, &req))
@@ -3369,12 +3352,24 @@ type helperError struct {
 }
 
 type helperInitializeResponse struct {
-	ProtocolVersion int `json:"protocolVersion"`
+	AgentCapabilities *helperAgentCapabilities `json:"agentCapabilities,omitempty"`
+	ProtocolVersion   int                      `json:"protocolVersion"`
 }
 
 type helperInitializeRequest struct {
 	ClientInfo helperImplementation `json:"clientInfo"`
 }
+
+type helperAgentCapabilities struct {
+	LoadSession         bool                       `json:"loadSession,omitempty"`
+	SessionCapabilities *helperSessionCapabilities `json:"sessionCapabilities,omitempty"`
+}
+
+type helperSessionCapabilities struct {
+	Resume *helperSessionResumeCapabilities `json:"resume,omitempty"`
+}
+
+type helperSessionResumeCapabilities struct{}
 
 type helperImplementation struct {
 	Name    string `json:"name"`

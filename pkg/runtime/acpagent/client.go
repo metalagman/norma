@@ -98,6 +98,7 @@ type Client struct {
 	activeBySession map[acp.SessionId]*activePrompt
 	updates         chan ExtendedSessionNotification
 	deactivate      chan acp.SessionId
+	agentCaps       acp.AgentCapabilities
 
 	closed       chan struct{}
 	dispatchDone chan struct{}
@@ -244,8 +245,23 @@ func (c *Client) Initialize(ctx context.Context) (acp.InitializeResponse, error)
 	if resp.ProtocolVersion != acp.ProtocolVersion(acp.ProtocolVersionNumber) {
 		return acp.InitializeResponse{}, fmt.Errorf("unsupported acp protocol version %d", resp.ProtocolVersion)
 	}
+	c.stateMu.Lock()
+	c.agentCaps = resp.AgentCapabilities
+	c.stateMu.Unlock()
 	l.Debug().Int("protocol_version", int(resp.ProtocolVersion)).Msg("acp initialize succeeded")
 	return resp, nil
+}
+
+func (c *Client) SupportsSessionLoad() bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.agentCaps.LoadSession
+}
+
+func (c *Client) SupportsSessionResume() bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.agentCaps.SessionCapabilities.Resume != nil
 }
 
 // Authenticate requests ACP authentication for a specific method.

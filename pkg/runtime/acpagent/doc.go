@@ -29,7 +29,7 @@
 //     for ACP session creation.
 //   - The adapter persists the canonical ACP session ID under
 //     `state[SessionStateKey].session_id` and uses that value for
-//     ACP session/resume first, then session/load when resume is unsupported.
+//     ACP session/resume when the ACP agent advertises resume capability.
 //   - As soon as the adapter binds a remote ACP session, it stores the
 //     canonical ACP session ID in the live ADK session state under
 //     `state[SessionStateKey]`.
@@ -38,6 +38,9 @@
 //     derived from current ADK state is refreshed before the user prompt.
 //   - If `state[SessionStateKey].session_id` is absent, the runtime creates a
 //     new ACP session.
+//   - The adapter does not use ACP `session/load`; ACP v1 load replays prior
+//     history, and this adapter does not yet map that replay into ADK-visible
+//     history.
 //   - If `state[SessionStateKey].meta` is set, it is passed through to ACP
 //     session/new._meta and session/resume._meta.
 //   - Overrides are read when the ACP session is first created for the ADK
