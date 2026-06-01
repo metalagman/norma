@@ -170,8 +170,7 @@ const (
 	// Each ACP session/update.plan notification is projected into
 	// event.Actions.StateDelta[PlanStateKey] as the authoritative full plan
 	// replacement snapshot.
-	PlanStateKey                = "acp_plan"
-	legacyPersistedSessionIDKey = "persisted_session_id"
+	PlanStateKey = "acp_plan"
 )
 
 var _ adkagent.Agent = (*Agent)(nil)
@@ -904,18 +903,6 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 		}
 		cfg.sessionID = strings.TrimSpace(sessionID)
 	}
-	if cfg.sessionID == "" {
-		rawPersistedSessionID, ok := state[legacyPersistedSessionIDKey]
-		if !ok {
-			return normalizeACPConfigCWD(cfg)
-		}
-		persistedSessionID, ok := rawPersistedSessionID.(string)
-		if !ok {
-			return acpSessionConfig{}, fmt.Errorf("adk session state %q.%s must be a string; got %T", SessionStateKey, legacyPersistedSessionIDKey, rawPersistedSessionID)
-		}
-		cfg.sessionID = strings.TrimSpace(persistedSessionID)
-	}
-
 	return normalizeACPConfigCWD(cfg)
 }
 

@@ -1593,6 +1593,61 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	}
 }
 
+func TestAgentIgnoresLegacyPersistedSessionIDWithoutSessionID(t *testing.T) {
+	workingDir := t.TempDir()
+	legacySessionID := "legacy-session"
+	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_PROMPTS": string(expectedPromptsRaw),
+		}),
+		WorkingDir: workingDir,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"persisted_session_id": legacySessionID,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	finalText, finalSessionState := collectFinalTextAndSessionState(
+		t,
+		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
+	)
+	if finalText != testSessionOneHello {
+		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
+	}
+	if got := finalSessionState["session_id"]; got != "session-1" {
+		t.Fatalf("final %s.session_id = %v, want session-1", SessionStateKey, got)
+	}
+}
+
 func TestAgentLoadsSessionWhenResumeUnsupported(t *testing.T) {
 	workingDir := t.TempDir()
 	sessionID := "session-load-1"

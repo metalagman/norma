@@ -36,8 +36,8 @@
 //   - When an ACP session is resumed, the adapter reapplies startup
 //     instructions on the first post-resume invocation so session-start context
 //     derived from current ADK state is refreshed before the user prompt.
-//   - If no canonical persisted session id is present, the runtime creates
-//     a new ACP session.
+//   - If `state[SessionStateKey].session_id` is absent, the runtime creates a
+//     new ACP session.
 //   - If `state[SessionStateKey].meta` is set, it is passed through to ACP
 //     session/new._meta and session/resume._meta.
 //   - Overrides are read when the ACP session is first created for the ADK
