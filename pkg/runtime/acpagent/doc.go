@@ -32,6 +32,9 @@
 //     ACP session/resume first, then session/load when resume is unsupported.
 //   - `state[SessionStateKey].session_id` mirrors the canonical value for
 //     visibility, but it is not authoritative for resume targeting.
+//   - As soon as the adapter binds a remote ACP session, it stores the
+//     canonical ACP session ID in the live ADK session state under
+//     `state[SessionStateKey]`.
 //   - When an ACP session is resumed, the adapter reapplies startup
 //     instructions on the first post-resume invocation so session-start context
 //     derived from current ADK state is refreshed before the user prompt.

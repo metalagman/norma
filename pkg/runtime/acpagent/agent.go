@@ -85,6 +85,9 @@ type Config struct {
 	Logger *zerolog.Logger
 	// MCPServers is the map of MCP server configurations.
 	MCPServers map[string]MCPServerConfig
+	// SessionService is ignored. ACP session bindings are recorded through the
+	// ADK session state exposed by the invocation context.
+	SessionService session.Service
 	// SessionID is an optional desired session ID to request when creating ACP sessions.
 	// It is sent via session/new _meta.sessionId and may be ignored by some ACP runtimes.
 	SessionID string
@@ -426,16 +429,7 @@ func (a *Agent) maybePersistSessionState(event *session.Event, adkSessionID stri
 		return
 	}
 
-	acpState := map[string]any{
-		"session_id":          binding.remoteSessionID,
-		persistedSessionIDKey: binding.remoteSessionID,
-	}
-	if strings.TrimSpace(binding.metaJSON) != "" && binding.metaJSON != "{}" {
-		var meta map[string]any
-		if err := json.Unmarshal([]byte(binding.metaJSON), &meta); err == nil && len(meta) > 0 {
-			acpState["meta"] = meta
-		}
-	}
+	acpState := buildACPState(binding.remoteSessionID, binding.metaJSON)
 
 	if event.Actions.StateDelta == nil {
 		event.Actions.StateDelta = make(map[string]any)
@@ -695,24 +689,11 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 			if err := a.client.applySessionModelAndMode(ctx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
 				return "", err
 			}
-			a.bindingByADK[adkSessionID] = acpSessionBinding{
-				remoteSessionID: cfg.sessionID,
-				cwd:             cfg.cwd,
-				metaJSON:        cfg.metaJSON,
-				instructionInit: instructionInitPending,
+			a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
+			a.logBoundRemoteSession(logger, "resumed acp session for adk session", adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON)
+			if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
+				return "", err
 			}
-			event := logger.Debug().
-				Str("adk_session_id", adkSessionID).
-				Str("acp_session_id", cfg.sessionID).
-				Str("cwd", cfg.cwd).
-				RawJSON("meta", []byte(cfg.metaJSON))
-			if a.sessionModel != "" {
-				event = event.Str("model", a.sessionModel)
-			}
-			if a.sessionMode != "" {
-				event = event.Str("mode", a.sessionMode)
-			}
-			event.Msg("resumed acp session for adk session")
 			return cfg.sessionID, nil
 		}
 
@@ -722,24 +703,11 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 				if err := a.client.applySessionModelAndMode(ctx, cfg.sessionID, a.sessionModel, a.sessionMode, loadResp.Models, loadResp.Modes); err != nil {
 					return "", err
 				}
-				a.bindingByADK[adkSessionID] = acpSessionBinding{
-					remoteSessionID: cfg.sessionID,
-					cwd:             cfg.cwd,
-					metaJSON:        cfg.metaJSON,
-					instructionInit: instructionInitDone,
+				a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON, instructionInitDone)
+				a.logBoundRemoteSession(logger, "loaded acp session for adk session", adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON)
+				if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
+					return "", err
 				}
-				event := logger.Debug().
-					Str("adk_session_id", adkSessionID).
-					Str("acp_session_id", cfg.sessionID).
-					Str("cwd", cfg.cwd).
-					RawJSON("meta", []byte(cfg.metaJSON))
-				if a.sessionModel != "" {
-					event = event.Str("model", a.sessionModel)
-				}
-				if a.sessionMode != "" {
-					event = event.Str("mode", a.sessionMode)
-				}
-				event.Msg("loaded acp session for adk session")
 				return cfg.sessionID, nil
 			}
 			if !isACPMethodNotFoundError(loadErr) && !isACPSessionNotFoundError(loadErr) {
@@ -765,25 +733,142 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logger zerol
 		return "", err
 	}
 	sessionID := string(resp.SessionId)
-	a.bindingByADK[adkSessionID] = acpSessionBinding{
-		remoteSessionID: sessionID,
-		cwd:             cfg.cwd,
-		metaJSON:        cfg.metaJSON,
-		instructionInit: instructionInitPending,
+	a.bindRemoteSession(adkSessionID, sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
+	a.logBoundRemoteSession(logger, "created new acp session for adk session", adkSessionID, sessionID, cfg.cwd, cfg.metaJSON)
+	if err := a.persistRemoteSessionBinding(ctx, sessionID, cfg.metaJSON); err != nil {
+		return "", err
 	}
+	return sessionID, nil
+}
+
+func (a *Agent) bindRemoteSession(
+	adkSessionID string,
+	remoteSessionID string,
+	cwd string,
+	metaJSON string,
+	initState instructionInitState,
+) {
+	a.bindingByADK[adkSessionID] = acpSessionBinding{
+		remoteSessionID: remoteSessionID,
+		cwd:             cwd,
+		metaJSON:        metaJSON,
+		instructionInit: initState,
+	}
+}
+
+func (a *Agent) logBoundRemoteSession(
+	logger zerolog.Logger,
+	message string,
+	adkSessionID string,
+	remoteSessionID string,
+	cwd string,
+	metaJSON string,
+) {
 	event := logger.Debug().
 		Str("adk_session_id", adkSessionID).
-		Str("acp_session_id", sessionID).
-		Str("cwd", cfg.cwd).
-		RawJSON("meta", []byte(cfg.metaJSON))
+		Str("acp_session_id", remoteSessionID).
+		Str("cwd", cwd).
+		RawJSON("meta", []byte(metaJSON))
 	if a.sessionModel != "" {
 		event = event.Str("model", a.sessionModel)
 	}
 	if a.sessionMode != "" {
 		event = event.Str("mode", a.sessionMode)
 	}
-	event.Msg("created new acp session for adk session")
-	return sessionID, nil
+	event.Msg(message)
+}
+
+func buildACPState(remoteSessionID, metaJSON string) map[string]any {
+	acpState := map[string]any{
+		"session_id":          remoteSessionID,
+		persistedSessionIDKey: remoteSessionID,
+	}
+	if strings.TrimSpace(metaJSON) == "" || metaJSON == "{}" {
+		return acpState
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(metaJSON), &meta); err == nil && len(meta) > 0 {
+		acpState["meta"] = meta
+	}
+	return acpState
+}
+
+func (a *Agent) persistRemoteSessionBinding(
+	ctx adkagent.InvocationContext,
+	remoteSessionID string,
+	metaJSON string,
+) error {
+	if ctx == nil || ctx.Session() == nil || strings.TrimSpace(remoteSessionID) == "" {
+		return nil
+	}
+
+	acpState := buildACPState(remoteSessionID, metaJSON)
+	if currentACPStateMatches(ctx.Session(), remoteSessionID, metaJSON) {
+		if err := ctx.Session().State().Set(SessionStateKey, cloneAnyMap(acpState)); err != nil {
+			return fmt.Errorf("set live acp session state: %w", err)
+		}
+		return nil
+	}
+
+	if err := ctx.Session().State().Set(SessionStateKey, cloneAnyMap(acpState)); err != nil {
+		return fmt.Errorf("set live acp session state: %w", err)
+	}
+	return nil
+}
+
+func currentACPStateMatches(sess session.Session, remoteSessionID, metaJSON string) bool {
+	if sess == nil {
+		return false
+	}
+	rawState, err := sess.State().Get(SessionStateKey)
+	if err != nil {
+		return false
+	}
+	state, ok := rawState.(map[string]any)
+	if !ok {
+		return false
+	}
+	storedSessionID, _ := state["session_id"].(string)
+	storedPersistedSessionID, _ := state[persistedSessionIDKey].(string)
+	if strings.TrimSpace(storedSessionID) != strings.TrimSpace(remoteSessionID) {
+		return false
+	}
+	if strings.TrimSpace(storedPersistedSessionID) != strings.TrimSpace(remoteSessionID) {
+		return false
+	}
+	return normalizeACPStateMetaJSON(state["meta"]) == normalizeACPStateMetaJSONFromRaw(metaJSON)
+}
+
+func normalizeACPStateMetaJSON(raw any) string {
+	if raw == nil {
+		return "{}"
+	}
+	switch value := raw.(type) {
+	case map[string]any:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return "{}"
+		}
+		return string(encoded)
+	default:
+		return "{}"
+	}
+}
+
+func normalizeACPStateMetaJSONFromRaw(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "{}" {
+		return "{}"
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &meta); err != nil {
+		return "{}"
+	}
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return "{}"
+	}
+	return string(encoded)
 }
 
 func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSessionConfig, error) {
