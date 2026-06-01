@@ -159,10 +159,8 @@ const (
 	//
 	// The value at this key must be an object with optional fields:
 	//   - "meta" (object): forwarded to ACP session/new._meta
-	//   - "session_id" (string): ACP session id persisted by this adapter
-	//     for diagnostics and downstream visibility.
-	//   - "persisted_session_id" (string): canonical ACP session id persisted
-	//     by this adapter and used for ACP session/resume.
+	//   - "session_id" (string): ACP session id persisted by this adapter and
+	//     used for ACP session/resume.
 	//
 	// Set it before the first invocation in a given ADK session; once that ADK
 	// session is bound to an ACP session, later changes do not rebind.
@@ -172,9 +170,8 @@ const (
 	// Each ACP session/update.plan notification is projected into
 	// event.Actions.StateDelta[PlanStateKey] as the authoritative full plan
 	// replacement snapshot.
-	PlanStateKey = "acp_plan"
-	// persistedSessionIDKey stores the canonical ACP session id used for resume.
-	persistedSessionIDKey = "persisted_session_id"
+	PlanStateKey                = "acp_plan"
+	legacyPersistedSessionIDKey = "persisted_session_id"
 )
 
 var _ adkagent.Agent = (*Agent)(nil)
@@ -197,11 +194,9 @@ const (
 //   - [SessionStateKey].meta (object): forwarded to ACP session/new._meta and
 //     session/resume._meta
 //
-// ACP session IDs are agent-owned. The adapter persists a canonical ACP session
-// id under [SessionStateKey].persisted_session_id and uses that value for
+// ACP session IDs are agent-owned. The adapter persists the canonical ACP
+// session id under [SessionStateKey].session_id and uses that value for
 // session/resume (falling back to session/load when resume is unsupported).
-// [SessionStateKey].session_id is persisted as a mirror for visibility and is
-// not authoritative for resume targeting.
 //
 // Restored sessions always reapply startup instructions on the first
 // post-resume invocation so session-start context derived from current ADK
@@ -780,8 +775,7 @@ func (a *Agent) logBoundRemoteSession(
 
 func buildACPState(remoteSessionID, metaJSON string) map[string]any {
 	acpState := map[string]any{
-		"session_id":          remoteSessionID,
-		persistedSessionIDKey: remoteSessionID,
+		"session_id": remoteSessionID,
 	}
 	if strings.TrimSpace(metaJSON) == "" || metaJSON == "{}" {
 		return acpState
@@ -829,11 +823,7 @@ func currentACPStateMatches(sess session.Session, remoteSessionID, metaJSON stri
 		return false
 	}
 	storedSessionID, _ := state["session_id"].(string)
-	storedPersistedSessionID, _ := state[persistedSessionIDKey].(string)
 	if strings.TrimSpace(storedSessionID) != strings.TrimSpace(remoteSessionID) {
-		return false
-	}
-	if strings.TrimSpace(storedPersistedSessionID) != strings.TrimSpace(remoteSessionID) {
 		return false
 	}
 	return normalizeACPStateMetaJSON(state["meta"]) == normalizeACPStateMetaJSONFromRaw(metaJSON)
@@ -908,14 +898,20 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 		cfg.meta = cloneAnyMap(meta)
 	}
 	if rawSessionID, ok := state["session_id"]; ok {
-		if _, ok := rawSessionID.(string); !ok {
+		sessionID, ok := rawSessionID.(string)
+		if !ok {
 			return acpSessionConfig{}, fmt.Errorf("adk session state %q.session_id must be a string; got %T", SessionStateKey, rawSessionID)
 		}
+		cfg.sessionID = strings.TrimSpace(sessionID)
 	}
-	if rawPersistedSessionID, ok := state[persistedSessionIDKey]; ok {
+	if cfg.sessionID == "" {
+		rawPersistedSessionID, ok := state[legacyPersistedSessionIDKey]
+		if !ok {
+			return normalizeACPConfigCWD(cfg)
+		}
 		persistedSessionID, ok := rawPersistedSessionID.(string)
 		if !ok {
-			return acpSessionConfig{}, fmt.Errorf("adk session state %q.%s must be a string; got %T", SessionStateKey, persistedSessionIDKey, rawPersistedSessionID)
+			return acpSessionConfig{}, fmt.Errorf("adk session state %q.%s must be a string; got %T", SessionStateKey, legacyPersistedSessionIDKey, rawPersistedSessionID)
 		}
 		cfg.sessionID = strings.TrimSpace(persistedSessionID)
 	}

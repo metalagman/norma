@@ -27,11 +27,9 @@
 // Behavior:
 //   - If `state[sessionstate.CWDKey]` is set, it overrides [Config.WorkingDir]
 //     for ACP session creation.
-//   - The adapter persists a canonical ACP session ID under
-//     `state[SessionStateKey].persisted_session_id` and uses that value for
+//   - The adapter persists the canonical ACP session ID under
+//     `state[SessionStateKey].session_id` and uses that value for
 //     ACP session/resume first, then session/load when resume is unsupported.
-//   - `state[SessionStateKey].session_id` mirrors the canonical value for
-//     visibility, but it is not authoritative for resume targeting.
 //   - As soon as the adapter binds a remote ACP session, it stores the
 //     canonical ACP session ID in the live ADK session state under
 //     `state[SessionStateKey]`.
@@ -48,7 +46,6 @@
 // Invalid override values (for example, non-string `state[sessionstate.CWDKey]`,
 // non-object `state[SessionStateKey]`, non-object `state[SessionStateKey].meta`,
 // non-string `state[SessionStateKey].session_id`,
-// non-string `state[SessionStateKey].persisted_session_id`,
 // or a cwd that is not a valid existing directory) cause invocation failure
 // before ACP session creation.
 //

@@ -1512,9 +1512,8 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 		State: map[string]any{
 			"cwd": workingDir,
 			"acp_session": map[string]any{
-				"session_id":          sessionID,
-				persistedSessionIDKey: sessionID,
-				"meta":                meta,
+				"session_id": sessionID,
+				"meta":       meta,
 			},
 		},
 	})
@@ -1537,9 +1536,7 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 	}
 }
 
-func TestAgentIgnoresCallerSessionIDWhenNoPersistedSessionID(t *testing.T) {
-	const acpSessionID = "session-1"
-
+func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	workingDir := t.TempDir()
 	callerSessionID := "caller-provided-session"
 	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
@@ -1550,7 +1547,9 @@ func TestAgentIgnoresCallerSessionIDWhenNoPersistedSessionID(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_PROMPTS": string(expectedPromptsRaw),
+			"GO_EXPECT_RESUME_SESSION_ID":  callerSessionID,
+			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
+			"GO_EXPECT_PROMPTS":            string(expectedPromptsRaw),
 		}),
 		WorkingDir: workingDir,
 	})
@@ -1586,14 +1585,11 @@ func TestAgentIgnoresCallerSessionIDWhenNoPersistedSessionID(t *testing.T) {
 		t,
 		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
 	)
-	if finalText != testSessionOneHello {
-		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
+	if finalText != callerSessionID+":hello" {
+		t.Fatalf("final text = %q, want %q", finalText, callerSessionID+":hello")
 	}
-	if got := finalSessionState["session_id"]; got != acpSessionID {
-		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, acpSessionID)
-	}
-	if got := finalSessionState[persistedSessionIDKey]; got != acpSessionID {
-		t.Fatalf("final %s.%s = %v, want %s", SessionStateKey, persistedSessionIDKey, got, acpSessionID)
+	if got := finalSessionState["session_id"]; got != callerSessionID {
+		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, callerSessionID)
 	}
 }
 
@@ -1645,8 +1641,8 @@ func TestAgentLoadsSessionWhenResumeUnsupported(t *testing.T) {
 		State: map[string]any{
 			"cwd": workingDir,
 			"acp_session": map[string]any{
-				persistedSessionIDKey: sessionID,
-				"meta":                meta,
+				"session_id": sessionID,
+				"meta":       meta,
 			},
 		},
 	})
@@ -1663,9 +1659,6 @@ func TestAgentLoadsSessionWhenResumeUnsupported(t *testing.T) {
 	}
 	if got := finalSessionState["session_id"]; got != sessionID {
 		t.Fatalf("final %s.session_id = %v, want %q", SessionStateKey, got, sessionID)
-	}
-	if got := finalSessionState[persistedSessionIDKey]; got != sessionID {
-		t.Fatalf("final %s.%s = %v, want %q", SessionStateKey, persistedSessionIDKey, got, sessionID)
 	}
 }
 
@@ -1739,8 +1732,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				State: map[string]any{
 					"cwd": workingDir,
 					"acp_session": map[string]any{
-						"session_id":          tc.sessionID,
-						persistedSessionIDKey: tc.sessionID,
+						"session_id": tc.sessionID,
 					},
 				},
 			})
@@ -1800,8 +1792,7 @@ func TestAgentReappliesInstructionBootstrapAfterResume(t *testing.T) {
 		State: map[string]any{
 			"cwd": workingDir,
 			"acp_session": map[string]any{
-				"session_id":          sessionID,
-				persistedSessionIDKey: sessionID,
+				"session_id": sessionID,
 			},
 		},
 	})
