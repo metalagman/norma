@@ -32,6 +32,7 @@ const (
 	testACPToolID     = "tool-1"
 	testACPPlanPrompt = "planning"
 
+	testSessionOneID    = "session-1"
 	testSessionOneHello = "session-1:hello"
 	testSessionOneOne   = "session-1:one"
 	testSessionOneTwo   = "session-1:two"
@@ -1643,8 +1644,8 @@ func TestAgentIgnoresLegacyPersistedSessionIDWithoutSessionID(t *testing.T) {
 	if finalText != testSessionOneHello {
 		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
 	}
-	if got := finalSessionState["session_id"]; got != "session-1" {
-		t.Fatalf("final %s.session_id = %v, want session-1", SessionStateKey, got)
+	if got := finalSessionState["session_id"]; got != testSessionOneID {
+		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
 	}
 }
 
@@ -1802,10 +1803,121 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 			if finalText != testSessionOneHello {
 				t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
 			}
-			if got := finalSessionState["session_id"]; got != "session-1" {
-				t.Fatalf("final %s.session_id = %v, want session-1", SessionStateKey, got)
+			if got := finalSessionState["session_id"]; got != testSessionOneID {
+				t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
 			}
 		})
+	}
+}
+
+func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
+	workingDir := t.TempDir()
+	sessionService := session.InMemoryService()
+
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"session_id": "stale-session",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	firstPromptsRaw, err := json.Marshal([]string{"hello"})
+	if err != nil {
+		t.Fatalf("json.Marshal(first prompts) error = %v", err)
+	}
+	firstAgent, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_FAIL_FIRST_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
+			"GO_EXPECT_PROMPTS": string(firstPromptsRaw),
+		}),
+		WorkingDir: workingDir,
+	})
+	if err != nil {
+		t.Fatalf("first New() error = %v", err)
+	}
+	defer func() { _ = firstAgent.Close() }()
+
+	firstRunner, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          firstAgent,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("first runner.New() error = %v", err)
+	}
+
+	firstText, firstSessionState := collectFinalTextAndSessionState(
+		t,
+		firstRunner.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
+	)
+	if firstText != testSessionOneHello {
+		t.Fatalf("first final text = %q, want %q", firstText, testSessionOneHello)
+	}
+	if got := firstSessionState["session_id"]; got != testSessionOneID {
+		t.Fatalf("first final %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
+	}
+
+	stored, err := sessionService.Get(context.Background(), &session.GetRequest{
+		AppName:   "test-app",
+		UserID:    "test-user",
+		SessionID: sess.Session.ID(),
+	})
+	if err != nil {
+		t.Fatalf("Get() after first run error = %v", err)
+	}
+	rawState, err := stored.Session.State().Get(SessionStateKey)
+	if err != nil {
+		t.Fatalf("stored session missing %s after first run: %v", SessionStateKey, err)
+	}
+	storedState, ok := rawState.(map[string]any)
+	if !ok {
+		t.Fatalf("stored %s type = %T, want map[string]any", SessionStateKey, rawState)
+	}
+	if got := storedState["session_id"]; got != testSessionOneID {
+		t.Fatalf("stored %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
+	}
+
+	secondPromptsRaw, err := json.Marshal([]string{"again"})
+	if err != nil {
+		t.Fatalf("json.Marshal(second prompts) error = %v", err)
+	}
+	secondAgent, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_RESUME_SESSION_ID":  testSessionOneID,
+			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
+			"GO_EXPECT_PROMPTS":            string(secondPromptsRaw),
+		}),
+		WorkingDir: workingDir,
+	})
+	if err != nil {
+		t.Fatalf("second New() error = %v", err)
+	}
+	defer func() { _ = secondAgent.Close() }()
+
+	secondRunner, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          secondAgent,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("second runner.New() error = %v", err)
+	}
+
+	secondText := collectFinalText(
+		t,
+		secondRunner.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("again", genai.RoleUser), agent.RunConfig{}),
+	)
+	if secondText != testSessionOneID+":again" {
+		t.Fatalf("second final text = %q, want %s:again", secondText, testSessionOneID)
 	}
 }
 
@@ -2780,9 +2892,11 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	failResumeMethodNotFound := os.Getenv("GO_FAIL_RESUME_METHOD_NOT_FOUND") == "1"
 	failResumeEntityNotFound := os.Getenv("GO_FAIL_RESUME_ENTITY_NOT_FOUND") == "1"
 	failResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
+	failFirstResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_FIRST_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
 	failLoadMethodNotFound := os.Getenv("GO_FAIL_LOAD_METHOD_NOT_FOUND") == "1"
 	failLoadEntityNotFound := os.Getenv("GO_FAIL_LOAD_ENTITY_NOT_FOUND") == "1"
 	failFirstPromptEntityNotFound := os.Getenv("GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND") == "1"
+	resumeCount := 0
 	var expectedPrompts []string
 	if strings.TrimSpace(expectedPromptsRaw) != "" {
 		must(json.Unmarshal([]byte(expectedPromptsRaw), &expectedPrompts))
@@ -2796,6 +2910,9 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 		failMethodNotFound bool,
 		failEntityNotFound bool,
 	) {
+		if method == acp.AgentMethodSessionResume {
+			resumeCount++
+		}
 		if failMethodNotFound {
 			writeEnvelope(stdout, helperEnvelope{
 				JSONRPC: "2.0",
@@ -2849,7 +2966,19 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			})
 			return
 		}
-		if method == "session/resume" && failResumeInvalidParamsSessionNotFound {
+		if method == acp.AgentMethodSessionResume && failResumeInvalidParamsSessionNotFound {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error: &helperError{
+					Code:    -32602,
+					Message: "Invalid params",
+					Data:    "session not found",
+				},
+			})
+			return
+		}
+		if method == acp.AgentMethodSessionResume && failFirstResumeInvalidParamsSessionNotFound && resumeCount == 1 {
 			writeEnvelope(stdout, helperEnvelope{
 				JSONRPC: "2.0",
 				ID:      msg.ID,
