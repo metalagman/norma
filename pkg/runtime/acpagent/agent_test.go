@@ -1552,7 +1552,6 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	workingDir := t.TempDir()
 	callerSessionID := "caller-provided-session"
-	persistedSessionID := "tg-2317500-0"
 	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
 	if err != nil {
 		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
@@ -1588,8 +1587,7 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 		State: map[string]any{
 			"cwd": workingDir,
 			"acp_session": map[string]any{
-				"session_id":           callerSessionID,
-				"persisted_session_id": persistedSessionID,
+				"session_id": callerSessionID,
 			},
 		},
 	})
@@ -1606,72 +1604,6 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	}
 	if got := finalSessionState["session_id"]; got != callerSessionID {
 		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, callerSessionID)
-	}
-	if got := finalSessionState["persisted_session_id"]; got != persistedSessionID {
-		t.Fatalf("final %s.persisted_session_id = %v, want %s", SessionStateKey, got, persistedSessionID)
-	}
-}
-
-func TestAgentTreatsLegacySingleFieldSessionStateAsPersistedSessionID(t *testing.T) {
-	workingDir := t.TempDir()
-	legacyPersistedSessionID := "tg-2317500-0"
-	remoteSessionID := "session-1"
-	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
-	if err != nil {
-		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
-	}
-
-	a, err := New(Config{
-		Context: context.Background(),
-		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_FAIL_IF_RESUME_CALLED":              "1",
-			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": legacyPersistedSessionID,
-			"GO_FORCE_NEW_SESSION_ID":               remoteSessionID,
-			"GO_EXPECT_PROMPTS":                     string(expectedPromptsRaw),
-		}),
-		WorkingDir: workingDir,
-		SessionID:  "current-balda-session",
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer func() { _ = a.Close() }()
-
-	sessionService := session.InMemoryService()
-	r, err := runnerpkg.New(runnerpkg.Config{
-		AppName:        "test-app",
-		Agent:          a,
-		SessionService: sessionService,
-	})
-	if err != nil {
-		t.Fatalf("runner.New() error = %v", err)
-	}
-	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
-		AppName: "test-app",
-		UserID:  "test-user",
-		State: map[string]any{
-			"cwd": workingDir,
-			"acp_session": map[string]any{
-				"session_id": legacyPersistedSessionID,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-
-	finalText, finalSessionState := collectFinalTextAndSessionState(
-		t,
-		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
-	)
-	if finalText != remoteSessionID+":hello" {
-		t.Fatalf("final text = %q, want %q", finalText, remoteSessionID+":hello")
-	}
-	if got := finalSessionState["session_id"]; got != remoteSessionID {
-		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, remoteSessionID)
-	}
-	if got := finalSessionState["persisted_session_id"]; got != legacyPersistedSessionID {
-		t.Fatalf("final %s.persisted_session_id = %v, want %s", SessionStateKey, got, legacyPersistedSessionID)
 	}
 }
 
@@ -2080,45 +2012,6 @@ func TestAgentWarnsAndKeepsBindingWhenSessionConfigChanges(t *testing.T) {
 	logs := invocationBuf.String()
 	if !strings.Contains(logs, "acp session config changed for existing adk session; keeping existing acp session binding") {
 		t.Fatalf("invocation log missing binding-change warning: %q", logs)
-	}
-}
-
-func TestAgentUsesReturnedACPSessionIDWhenConfiguredSessionIDDiffers(t *testing.T) {
-	const sessionID = "tg-2317500-0"
-	const acpSessionID = "session-1"
-
-	a, err := New(Config{
-		Context: context.Background(),
-		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": sessionID,
-			"GO_FORCE_NEW_SESSION_ID":               acpSessionID,
-		}),
-		WorkingDir: t.TempDir(),
-		SessionID:  sessionID,
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer func() { _ = a.Close() }()
-
-	sessionService := session.InMemoryService()
-	r, err := runnerpkg.New(runnerpkg.Config{
-		AppName:        "test-app",
-		Agent:          a,
-		SessionService: sessionService,
-	})
-	if err != nil {
-		t.Fatalf("runner.New() error = %v", err)
-	}
-	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-
-	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
-	want := acpSessionID + ":hello"
-	if got != want {
-		t.Fatalf("final text = %q, want %q", got, want)
 	}
 }
 
@@ -2691,63 +2584,6 @@ func TestClientNewSessionSendsEmptyMCPServersArrayWhenNil(t *testing.T) {
 	}
 }
 
-func TestClientNewSession_UsesConfiguredSessionIDAndMeta(t *testing.T) {
-	const sessionID = "tg-2317500-0"
-
-	client, err := NewClient(context.Background(), ClientConfig{
-		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": sessionID,
-			"GO_FORCE_NEW_SESSION_ID":               sessionID,
-		}),
-		SessionID: sessionID,
-	})
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	if _, err := client.Initialize(context.Background()); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-
-	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
-	if err != nil {
-		t.Fatalf("NewSession() error = %v", err)
-	}
-	if got := string(sess.SessionId); got != sessionID {
-		t.Fatalf("session id = %q, want %q", got, sessionID)
-	}
-}
-
-func TestClientNewSession_AcceptsDifferentSessionIDFromACP(t *testing.T) {
-	const sessionID = "tg-2317500-0"
-	const acpSessionID = "session-1"
-
-	client, err := NewClient(context.Background(), ClientConfig{
-		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": sessionID,
-			"GO_FORCE_NEW_SESSION_ID":               acpSessionID,
-		}),
-		SessionID: sessionID,
-	})
-	if err != nil {
-		t.Fatalf("NewClient() error = %v", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	if _, err := client.Initialize(context.Background()); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-
-	sess, err := client.NewSession(context.Background(), t.TempDir(), nil)
-	if err != nil {
-		t.Fatalf("NewSession() error = %v", err)
-	}
-	if got := string(sess.SessionId); got != acpSessionID {
-		t.Fatalf("session id = %q, want %q", got, acpSessionID)
-	}
-}
-
 func TestAgentConfigMCPServersUseEmptyArraysNotNull(t *testing.T) {
 	expectedRaw := `[{"headers":[],"name":"http_server","type":"http","url":"http://localhost:9999/mcp"},{"headers":[],"name":"sse_server","type":"sse","url":"http://localhost:9998/sse"},{"args":[],"command":"echo","env":[],"name":"stdio_server"}]`
 
@@ -2929,7 +2765,6 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	expectedMCPServers := os.Getenv("GO_EXPECT_MCP_SERVERS")
 	expectedMCPServersRaw := os.Getenv("GO_EXPECT_MCP_SERVERS_RAW")
 	expectedSessionCWD := os.Getenv("GO_EXPECT_SESSION_CWD")
-	expectedNewSessionMetaSessionID := os.Getenv("GO_EXPECT_NEW_SESSION_META_SESSION_ID")
 	expectedNewSessionMetaRaw := os.Getenv("GO_EXPECT_NEW_SESSION_META_RAW")
 	expectedResumeSessionID := os.Getenv("GO_EXPECT_RESUME_SESSION_ID")
 	expectedResumeSessionCWD := os.Getenv("GO_EXPECT_RESUME_SESSION_CWD")
@@ -3188,23 +3023,6 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 					continue
 				}
 			}
-			if expectedNewSessionMetaSessionID != "" {
-				metaSessionID := ""
-				if req.Meta != nil {
-					if raw, ok := req.Meta["sessionId"]; ok {
-						metaSessionID, _ = raw.(string)
-					}
-				}
-				if metaSessionID != expectedNewSessionMetaSessionID {
-					writeEnvelope(stdout, helperEnvelope{
-						JSONRPC: "2.0",
-						ID:      msg.ID,
-						Error:   &helperError{Code: -32000, Message: fmt.Sprintf("unexpected session/new _meta.sessionId: %q, want %q", metaSessionID, expectedNewSessionMetaSessionID)},
-					})
-					continue
-				}
-			}
-
 			sessionCount++
 			sessionID := fmt.Sprintf("session-%d", sessionCount)
 			if forceNewSessionID != "" {

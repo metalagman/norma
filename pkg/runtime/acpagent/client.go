@@ -68,9 +68,6 @@ type ClientConfig struct {
 	PermissionHandler PermissionHandler
 	// Logger is the zerolog logger to use for this client.
 	Logger *zerolog.Logger
-	// SessionID is an optional desired session ID to request when creating ACP sessions.
-	// It is sent via session/new _meta.sessionId and may be ignored by some ACP runtimes.
-	SessionID string
 }
 
 // ExtendedSessionNotification wraps an ACP notification with its raw JSON representation
@@ -91,7 +88,6 @@ type Client struct {
 	permissionHandler PermissionHandler
 	clientName        string
 	clientVersion     string
-	sessionID         string
 	logger            zerolog.Logger
 
 	stateMu         sync.Mutex
@@ -189,7 +185,6 @@ func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		permissionHandler: cfg.PermissionHandler,
 		clientName:        clientName,
 		clientVersion:     clientVersion,
-		sessionID:         strings.TrimSpace(cfg.SessionID),
 		logger:            l,
 		activeBySession:   make(map[acp.SessionId]*activePrompt),
 		updates:           make(chan ExtendedSessionNotification, 256),
@@ -296,33 +291,15 @@ func (c *Client) NewSessionWithMeta(
 	mcpServers []acp.McpServer,
 	meta map[string]any,
 ) (acp.NewSessionResponse, error) {
-	return c.newSessionWithMeta(ctx, cwd, c.sessionID, mcpServers, meta)
-}
-
-func (c *Client) newSessionWithMeta(
-	ctx context.Context,
-	cwd string,
-	desiredSessionID string,
-	mcpServers []acp.McpServer,
-	meta map[string]any,
-) (acp.NewSessionResponse, error) {
 	if mcpServers == nil {
 		mcpServers = []acp.McpServer{}
 	}
 
-	desiredSessionID = strings.TrimSpace(desiredSessionID)
 	req := acp.NewSessionRequest{
 		Cwd:        cwd,
 		McpServers: mcpServers,
 	}
-	reqMeta := cloneAnyMap(meta)
-	if desiredSessionID != "" {
-		if reqMeta == nil {
-			reqMeta = map[string]any{}
-		}
-		reqMeta["sessionId"] = desiredSessionID
-	}
-	if len(reqMeta) > 0 {
+	if reqMeta := cloneAnyMap(meta); len(reqMeta) > 0 {
 		req.Meta = reqMeta
 	}
 
@@ -330,9 +307,6 @@ func (c *Client) newSessionWithMeta(
 	logEvent := l.Debug().
 		Str("cwd", cwd).
 		Int("mcp_servers", len(mcpServers))
-	if desiredSessionID != "" {
-		logEvent = logEvent.Str("requested_acp_session_id", desiredSessionID)
-	}
 	logEvent.Msg("sending acp session/new")
 
 	resp, err := c.conn.NewSession(ctx, req)
@@ -344,18 +318,7 @@ func (c *Client) newSessionWithMeta(
 	if acpSessionID == "" {
 		return acp.NewSessionResponse{}, fmt.Errorf("acp session id is empty")
 	}
-	if desiredSessionID != "" && acpSessionID != desiredSessionID {
-		l.Warn().
-			Str("requested_acp_session_id", desiredSessionID).
-			Str("acp_session_id", acpSessionID).
-			Msg("acp session/new returned different session id; using ACP session id")
-	}
-
-	successEvent := l.Debug().Str("acp_session_id", acpSessionID)
-	if desiredSessionID != "" {
-		successEvent = successEvent.Str("requested_acp_session_id", desiredSessionID)
-	}
-	successEvent.Msg("acp session/new succeeded")
+	l.Debug().Str("acp_session_id", acpSessionID).Msg("acp session/new succeeded")
 	return resp, nil
 }
 
@@ -513,27 +476,7 @@ func (c *Client) CreateSessionWithMeta(
 	mcpServers []acp.McpServer,
 	meta map[string]any,
 ) (acp.NewSessionResponse, error) {
-	return c.CreateSessionWithRequestedID(ctx, cwd, model, mode, "", mcpServers, meta)
-}
-
-// CreateSessionWithRequestedID creates a new ACP session with optional
-// session/new _meta and an optional caller-owned desired session id.
-//
-// The desired session id is forwarded via session/new _meta.sessionId and does
-// not replace the canonical ACP session id returned by the runtime.
-func (c *Client) CreateSessionWithRequestedID(
-	ctx context.Context,
-	cwd,
-	model,
-	mode,
-	desiredSessionID string,
-	mcpServers []acp.McpServer,
-	meta map[string]any,
-) (acp.NewSessionResponse, error) {
-	if strings.TrimSpace(desiredSessionID) == "" {
-		desiredSessionID = c.sessionID
-	}
-	resp, err := c.newSessionWithMeta(ctx, cwd, desiredSessionID, mcpServers, meta)
+	resp, err := c.NewSessionWithMeta(ctx, cwd, mcpServers, meta)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
