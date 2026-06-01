@@ -258,6 +258,17 @@ func TestIsACPSessionNotFoundError(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "wrapped invalid thread id data",
+			err: &acp.RequestError{
+				Code:    -32603,
+				Message: "Internal error",
+				Data: map[string]any{
+					"error": "thread/resume: bridge backend rpc error (-32600): invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `s` at 1",
+				},
+			},
+			want: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1541,6 +1552,7 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	workingDir := t.TempDir()
 	callerSessionID := "caller-provided-session"
+	persistedSessionID := "tg-2317500-0"
 	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
 	if err != nil {
 		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
@@ -1576,7 +1588,8 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 		State: map[string]any{
 			"cwd": workingDir,
 			"acp_session": map[string]any{
-				"session_id": callerSessionID,
+				"session_id":           callerSessionID,
+				"persisted_session_id": persistedSessionID,
 			},
 		},
 	})
@@ -1593,6 +1606,72 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	}
 	if got := finalSessionState["session_id"]; got != callerSessionID {
 		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, callerSessionID)
+	}
+	if got := finalSessionState["persisted_session_id"]; got != persistedSessionID {
+		t.Fatalf("final %s.persisted_session_id = %v, want %s", SessionStateKey, got, persistedSessionID)
+	}
+}
+
+func TestAgentTreatsLegacySingleFieldSessionStateAsPersistedSessionID(t *testing.T) {
+	workingDir := t.TempDir()
+	legacyPersistedSessionID := "tg-2317500-0"
+	remoteSessionID := "session-1"
+	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_FAIL_IF_RESUME_CALLED":              "1",
+			"GO_EXPECT_NEW_SESSION_META_SESSION_ID": legacyPersistedSessionID,
+			"GO_FORCE_NEW_SESSION_ID":               remoteSessionID,
+			"GO_EXPECT_PROMPTS":                     string(expectedPromptsRaw),
+		}),
+		WorkingDir: workingDir,
+		SessionID:  "current-balda-session",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"session_id": legacyPersistedSessionID,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	finalText, finalSessionState := collectFinalTextAndSessionState(
+		t,
+		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
+	)
+	if finalText != remoteSessionID+":hello" {
+		t.Fatalf("final text = %q, want %q", finalText, remoteSessionID+":hello")
+	}
+	if got := finalSessionState["session_id"]; got != remoteSessionID {
+		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, remoteSessionID)
+	}
+	if got := finalSessionState["persisted_session_id"]; got != legacyPersistedSessionID {
+		t.Fatalf("final %s.persisted_session_id = %v, want %s", SessionStateKey, got, legacyPersistedSessionID)
 	}
 }
 
@@ -1691,6 +1770,16 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				"GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
 			},
 			sessionID: "stale-session-data",
+		},
+		{
+			name: "invalid thread id from bridge backend",
+			env: map[string]string{
+				"GO_SUPPORT_SESSION_RESUME":     "1",
+				"GO_SUPPORT_LOAD_SESSION":       "1",
+				"GO_FAIL_IF_LOAD_CALLED":        "1",
+				"GO_FAIL_RESUME_INVALID_THREAD": "1",
+			},
+			sessionID: "session-1",
 		},
 	}
 
@@ -2857,6 +2946,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	failResumeMethodNotFound := os.Getenv("GO_FAIL_RESUME_METHOD_NOT_FOUND") == "1"
 	failResumeEntityNotFound := os.Getenv("GO_FAIL_RESUME_ENTITY_NOT_FOUND") == "1"
 	failResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
+	failResumeInvalidThread := os.Getenv("GO_FAIL_RESUME_INVALID_THREAD") == "1"
 	failFirstResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_FIRST_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
 	failLoadMethodNotFound := os.Getenv("GO_FAIL_LOAD_METHOD_NOT_FOUND") == "1"
 	failLoadEntityNotFound := os.Getenv("GO_FAIL_LOAD_ENTITY_NOT_FOUND") == "1"
@@ -2957,6 +3047,20 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 					Code:    -32602,
 					Message: "Invalid params",
 					Data:    "session not found",
+				},
+			})
+			return
+		}
+		if method == acp.AgentMethodSessionResume && failResumeInvalidThread {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error: &helperError{
+					Code:    -32603,
+					Message: "Internal error",
+					Data: map[string]any{
+						"error": "thread/resume: bridge backend rpc error (-32600): invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `s` at 1",
+					},
 				},
 			})
 			return

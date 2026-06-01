@@ -296,11 +296,21 @@ func (c *Client) NewSessionWithMeta(
 	mcpServers []acp.McpServer,
 	meta map[string]any,
 ) (acp.NewSessionResponse, error) {
+	return c.newSessionWithMeta(ctx, cwd, c.sessionID, mcpServers, meta)
+}
+
+func (c *Client) newSessionWithMeta(
+	ctx context.Context,
+	cwd string,
+	desiredSessionID string,
+	mcpServers []acp.McpServer,
+	meta map[string]any,
+) (acp.NewSessionResponse, error) {
 	if mcpServers == nil {
 		mcpServers = []acp.McpServer{}
 	}
 
-	desiredSessionID := strings.TrimSpace(c.sessionID)
+	desiredSessionID = strings.TrimSpace(desiredSessionID)
 	req := acp.NewSessionRequest{
 		Cwd:        cwd,
 		McpServers: mcpServers,
@@ -503,7 +513,27 @@ func (c *Client) CreateSessionWithMeta(
 	mcpServers []acp.McpServer,
 	meta map[string]any,
 ) (acp.NewSessionResponse, error) {
-	resp, err := c.NewSessionWithMeta(ctx, cwd, mcpServers, meta)
+	return c.CreateSessionWithRequestedID(ctx, cwd, model, mode, "", mcpServers, meta)
+}
+
+// CreateSessionWithRequestedID creates a new ACP session with optional
+// session/new _meta and an optional caller-owned desired session id.
+//
+// The desired session id is forwarded via session/new _meta.sessionId and does
+// not replace the canonical ACP session id returned by the runtime.
+func (c *Client) CreateSessionWithRequestedID(
+	ctx context.Context,
+	cwd,
+	model,
+	mode,
+	desiredSessionID string,
+	mcpServers []acp.McpServer,
+	meta map[string]any,
+) (acp.NewSessionResponse, error) {
+	if strings.TrimSpace(desiredSessionID) == "" {
+		desiredSessionID = c.sessionID
+	}
+	resp, err := c.newSessionWithMeta(ctx, cwd, desiredSessionID, mcpServers, meta)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
@@ -624,10 +654,19 @@ func isACPSessionNotFoundError(err error) bool {
 	if !errors.As(err, &reqErr) {
 		return false
 	}
-	if strings.Contains(strings.ToLower(reqErr.Message), "not found") {
+	message := strings.ToLower(reqErr.Message)
+	data := strings.ToLower(acpRequestErrorDataString(reqErr.Data))
+	if strings.Contains(message, "not found") {
 		return true
 	}
-	return strings.Contains(strings.ToLower(acpRequestErrorDataString(reqErr.Data)), "session not found")
+	if strings.Contains(data, "session not found") {
+		return true
+	}
+	// Codex ACP bridge now validates thread IDs as UUIDs during thread/resume.
+	// Legacy persisted ACP session IDs like "session-1" should be treated as
+	// stale restore state and replaced with a fresh session/new binding.
+	return strings.Contains(message, "invalid thread id") ||
+		strings.Contains(data, "invalid thread id")
 }
 
 func acpRequestErrorDataString(data any) string {

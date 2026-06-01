@@ -120,6 +120,7 @@ type Agent struct {
 
 type acpSessionBinding struct {
 	remoteSessionID string
+	persistedID     string
 	cwd             string
 	metaJSON        string
 	instructionInit instructionInitState
@@ -127,10 +128,11 @@ type acpSessionBinding struct {
 }
 
 type acpSessionConfig struct {
-	sessionID string
-	cwd       string
-	meta      map[string]any
-	metaJSON  string
+	sessionID          string
+	persistedSessionID string
+	cwd                string
+	meta               map[string]any
+	metaJSON           string
 }
 
 type instructionInitState uint8
@@ -159,8 +161,10 @@ const (
 	//
 	// The value at this key must be an object with optional fields:
 	//   - "meta" (object): forwarded to ACP session/new._meta
-	//   - "session_id" (string): ACP session id persisted by this adapter and
-	//     used for ACP session/resume.
+	//   - "session_id" (string): canonical ACP session id returned by the ACP
+	//     runtime and used for ACP session/resume
+	//   - "persisted_session_id" (string): optional caller-owned desired session
+	//     id forwarded only to session/new._meta.sessionId
 	//
 	// Set it before the first invocation in a given ADK session; once that ADK
 	// session is bound to an ACP session, later changes do not rebind.
@@ -428,7 +432,7 @@ func (a *Agent) maybePersistSessionState(event *session.Event, adkSessionID stri
 		return
 	}
 
-	acpState := buildACPState(binding.remoteSessionID, binding.metaJSON)
+	acpState := buildACPState(binding.remoteSessionID, binding.persistedID, binding.metaJSON)
 
 	if event.Actions.StateDelta == nil {
 		event.Actions.StateDelta = make(map[string]any)
@@ -669,12 +673,17 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx conte
 	}
 
 	if binding, ok := a.bindingByADK[adkSessionID]; ok && binding.remoteSessionID != "" {
-		if binding.cwd != cfg.cwd || binding.metaJSON != cfg.metaJSON || (cfg.sessionID != "" && binding.remoteSessionID != cfg.sessionID) {
+		if binding.cwd != cfg.cwd ||
+			binding.metaJSON != cfg.metaJSON ||
+			(cfg.sessionID != "" && binding.remoteSessionID != cfg.sessionID) ||
+			binding.persistedID != cfg.persistedSessionID {
 			logger.Warn().
 				Str("acp_session_id", binding.remoteSessionID).
+				Str("persisted_acp_session_id", binding.persistedID).
 				Str("bound_cwd", binding.cwd).
 				Str("requested_cwd", cfg.cwd).
 				Str("requested_acp_session_id", cfg.sessionID).
+				Str("requested_persisted_acp_session_id", cfg.persistedSessionID).
 				RawJSON("bound_meta", []byte(binding.metaJSON)).
 				RawJSON("requested_meta", []byte(cfg.metaJSON)).
 				Msg("acp session config changed for existing adk session; keeping existing acp session binding")
@@ -693,9 +702,9 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx conte
 				if err := a.client.applySessionModelAndMode(logCtx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
 					return "", err
 				}
-				a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
-				a.logBoundRemoteSession(logger, "resumed acp session for adk session", cfg.sessionID, cfg.cwd, cfg.metaJSON)
-				if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
+				a.bindRemoteSession(adkSessionID, cfg.sessionID, cfg.persistedSessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
+				a.logBoundRemoteSession(logger, "resumed acp session for adk session", cfg.sessionID, cfg.persistedSessionID, cfg.cwd, cfg.metaJSON)
+				if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.persistedSessionID, cfg.metaJSON); err != nil {
 					return "", err
 				}
 				return cfg.sessionID, nil
@@ -715,14 +724,14 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx conte
 				Msg("acp agent does not advertise session/resume capability; using session/new")
 		}
 	}
-	resp, err := a.client.CreateSessionWithMeta(logCtx, cfg.cwd, a.sessionModel, a.sessionMode, a.mcpServers, cfg.meta)
+	resp, err := a.client.CreateSessionWithRequestedID(logCtx, cfg.cwd, a.sessionModel, a.sessionMode, cfg.persistedSessionID, a.mcpServers, cfg.meta)
 	if err != nil {
 		return "", err
 	}
 	sessionID := string(resp.SessionId)
-	a.bindRemoteSession(adkSessionID, sessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
-	a.logBoundRemoteSession(logger, "created new acp session for adk session", sessionID, cfg.cwd, cfg.metaJSON)
-	if err := a.persistRemoteSessionBinding(ctx, sessionID, cfg.metaJSON); err != nil {
+	a.bindRemoteSession(adkSessionID, sessionID, cfg.persistedSessionID, cfg.cwd, cfg.metaJSON, instructionInitPending)
+	a.logBoundRemoteSession(logger, "created new acp session for adk session", sessionID, cfg.persistedSessionID, cfg.cwd, cfg.metaJSON)
+	if err := a.persistRemoteSessionBinding(ctx, sessionID, cfg.persistedSessionID, cfg.metaJSON); err != nil {
 		return "", err
 	}
 	return sessionID, nil
@@ -731,12 +740,14 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx conte
 func (a *Agent) bindRemoteSession(
 	adkSessionID string,
 	remoteSessionID string,
+	persistedSessionID string,
 	cwd string,
 	metaJSON string,
 	initState instructionInitState,
 ) {
 	a.bindingByADK[adkSessionID] = acpSessionBinding{
 		remoteSessionID: remoteSessionID,
+		persistedID:     persistedSessionID,
 		cwd:             cwd,
 		metaJSON:        metaJSON,
 		instructionInit: initState,
@@ -747,6 +758,7 @@ func (a *Agent) logBoundRemoteSession(
 	logger zerolog.Logger,
 	message string,
 	remoteSessionID string,
+	persistedSessionID string,
 	cwd string,
 	metaJSON string,
 ) {
@@ -760,12 +772,18 @@ func (a *Agent) logBoundRemoteSession(
 	if a.sessionMode != "" {
 		event = event.Str("mode", a.sessionMode)
 	}
+	if strings.TrimSpace(persistedSessionID) != "" {
+		event = event.Str("persisted_acp_session_id", persistedSessionID)
+	}
 	event.Msg(message)
 }
 
-func buildACPState(remoteSessionID, metaJSON string) map[string]any {
+func buildACPState(remoteSessionID, persistedSessionID, metaJSON string) map[string]any {
 	acpState := map[string]any{
 		"session_id": remoteSessionID,
+	}
+	if strings.TrimSpace(persistedSessionID) != "" {
+		acpState["persisted_session_id"] = strings.TrimSpace(persistedSessionID)
 	}
 	if strings.TrimSpace(metaJSON) == "" || metaJSON == "{}" {
 		return acpState
@@ -780,14 +798,15 @@ func buildACPState(remoteSessionID, metaJSON string) map[string]any {
 func (a *Agent) persistRemoteSessionBinding(
 	ctx adkagent.InvocationContext,
 	remoteSessionID string,
+	persistedSessionID string,
 	metaJSON string,
 ) error {
 	if ctx == nil || ctx.Session() == nil || strings.TrimSpace(remoteSessionID) == "" {
 		return nil
 	}
 
-	acpState := buildACPState(remoteSessionID, metaJSON)
-	if currentACPStateMatches(ctx.Session(), remoteSessionID, metaJSON) {
+	acpState := buildACPState(remoteSessionID, persistedSessionID, metaJSON)
+	if currentACPStateMatches(ctx.Session(), remoteSessionID, persistedSessionID, metaJSON) {
 		if err := ctx.Session().State().Set(SessionStateKey, cloneAnyMap(acpState)); err != nil {
 			return fmt.Errorf("set live acp session state: %w", err)
 		}
@@ -800,7 +819,7 @@ func (a *Agent) persistRemoteSessionBinding(
 	return nil
 }
 
-func currentACPStateMatches(sess session.Session, remoteSessionID, metaJSON string) bool {
+func currentACPStateMatches(sess session.Session, remoteSessionID, persistedSessionID, metaJSON string) bool {
 	if sess == nil {
 		return false
 	}
@@ -814,6 +833,10 @@ func currentACPStateMatches(sess session.Session, remoteSessionID, metaJSON stri
 	}
 	storedSessionID, _ := state["session_id"].(string)
 	if strings.TrimSpace(storedSessionID) != strings.TrimSpace(remoteSessionID) {
+		return false
+	}
+	storedPersistedID, _ := state["persisted_session_id"].(string)
+	if strings.TrimSpace(storedPersistedID) != strings.TrimSpace(persistedSessionID) {
 		return false
 	}
 	return normalizeACPStateMetaJSON(state["meta"]) == normalizeACPStateMetaJSONFromRaw(metaJSON)
@@ -853,7 +876,8 @@ func normalizeACPStateMetaJSONFromRaw(raw string) string {
 
 func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSessionConfig, error) {
 	cfg := acpSessionConfig{
-		cwd: strings.TrimSpace(a.workingDir),
+		cwd:                strings.TrimSpace(a.workingDir),
+		persistedSessionID: strings.TrimSpace(a.sessionID),
 	}
 	rawCWD, err := ctx.Session().State().Get(sessionstate.CWDKey)
 	if err != nil {
@@ -893,6 +917,19 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 			return acpSessionConfig{}, fmt.Errorf("adk session state %q.session_id must be a string; got %T", SessionStateKey, rawSessionID)
 		}
 		cfg.sessionID = strings.TrimSpace(sessionID)
+	}
+	if rawPersistedSessionID, ok := state["persisted_session_id"]; ok {
+		persistedSessionID, ok := rawPersistedSessionID.(string)
+		if !ok {
+			return acpSessionConfig{}, fmt.Errorf("adk session state %q.persisted_session_id must be a string; got %T", SessionStateKey, rawPersistedSessionID)
+		}
+		cfg.persistedSessionID = strings.TrimSpace(persistedSessionID)
+	} else if cfg.sessionID != "" && strings.TrimSpace(a.sessionID) != "" {
+		// Legacy Balda state persisted a single caller-owned id under
+		// session_id. Treat that shape as a requested persisted id, not a
+		// canonical ACP resume id.
+		cfg.persistedSessionID = cfg.sessionID
+		cfg.sessionID = ""
 	}
 	return normalizeACPConfigCWD(cfg)
 }
