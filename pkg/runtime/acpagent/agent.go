@@ -321,6 +321,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 
 		logger.Debug().
 			Str("acp_session_id", remoteSessionID).
+			Str("prompt", prompt).
 			Int("prompt_len", len(prompt)).
 			Msg("starting adk invocation")
 

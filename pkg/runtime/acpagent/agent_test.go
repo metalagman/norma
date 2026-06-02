@@ -2324,6 +2324,7 @@ func TestAgentRunUsesInvocationLogger(t *testing.T) {
 		`"session_id":"` + sess.Session.ID() + `"`,
 		`"adk_session_id":"` + sess.Session.ID() + `"`,
 		`"acp_session_id":"` + testSessionOneID + `"`,
+		`"prompt":"hello"`,
 	} {
 		if !strings.Contains(invocationLogs, mustContain) {
 			t.Fatalf("invocation log missing %q: %q", mustContain, invocationLogs)

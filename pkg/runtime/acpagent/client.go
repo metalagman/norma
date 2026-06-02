@@ -671,6 +671,7 @@ func (c *Client) promptWithBlocks(
 	promptBlocks := append([]acp.ContentBlock(nil), prompt...)
 	logEvent := l.Debug().
 		Str("acp_session_id", sessionID).
+		Str("prompt", renderACPContentBlocks(promptBlocks)).
 		Int("prompt_blocks", len(promptBlocks))
 	if promptLen > 0 {
 		logEvent = logEvent.Int("prompt_len", promptLen)
@@ -713,6 +714,20 @@ func suppressLastChunkLogFromContext(ctx context.Context) bool {
 	}
 	suppress, ok := ctx.Value(suppressLastChunkLogContextKey).(bool)
 	return ok && suppress
+}
+
+func renderACPContentBlocks(blocks []acp.ContentBlock) string {
+	if len(blocks) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, block := range blocks {
+		text := strings.TrimSpace(acpContentBlockLogText(block))
+		if text != "" && text != unknownValue {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // Close stops the ACP subprocess and waits for cleanup to finish.
