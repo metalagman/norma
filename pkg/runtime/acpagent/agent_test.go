@@ -280,6 +280,17 @@ func TestIsACPSessionNotFoundError(t *testing.T) {
 	}
 }
 
+func TestIsACPSessionAlreadyExistsError(t *testing.T) {
+	err := &acp.RequestError{
+		Code:    -32602,
+		Message: "Invalid params",
+		Data:    `session "019e8707-094e-7723-8aa4-ab45abe89d51" already exists`,
+	}
+	if !isACPSessionAlreadyExistsError(err) {
+		t.Fatalf("isACPSessionAlreadyExistsError(%v) = false, want true", err)
+	}
+}
+
 func TestClientSuppressesPeerDisconnectInfoByDefault(t *testing.T) {
 	prev := zerolog.GlobalLevel()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
@@ -1485,10 +1496,6 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 			"approvalMode": "manual",
 		},
 	}
-	metaJSON, err := json.Marshal(meta)
-	if err != nil {
-		t.Fatalf("json.Marshal(meta) error = %v", err)
-	}
 	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
 	if err != nil {
 		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
@@ -1497,11 +1504,9 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_SUPPORT_SESSION_RESUME":    "1",
-			"GO_EXPECT_RESUME_SESSION_ID":  sessionID,
-			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
-			"GO_EXPECT_RESUME_META_RAW":    string(metaJSON),
-			"GO_EXPECT_PROMPTS":            string(expectedPromptsRaw),
+			"GO_SUPPORT_SESSION_RESUME": "1",
+			"GO_FAIL_IF_RESUME_CALLED":  "1",
+			"GO_EXPECT_PROMPTS":         string(expectedPromptsRaw),
 		}),
 		WorkingDir: workingDir,
 	})
@@ -1549,7 +1554,7 @@ func TestAgentResumesSessionFromStateAndPersistsSessionState(t *testing.T) {
 	}
 }
 
-func TestAgentResumesSessionFromSessionID(t *testing.T) {
+func TestAgentUsesStateSessionFromSessionID(t *testing.T) {
 	workingDir := t.TempDir()
 	callerSessionID := "caller-provided-session"
 	expectedPromptsRaw, err := json.Marshal([]string{"hello"})
@@ -1560,10 +1565,9 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_SUPPORT_SESSION_RESUME":    "1",
-			"GO_EXPECT_RESUME_SESSION_ID":  callerSessionID,
-			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
-			"GO_EXPECT_PROMPTS":            string(expectedPromptsRaw),
+			"GO_SUPPORT_SESSION_RESUME": "1",
+			"GO_FAIL_IF_RESUME_CALLED":  "1",
+			"GO_EXPECT_PROMPTS":         string(expectedPromptsRaw),
 		}),
 		WorkingDir: workingDir,
 	})
@@ -1671,7 +1675,7 @@ func TestAgentUsesStateSessionWhenResumeCapabilityMissing(t *testing.T) {
 	}
 }
 
-func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
+func TestAgentRecoversPromptFailureWithResumeOrNewSession(t *testing.T) {
 	testCases := []struct {
 		name      string
 		env       map[string]string
@@ -1681,20 +1685,32 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 		{
 			name: "resume capability missing",
 			env: map[string]string{
-				"GO_FAIL_IF_RESUME_CALLED": "1",
-				"GO_FAIL_IF_LOAD_CALLED":   "1",
+				"GO_FAIL_IF_RESUME_CALLED":              "1",
+				"GO_FAIL_IF_LOAD_CALLED":                "1",
+				"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
 			},
 			sessionID: "missing-session",
-			wantID:    "missing-session",
+			wantID:    testSessionOneID,
 		},
 		{
 			name: "missing",
 			env: map[string]string{
-				"GO_SUPPORT_SESSION_RESUME":       "1",
-				"GO_FAIL_RESUME_ENTITY_NOT_FOUND": "1",
+				"GO_SUPPORT_SESSION_RESUME":             "1",
+				"GO_FAIL_RESUME_ENTITY_NOT_FOUND":       "1",
+				"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
 			},
 			sessionID: "stale-session",
 			wantID:    testSessionOneID,
+		},
+		{
+			name: "already active",
+			env: map[string]string{
+				"GO_SUPPORT_SESSION_RESUME":             "1",
+				"GO_FAIL_RESUME_ALREADY_EXISTS":         "1",
+				"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
+			},
+			sessionID: "active-session",
+			wantID:    "active-session",
 		},
 		{
 			name: "invalid params with session not found data",
@@ -1703,6 +1719,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				"GO_SUPPORT_LOAD_SESSION":                         "1",
 				"GO_FAIL_IF_LOAD_CALLED":                          "1",
 				"GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
+				"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND":           "1",
 			},
 			sessionID: "stale-session-data",
 			wantID:    testSessionOneID,
@@ -1710,10 +1727,11 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 		{
 			name: "invalid thread id from bridge backend",
 			env: map[string]string{
-				"GO_SUPPORT_SESSION_RESUME":     "1",
-				"GO_SUPPORT_LOAD_SESSION":       "1",
-				"GO_FAIL_IF_LOAD_CALLED":        "1",
-				"GO_FAIL_RESUME_INVALID_THREAD": "1",
+				"GO_SUPPORT_SESSION_RESUME":             "1",
+				"GO_SUPPORT_LOAD_SESSION":               "1",
+				"GO_FAIL_IF_LOAD_CALLED":                "1",
+				"GO_FAIL_RESUME_INVALID_THREAD":         "1",
+				"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
 			},
 			sessionID: "session-1",
 			wantID:    testSessionOneID,
@@ -1723,7 +1741,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			workingDir := t.TempDir()
-			expectedPromptsRaw, err := json.Marshal([]string{"hello"})
+			expectedPromptsRaw, err := json.Marshal([]string{"hello", "hello"})
 			if err != nil {
 				t.Fatalf("json.Marshal(expected prompts) error = %v", err)
 			}
@@ -1800,7 +1818,7 @@ func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	firstPromptsRaw, err := json.Marshal([]string{"hello"})
+	firstPromptsRaw, err := json.Marshal([]string{"hello", "hello"})
 	if err != nil {
 		t.Fatalf("json.Marshal(first prompts) error = %v", err)
 	}
@@ -1810,6 +1828,7 @@ func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
 			"GO_SUPPORT_SESSION_RESUME":                             "1",
 			"GO_SUPPORT_LOAD_SESSION":                               "1",
 			"GO_FAIL_IF_LOAD_CALLED":                                "1",
+			"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND":                 "1",
 			"GO_FAIL_FIRST_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
 			"GO_EXPECT_PROMPTS":                                     string(firstPromptsRaw),
 		}),
@@ -1867,10 +1886,9 @@ func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
 	secondAgent, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_SUPPORT_SESSION_RESUME":    "1",
-			"GO_EXPECT_RESUME_SESSION_ID":  testSessionOneID,
-			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
-			"GO_EXPECT_PROMPTS":            string(secondPromptsRaw),
+			"GO_SUPPORT_SESSION_RESUME": "1",
+			"GO_FAIL_IF_RESUME_CALLED":  "1",
+			"GO_EXPECT_PROMPTS":         string(secondPromptsRaw),
 		}),
 		WorkingDir: workingDir,
 	})
@@ -1897,10 +1915,10 @@ func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
 	}
 }
 
-func TestAgentReappliesInstructionBootstrapAfterResume(t *testing.T) {
+func TestAgentSkipsInstructionBootstrapForStateSession(t *testing.T) {
 	workingDir := t.TempDir()
 	sessionID := "session-resume-bootstrap"
-	expectedPromptsRaw, err := json.Marshal([]string{"bootstrap instruction", "hello", "again"})
+	expectedPromptsRaw, err := json.Marshal([]string{"hello", "again"})
 	if err != nil {
 		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
 	}
@@ -1908,10 +1926,9 @@ func TestAgentReappliesInstructionBootstrapAfterResume(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
-			"GO_SUPPORT_SESSION_RESUME":    "1",
-			"GO_EXPECT_PROMPTS":            string(expectedPromptsRaw),
-			"GO_EXPECT_RESUME_SESSION_ID":  sessionID,
-			"GO_EXPECT_RESUME_SESSION_CWD": workingDir,
+			"GO_SUPPORT_SESSION_RESUME": "1",
+			"GO_FAIL_IF_RESUME_CALLED":  "1",
+			"GO_EXPECT_PROMPTS":         string(expectedPromptsRaw),
 		}),
 		WorkingDir:  workingDir,
 		Instruction: "bootstrap instruction",
@@ -2020,7 +2037,7 @@ func TestAgentUsesStateSessionWhenSessionConfigChanges(t *testing.T) {
 	}
 }
 
-func TestAgentFailsFastOnMissingRemoteSessionDuringPrompt(t *testing.T) {
+func TestAgentRecoversMissingRemoteSessionDuringPrompt(t *testing.T) {
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
@@ -2047,22 +2064,20 @@ func TestAgentFailsFastOnMissingRemoteSessionDuringPrompt(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	var firstRunErr error
-	for _, runErr := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
-		if runErr != nil {
-			firstRunErr = runErr
-		}
+	first, firstSessionState := collectFinalTextAndSessionState(
+		t,
+		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
+	)
+	if first != "session-2:hello" {
+		t.Fatalf("first final text = %q, want session-2:hello", first)
 	}
-	if firstRunErr == nil {
-		t.Fatal("first run error = nil, want prompt error")
-	}
-	if got := firstRunErr.Error(); !strings.Contains(got, "Requested entity was not found") {
-		t.Fatalf("first run error = %q, want missing-entity error", got)
+	if got := firstSessionState["session_id"]; got != "session-2" {
+		t.Fatalf("first final %s.session_id = %v, want session-2", SessionStateKey, got)
 	}
 
 	second := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("again", genai.RoleUser), agent.RunConfig{}))
-	if second != "session-1:again" {
-		t.Fatalf("second final text = %q, want session-1:again", second)
+	if second != "session-2:again" {
+		t.Fatalf("second final text = %q, want session-2:again", second)
 	}
 }
 
@@ -2788,6 +2803,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	failResumeEntityNotFound := os.Getenv("GO_FAIL_RESUME_ENTITY_NOT_FOUND") == "1"
 	failResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
 	failResumeInvalidThread := os.Getenv("GO_FAIL_RESUME_INVALID_THREAD") == "1"
+	failResumeAlreadyExists := os.Getenv("GO_FAIL_RESUME_ALREADY_EXISTS") == "1"
 	failFirstResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_FIRST_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
 	failLoadMethodNotFound := os.Getenv("GO_FAIL_LOAD_METHOD_NOT_FOUND") == "1"
 	failLoadEntityNotFound := os.Getenv("GO_FAIL_LOAD_ENTITY_NOT_FOUND") == "1"
@@ -2902,6 +2918,18 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 					Data: map[string]any{
 						"error": "thread/resume: bridge backend rpc error (-32600): invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `s` at 1",
 					},
+				},
+			})
+			return
+		}
+		if method == acp.AgentMethodSessionResume && failResumeAlreadyExists {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error: &helperError{
+					Code:    -32602,
+					Message: "Invalid params",
+					Data:    fmt.Sprintf("session %q already exists", req.SessionID),
 				},
 			})
 			return

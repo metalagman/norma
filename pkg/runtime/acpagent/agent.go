@@ -126,6 +126,19 @@ type acpSessionConfig struct {
 	metaJSON  string
 }
 
+type remoteSession struct {
+	id       string
+	metaJSON string
+	fresh    bool
+}
+
+type promptRunResult struct {
+	events             []*session.Event
+	promptResult       *PromptResult
+	finalOutput        string
+	latestPlanSnapshot map[string]any
+}
+
 type instructionInitState uint8
 
 const (
@@ -307,17 +320,19 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		adkSessionID := ctx.Session().ID()
 		logCtx, logger := a.sessionLogger(ctx, baseLogger, adkSessionID)
 
-		remoteSessionID, err := a.ensureRemoteSession(ctx, logCtx, logger, adkSessionID)
+		remote, err := a.ensureRemoteSession(ctx, logCtx, logger)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
-		if err := a.ensureInstructionInitialized(logCtx, logger, adkSessionID, remoteSessionID, instructions); err != nil {
-			yield(nil, err)
-			return
+		if remote.fresh {
+			if err := a.ensureInstructionInitialized(logCtx, logger, adkSessionID, remote.id, instructions); err != nil {
+				yield(nil, err)
+				return
+			}
 		}
 		stateEvent := session.NewEvent(ctx.InvocationID())
-		a.persistSessionStateDelta(stateEvent, remoteSessionID, a.remoteSessionMetaJSON(ctx))
+		a.persistSessionStateDelta(stateEvent, remote.id, remote.metaJSON)
 		if len(stateEvent.Actions.StateDelta) > 0 {
 			a.logADKEvent(logger, stateEvent, "yielding acp session state event")
 			if !yield(stateEvent, nil) {
@@ -325,86 +340,123 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			}
 		}
 
-		logger.Debug().
-			Str("acp_session_id", remoteSessionID).
-			Str("prompt", prompt).
-			Int("prompt_len", len(prompt)).
-			Msg("starting adk invocation")
-
-		updates, resultCh, err := a.client.Prompt(logCtx, remoteSessionID, prompt)
+		result, err := a.runPromptOnce(ctx, logCtx, logger, remote.id, prompt)
+		if err != nil && isACPSessionNotFoundError(err) {
+			recovered, recoverErr := a.recoverRemoteSession(ctx, logCtx, logger, err)
+			if recoverErr != nil {
+				yield(nil, recoverErr)
+				return
+			}
+			remote = recovered
+			if remote.fresh {
+				if err := a.ensureInstructionInitialized(logCtx, logger, adkSessionID, remote.id, instructions); err != nil {
+					yield(nil, err)
+					return
+				}
+			}
+			stateEvent := session.NewEvent(ctx.InvocationID())
+			a.persistSessionStateDelta(stateEvent, remote.id, remote.metaJSON)
+			if len(stateEvent.Actions.StateDelta) > 0 {
+				a.logADKEvent(logger, stateEvent, "yielding recovered acp session state event")
+				if !yield(stateEvent, nil) {
+					return
+				}
+			}
+			result, err = a.runPromptOnce(ctx, logCtx, logger, remote.id, prompt)
+		}
 		if err != nil {
 			yield(nil, err)
 			return
 		}
-
-		var promptResult *PromptResult
-		var finalText strings.Builder
-		var latestPlanSnapshot map[string]any
-		for updates != nil || resultCh != nil {
-			select {
-			case <-ctx.Done():
-				yield(nil, ctx.Err())
+		for _, ev := range result.events {
+			if !yield(ev, nil) {
 				return
-			case ext, ok := <-updates:
-				if !ok {
-					updates = nil
-					continue
-				}
-				ev, ok := mapACPUpdateToEvent(logger, ctx.InvocationID(), ext)
-				if !ok {
-					continue
-				}
-				if ext.Update.AgentMessageChunk != nil {
-					finalText.WriteString(contentVisibleText(ev.Content))
-				}
-				if planSnapshot, ok := ev.Actions.StateDelta[PlanStateKey].(map[string]any); ok {
-					latestPlanSnapshot = planSnapshot
-				}
-				// We log but don't re-mark as partial here as mapACPUpdateToEvent
-				// already set the appropriate Partial flag.
-				a.logADKEvent(logger, ev, "yielding adk event")
-				if !yield(ev, nil) {
-					return
-				}
-			case result, ok := <-resultCh:
-				if !ok {
-					resultCh = nil
-					continue
-				}
-				promptResult = &result
-				resultCh = nil
 			}
 		}
 
-		if promptResult != nil && promptResult.Err != nil {
-			yield(nil, promptResult.Err)
-			return
-		}
-
-		logger.Debug().
-			Str("acp_session_id", remoteSessionID).
-			Msg("completed adk invocation")
-
 		ev := session.NewEvent(ctx.InvocationID())
-		if promptResult != nil {
-			ev.FinishReason = mapACPStopReasonToFinishReason(promptResult.Response.StopReason)
-			ev.UsageMetadata = mapACPUsageToUsageMetadata(promptResult.Usage)
+		if result.promptResult != nil {
+			ev.FinishReason = mapACPStopReasonToFinishReason(result.promptResult.Response.StopReason)
+			ev.UsageMetadata = mapACPUsageToUsageMetadata(result.promptResult.Usage)
 		}
-		finalOutput := finalText.String()
-		if finalOutput != "" {
-			ev.Content = genai.NewContentFromText(finalOutput, genai.RoleModel)
+		if result.finalOutput != "" {
+			ev.Content = genai.NewContentFromText(result.finalOutput, genai.RoleModel)
 		}
-		if latestPlanSnapshot != nil {
-			ev.Actions.StateDelta[PlanStateKey] = latestPlanSnapshot
+		if result.latestPlanSnapshot != nil {
+			ev.Actions.StateDelta[PlanStateKey] = result.latestPlanSnapshot
 		}
-		a.persistSessionStateDelta(ev, remoteSessionID, a.remoteSessionMetaJSON(ctx))
-		a.maybeSaveOutputToState(ev, finalOutput)
+		a.persistSessionStateDelta(ev, remote.id, remote.metaJSON)
+		a.maybeSaveOutputToState(ev, result.finalOutput)
 		ev.TurnComplete = true
 		a.logADKEvent(logger, ev, "yielding final turn complete event")
 		if !yield(ev, nil) {
 			return
 		}
 	}
+}
+
+func (a *Agent) runPromptOnce(
+	ctx adkagent.InvocationContext,
+	logCtx context.Context,
+	logger zerolog.Logger,
+	remoteSessionID string,
+	prompt string,
+) (promptRunResult, error) {
+	var out promptRunResult
+
+	logger.Debug().
+		Str("acp_session_id", remoteSessionID).
+		Str("prompt", prompt).
+		Int("prompt_len", len(prompt)).
+		Msg("starting adk invocation")
+
+	updates, resultCh, err := a.client.Prompt(logCtx, remoteSessionID, prompt)
+	if err != nil {
+		return promptRunResult{}, err
+	}
+
+	var finalText strings.Builder
+	for updates != nil || resultCh != nil {
+		select {
+		case <-ctx.Done():
+			return promptRunResult{}, ctx.Err()
+		case ext, ok := <-updates:
+			if !ok {
+				updates = nil
+				continue
+			}
+			ev, ok := mapACPUpdateToEvent(logger, ctx.InvocationID(), ext)
+			if !ok {
+				continue
+			}
+			if ext.Update.AgentMessageChunk != nil {
+				finalText.WriteString(contentVisibleText(ev.Content))
+			}
+			if planSnapshot, ok := ev.Actions.StateDelta[PlanStateKey].(map[string]any); ok {
+				out.latestPlanSnapshot = planSnapshot
+			}
+			a.logADKEvent(logger, ev, "yielding adk event")
+			out.events = append(out.events, ev)
+		case result, ok := <-resultCh:
+			if !ok {
+				resultCh = nil
+				continue
+			}
+			out.promptResult = &result
+			resultCh = nil
+		}
+	}
+
+	if out.promptResult != nil && out.promptResult.Err != nil {
+		return promptRunResult{}, out.promptResult.Err
+	}
+
+	logger.Debug().
+		Str("acp_session_id", remoteSessionID).
+		Msg("completed adk invocation")
+
+	out.finalOutput = finalText.String()
+	return out, nil
 }
 
 func (a *Agent) maybeSaveOutputToState(event *session.Event, output string) {
@@ -426,14 +478,6 @@ func (a *Agent) persistSessionStateDelta(event *session.Event, remoteSessionID s
 		event.Actions.StateDelta = make(map[string]any)
 	}
 	event.Actions.StateDelta[SessionStateKey] = buildACPState(remoteSessionID, metaJSON)
-}
-
-func (a *Agent) remoteSessionMetaJSON(ctx adkagent.InvocationContext) string {
-	cfg, err := a.resolveSessionConfig(ctx)
-	if err != nil {
-		return "{}"
-	}
-	return cfg.metaJSON
 }
 
 func (a *Agent) ensureInstructionInitialized(
@@ -652,55 +696,87 @@ func mapACPLegacyUsageToUsageMetadata(usage map[string]any) *genai.GenerateConte
 	return m
 }
 
-func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx context.Context, logger zerolog.Logger, adkSessionID string) (string, error) {
+func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx context.Context, logger zerolog.Logger) (remoteSession, error) {
 	cfg, err := a.resolveSessionConfig(ctx)
 	if err != nil {
-		return "", err
+		return remoteSession{}, err
 	}
 
 	if cfg.sessionID != "" {
-		resumeSupported := a.client.SupportsSessionResume()
-		if resumeSupported {
-			resumeResp, err := a.client.ResumeSessionWithMeta(logCtx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
-			if err == nil {
-				if err := a.client.applySessionModelAndMode(logCtx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
-					return "", err
-				}
-				a.logBoundRemoteSession(logger, "resumed acp session for adk session", cfg.sessionID, cfg.cwd, cfg.metaJSON)
-				if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
-					return "", err
-				}
-				return cfg.sessionID, nil
-			}
-
-			if isACPSessionNotFoundError(err) {
-				logger.Warn().
-					Err(err).
-					Str("acp_session_id", cfg.sessionID).
-					Msg("acp session resume unavailable; falling back to session/new")
-			} else {
-				return "", fmt.Errorf("resume acp session %q: %w", cfg.sessionID, err)
-			}
-		} else {
-			logger.Debug().
-				Str("acp_session_id", cfg.sessionID).
-				Msg("using acp session id from adk session state")
-			if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
-				return "", err
-			}
-			return cfg.sessionID, nil
+		logger.Debug().
+			Str("acp_session_id", cfg.sessionID).
+			Msg("using acp session id from adk session state")
+		if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
+			return remoteSession{}, err
 		}
+		return remoteSession{id: cfg.sessionID, metaJSON: cfg.metaJSON}, nil
 	}
+	return a.createRemoteSession(ctx, logCtx, logger, cfg)
+}
+
+func (a *Agent) recoverRemoteSession(
+	ctx adkagent.InvocationContext,
+	logCtx context.Context,
+	logger zerolog.Logger,
+	promptErr error,
+) (remoteSession, error) {
+	cfg, err := a.resolveSessionConfig(ctx)
+	if err != nil {
+		return remoteSession{}, err
+	}
+	if cfg.sessionID != "" && a.client.SupportsSessionResume() {
+		resumeResp, err := a.client.ResumeSessionWithMeta(logCtx, cfg.sessionID, cfg.cwd, a.mcpServers, cfg.meta)
+		if err == nil {
+			if err := a.client.applySessionModelAndMode(logCtx, cfg.sessionID, a.sessionModel, a.sessionMode, resumeResp.Models, resumeResp.Modes); err != nil {
+				return remoteSession{}, err
+			}
+			a.logBoundRemoteSession(logger, "resumed acp session after prompt failure", cfg.sessionID, cfg.cwd, cfg.metaJSON)
+			if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
+				return remoteSession{}, err
+			}
+			return remoteSession{id: cfg.sessionID, metaJSON: cfg.metaJSON}, nil
+		}
+		if isACPSessionAlreadyExistsError(err) {
+			logger.Debug().
+				Err(err).
+				Str("acp_session_id", cfg.sessionID).
+				Msg("acp session already active after prompt failure")
+			if err := a.persistRemoteSessionBinding(ctx, cfg.sessionID, cfg.metaJSON); err != nil {
+				return remoteSession{}, err
+			}
+			return remoteSession{id: cfg.sessionID, metaJSON: cfg.metaJSON}, nil
+		}
+		if !isACPSessionNotFoundError(err) {
+			return remoteSession{}, fmt.Errorf("resume acp session %q after prompt failure: %w", cfg.sessionID, err)
+		}
+		logger.Warn().
+			Err(err).
+			Str("acp_session_id", cfg.sessionID).
+			Msg("acp session resume unavailable after prompt failure; falling back to session/new")
+	}
+	recovered, err := a.createRemoteSession(ctx, logCtx, logger, cfg)
+	if err != nil {
+		return remoteSession{}, fmt.Errorf("recover acp session after prompt failure %q: %w", promptErr, err)
+	}
+	return recovered, nil
+}
+
+func (a *Agent) createRemoteSession(
+	ctx adkagent.InvocationContext,
+	logCtx context.Context,
+	logger zerolog.Logger,
+	cfg acpSessionConfig,
+) (remoteSession, error) {
 	resp, err := a.client.CreateSessionWithMeta(logCtx, cfg.cwd, a.sessionModel, a.sessionMode, a.mcpServers, cfg.meta)
 	if err != nil {
-		return "", err
+		return remoteSession{}, err
 	}
 	sessionID := string(resp.SessionId)
 	a.logBoundRemoteSession(logger, "created new acp session for adk session", sessionID, cfg.cwd, cfg.metaJSON)
 	if err := a.persistRemoteSessionBinding(ctx, sessionID, cfg.metaJSON); err != nil {
-		return "", err
+		return remoteSession{}, err
 	}
-	return sessionID, nil
+	return remoteSession{id: sessionID, metaJSON: cfg.metaJSON, fresh: true}, nil
 }
 
 func (a *Agent) logBoundRemoteSession(

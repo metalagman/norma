@@ -612,6 +612,17 @@ func isACPSessionNotFoundError(err error) bool {
 		strings.Contains(data, "invalid thread id")
 }
 
+func isACPSessionAlreadyExistsError(err error) bool {
+	var reqErr *acp.RequestError
+	if !errors.As(err, &reqErr) {
+		return false
+	}
+	message := strings.ToLower(reqErr.Message)
+	data := strings.ToLower(acpRequestErrorDataString(reqErr.Data))
+	return strings.Contains(message, "already exists") ||
+		strings.Contains(data, "already exists")
+}
+
 func acpRequestErrorDataString(data any) string {
 	switch value := data.(type) {
 	case nil:
