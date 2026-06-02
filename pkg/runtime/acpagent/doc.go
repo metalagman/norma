@@ -33,11 +33,14 @@
 //   - As soon as the adapter binds a remote ACP session, it stores the
 //     canonical ACP session ID in the live ADK session state under
 //     `state[SessionStateKey]`.
-//   - When an ACP session is resumed, the adapter reapplies startup
-//     instructions on the first post-resume invocation so session-start context
-//     derived from current ADK state is refreshed before the user prompt.
 //   - If `state[SessionStateKey].session_id` is absent, the runtime creates a
 //     new ACP session.
+//   - For newly created ACP sessions, resolved startup instructions are passed
+//     through two channels: `session/new._meta.codex` receives
+//     `baseInstructions` and `developerInstructions` when those keys are not
+//     already set, and the first real user `session/prompt` is prepended with
+//     the combined instructions. The adapter does not send a separate
+//     instruction-only prompt.
 //   - The adapter does not use ACP `session/load`; ACP v1 load replays prior
 //     history, and this adapter does not yet map that replay into ADK-visible
 //     history.

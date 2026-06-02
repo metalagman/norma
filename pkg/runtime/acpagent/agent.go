@@ -14,7 +14,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -109,14 +108,7 @@ type Agent struct {
 	instructionProvider       InstructionProvider
 	globalInstructionProvider InstructionProvider
 	logger                    zerolog.Logger
-	instructionMu             sync.Mutex
-	instructionInitBySession  map[string]instructionInit
 	mcpServers                []acp.McpServer
-}
-
-type instructionInit struct {
-	instructionInit instructionInitState
-	initWait        chan struct{}
 }
 
 type acpSessionConfig struct {
@@ -127,9 +119,10 @@ type acpSessionConfig struct {
 }
 
 type remoteSession struct {
-	id       string
-	metaJSON string
-	fresh    bool
+	id                      string
+	metaJSON                string
+	fresh                   bool
+	firstPromptInstructions string
 }
 
 type promptRunResult struct {
@@ -139,13 +132,21 @@ type promptRunResult struct {
 	latestPlanSnapshot map[string]any
 }
 
-type instructionInitState uint8
+type resolvedInstructionParts struct {
+	global      string
+	instruction string
+}
 
-const (
-	instructionInitPending instructionInitState = iota
-	instructionInitInProgress
-	instructionInitDone
-)
+func (r resolvedInstructionParts) combined() string {
+	instructions := make([]string, 0, 2)
+	if strings.TrimSpace(r.global) != "" {
+		instructions = append(instructions, strings.TrimSpace(r.global))
+	}
+	if strings.TrimSpace(r.instruction) != "" {
+		instructions = append(instructions, strings.TrimSpace(r.instruction))
+	}
+	return strings.Join(instructions, "\n\n")
+}
 
 const (
 	defaultAgentName        = "ACPAgent"
@@ -209,13 +210,12 @@ const (
 // the adapter restores only through session/resume or creates a new ACP
 // session.
 //
-// Restored sessions always reapply startup instructions on the first
-// post-resume invocation so session-start context derived from current ADK
-// state is refreshed before the user prompt runs.
-//
 // If no override is provided, Config.WorkingDir is used as ACP session cwd.
 // The first ACP session created for an ADK session is reused for subsequent
 // invocations in that same ADK session.
+// For newly created ACP sessions, resolved instructions are sent in
+// session/new._meta.codex and prepended to the first real user prompt. The
+// adapter does not send a separate instruction-only prompt.
 //
 // The caller is responsible for calling Close() to shut down the subprocess.
 func New(cfg Config) (*Agent, error) {
@@ -273,7 +273,6 @@ func New(cfg Config) (*Agent, error) {
 		instructionProvider:       cfg.InstructionProvider,
 		globalInstructionProvider: cfg.GlobalInstructionProvider,
 		logger:                    l,
-		instructionInitBySession:  make(map[string]instructionInit),
 		mcpServers:                mcpServers,
 	}
 	base, err := adkagent.New(adkagent.Config{
@@ -305,12 +304,6 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 	return func(yield func(*session.Event, error) bool) {
 		baseLogger := a.invocationLogger(ctx)
 
-		instructions, err := a.resolveInstructions(ctx)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-
 		prompt := extractPromptText(ctx.UserContent())
 		if strings.TrimSpace(prompt) == "" {
 			yield(nil, errors.New("prompt is empty"))
@@ -325,11 +318,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			yield(nil, err)
 			return
 		}
+		promptForRun := prompt
 		if remote.fresh {
-			if err := a.ensureInstructionInitialized(logCtx, logger, adkSessionID, remote.id, instructions); err != nil {
-				yield(nil, err)
-				return
-			}
+			promptForRun = prependInstructionsToPrompt(remote.firstPromptInstructions, prompt)
 		}
 		stateEvent := session.NewEvent(ctx.InvocationID())
 		a.persistSessionStateDelta(stateEvent, remote.id, remote.metaJSON)
@@ -340,7 +331,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			}
 		}
 
-		result, err := a.runPromptOnce(ctx, logCtx, logger, remote.id, prompt)
+		result, err := a.runPromptOnce(ctx, logCtx, logger, remote.id, promptForRun)
 		if err != nil && isACPSessionNotFoundError(err) {
 			recovered, recoverErr := a.recoverRemoteSession(ctx, logCtx, logger, err)
 			if recoverErr != nil {
@@ -348,11 +339,9 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 				return
 			}
 			remote = recovered
+			promptForRun = prompt
 			if remote.fresh {
-				if err := a.ensureInstructionInitialized(logCtx, logger, adkSessionID, remote.id, instructions); err != nil {
-					yield(nil, err)
-					return
-				}
+				promptForRun = prependInstructionsToPrompt(remote.firstPromptInstructions, prompt)
 			}
 			stateEvent := session.NewEvent(ctx.InvocationID())
 			a.persistSessionStateDelta(stateEvent, remote.id, remote.metaJSON)
@@ -362,7 +351,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 					return
 				}
 			}
-			result, err = a.runPromptOnce(ctx, logCtx, logger, remote.id, prompt)
+			result, err = a.runPromptOnce(ctx, logCtx, logger, remote.id, promptForRun)
 		}
 		if err != nil {
 			yield(nil, err)
@@ -393,6 +382,14 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 			return
 		}
 	}
+}
+
+func prependInstructionsToPrompt(instructions string, prompt string) string {
+	instructions = strings.TrimSpace(instructions)
+	if instructions == "" {
+		return prompt
+	}
+	return instructions + "\n\nUser message:\n" + prompt
 }
 
 func (a *Agent) runPromptOnce(
@@ -478,127 +475,6 @@ func (a *Agent) persistSessionStateDelta(event *session.Event, remoteSessionID s
 		event.Actions.StateDelta = make(map[string]any)
 	}
 	event.Actions.StateDelta[SessionStateKey] = buildACPState(remoteSessionID, metaJSON)
-}
-
-func (a *Agent) ensureInstructionInitialized(
-	ctx context.Context,
-	logger zerolog.Logger,
-	adkSessionID string,
-	remoteSessionID string,
-	instructions string,
-) error {
-	instructions = strings.TrimSpace(instructions)
-	if instructions == "" {
-		return nil
-	}
-
-	initKey := adkSessionID + "\x00" + remoteSessionID
-
-	for {
-		a.instructionMu.Lock()
-		initState, ok := a.instructionInitBySession[initKey]
-		if !ok {
-			initState.instructionInit = instructionInitPending
-			a.instructionInitBySession[initKey] = initState
-		}
-
-		switch initState.instructionInit {
-		case instructionInitDone:
-			a.instructionMu.Unlock()
-			return nil
-		case instructionInitInProgress:
-			waitCh := initState.initWait
-			a.instructionMu.Unlock()
-			if waitCh == nil {
-				continue
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-waitCh:
-				continue
-			}
-		case instructionInitPending:
-			waitCh := make(chan struct{})
-			initState.instructionInit = instructionInitInProgress
-			initState.initWait = waitCh
-			a.instructionInitBySession[initKey] = initState
-			a.instructionMu.Unlock()
-
-			initErr := a.runInstructionBootstrap(ctx, logger, remoteSessionID, instructions)
-
-			a.instructionMu.Lock()
-			updated, ok := a.instructionInitBySession[initKey]
-			if ok {
-				doneCh := updated.initWait
-				if initErr == nil {
-					updated.instructionInit = instructionInitDone
-				} else {
-					updated.instructionInit = instructionInitPending
-				}
-				updated.initWait = nil
-				a.instructionInitBySession[initKey] = updated
-				a.instructionMu.Unlock()
-				if doneCh != nil {
-					close(doneCh)
-				}
-			} else {
-				a.instructionMu.Unlock()
-				close(waitCh)
-			}
-
-			if initErr != nil {
-				return initErr
-			}
-			return nil
-		}
-	}
-}
-
-func (a *Agent) runInstructionBootstrap(
-	ctx context.Context,
-	logger zerolog.Logger,
-	remoteSessionID string,
-	instructions string,
-) error {
-	logger.Debug().
-		Str("acp_session_id", remoteSessionID).
-		Int("instruction_len", len(instructions)).
-		Msg("initializing acp session instructions")
-
-	bootstrapCtx := context.WithValue(ctx, suppressLastChunkLogContextKey, true)
-	updates, resultCh, err := a.client.Prompt(bootstrapCtx, remoteSessionID, instructions)
-	if err != nil {
-		return fmt.Errorf("initialize acp session instructions: %w", err)
-	}
-
-	var promptResult *PromptResult
-	for updates != nil || resultCh != nil {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case _, ok := <-updates:
-			if !ok {
-				updates = nil
-			}
-		case result, ok := <-resultCh:
-			if !ok {
-				resultCh = nil
-				continue
-			}
-			promptResult = &result
-			resultCh = nil
-		}
-	}
-
-	if promptResult != nil && promptResult.Err != nil {
-		return fmt.Errorf("initialize acp session instructions: %w", promptResult.Err)
-	}
-
-	logger.Debug().
-		Str("acp_session_id", remoteSessionID).
-		Msg("acp session instructions initialized")
-	return nil
 }
 
 func (a *Agent) invocationLogger(ctx context.Context) zerolog.Logger {
@@ -711,7 +587,15 @@ func (a *Agent) ensureRemoteSession(ctx adkagent.InvocationContext, logCtx conte
 		}
 		return remoteSession{id: cfg.sessionID, metaJSON: cfg.metaJSON}, nil
 	}
-	return a.createRemoteSession(ctx, logCtx, logger, cfg)
+	instructions, err := a.resolveInstructionParts(ctx)
+	if err != nil {
+		return remoteSession{}, err
+	}
+	cfg, err = addInstructionMetaToSessionConfig(cfg, instructions)
+	if err != nil {
+		return remoteSession{}, err
+	}
+	return a.createRemoteSession(ctx, logCtx, logger, cfg, instructions.combined())
 }
 
 func (a *Agent) recoverRemoteSession(
@@ -754,7 +638,15 @@ func (a *Agent) recoverRemoteSession(
 			Str("acp_session_id", cfg.sessionID).
 			Msg("acp session resume unavailable after prompt failure; falling back to session/new")
 	}
-	recovered, err := a.createRemoteSession(ctx, logCtx, logger, cfg)
+	instructions, err := a.resolveInstructionParts(ctx)
+	if err != nil {
+		return remoteSession{}, err
+	}
+	cfg, err = addInstructionMetaToSessionConfig(cfg, instructions)
+	if err != nil {
+		return remoteSession{}, err
+	}
+	recovered, err := a.createRemoteSession(ctx, logCtx, logger, cfg, instructions.combined())
 	if err != nil {
 		return remoteSession{}, fmt.Errorf("recover acp session after prompt failure %q: %w", promptErr, err)
 	}
@@ -766,6 +658,7 @@ func (a *Agent) createRemoteSession(
 	logCtx context.Context,
 	logger zerolog.Logger,
 	cfg acpSessionConfig,
+	firstPromptInstructions string,
 ) (remoteSession, error) {
 	resp, err := a.client.CreateSessionWithMeta(logCtx, cfg.cwd, a.sessionModel, a.sessionMode, a.mcpServers, cfg.meta)
 	if err != nil {
@@ -776,7 +669,12 @@ func (a *Agent) createRemoteSession(
 	if err := a.persistRemoteSessionBinding(ctx, sessionID, cfg.metaJSON); err != nil {
 		return remoteSession{}, err
 	}
-	return remoteSession{id: sessionID, metaJSON: cfg.metaJSON, fresh: true}, nil
+	return remoteSession{
+		id:                      sessionID,
+		metaJSON:                cfg.metaJSON,
+		fresh:                   true,
+		firstPromptInstructions: strings.TrimSpace(firstPromptInstructions),
+	}, nil
 }
 
 func (a *Agent) logBoundRemoteSession(
@@ -970,9 +868,8 @@ func normalizeInstruction(primary, deprecated string) string {
 	return strings.TrimSpace(deprecated)
 }
 
-func (a *Agent) resolveInstructions(ctx adkagent.InvocationContext) (string, error) {
+func (a *Agent) resolveInstructionParts(ctx adkagent.InvocationContext) (resolvedInstructionParts, error) {
 	readonlyCtx := readonlyInvocationContext{invocation: ctx}
-	instructions := make([]string, 0, 2)
 
 	globalInstruction, err := a.resolveSingleInstruction(
 		ctx,
@@ -982,10 +879,7 @@ func (a *Agent) resolveInstructions(ctx adkagent.InvocationContext) (string, err
 		"global instruction",
 	)
 	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(globalInstruction) != "" {
-		instructions = append(instructions, globalInstruction)
+		return resolvedInstructionParts{}, err
 	}
 
 	instruction, err := a.resolveSingleInstruction(
@@ -996,13 +890,66 @@ func (a *Agent) resolveInstructions(ctx adkagent.InvocationContext) (string, err
 		"instruction",
 	)
 	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(instruction) != "" {
-		instructions = append(instructions, instruction)
+		return resolvedInstructionParts{}, err
 	}
 
-	return strings.Join(instructions, "\n\n"), nil
+	return resolvedInstructionParts{
+		global:      strings.TrimSpace(globalInstruction),
+		instruction: strings.TrimSpace(instruction),
+	}, nil
+}
+
+func addInstructionMetaToSessionConfig(cfg acpSessionConfig, instructions resolvedInstructionParts) (acpSessionConfig, error) {
+	if instructions.combined() == "" {
+		return cfg, nil
+	}
+
+	if cfg.meta == nil {
+		cfg.meta = map[string]any{}
+	}
+	codexMeta := map[string]any{}
+	if rawCodexMeta, ok := cfg.meta["codex"]; ok {
+		existingCodexMeta, ok := rawCodexMeta.(map[string]any)
+		if !ok {
+			return acpSessionConfig{}, fmt.Errorf("acp session meta codex must be an object; got %T", rawCodexMeta)
+		}
+		codexMeta = cloneAnyMap(existingCodexMeta)
+	}
+
+	setInstructionMetaIfEmpty(codexMeta, "baseInstructions", instructions.global)
+	setInstructionMetaIfEmpty(codexMeta, "developerInstructions", instructions.instruction)
+	if len(codexMeta) > 0 {
+		cfg.meta["codex"] = codexMeta
+	}
+
+	metaJSON, err := json.Marshal(cfg.meta)
+	if err != nil {
+		return acpSessionConfig{}, fmt.Errorf("marshal acp session meta: %w", err)
+	}
+	cfg.metaJSON = string(metaJSON)
+	return cfg, nil
+}
+
+func setInstructionMetaIfEmpty(meta map[string]any, key string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	if existing, ok := meta[key]; ok && isNonEmptyMetaValue(existing) {
+		return
+	}
+	meta[key] = value
+}
+
+func isNonEmptyMetaValue(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(typed) != ""
+	default:
+		return true
+	}
 }
 
 func (a *Agent) resolveSingleInstruction(

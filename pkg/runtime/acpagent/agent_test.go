@@ -39,6 +39,19 @@ const (
 	testSessionTwoTwo   = "session-2:two"
 )
 
+func instructionPrompt(instruction string, prompt string) string {
+	return strings.TrimSpace(instruction) + "\n\nUser message:\n" + prompt
+}
+
+func expectedPromptsJSON(t *testing.T, prompts ...string) string {
+	t.Helper()
+	raw, err := json.Marshal(prompts)
+	if err != nil {
+		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
+	}
+	return string(raw)
+}
+
 func TestClientPromptReceivesUpdates(t *testing.T) {
 	client, err := NewClient(context.Background(), ClientConfig{
 		Command: helperCommand(t),
@@ -950,8 +963,11 @@ func TestAgentUsesSessionStateCWDOverride(t *testing.T) {
 func TestAgentInjectsSessionStateIntoInstruction(t *testing.T) {
 	workingDir := t.TempDir()
 	a, err := New(Config{
-		Context:     context.Background(),
-		Command:     helperCommandWithEnv(t, map[string]string{"GO_EXPECT_SESSION_CWD": workingDir}),
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD": workingDir,
+			"GO_EXPECT_PROMPTS":     expectedPromptsJSON(t, instructionPrompt("project=relay cwd="+workingDir, "hello")),
+		}),
 		WorkingDir:  workingDir,
 		Instruction: "project={project} cwd={cwd}",
 	})
@@ -991,8 +1007,11 @@ func TestAgentInjectsSessionStateIntoInstruction(t *testing.T) {
 func TestAgentInstructionProviderSkipsTemplateInjection(t *testing.T) {
 	workingDir := t.TempDir()
 	a, err := New(Config{
-		Context:    context.Background(),
-		Command:    helperCommandWithEnv(t, map[string]string{"GO_EXPECT_SESSION_CWD": workingDir}),
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD": workingDir,
+			"GO_EXPECT_PROMPTS":     expectedPromptsJSON(t, instructionPrompt("provider {project}", "hello")),
+		}),
 		WorkingDir: workingDir,
 		InstructionProvider: func(agent.ReadonlyContext) (string, error) {
 			return "provider {project}", nil
@@ -1031,15 +1050,19 @@ func TestAgentInstructionProviderSkipsTemplateInjection(t *testing.T) {
 	}
 }
 
-func TestAgentBootstrapsInstructionsOnlyOncePerADKSession(t *testing.T) {
+func TestAgentPrependsInstructionsOnlyOncePerADKSession(t *testing.T) {
 	workingDir := t.TempDir()
-	expectedPromptsJSON := `["project=relay cwd=` + workingDir + `","one","two"]`
+	expectedPrompts := expectedPromptsJSON(
+		t,
+		instructionPrompt("project=relay cwd="+workingDir, "one"),
+		"two",
+	)
 
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
 			"GO_EXPECT_SESSION_CWD": workingDir,
-			"GO_EXPECT_PROMPTS":     expectedPromptsJSON,
+			"GO_EXPECT_PROMPTS":     expectedPrompts,
 		}),
 		WorkingDir:  workingDir,
 		Instruction: "project={project} cwd={cwd}",
@@ -1080,15 +1103,19 @@ func TestAgentBootstrapsInstructionsOnlyOncePerADKSession(t *testing.T) {
 	}
 }
 
-func TestAgentBootstrapsInstructionsPerADKSession(t *testing.T) {
+func TestAgentPrependsInstructionsPerADKSession(t *testing.T) {
 	workingDir := t.TempDir()
-	expectedPromptsJSON := `["project=relay cwd=` + workingDir + `","one","project=relay cwd=` + workingDir + `","two"]`
+	expectedPrompts := expectedPromptsJSON(
+		t,
+		instructionPrompt("project=relay cwd="+workingDir, "one"),
+		instructionPrompt("project=relay cwd="+workingDir, "two"),
+	)
 
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
 			"GO_EXPECT_SESSION_CWD": workingDir,
-			"GO_EXPECT_PROMPTS":     expectedPromptsJSON,
+			"GO_EXPECT_PROMPTS":     expectedPrompts,
 		}),
 		WorkingDir:  workingDir,
 		Instruction: "project={project} cwd={cwd}",
@@ -1145,28 +1172,28 @@ func TestAgentFailsWhenInstructionTemplateRequiresMissingState(t *testing.T) {
 }
 
 func TestAgentInjectsOptionalMissingStateIntoInstruction(t *testing.T) {
-	assertInstructionTemplateBootstrapAndRun(
+	assertInstructionTemplatePrependAndRun(
 		t,
 		"optional={missing?}",
-		`["optional=","hello"]`,
+		expectedPromptsJSON(t, instructionPrompt("optional=", "hello")),
 		map[string]any{},
 	)
 }
 
 func TestAgentLeavesInvalidStateNamesLiteralInInstruction(t *testing.T) {
-	assertInstructionTemplateBootstrapAndRun(
+	assertInstructionTemplatePrependAndRun(
 		t,
 		"invalid={invalid-key} prefix={invalid:key}",
-		`["invalid={invalid-key} prefix={invalid:key}","hello"]`,
+		expectedPromptsJSON(t, instructionPrompt("invalid={invalid-key} prefix={invalid:key}", "hello")),
 		map[string]any{},
 	)
 }
 
 func TestAgentInjectsPrefixedStateIntoInstruction(t *testing.T) {
-	assertInstructionTemplateBootstrapAndRun(
+	assertInstructionTemplatePrependAndRun(
 		t,
 		"prefixed={app:user_name}",
-		`["prefixed=Foo","hello"]`,
+		expectedPromptsJSON(t, instructionPrompt("prefixed=Foo", "hello")),
 		map[string]any{"app:user_name": "Foo"},
 	)
 }
@@ -1177,13 +1204,13 @@ func TestAgentFailsWhenInstructionTemplateRequiresArtifactWithoutService(t *test
 
 func TestAgentInjectsArtifactsIntoInstruction(t *testing.T) {
 	workingDir := t.TempDir()
-	expectedPromptsJSON := `["artifact=artifact-content optional=","hello"]`
+	expectedPrompts := expectedPromptsJSON(t, instructionPrompt("artifact=artifact-content optional=", "hello"))
 
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
 			"GO_EXPECT_SESSION_CWD": workingDir,
-			"GO_EXPECT_PROMPTS":     expectedPromptsJSON,
+			"GO_EXPECT_PROMPTS":     expectedPrompts,
 		}),
 		WorkingDir:  workingDir,
 		Instruction: "artifact={artifact.my_file} optional={artifact.other_file?}",
@@ -1232,10 +1259,10 @@ func TestAgentInjectsArtifactsIntoInstruction(t *testing.T) {
 	}
 }
 
-func assertInstructionTemplateBootstrapAndRun(
+func assertInstructionTemplatePrependAndRun(
 	t *testing.T,
 	instruction string,
-	expectedPromptsJSON string,
+	expectedPrompts string,
 	extraState map[string]any,
 ) {
 	t.Helper()
@@ -1245,7 +1272,7 @@ func assertInstructionTemplateBootstrapAndRun(
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
 			"GO_EXPECT_SESSION_CWD": workingDir,
-			"GO_EXPECT_PROMPTS":     expectedPromptsJSON,
+			"GO_EXPECT_PROMPTS":     expectedPrompts,
 		}),
 		WorkingDir:  workingDir,
 		Instruction: instruction,
@@ -1485,6 +1512,172 @@ func TestAgentForwardsSessionStateMetaToSessionNew(t *testing.T) {
 	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
 	if got != testSessionOneHello {
 		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentAddsInstructionsToCodexSessionMeta(t *testing.T) {
+	workingDir := t.TempDir()
+	expectedMetaRaw, err := json.Marshal(map[string]any{
+		"codex": map[string]any{
+			"baseInstructions":      "global base",
+			"developerInstructions": "developer guide",
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected meta) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD":          workingDir,
+			"GO_EXPECT_NEW_SESSION_META_RAW": string(expectedMetaRaw),
+			"GO_EXPECT_PROMPTS":              expectedPromptsJSON(t, instructionPrompt("global base\n\ndeveloper guide", "hello")),
+		}),
+		WorkingDir:         workingDir,
+		GlobalInstruction:  "global base",
+		Instruction:        "developer guide",
+		SystemInstructions: "deprecated guide",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentPreservesExplicitCodexInstructionMeta(t *testing.T) {
+	workingDir := t.TempDir()
+	meta := map[string]any{
+		"codex": map[string]any{
+			"approvalMode":          "manual",
+			"baseInstructions":      "state base",
+			"developerInstructions": "state developer",
+		},
+	}
+	expectedMetaRaw, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("json.Marshal(expected meta) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD":          workingDir,
+			"GO_EXPECT_NEW_SESSION_META_RAW": string(expectedMetaRaw),
+			"GO_EXPECT_PROMPTS":              expectedPromptsJSON(t, instructionPrompt("config base\n\nconfig developer", "hello")),
+		}),
+		WorkingDir:        workingDir,
+		GlobalInstruction: "config base",
+		Instruction:       "config developer",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"meta": meta,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentFailsWhenCodexInstructionMetaIsNotObject(t *testing.T) {
+	workingDir := t.TempDir()
+	a, err := New(Config{
+		Context:     context.Background(),
+		Command:     helperCommandWithEnv(t, map[string]string{"GO_EXPECT_SESSION_CWD": workingDir}),
+		WorkingDir:  workingDir,
+		Instruction: "developer guide",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"meta": map[string]any{
+					"codex": "manual",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	var runErr error
+	for _, err := range r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}) {
+		if err != nil {
+			runErr = err
+		}
+	}
+	if runErr == nil {
+		t.Fatal("run error = nil, want codex meta object error")
+	}
+	if got := runErr.Error(); !strings.Contains(got, "acp session meta codex must be an object") {
+		t.Fatalf("run error = %q, want codex meta object error", got)
 	}
 }
 
@@ -1915,7 +2108,7 @@ func TestAgentPersistsReplacementSessionIDAfterResumeFallback(t *testing.T) {
 	}
 }
 
-func TestAgentSkipsInstructionBootstrapForStateSession(t *testing.T) {
+func TestAgentSkipsInstructionPrependForStateSession(t *testing.T) {
 	workingDir := t.TempDir()
 	sessionID := "session-resume-bootstrap"
 	expectedPromptsRaw, err := json.Marshal([]string{"hello", "again"})
@@ -1931,7 +2124,7 @@ func TestAgentSkipsInstructionBootstrapForStateSession(t *testing.T) {
 			"GO_EXPECT_PROMPTS":         string(expectedPromptsRaw),
 		}),
 		WorkingDir:  workingDir,
-		Instruction: "bootstrap instruction",
+		Instruction: "missing={not_set}",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -2038,12 +2231,23 @@ func TestAgentUsesStateSessionWhenSessionConfigChanges(t *testing.T) {
 }
 
 func TestAgentRecoversMissingRemoteSessionDuringPrompt(t *testing.T) {
+	expectedPromptsRaw, err := json.Marshal([]string{
+		instructionPrompt("bootstrap instruction", "hello"),
+		instructionPrompt("bootstrap instruction", "hello"),
+		"again",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
+	}
+
 	a, err := New(Config{
 		Context: context.Background(),
 		Command: helperCommandWithEnv(t, map[string]string{
 			"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
+			"GO_EXPECT_PROMPTS":                     string(expectedPromptsRaw),
 		}),
-		WorkingDir: t.TempDir(),
+		WorkingDir:  t.TempDir(),
+		Instruction: "bootstrap instruction",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -3158,11 +3362,15 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 					continue
 				}
 			}
-			if strings.HasPrefix(prompt, "slow:") {
-				time.Sleep(150 * time.Millisecond)
-				prompt = strings.TrimPrefix(prompt, "slow:")
+			responsePrompt := prompt
+			if _, after, ok := strings.Cut(prompt, "\n\nUser message:\n"); ok {
+				responsePrompt = after
 			}
-			if prompt == "permission" {
+			if strings.HasPrefix(responsePrompt, "slow:") {
+				time.Sleep(150 * time.Millisecond)
+				responsePrompt = strings.TrimPrefix(responsePrompt, "slow:")
+			}
+			if responsePrompt == "permission" {
 				title := "Edit file"
 				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: json.RawMessage(`"perm-1"`), Method: acp.ClientMethodSessionRequestPermission, Params: mustJSON(helperPermissionRequest{
 					SessionID: req.SessionID,
@@ -3187,14 +3395,14 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
 				continue
 			}
-			if prompt == "tooling" {
+			if responsePrompt == "tooling" {
 				writeToolCall(stdout, req.SessionID, testACPToolID, "run shell", acp.ToolCallStatusInProgress)
 				writeToolCallUpdate(stdout, req.SessionID, testACPToolID, acp.ToolCallStatusCompleted, map[string]any{"ok": true})
 				writeUpdate(stdout, req.SessionID, "tooling-done")
 				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
 				continue
 			}
-			if prompt == testACPPlanPrompt {
+			if responsePrompt == testACPPlanPrompt {
 				writePlanUpdate(stdout, req.SessionID, []acp.PlanEntry{
 					{
 						Content:  "Run tests",
@@ -3220,7 +3428,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 			}
 			prefix := req.SessionID + ":"
 			writeUpdate(stdout, req.SessionID, prefix)
-			writeUpdate(stdout, req.SessionID, prompt)
+			writeUpdate(stdout, req.SessionID, responsePrompt)
 			writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
 		case acp.AgentMethodSessionCancel:
 			// Ignore in helper.
