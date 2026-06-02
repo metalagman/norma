@@ -1607,7 +1607,7 @@ func TestAgentResumesSessionFromSessionID(t *testing.T) {
 	}
 }
 
-func TestAgentUsesNewSessionWhenResumeCapabilityMissing(t *testing.T) {
+func TestAgentUsesStateSessionWhenResumeCapabilityMissing(t *testing.T) {
 	workingDir := t.TempDir()
 	sessionID := "session-new-when-no-resume"
 	meta := map[string]any{
@@ -1663,11 +1663,11 @@ func TestAgentUsesNewSessionWhenResumeCapabilityMissing(t *testing.T) {
 		t,
 		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
 	)
-	if finalText != testSessionOneHello {
-		t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
+	if finalText != sessionID+":hello" {
+		t.Fatalf("final text = %q, want %s:hello", finalText, sessionID)
 	}
-	if got := finalSessionState["session_id"]; got != testSessionOneID {
-		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
+	if got := finalSessionState["session_id"]; got != sessionID {
+		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, sessionID)
 	}
 }
 
@@ -1676,6 +1676,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 		name      string
 		env       map[string]string
 		sessionID string
+		wantID    string
 	}{
 		{
 			name: "resume capability missing",
@@ -1684,6 +1685,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				"GO_FAIL_IF_LOAD_CALLED":   "1",
 			},
 			sessionID: "missing-session",
+			wantID:    "missing-session",
 		},
 		{
 			name: "missing",
@@ -1692,6 +1694,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				"GO_FAIL_RESUME_ENTITY_NOT_FOUND": "1",
 			},
 			sessionID: "stale-session",
+			wantID:    testSessionOneID,
 		},
 		{
 			name: "invalid params with session not found data",
@@ -1702,6 +1705,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				"GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND": "1",
 			},
 			sessionID: "stale-session-data",
+			wantID:    testSessionOneID,
 		},
 		{
 			name: "invalid thread id from bridge backend",
@@ -1712,6 +1716,7 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				"GO_FAIL_RESUME_INVALID_THREAD": "1",
 			},
 			sessionID: "session-1",
+			wantID:    testSessionOneID,
 		},
 	}
 
@@ -1767,11 +1772,11 @@ func TestAgentFallsBackToNewSessionWhenResumeUnavailable(t *testing.T) {
 				t,
 				r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
 			)
-			if finalText != testSessionOneHello {
-				t.Fatalf("final text = %q, want %q", finalText, testSessionOneHello)
+			if finalText != tc.wantID+":hello" {
+				t.Fatalf("final text = %q, want %s:hello", finalText, tc.wantID)
 			}
-			if got := finalSessionState["session_id"]; got != testSessionOneID {
-				t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, testSessionOneID)
+			if got := finalSessionState["session_id"]; got != tc.wantID {
+				t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, tc.wantID)
 			}
 		})
 	}
@@ -1950,7 +1955,7 @@ func TestAgentReappliesInstructionBootstrapAfterResume(t *testing.T) {
 	}
 }
 
-func TestAgentWarnsAndKeepsBindingWhenSessionConfigChanges(t *testing.T) {
+func TestAgentUsesStateSessionWhenSessionConfigChanges(t *testing.T) {
 	defaultWorkingDir := t.TempDir()
 	overrideWorkingDir := t.TempDir()
 	var bootstrapBuf bytes.Buffer
@@ -2010,8 +2015,8 @@ func TestAgentWarnsAndKeepsBindingWhenSessionConfigChanges(t *testing.T) {
 	}
 
 	logs := invocationBuf.String()
-	if !strings.Contains(logs, "acp session config changed for existing adk session; keeping existing acp session binding") {
-		t.Fatalf("invocation log missing binding-change warning: %q", logs)
+	if !strings.Contains(logs, "using acp session id from adk session state") {
+		t.Fatalf("invocation log missing state-session reuse: %q", logs)
 	}
 }
 
