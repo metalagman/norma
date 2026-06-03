@@ -74,7 +74,8 @@ type ClientConfig struct {
 // to allow access to fields not yet supported by the SDK.
 type ExtendedSessionNotification struct {
 	acp.SessionNotification
-	Raw json.RawMessage
+	Raw    json.RawMessage
+	Method string
 }
 
 // Client manages a single Agentic Computing Protocol (ACP) subprocess and its
@@ -123,6 +124,7 @@ type loggedACPChunk struct {
 type PromptResult struct {
 	Response acp.PromptResponse
 	Usage    *acp.Usage
+	Raw      json.RawMessage
 	Err      error
 }
 
@@ -609,7 +611,9 @@ func isACPSessionNotFoundError(err error) bool {
 	// Legacy persisted ACP session IDs like "session-1" should be treated as
 	// stale restore state and replaced with a fresh session/new binding.
 	return strings.Contains(message, "invalid thread id") ||
-		strings.Contains(data, "invalid thread id")
+		strings.Contains(data, "invalid thread id") ||
+		strings.Contains(message, "invalid session id") ||
+		strings.Contains(data, "invalid session id")
 }
 
 func isACPSessionAlreadyExistsError(err error) bool {
@@ -713,7 +717,7 @@ func (c *Client) promptWithBlocks(
 			Str("stop_reason", string(resp.StopReason)).
 			Interface("usage", resp.Usage).
 			Msg("acp session/prompt completed")
-		resultCh <- PromptResult{Response: resp, Usage: resp.Usage}
+		resultCh <- PromptResult{Response: resp, Usage: resp.Usage, Raw: mustMarshalJSON(resp)}
 	}()
 
 	return updates, resultCh, nil
@@ -1235,15 +1239,27 @@ func (b *wireLogBuffer) logLine(line []byte) {
 		return
 	}
 
-	if b.direction == "recv" && env.Method == acp.ClientMethodSessionUpdate && b.onUpdate != nil && len(env.Params) > 0 {
-		var note acp.SessionNotification
-		if err := json.Unmarshal(env.Params, &note); err == nil {
-			b.onUpdate(ExtendedSessionNotification{
-				SessionNotification: note,
-				Raw:                 env.Params,
-			})
-		} else {
-			b.logger.Warn().Err(err).Msg("failed to decode ordered session update")
+	if b.direction == "recv" && b.onUpdate != nil && len(env.Params) > 0 {
+		switch env.Method {
+		case acp.ClientMethodSessionUpdate:
+			var note acp.SessionNotification
+			if err := json.Unmarshal(env.Params, &note); err == nil {
+				b.onUpdate(ExtendedSessionNotification{
+					SessionNotification: note,
+					Raw:                 env.Params,
+					Method:              env.Method,
+				})
+			} else {
+				b.logger.Warn().Err(err).Msg("failed to decode ordered session update")
+			}
+		default:
+			if sessionID, ok := extractPromptScopedSessionID(env.Params); ok {
+				b.onUpdate(ExtendedSessionNotification{
+					SessionNotification: acp.SessionNotification{SessionId: acp.SessionId(sessionID)},
+					Raw:                 env.Params,
+					Method:              env.Method,
+				})
+			}
 		}
 	}
 
@@ -1276,4 +1292,30 @@ func (b *wireLogBuffer) logLine(line []byte) {
 		evt = evt.Int("error_code", env.Error.Code).Str("error_message", env.Error.Message)
 	}
 	evt.Msg("acp wire")
+}
+
+func extractPromptScopedSessionID(raw json.RawMessage) (string, bool) {
+	var params struct {
+		SessionID string `json:"sessionId"`
+		ThreadID  string `json:"threadId"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return "", false
+	}
+	switch {
+	case strings.TrimSpace(params.SessionID) != "":
+		return strings.TrimSpace(params.SessionID), true
+	case strings.TrimSpace(params.ThreadID) != "":
+		return strings.TrimSpace(params.ThreadID), true
+	default:
+		return "", false
+	}
+}
+
+func mustMarshalJSON(v any) json.RawMessage {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return raw
 }

@@ -282,6 +282,17 @@ func TestIsACPSessionNotFoundError(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "wrapped invalid session id data",
+			err: &acp.RequestError{
+				Code:    -32603,
+				Message: "Internal error",
+				Data: map[string]any{
+					"error": "thread/resume: bridge backend rpc error (-32600): invalid session id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `s` at 1",
+				},
+			},
+			want: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1929,6 +1940,18 @@ func TestAgentRecoversPromptFailureWithResumeOrNewSession(t *testing.T) {
 			sessionID: "session-1",
 			wantID:    testSessionOneID,
 		},
+		{
+			name: "invalid session id from bridge backend",
+			env: map[string]string{
+				"GO_SUPPORT_SESSION_RESUME":             "1",
+				"GO_SUPPORT_LOAD_SESSION":               "1",
+				"GO_FAIL_IF_LOAD_CALLED":                "1",
+				"GO_FAIL_RESUME_INVALID_SESSION_ID":     "1",
+				"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
+			},
+			sessionID: "session-1",
+			wantID:    testSessionOneID,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2357,6 +2380,24 @@ func collectFinalTextAndSessionState(t *testing.T, events iter.Seq2[*session.Eve
 	return finalText, finalSessionState
 }
 
+func collectFinalEvent(t *testing.T, events iter.Seq2[*session.Event, error]) *session.Event {
+	t.Helper()
+	var finalEvent *session.Event
+	for ev, err := range events {
+		if err != nil {
+			t.Fatalf("runner event error = %v", err)
+		}
+		if ev == nil || !ev.TurnComplete || ev.Partial {
+			continue
+		}
+		finalEvent = ev
+	}
+	if finalEvent == nil {
+		t.Fatal("expected turn complete event")
+	}
+	return finalEvent
+}
+
 func collectEventTexts(t *testing.T, events iter.Seq2[*session.Event, error]) []string {
 	t.Helper()
 	var texts []string
@@ -2463,6 +2504,94 @@ func TestAgentRunTurnCompleteIncludesFinalContent(t *testing.T) {
 	}
 	if turnCompleteCount != 1 {
 		t.Fatalf("turnCompleteCount = %d, want 1", turnCompleteCount)
+	}
+}
+
+func TestAgentRunTurnCompleteIncludesTerminalProviderErrorWithoutVisibleReply(t *testing.T) {
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommand(t),
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	finalEvent := collectFinalEvent(t, r.Run(
+		context.Background(),
+		"test-user",
+		sess.Session.ID(),
+		genai.NewContentFromText("terminal-error", genai.RoleUser),
+		agent.RunConfig{},
+	))
+
+	if finalEvent.Content != nil {
+		t.Fatalf("final content = %v, want nil", finalEvent.Content)
+	}
+	if got := finalEvent.ErrorMessage; got != "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header" {
+		t.Fatalf("error message = %q, want terminal provider error", got)
+	}
+	if got := finalEvent.ErrorCode; got != "other" {
+		t.Fatalf("error code = %q, want other", got)
+	}
+}
+
+func TestAgentRunIgnoresRetryOnlyErrorsWhenTurnLaterSucceeds(t *testing.T) {
+	a, err := New(Config{
+		Context:    context.Background(),
+		Command:    helperCommand(t),
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{AppName: "test-app", UserID: "test-user"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	finalEvent := collectFinalEvent(t, r.Run(
+		context.Background(),
+		"test-user",
+		sess.Session.ID(),
+		genai.NewContentFromText("retry-then-success", genai.RoleUser),
+		agent.RunConfig{},
+	))
+
+	if got := extractPromptText(finalEvent.Content); got != "session-1:retry-then-success" {
+		t.Fatalf("final text = %q, want successful visible reply", got)
+	}
+	if finalEvent.ErrorMessage != "" {
+		t.Fatalf("error message = %q, want empty", finalEvent.ErrorMessage)
+	}
+	if finalEvent.ErrorCode != "" {
+		t.Fatalf("error code = %q, want empty", finalEvent.ErrorCode)
 	}
 }
 
@@ -3007,6 +3136,7 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 	failResumeEntityNotFound := os.Getenv("GO_FAIL_RESUME_ENTITY_NOT_FOUND") == "1"
 	failResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
 	failResumeInvalidThread := os.Getenv("GO_FAIL_RESUME_INVALID_THREAD") == "1"
+	failResumeInvalidSessionID := os.Getenv("GO_FAIL_RESUME_INVALID_SESSION_ID") == "1"
 	failResumeAlreadyExists := os.Getenv("GO_FAIL_RESUME_ALREADY_EXISTS") == "1"
 	failFirstResumeInvalidParamsSessionNotFound := os.Getenv("GO_FAIL_FIRST_RESUME_INVALID_PARAMS_SESSION_NOT_FOUND") == "1"
 	failLoadMethodNotFound := os.Getenv("GO_FAIL_LOAD_METHOD_NOT_FOUND") == "1"
@@ -3121,6 +3251,20 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 					Message: "Internal error",
 					Data: map[string]any{
 						"error": "thread/resume: bridge backend rpc error (-32600): invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `s` at 1",
+					},
+				},
+			})
+			return
+		}
+		if method == acp.AgentMethodSessionResume && failResumeInvalidSessionID {
+			writeEnvelope(stdout, helperEnvelope{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error: &helperError{
+					Code:    -32603,
+					Message: "Internal error",
+					Data: map[string]any{
+						"error": "thread/resume: bridge backend rpc error (-32600): invalid session id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `s` at 1",
 					},
 				},
 			})
@@ -3426,6 +3570,17 @@ func runACPHelper(stdin *os.File, stdout *os.File) {
 				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
 				continue
 			}
+			if responsePrompt == "terminal-error" {
+				writePromptErrorNotification(stdout, req.SessionID, "Reconnecting... 1/5", true)
+				writePromptErrorNotification(stdout, req.SessionID, "Reconnecting... 2/5", true)
+				writeTurnCompletedFailure(stdout, req.SessionID, "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header", "other")
+				writeEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustJSON(helperPromptResponse{StopReason: string(acp.StopReasonEndTurn)})})
+				continue
+			}
+			if responsePrompt == "retry-then-success" {
+				writePromptErrorNotification(stdout, req.SessionID, "Reconnecting... 1/5", true)
+				writePromptErrorNotification(stdout, req.SessionID, "Reconnecting... 2/5", true)
+			}
 			prefix := req.SessionID + ":"
 			writeUpdate(stdout, req.SessionID, prefix)
 			writeUpdate(stdout, req.SessionID, responsePrompt)
@@ -3474,6 +3629,40 @@ func writePlanUpdate(stdout *os.File, sessionID string, entries []acp.PlanEntry)
 	writeSessionUpdate(stdout, sessionID, map[string]any{
 		"sessionUpdate":   "plan",
 		acpPlanEntriesKey: entries,
+	})
+}
+
+func writePromptErrorNotification(stdout *os.File, sessionID, message string, willRetry bool) {
+	writeEnvelope(stdout, helperEnvelope{
+		JSONRPC: "2.0",
+		Method:  "error",
+		Params: mustJSON(map[string]any{
+			"threadId":  sessionID,
+			"willRetry": willRetry,
+			"error": map[string]any{
+				"message":        message,
+				"codexErrorInfo": map[string]any{"responseStreamDisconnected": map[string]any{"httpStatusCode": 401}},
+			},
+		}),
+	})
+}
+
+func writeTurnCompletedFailure(stdout *os.File, sessionID, message, code string) {
+	writeEnvelope(stdout, helperEnvelope{
+		JSONRPC: "2.0",
+		Method:  "turn/completed",
+		Params: mustJSON(map[string]any{
+			"threadId": sessionID,
+			"turn": map[string]any{
+				"id":     "turn-1",
+				"status": "failed",
+				"items":  []any{},
+				"error": map[string]any{
+					"message":        message,
+					"codexErrorInfo": code,
+				},
+			},
+		}),
 	})
 }
 
