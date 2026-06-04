@@ -177,10 +177,10 @@ func TestFactoryBuild_PropagatesCodexReasoningEffort(t *testing.T) {
 
 	agents := map[string]agentconfig.Config{
 		"codex": {
-			Type:            agentconfig.AgentTypeCodexACP,
-			ReasoningEffort: "medium",
+			Type: agentconfig.AgentTypeCodexACP,
 			CodexACP: &agentconfig.ACPConfig{
-				Model: "gpt-5-codex",
+				Model:           "gpt-5-codex",
+				ReasoningEffort: "medium",
 			},
 		},
 	}
@@ -207,10 +207,10 @@ func TestFactoryBuild_BuildRequestReasoningEffortOverridesProvider(t *testing.T)
 
 	agents := map[string]agentconfig.Config{
 		"codex": {
-			Type:            agentconfig.AgentTypeCodexACP,
-			ReasoningEffort: "low",
+			Type: agentconfig.AgentTypeCodexACP,
 			CodexACP: &agentconfig.ACPConfig{
-				Model: "gpt-5-codex",
+				Model:           "gpt-5-codex",
+				ReasoningEffort: "low",
 			},
 		},
 	}

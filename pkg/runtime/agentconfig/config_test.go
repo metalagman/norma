@@ -109,18 +109,19 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "valid_codex_reasoning_effort",
 			cfg: Config{
-				Type:            AgentTypeCodexACP,
-				ReasoningEffort: "high",
-				CodexACP:        &ACPConfig{},
+				Type: AgentTypeCodexACP,
+				CodexACP: &ACPConfig{
+					ReasoningEffort: "high",
+				},
 			},
 		},
 		{
 			name: "reasoning_effort_rejected_for_generic_acp",
 			cfg: Config{
-				Type:            AgentTypeGenericACP,
-				ReasoningEffort: "high",
+				Type: AgentTypeGenericACP,
 				GenericACP: &ACPConfig{
-					Cmd: []string{"custom-acp", "--stdio"},
+					Cmd:             []string{"custom-acp", "--stdio"},
+					ReasoningEffort: "high",
 				},
 			},
 			wantErr: "reasoning_effort is only supported for type codex_acp",
@@ -202,12 +203,12 @@ func TestNormalizeConfig(t *testing.T) {
 		{
 			name: "codex_alias",
 			cfg: Config{
-				Type:            AgentTypeCodexACP,
-				ReasoningEffort: "high",
+				Type: AgentTypeCodexACP,
 				CodexACP: &ACPConfig{
-					Model:     "gpt-5-codex",
-					Mode:      "code",
-					ExtraArgs: []string{"--trace"},
+					Model:           "gpt-5-codex",
+					ReasoningEffort: "high",
+					Mode:            "code",
+					ExtraArgs:       []string{"--trace"},
 				},
 			},
 			exec: execPath,
@@ -363,9 +364,11 @@ func TestNormalizeConfig_RejectsReasoningEffortForUnsupportedTypes(t *testing.T)
 	t.Parallel()
 
 	_, err := NormalizeConfig(Config{
-		Type:            AgentTypeOpenAI,
-		ReasoningEffort: "high",
-		OpenAI:          &LocalAPIConfig{Model: "gpt-5"},
+		Type: AgentTypeGenericACP,
+		GenericACP: &ACPConfig{
+			Cmd:             []string{"custom-acp"},
+			ReasoningEffort: "high",
+		},
 	}, "/tmp/norma")
 	if err == nil {
 		t.Fatal("NormalizeConfig() error = nil, want unsupported reasoning_effort error")
@@ -445,11 +448,11 @@ func TestConfigYAMLTags(t *testing.T) {
 	data, err := yaml.Marshal(Config{
 		Type:               AgentTypeCodexACP,
 		MCPServers:         []string{"workspace"},
-		ReasoningEffort:    "high",
 		SystemInstructions: "system",
 		CodexACP: &ACPConfig{
-			ExtraArgs: []string{"--trace"},
-			Model:     "gpt-5-codex",
+			ExtraArgs:       []string{"--trace"},
+			Model:           "gpt-5-codex",
+			ReasoningEffort: "high",
 		},
 	})
 	if err != nil {
