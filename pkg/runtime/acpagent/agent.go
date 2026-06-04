@@ -52,6 +52,8 @@ type Config struct {
 	// GlobalInstruction is the optional global instruction applied before
 	// Instruction.
 	GlobalInstruction string
+	// ReasoningEffort selects the provider reasoning effort when supported.
+	ReasoningEffort string
 	// InstructionProvider dynamically provides [Config.Instruction] content.
 	// When set, this takes precedence over [Config.Instruction].
 	InstructionProvider InstructionProvider
@@ -102,6 +104,7 @@ type Agent struct {
 	workingDir                string
 	sessionModel              string
 	sessionMode               string
+	reasoningEffort           string
 	outputKey                 string
 	instruction               string
 	globalInstruction         string
@@ -273,6 +276,7 @@ func New(cfg Config) (*Agent, error) {
 		workingDir:                cfg.WorkingDir,
 		sessionModel:              strings.TrimSpace(cfg.Model),
 		sessionMode:               strings.TrimSpace(cfg.Mode),
+		reasoningEffort:           strings.TrimSpace(cfg.ReasoningEffort),
 		outputKey:                 strings.TrimSpace(cfg.OutputKey),
 		instruction:               normalizeInstruction(cfg.Instruction, cfg.SystemInstructions),
 		globalInstruction:         strings.TrimSpace(cfg.GlobalInstruction),
@@ -903,6 +907,10 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 	rawState, err := ctx.Session().State().Get(SessionStateKey)
 	if err != nil {
 		if errors.Is(err, session.ErrStateKeyNotExist) {
+			cfg, cfgErr := addReasoningEffortToSessionConfig(cfg, a.reasoningEffort)
+			if cfgErr != nil {
+				return acpSessionConfig{}, cfgErr
+			}
 			return normalizeACPConfigCWD(cfg)
 		}
 		return acpSessionConfig{}, fmt.Errorf("read %q from adk session state: %w", SessionStateKey, err)
@@ -925,6 +933,10 @@ func (a *Agent) resolveSessionConfig(ctx adkagent.InvocationContext) (acpSession
 			return acpSessionConfig{}, fmt.Errorf("adk session state %q.session_id must be a string; got %T", SessionStateKey, rawSessionID)
 		}
 		cfg.sessionID = strings.TrimSpace(sessionID)
+	}
+	cfg, err = addReasoningEffortToSessionConfig(cfg, a.reasoningEffort)
+	if err != nil {
+		return acpSessionConfig{}, err
 	}
 	return normalizeACPConfigCWD(cfg)
 }
@@ -1026,6 +1038,59 @@ func addInstructionMetaToSessionConfig(cfg acpSessionConfig, instructions resolv
 	}
 	cfg.metaJSON = string(metaJSON)
 	return cfg, nil
+}
+
+func addReasoningEffortToSessionConfig(cfg acpSessionConfig, reasoningEffort string) (acpSessionConfig, error) {
+	trimmedEffort := strings.TrimSpace(reasoningEffort)
+	if trimmedEffort == "" {
+		return cfg, nil
+	}
+	if cfg.meta == nil {
+		cfg.meta = map[string]any{}
+	}
+
+	codexMeta, err := codexMetaObject(cfg.meta)
+	if err != nil {
+		return acpSessionConfig{}, err
+	}
+	configMeta, err := codexConfigObject(codexMeta)
+	if err != nil {
+		return acpSessionConfig{}, err
+	}
+	configMeta["model_reasoning_effort"] = trimmedEffort
+	codexMeta["config"] = configMeta
+	cfg.meta["codex"] = codexMeta
+
+	metaJSON, err := json.Marshal(cfg.meta)
+	if err != nil {
+		return acpSessionConfig{}, fmt.Errorf("marshal acp session meta: %w", err)
+	}
+	cfg.metaJSON = string(metaJSON)
+	return cfg, nil
+}
+
+func codexMetaObject(meta map[string]any) (map[string]any, error) {
+	codexMeta := map[string]any{}
+	if rawCodexMeta, ok := meta["codex"]; ok {
+		existingCodexMeta, ok := rawCodexMeta.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("acp session meta codex must be an object; got %T", rawCodexMeta)
+		}
+		codexMeta = cloneAnyMap(existingCodexMeta)
+	}
+	return codexMeta, nil
+}
+
+func codexConfigObject(codexMeta map[string]any) (map[string]any, error) {
+	configMeta := map[string]any{}
+	if rawConfigMeta, ok := codexMeta["config"]; ok {
+		existingConfigMeta, ok := rawConfigMeta.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("acp session meta codex.config must be an object; got %T", rawConfigMeta)
+		}
+		configMeta = cloneAnyMap(existingConfigMeta)
+	}
+	return configMeta, nil
 }
 
 func setInstructionMetaIfEmpty(meta map[string]any, key string, value string) {

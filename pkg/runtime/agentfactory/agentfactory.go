@@ -34,6 +34,8 @@ type BuildRequest struct {
 	Instruction string `json:"instruction,omitempty"`
 	// GlobalInstruction is prepended ahead of Instruction for each invocation.
 	GlobalInstruction string `json:"global_instruction,omitempty"`
+	// ReasoningEffort overrides the provider reasoning effort when supported.
+	ReasoningEffort string `json:"reasoning_effort,omitempty" validate:"omitempty,oneof=minimal low medium high xhigh"`
 	// WorkingDirectory is the session working directory for the built agent.
 	WorkingDirectory string `json:"working_directory" validate:"required,min=1"`
 	// MCPServerIDs overrides provider-level MCP server references for this build.
@@ -444,12 +446,34 @@ func effectiveGlobalInstruction(req BuildRequest) string {
 	return strings.TrimSpace(req.GlobalInstruction)
 }
 
+func effectiveReasoningEffort(req BuildRequest, cfg agentconfig.ResolvedConfig, schemaType string) (string, error) {
+	override := strings.TrimSpace(req.ReasoningEffort)
+	if override == "" {
+		override = strings.TrimSpace(cfg.ReasoningEffort)
+	}
+	if override == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(schemaType) != agentconfig.AgentTypeCodexACP {
+		return "", fmt.Errorf("reasoning_effort is only supported for type %s", agentconfig.AgentTypeCodexACP)
+	}
+	return override, nil
+}
+
 var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
 	if cfg.Type != agentconfig.AgentTypeGenericACP {
 		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
 	}
 	if len(cfg.Command) == 0 {
 		return nil, fmt.Errorf("generic_acp agent requires cmd")
+	}
+	schemaCfg, err := f.GetAgentConfig(req.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	reasoningEffort, err := effectiveReasoningEffort(req, cfg, schemaCfg.Type)
+	if err != nil {
+		return nil, err
 	}
 
 	return newACPAgent(acpagent.Config{
@@ -462,6 +486,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 		GlobalInstruction: effectiveGlobalInstruction(req),
 		Command:           append([]string(nil), cfg.Command...),
 		WorkingDir:        req.WorkingDirectory,
+		ReasoningEffort:   reasoningEffort,
 		Stderr:            f.stderrWriter,
 		PermissionHandler: f.permissionHandler,
 		Logger:            loggerFromContext(ctx),

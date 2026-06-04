@@ -79,6 +79,8 @@ type Config struct {
 	MCPServers []string `json:"mcp_servers,omitempty"          yaml:"mcp_servers,omitempty"          mapstructure:"mcp_servers"         validate:"omitempty,dive,notblank"`
 	// SystemInstructions defines provider-level instructions applied by default.
 	SystemInstructions string `json:"system_instructions,omitempty"  yaml:"system_instructions,omitempty"  mapstructure:"system_instructions" validate:"omitempty,notblank"`
+	// ReasoningEffort selects the provider reasoning effort when supported.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"      yaml:"reasoning_effort,omitempty"      mapstructure:"reasoning_effort"    validate:"omitempty,oneof=minimal low medium high xhigh"`
 
 	// GenericACP configures a custom ACP executable.
 	GenericACP *ACPConfig `json:"generic_acp,omitempty"     yaml:"generic_acp,omitempty"     mapstructure:"generic_acp"`
@@ -108,6 +110,8 @@ type ResolvedConfig struct {
 	MCPServers []string
 	// SystemInstructions are the normalized provider-level instructions.
 	SystemInstructions string
+	// ReasoningEffort is the normalized provider reasoning effort.
+	ReasoningEffort string
 
 	// Command is the runtime command argv for ACP-backed agents.
 	Command []string
@@ -513,9 +517,13 @@ func explainMCPRequirementsError(cfg MCPServerConfig) string {
 // NormalizeConfig canonicalizes aliases and returns a runtime-ready configuration.
 func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) {
 	_ = executablePath
+	if err := validateAgentConfigSemantics(cfg); err != nil {
+		return ResolvedConfig{}, err
+	}
 	resolved := ResolvedConfig{
 		MCPServers:         append([]string(nil), cfg.MCPServers...),
 		SystemInstructions: cfg.SystemInstructions,
+		ReasoningEffort:    strings.TrimSpace(cfg.ReasoningEffort),
 	}
 
 	switch strings.TrimSpace(cfg.Type) {
@@ -690,11 +698,20 @@ func (c Config) selectedLocalAPIBlock() (*LocalAPIConfig, bool) {
 }
 
 func validateAgentConfigSemantics(cfg Config) error {
-	switch strings.TrimSpace(cfg.Type) {
+	agentType := strings.TrimSpace(cfg.Type)
+	reasoningEffort := strings.TrimSpace(cfg.ReasoningEffort)
+
+	switch agentType {
 	case AgentTypeOpenAI, AgentTypeAIStudio:
 		if len(cfg.MCPServers) > 0 {
-			return fmt.Errorf("mcp_servers is not supported for type %s", strings.TrimSpace(cfg.Type))
+			return fmt.Errorf("mcp_servers is not supported for type %s", agentType)
 		}
+	}
+	if reasoningEffort == "" {
+		return nil
+	}
+	if agentType != AgentTypeCodexACP {
+		return fmt.Errorf("reasoning_effort is only supported for type %s", AgentTypeCodexACP)
 	}
 
 	return nil

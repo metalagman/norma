@@ -107,6 +107,25 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "mcp_servers is not supported for type openai",
 		},
 		{
+			name: "valid_codex_reasoning_effort",
+			cfg: Config{
+				Type:            AgentTypeCodexACP,
+				ReasoningEffort: "high",
+				CodexACP:        &ACPConfig{},
+			},
+		},
+		{
+			name: "reasoning_effort_rejected_for_generic_acp",
+			cfg: Config{
+				Type:            AgentTypeGenericACP,
+				ReasoningEffort: "high",
+				GenericACP: &ACPConfig{
+					Cmd: []string{"custom-acp", "--stdio"},
+				},
+			},
+			wantErr: "reasoning_effort is only supported for type codex_acp",
+		},
+		{
 			name: "valid_aistudio",
 			cfg: Config{
 				Type: AgentTypeAIStudio,
@@ -183,7 +202,8 @@ func TestNormalizeConfig(t *testing.T) {
 		{
 			name: "codex_alias",
 			cfg: Config{
-				Type: AgentTypeCodexACP,
+				Type:            AgentTypeCodexACP,
+				ReasoningEffort: "high",
 				CodexACP: &ACPConfig{
 					Model:     "gpt-5-codex",
 					Mode:      "code",
@@ -192,10 +212,11 @@ func TestNormalizeConfig(t *testing.T) {
 			},
 			exec: execPath,
 			want: ResolvedConfig{
-				Type:    AgentTypeGenericACP,
-				Command: []string{"npx", "-y", "@normahq/codex-acp-bridge@latest", "--trace"},
-				Model:   "gpt-5-codex",
-				Mode:    "code",
+				Type:            AgentTypeGenericACP,
+				Command:         []string{"npx", "-y", "@normahq/codex-acp-bridge@latest", "--trace"},
+				Model:           "gpt-5-codex",
+				Mode:            "code",
+				ReasoningEffort: "high",
 			},
 		},
 		{
@@ -338,6 +359,22 @@ func TestNormalizeConfig_DoesNotMutateSchemaConfig(t *testing.T) {
 	}
 }
 
+func TestNormalizeConfig_RejectsReasoningEffortForUnsupportedTypes(t *testing.T) {
+	t.Parallel()
+
+	_, err := NormalizeConfig(Config{
+		Type:            AgentTypeOpenAI,
+		ReasoningEffort: "high",
+		OpenAI:          &LocalAPIConfig{Model: "gpt-5"},
+	}, "/tmp/norma")
+	if err == nil {
+		t.Fatal("NormalizeConfig() error = nil, want unsupported reasoning_effort error")
+	}
+	if got := err.Error(); got != "reasoning_effort is only supported for type codex_acp" {
+		t.Fatalf("NormalizeConfig() error = %q, want unsupported reasoning_effort error", got)
+	}
+}
+
 func TestNormalizeConfigs(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +445,7 @@ func TestConfigYAMLTags(t *testing.T) {
 	data, err := yaml.Marshal(Config{
 		Type:               AgentTypeCodexACP,
 		MCPServers:         []string{"workspace"},
+		ReasoningEffort:    "high",
 		SystemInstructions: "system",
 		CodexACP: &ACPConfig{
 			ExtraArgs: []string{"--trace"},
@@ -421,6 +459,7 @@ func TestConfigYAMLTags(t *testing.T) {
 	text := string(data)
 	for _, want := range []string{
 		"mcp_servers:",
+		"reasoning_effort:",
 		"system_instructions:",
 		"codex_acp:",
 		"extra_args:",
@@ -432,6 +471,7 @@ func TestConfigYAMLTags(t *testing.T) {
 
 	for _, unwanted := range []string{
 		"mcpservers:",
+		"reasoningeffort:",
 		"systeminstructions:",
 		"codexacp:",
 		"extraargs:",

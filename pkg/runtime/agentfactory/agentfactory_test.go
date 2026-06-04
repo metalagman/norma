@@ -163,6 +163,92 @@ func TestFactoryBuild_NormalizesTemplatedACPCommand(t *testing.T) {
 	assert.Equal(t, want, capturedCommand)
 }
 
+func TestFactoryBuild_PropagatesCodexReasoningEffort(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedReasoningEffort string
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedReasoningEffort = cfg.ReasoningEffort
+		return nil, nil
+	}
+
+	agents := map[string]agentconfig.Config{
+		"codex": {
+			Type:            agentconfig.AgentTypeCodexACP,
+			ReasoningEffort: "medium",
+			CodexACP: &agentconfig.ACPConfig{
+				Model: "gpt-5-codex",
+			},
+		},
+	}
+	f := New(agents, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{AgentID: "codex", WorkingDirectory: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	assert.Equal(t, "medium", capturedReasoningEffort)
+}
+
+func TestFactoryBuild_BuildRequestReasoningEffortOverridesProvider(t *testing.T) {
+	origNewACPAgent := newACPAgent
+	t.Cleanup(func() {
+		newACPAgent = origNewACPAgent
+	})
+
+	var capturedReasoningEffort string
+	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
+		capturedReasoningEffort = cfg.ReasoningEffort
+		return nil, nil
+	}
+
+	agents := map[string]agentconfig.Config{
+		"codex": {
+			Type:            agentconfig.AgentTypeCodexACP,
+			ReasoningEffort: "low",
+			CodexACP: &agentconfig.ACPConfig{
+				Model: "gpt-5-codex",
+			},
+		},
+	}
+	f := New(agents, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:          "codex",
+		WorkingDirectory: t.TempDir(),
+		ReasoningEffort:  "high",
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	assert.Equal(t, "high", capturedReasoningEffort)
+}
+
+func TestFactoryBuild_RejectsReasoningEffortOverrideForUnsupportedType(t *testing.T) {
+	agents := map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: helperACPCommand(t),
+			},
+		},
+	}
+	f := New(agents, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:          "test-acp",
+		WorkingDirectory: t.TempDir(),
+		ReasoningEffort:  "high",
+	})
+	if err == nil {
+		t.Fatal("Build() error = nil, want unsupported reasoning_effort error")
+	}
+	assert.Contains(t, err.Error(), "reasoning_effort is only supported for type codex_acp")
+}
+
 func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 	origNewACPAgent := newACPAgent
 	t.Cleanup(func() {
@@ -178,6 +264,14 @@ func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 	var logBuf bytes.Buffer
 	baseLogger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
 	ctx := baseLogger.WithContext(context.Background())
+	factory := New(map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"fake-acp", "serve"},
+			},
+		},
+	}, nil)
 
 	_, err := acpConstructor(ctx, agentconfig.ResolvedConfig{
 		Type:    agentconfig.AgentTypeGenericACP,
@@ -187,7 +281,7 @@ func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 		Name:             "test-acp",
 		Description:      "test",
 		WorkingDirectory: t.TempDir(),
-	}, New(map[string]agentconfig.Config{}, nil), nil)
+	}, factory, nil)
 	if err != nil {
 		t.Fatalf("acpConstructor() error = %v", err)
 	}
@@ -433,6 +527,14 @@ func TestACPConstructor_UsesInstructionAndGlobalInstruction(t *testing.T) {
 		capturedOutputKey = cfg.OutputKey
 		return nil, nil
 	}
+	factory := New(map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"fake-acp", "serve"},
+			},
+		},
+	}, nil)
 
 	_, err := acpConstructor(context.Background(), agentconfig.ResolvedConfig{
 		Type:               agentconfig.AgentTypeGenericACP,
@@ -444,7 +546,7 @@ func TestACPConstructor_UsesInstructionAndGlobalInstruction(t *testing.T) {
 		GlobalInstruction: "global-request",
 		OutputKey:         "agent_result",
 		WorkingDirectory:  t.TempDir(),
-	}, New(map[string]agentconfig.Config{}, nil), nil)
+	}, factory, nil)
 	if err != nil {
 		t.Fatalf("acpConstructor() error = %v", err)
 	}

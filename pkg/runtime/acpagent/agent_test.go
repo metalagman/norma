@@ -1581,6 +1581,125 @@ func TestAgentAddsInstructionsToCodexSessionMeta(t *testing.T) {
 	}
 }
 
+func TestAgentAddsReasoningEffortToCodexSessionMeta(t *testing.T) {
+	workingDir := t.TempDir()
+	expectedMetaRaw, err := json.Marshal(map[string]any{
+		"codex": map[string]any{
+			"config": map[string]any{
+				"model_reasoning_effort": "high",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected meta) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD":          workingDir,
+			"GO_EXPECT_NEW_SESSION_META_RAW": string(expectedMetaRaw),
+		}),
+		WorkingDir:      workingDir,
+		ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
+func TestAgentPreservesExistingCodexConfigWhenAddingReasoningEffort(t *testing.T) {
+	workingDir := t.TempDir()
+	meta := map[string]any{
+		"codex": map[string]any{
+			"approvalMode": "manual",
+			"config": map[string]any{
+				"profile": "team",
+			},
+		},
+	}
+	expectedMetaRaw, err := json.Marshal(map[string]any{
+		"codex": map[string]any{
+			"approvalMode": "manual",
+			"config": map[string]any{
+				"profile":                "team",
+				"model_reasoning_effort": "medium",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected meta) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_EXPECT_SESSION_CWD":          workingDir,
+			"GO_EXPECT_NEW_SESSION_META_RAW": string(expectedMetaRaw),
+		}),
+		WorkingDir:      workingDir,
+		ReasoningEffort: "medium",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"meta": meta,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	got := collectFinalText(t, r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}))
+	if got != testSessionOneHello {
+		t.Fatalf("final text = %q, want %s", got, testSessionOneHello)
+	}
+}
+
 func TestAgentPreservesExplicitCodexInstructionMeta(t *testing.T) {
 	workingDir := t.TempDir()
 	meta := map[string]any{
@@ -1876,6 +1995,92 @@ func TestAgentUsesStateSessionWhenResumeCapabilityMissing(t *testing.T) {
 	}
 	if got := finalSessionState["session_id"]; got != sessionID {
 		t.Fatalf("final %s.session_id = %v, want %s", SessionStateKey, got, sessionID)
+	}
+}
+
+func TestAgentAddsReasoningEffortToResumeMetaDuringRecovery(t *testing.T) {
+	workingDir := t.TempDir()
+	sessionID := "stale-session"
+	expectedPromptsRaw, err := json.Marshal([]string{"hello", "hello"})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
+	}
+	expectedResumeMetaRaw, err := json.Marshal(map[string]any{
+		"codex": map[string]any{
+			"approvalMode": "manual",
+			"config": map[string]any{
+				"model_reasoning_effort": "high",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(expected resume meta) error = %v", err)
+	}
+
+	a, err := New(Config{
+		Context: context.Background(),
+		Command: helperCommandWithEnv(t, map[string]string{
+			"GO_SUPPORT_SESSION_RESUME":             "1",
+			"GO_FAIL_FIRST_PROMPT_ENTITY_NOT_FOUND": "1",
+			"GO_EXPECT_RESUME_SESSION_ID":           sessionID,
+			"GO_EXPECT_RESUME_META_RAW":             string(expectedResumeMetaRaw),
+			"GO_EXPECT_PROMPTS":                     string(expectedPromptsRaw),
+		}),
+		WorkingDir:      workingDir,
+		ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	sessionService := session.InMemoryService()
+	r, err := runnerpkg.New(runnerpkg.Config{
+		AppName:        "test-app",
+		Agent:          a,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
+		AppName: "test-app",
+		UserID:  "test-user",
+		State: map[string]any{
+			"cwd": workingDir,
+			"acp_session": map[string]any{
+				"session_id": sessionID,
+				"meta": map[string]any{
+					"codex": map[string]any{
+						"approvalMode": "manual",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	finalText, finalSessionState := collectFinalTextAndSessionState(
+		t,
+		r.Run(context.Background(), "test-user", sess.Session.ID(), genai.NewContentFromText("hello", genai.RoleUser), agent.RunConfig{}),
+	)
+	if finalText != sessionID+":hello" {
+		t.Fatalf("final text = %q, want %s:hello", finalText, sessionID)
+	}
+	if got := finalSessionState["session_id"]; got != sessionID {
+		t.Fatalf("final %s.session_id = %v, want %q", SessionStateKey, got, sessionID)
+	}
+	if got := finalSessionState["meta"]; !reflect.DeepEqual(got, map[string]any{
+		"codex": map[string]any{
+			"approvalMode": "manual",
+			"config": map[string]any{
+				"model_reasoning_effort": "high",
+			},
+		},
+	}) {
+		t.Fatalf("final %s.meta = %#v, want reasoning effort persisted", SessionStateKey, got)
 	}
 }
 
