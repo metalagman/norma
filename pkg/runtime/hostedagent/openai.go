@@ -8,6 +8,7 @@ import (
 	"io"
 	"iter"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +20,13 @@ const (
 	defaultOpenAIBaseURL = "https://api.openai.com/v1"
 	openAITimeout        = 30 * time.Second
 )
+
+func openAIBaseURL() string {
+	if u := os.Getenv("OPENAI_BASE_URL"); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return defaultOpenAIBaseURL
+}
 
 // OpenAIModel adapts the OpenAI chat completions API to the ADK model
 // interface.
@@ -135,7 +143,7 @@ func (m *OpenAIModel) doChatRequest(ctx context.Context, payload openAIChatReque
 		return nil, fmt.Errorf("marshal openai request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, defaultOpenAIBaseURL+"/chat/completions", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIBaseURL()+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create openai request: %w", err)
 	}

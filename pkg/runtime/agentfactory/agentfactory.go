@@ -521,10 +521,6 @@ var openAIConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig
 	if cfg.Type != agentconfig.AgentTypeOpenAI {
 		return nil, fmt.Errorf("unknown openai agent type %q", cfg.Type)
 	}
-	if len(resolvedMCP) > 0 {
-		return nil, fmt.Errorf("openai agent does not support mcp servers")
-	}
-
 	llmModel, err := newOpenAIModel(cfg.APIKey, cfg.Model)
 	if err != nil {
 		return nil, err
