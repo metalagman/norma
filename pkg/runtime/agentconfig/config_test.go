@@ -116,6 +116,12 @@ func TestConfigValidate(t *testing.T) {
 			},
 		},
 		{
+			name: "valid_copilot_alias_default",
+			cfg: Config{
+				Type: AgentTypeCopilotACP,
+			},
+		},
+		{
 			name: "reasoning_effort_rejected_for_generic_acp",
 			cfg: Config{
 				Type: AgentTypeGenericACP,
@@ -231,6 +237,17 @@ func TestNormalizeConfig(t *testing.T) {
 				Type:    AgentTypeGenericACP,
 				Command: []string{"copilot", "--acp", "--stdio", "--trace"},
 				Model:   "gpt-5-codex",
+			},
+		},
+		{
+			name: "copilot_alias_default",
+			cfg: Config{
+				Type: AgentTypeCopilotACP,
+			},
+			exec: execPath,
+			want: ResolvedConfig{
+				Type:    AgentTypeGenericACP,
+				Command: []string{"copilot", "--acp", "--stdio"},
 			},
 		},
 		{

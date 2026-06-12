@@ -401,6 +401,9 @@ func validateAgentBlocks(fl validator.FieldLevel) bool {
 	if cfg.PoolConfig != nil {
 		present++
 	}
+	if present == 0 && strings.TrimSpace(cfg.Type) == AgentTypeCopilotACP {
+		return true
+	}
 	if present != 1 {
 		return false
 	}
@@ -415,7 +418,7 @@ func validateAgentBlocks(fl validator.FieldLevel) bool {
 	case AgentTypeOpenCodeACP:
 		return cfg.OpenCodeACP != nil && len(cfg.OpenCodeACP.Cmd) == 0
 	case AgentTypeCopilotACP:
-		return cfg.CopilotACP != nil && len(cfg.CopilotACP.Cmd) == 0
+		return cfg.CopilotACP == nil || len(cfg.CopilotACP.Cmd) == 0
 	case AgentTypeClaudeCodeACP:
 		return cfg.ClaudeCodeACP != nil && len(cfg.ClaudeCodeACP.Cmd) == 0
 	case AgentTypeOpenAI:
@@ -446,6 +449,9 @@ func explainAgentBlocksError(cfg Config) string {
 		if present {
 			selectedCount++
 		}
+	}
+	if selectedCount == 0 && strings.TrimSpace(cfg.Type) == AgentTypeCopilotACP {
+		return ""
 	}
 	if selectedCount != 1 {
 		return "exactly one type-specific block must be set"
@@ -560,15 +566,16 @@ func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) 
 			Mode:            cfg.CodexACP.Mode,
 		}), nil
 	case AgentTypeCopilotACP:
-		if cfg.CopilotACP == nil {
-			return ResolvedConfig{}, fmt.Errorf("copilot_acp block is required")
+		copilotACP := cfg.CopilotACP
+		if copilotACP == nil {
+			copilotACP = &ACPConfig{}
 		}
 		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
 			Cmd:             []string{"copilot", "--acp", "--stdio"},
-			ExtraArgs:       append([]string(nil), cfg.CopilotACP.ExtraArgs...),
-			Model:           cfg.CopilotACP.Model,
-			ReasoningEffort: cfg.CopilotACP.ReasoningEffort,
-			Mode:            cfg.CopilotACP.Mode,
+			ExtraArgs:       append([]string(nil), copilotACP.ExtraArgs...),
+			Model:           copilotACP.Model,
+			ReasoningEffort: copilotACP.ReasoningEffort,
+			Mode:            copilotACP.Mode,
 		}), nil
 	case AgentTypeClaudeCodeACP:
 		if cfg.ClaudeCodeACP == nil {
