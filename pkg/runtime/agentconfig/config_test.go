@@ -229,7 +229,7 @@ func TestNormalizeConfig(t *testing.T) {
 			exec: execPath,
 			want: ResolvedConfig{
 				Type:    AgentTypeGenericACP,
-				Command: []string{"copilot", "--acp", "--trace"},
+				Command: []string{"copilot", "--acp", "--stdio", "--trace"},
 				Model:   "gpt-5-codex",
 			},
 		},

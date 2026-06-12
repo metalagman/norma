@@ -564,7 +564,7 @@ func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) 
 			return ResolvedConfig{}, fmt.Errorf("copilot_acp block is required")
 		}
 		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
-			Cmd:             []string{"copilot", "--acp"},
+			Cmd:             []string{"copilot", "--acp", "--stdio"},
 			ExtraArgs:       append([]string(nil), cfg.CopilotACP.ExtraArgs...),
 			Model:           cfg.CopilotACP.Model,
 			ReasoningEffort: cfg.CopilotACP.ReasoningEffort,
