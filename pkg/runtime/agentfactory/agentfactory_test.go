@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
+	"google.golang.org/adk/tool"
 )
 
 type contextKey string
@@ -574,6 +575,34 @@ func (m fakeHostedModel) GenerateContent(context.Context, *model.LLMRequest, boo
 	return func(func(*model.LLMResponse, error) bool) {}
 }
 
+type requestTool struct {
+	name string
+}
+
+func (t requestTool) Name() string {
+	return t.name
+}
+
+func (requestTool) Description() string {
+	return "request test tool"
+}
+
+func (requestTool) IsLongRunning() bool {
+	return false
+}
+
+type requestToolset struct {
+	name string
+}
+
+func (t requestToolset) Name() string {
+	return t.name
+}
+
+func (requestToolset) Tools(agent.ReadonlyContext) ([]tool.Tool, error) {
+	return nil, nil
+}
+
 func TestFactoryBuild_OpenAIProvider(t *testing.T) {
 	origNewOpenAIModel := newOpenAIModel
 	origNewHostedAgent := newHostedAgent
@@ -614,6 +643,8 @@ func TestFactoryBuild_OpenAIProvider(t *testing.T) {
 		Instruction:       "from-request",
 		GlobalInstruction: "global-request",
 		WorkingDirectory:  t.TempDir(),
+		Tools:             []tool.Tool{requestTool{name: "read_file"}},
+		Toolsets:          []tool.Toolset{requestToolset{name: "review_tools"}},
 	})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
@@ -639,6 +670,65 @@ func TestFactoryBuild_OpenAIProvider(t *testing.T) {
 	}
 	if capturedCfg.Model == nil || capturedCfg.Model.Name() != "remote-openai" {
 		t.Fatalf("hosted agent model = %#v, want remote-openai", capturedCfg.Model)
+	}
+	if len(capturedCfg.Tools) != 1 || capturedCfg.Tools[0].Name() != "read_file" {
+		t.Fatalf("hosted agent tools = %#v, want read_file", capturedCfg.Tools)
+	}
+	if len(capturedCfg.Toolsets) != 1 || capturedCfg.Toolsets[0].Name() != "review_tools" {
+		t.Fatalf("hosted agent toolsets = %#v, want review_tools", capturedCfg.Toolsets)
+	}
+}
+
+func TestFactoryBuild_ACPRejectsRequestTools(t *testing.T) {
+	f := New(map[string]agentconfig.Config{
+		"test-acp": {
+			Type: agentconfig.AgentTypeGenericACP,
+			GenericACP: &agentconfig.ACPConfig{
+				Cmd: []string{"echo"},
+			},
+		},
+	}, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:          "test-acp",
+		WorkingDirectory: t.TempDir(),
+		Tools:            []tool.Tool{requestTool{name: "read_file"}},
+	})
+	if err == nil {
+		t.Fatal("Build() error = nil, want request tools rejection")
+	}
+	if !strings.Contains(err.Error(), "does not support request tools") {
+		t.Fatalf("Build() error = %v, want request tools rejection", err)
+	}
+}
+
+func TestFactoryBuild_PoolRejectsRequestTools(t *testing.T) {
+	f := New(map[string]agentconfig.Config{
+		"pool": {
+			Type: agentconfig.AgentTypePool,
+			PoolConfig: &agentconfig.PoolConfig{
+				Members: []string{"openai"},
+			},
+		},
+		"openai": {
+			Type: agentconfig.AgentTypeOpenAI,
+			OpenAI: &agentconfig.LocalAPIConfig{
+				APIKey: "openai-test-key",
+				Model:  "gpt-5",
+			},
+		},
+	}, mcpregistry.New(nil))
+
+	_, err := f.Build(context.Background(), BuildRequest{
+		AgentID:          "pool",
+		WorkingDirectory: t.TempDir(),
+		Tools:            []tool.Tool{requestTool{name: "read_file"}},
+	})
+	if err == nil {
+		t.Fatal("Build() error = nil, want request tools rejection")
+	}
+	if !strings.Contains(err.Error(), "pool agent does not support request tools") {
+		t.Fatalf("Build() error = %v, want pool request tools rejection", err)
 	}
 }
 

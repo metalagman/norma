@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
+	"google.golang.org/adk/tool"
 )
 
 // BuildRequest defines the parameters for building a new agent instance.
@@ -42,6 +43,10 @@ type BuildRequest struct {
 	MCPServerIDs []string `json:"mcp_server_ids,omitempty"`
 	// OutputKey stores the final visible model output in session state for this invocation.
 	OutputKey string `json:"output_key,omitempty"`
+	// Tools contains ADK-native tools supplied by the caller for this build.
+	Tools []tool.Tool `json:"-"`
+	// Toolsets contains ADK-native toolsets supplied by the caller for this build.
+	Toolsets []tool.Toolset `json:"-"`
 }
 
 var buildRequestValidator = newBuildRequestValidator()
@@ -464,6 +469,9 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 	if cfg.Type != agentconfig.AgentTypeGenericACP {
 		return nil, fmt.Errorf("unknown acp agent type %q", cfg.Type)
 	}
+	if hasRequestTools(req) {
+		return nil, fmt.Errorf("%s agent does not support request tools", cfg.Type)
+	}
 	if len(cfg.Command) == 0 {
 		return nil, fmt.Errorf("generic_acp agent requires cmd")
 	}
@@ -496,6 +504,9 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 }
 
 var poolConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, _ map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	if hasRequestTools(req) {
+		return nil, fmt.Errorf("pool agent does not support request tools")
+	}
 	members, err := validatePoolMembers(req.AgentID, cfg.PoolMembers, f.registry)
 	if err != nil {
 		return nil, err
@@ -536,6 +547,8 @@ var openAIConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig
 		Instruction:       effectiveInstruction(req, cfg),
 		GlobalInstruction: effectiveGlobalInstruction(req),
 		Model:             llmModel,
+		Tools:             append([]tool.Tool(nil), req.Tools...),
+		Toolsets:          append([]tool.Toolset(nil), req.Toolsets...),
 	})
 }
 
@@ -558,7 +571,13 @@ var aistudioConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConf
 		Instruction:       effectiveInstruction(req, cfg),
 		GlobalInstruction: effectiveGlobalInstruction(req),
 		Model:             llmModel,
+		Tools:             append([]tool.Tool(nil), req.Tools...),
+		Toolsets:          append([]tool.Toolset(nil), req.Toolsets...),
 	})
+}
+
+func hasRequestTools(req BuildRequest) bool {
+	return len(req.Tools) > 0 || len(req.Toolsets) > 0
 }
 
 type factoryAgentCreator struct {
