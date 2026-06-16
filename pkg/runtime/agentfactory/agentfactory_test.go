@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"iter"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/hostedagent"
@@ -633,8 +635,14 @@ func TestFactoryBuild_OpenAIProvider(t *testing.T) {
 				Model:  "gpt-5",
 			},
 			SystemInstructions: "from-config",
+			MCPServers:         []string{"docs"},
 		},
-	}, mcpregistry.New(nil))
+	}, mcpregistry.New(map[string]agentconfig.MCPServerConfig{
+		"docs": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://docs.example/mcp",
+		},
+	}))
 
 	_, err := f.Build(context.Background(), BuildRequest{
 		AgentID:           "openai",
@@ -674,9 +682,71 @@ func TestFactoryBuild_OpenAIProvider(t *testing.T) {
 	if len(capturedCfg.Tools) != 1 || capturedCfg.Tools[0].Name() != "read_file" {
 		t.Fatalf("hosted agent tools = %#v, want read_file", capturedCfg.Tools)
 	}
-	if len(capturedCfg.Toolsets) != 1 || capturedCfg.Toolsets[0].Name() != "review_tools" {
-		t.Fatalf("hosted agent toolsets = %#v, want review_tools", capturedCfg.Toolsets)
+	if len(capturedCfg.Toolsets) != 2 {
+		t.Fatalf("hosted agent toolsets = %#v, want request and mcp toolsets", capturedCfg.Toolsets)
 	}
+	if capturedCfg.Toolsets[0].Name() != "review_tools" {
+		t.Fatalf("hosted agent request toolset = %q, want review_tools", capturedCfg.Toolsets[0].Name())
+	}
+	if capturedCfg.Toolsets[1].Name() != "mcp_tool_set" {
+		t.Fatalf("hosted agent mcp toolset = %q, want mcp_tool_set", capturedCfg.Toolsets[1].Name())
+	}
+}
+
+func TestMCPTransportForConfig_StdioPreservesProcessConfig(t *testing.T) {
+	transport, err := mcpTransportForConfig(agentconfig.MCPServerConfig{
+		Type:       agentconfig.MCPServerTypeStdio,
+		Cmd:        []string{"mcp-server", "--from-cmd"},
+		Args:       []string{"--from-args"},
+		Env:        map[string]string{"BETA": "2", "ALPHA": "1"},
+		WorkingDir: "/tmp/mcp-work",
+	})
+	if err != nil {
+		t.Fatalf("mcpTransportForConfig() error = %v", err)
+	}
+	cmdTransport, ok := transport.(*mcp.CommandTransport)
+	if !ok {
+		t.Fatalf("transport = %T, want *mcp.CommandTransport", transport)
+	}
+	if cmdTransport.Command.Path != "mcp-server" {
+		t.Fatalf("command path = %q, want mcp-server", cmdTransport.Command.Path)
+	}
+	assert.Equal(t, []string{"mcp-server", "--from-cmd", "--from-args"}, cmdTransport.Command.Args)
+	assert.Equal(t, []string{"ALPHA=1", "BETA=2"}, cmdTransport.Command.Env)
+	if cmdTransport.Command.Dir != "/tmp/mcp-work" {
+		t.Fatalf("command dir = %q, want /tmp/mcp-work", cmdTransport.Command.Dir)
+	}
+}
+
+func TestHTTPClientWithHeadersAddsConfiguredHeaders(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://example.test/mcp", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	rt := staticHeaderRoundTripper{
+		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if got := req.Header.Get("Authorization"); got != "Bearer token" {
+				t.Fatalf("Authorization header = %q, want Bearer token", got)
+			}
+			if got := req.Header.Get("X-Test"); got != "yes" {
+				t.Fatalf("X-Test header = %q, want yes", got)
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+		}),
+		headers: map[string]string{"Authorization": "Bearer token", "X-Test": "yes"},
+	}
+	if _, err := rt.RoundTrip(req); err != nil {
+		t.Fatalf("RoundTrip() error = %v", err)
+	}
+	if req.Header.Get("Authorization") != "" {
+		t.Fatalf("RoundTrip mutated original request headers: %#v", req.Header)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestFactoryBuild_ACPRejectsRequestTools(t *testing.T) {
@@ -764,8 +834,14 @@ func TestFactoryBuild_AIStudioProvider(t *testing.T) {
 				APIKey: "aistudio-test-key",
 				Model:  "gemini-2.5-flash",
 			},
+			MCPServers: []string{"workspace"},
 		},
-	}, mcpregistry.New(nil))
+	}, mcpregistry.New(map[string]agentconfig.MCPServerConfig{
+		"workspace": {
+			Type: agentconfig.MCPServerTypeHTTP,
+			URL:  "http://workspace.example/mcp",
+		},
+	}))
 
 	_, err := f.Build(ctx, BuildRequest{
 		AgentID:          "aistudio",
@@ -789,6 +865,9 @@ func TestFactoryBuild_AIStudioProvider(t *testing.T) {
 	}
 	if capturedCfg.Model == nil || capturedCfg.Model.Name() != "remote-aistudio" {
 		t.Fatalf("hosted agent model = %#v, want remote-aistudio", capturedCfg.Model)
+	}
+	if len(capturedCfg.Toolsets) != 1 || capturedCfg.Toolsets[0].Name() != "mcp_tool_set" {
+		t.Fatalf("aistudio hosted toolsets = %#v, want one mcp toolset", capturedCfg.Toolsets)
 	}
 }
 

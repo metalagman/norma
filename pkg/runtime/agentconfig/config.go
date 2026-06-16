@@ -716,12 +716,6 @@ func validateAgentConfigSemantics(cfg Config) error {
 		reasoningEffort = strings.TrimSpace(spec.ReasoningEffort)
 	}
 
-	switch agentType {
-	case AgentTypeOpenAI, AgentTypeAIStudio:
-		if len(cfg.MCPServers) > 0 {
-			return fmt.Errorf("mcp_servers is not supported for type %s", agentType)
-		}
-	}
 	if reasoningEffort == "" {
 		return nil
 	}

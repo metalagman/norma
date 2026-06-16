@@ -96,7 +96,7 @@ func TestConfigValidate(t *testing.T) {
 			},
 		},
 		{
-			name: "openai_rejects_mcp_servers",
+			name: "openai_accepts_mcp_servers",
 			cfg: Config{
 				Type:       AgentTypeOpenAI,
 				MCPServers: []string{"workspace"},
@@ -104,7 +104,6 @@ func TestConfigValidate(t *testing.T) {
 					Model: "gpt-5",
 				},
 			},
-			wantErr: "mcp_servers is not supported for type openai",
 		},
 		{
 			name: "valid_codex_reasoning_effort",

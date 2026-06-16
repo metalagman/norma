@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/hostedagent"
@@ -21,6 +24,7 @@ import (
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/mcptoolset"
 )
 
 // BuildRequest defines the parameters for building a new agent instance.
@@ -353,6 +357,102 @@ func toRuntimeMCPServers(configs map[string]agentconfig.MCPServerConfig) map[str
 	return runtimeConfigs
 }
 
+func hostedToolsets(requestToolsets []tool.Toolset, resolvedMCP map[string]agentconfig.MCPServerConfig) ([]tool.Toolset, error) {
+	toolsets := append([]tool.Toolset(nil), requestToolsets...)
+	if len(resolvedMCP) == 0 {
+		return toolsets, nil
+	}
+
+	ids := make([]string, 0, len(resolvedMCP))
+	for id := range resolvedMCP {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		transport, err := mcpTransportForConfig(resolvedMCP[id])
+		if err != nil {
+			return nil, fmt.Errorf("create mcp transport %q: %w", id, err)
+		}
+		toolset, err := mcptoolset.New(mcptoolset.Config{Transport: transport})
+		if err != nil {
+			return nil, fmt.Errorf("create mcp toolset %q: %w", id, err)
+		}
+		toolsets = append(toolsets, toolset)
+	}
+	return toolsets, nil
+}
+
+func mcpTransportForConfig(cfg agentconfig.MCPServerConfig) (mcp.Transport, error) {
+	switch cfg.Type {
+	case agentconfig.MCPServerTypeStdio:
+		if len(cfg.Cmd) == 0 {
+			return nil, fmt.Errorf("stdio mcp server requires cmd")
+		}
+		args := append([]string(nil), cfg.Cmd[1:]...)
+		args = append(args, cfg.Args...)
+		cmd := exec.Command(cfg.Cmd[0], args...)
+		cmd.Dir = strings.TrimSpace(cfg.WorkingDir)
+		cmd.Env = stringMapEnv(cfg.Env)
+		return &mcp.CommandTransport{Command: cmd}, nil
+	case agentconfig.MCPServerTypeHTTP:
+		return &mcp.StreamableClientTransport{
+			Endpoint:   strings.TrimSpace(cfg.URL),
+			HTTPClient: httpClientWithHeaders(cfg.Headers),
+		}, nil
+	case agentconfig.MCPServerTypeSSE:
+		return &mcp.SSEClientTransport{
+			Endpoint:   strings.TrimSpace(cfg.URL),
+			HTTPClient: httpClientWithHeaders(cfg.Headers),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported mcp server type %q", cfg.Type)
+	}
+}
+
+func stringMapEnv(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+env[key])
+	}
+	return out
+}
+
+func httpClientWithHeaders(headers map[string]string) *http.Client {
+	if len(headers) == 0 {
+		return nil
+	}
+	return &http.Client{Transport: staticHeaderRoundTripper{
+		base:    http.DefaultTransport,
+		headers: cloneStringMap(headers),
+	}}
+}
+
+type staticHeaderRoundTripper struct {
+	base    http.RoundTripper
+	headers map[string]string
+}
+
+func (t staticHeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	for key, value := range t.headers {
+		clone.Header.Set(key, value)
+	}
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(clone)
+}
+
 func toRuntimeMCPServerType(serverType agentconfig.MCPServerType) acpagent.MCPServerType {
 	switch serverType {
 	case agentconfig.MCPServerTypeStdio:
@@ -537,26 +637,7 @@ var openAIConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig
 		return nil, err
 	}
 
-	return newHostedAgent(hostedagent.Config{
-		Name:              effectiveName(req),
-		Description:       effectiveDescription(req, cfg),
-		Instruction:       effectiveInstruction(req, cfg),
-		GlobalInstruction: effectiveGlobalInstruction(req),
-		Model:             llmModel,
-		Tools:             append([]tool.Tool(nil), req.Tools...),
-		Toolsets:          append([]tool.Toolset(nil), req.Toolsets...),
-	})
-}
-
-var aistudioConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
-	if cfg.Type != agentconfig.AgentTypeAIStudio {
-		return nil, fmt.Errorf("unknown aistudio agent type %q", cfg.Type)
-	}
-	if len(resolvedMCP) > 0 {
-		return nil, fmt.Errorf("aistudio agent does not support mcp servers")
-	}
-
-	llmModel, err := newAIStudioModel(ctx, cfg.APIKey, cfg.Model)
+	toolsets, err := hostedToolsets(req.Toolsets, resolvedMCP)
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +649,32 @@ var aistudioConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConf
 		GlobalInstruction: effectiveGlobalInstruction(req),
 		Model:             llmModel,
 		Tools:             append([]tool.Tool(nil), req.Tools...),
-		Toolsets:          append([]tool.Toolset(nil), req.Toolsets...),
+		Toolsets:          toolsets,
+	})
+}
+
+var aistudioConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, resolvedMCP map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+	if cfg.Type != agentconfig.AgentTypeAIStudio {
+		return nil, fmt.Errorf("unknown aistudio agent type %q", cfg.Type)
+	}
+	llmModel, err := newAIStudioModel(ctx, cfg.APIKey, cfg.Model)
+	if err != nil {
+		return nil, err
+	}
+
+	toolsets, err := hostedToolsets(req.Toolsets, resolvedMCP)
+	if err != nil {
+		return nil, err
+	}
+
+	return newHostedAgent(hostedagent.Config{
+		Name:              effectiveName(req),
+		Description:       effectiveDescription(req, cfg),
+		Instruction:       effectiveInstruction(req, cfg),
+		GlobalInstruction: effectiveGlobalInstruction(req),
+		Model:             llmModel,
+		Tools:             append([]tool.Tool(nil), req.Tools...),
+		Toolsets:          toolsets,
 	})
 }
 
