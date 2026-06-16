@@ -45,7 +45,7 @@ func TestNew_PassesToolsToLLMAgent(t *testing.T) {
 		Name:        "ping",
 		Description: "Returns the input value.",
 	}, func(_ tool.Context, args pingArgs) (pingResult, error) {
-		return pingResult{Value: args.Value}, nil
+		return pingResult(args), nil
 	})
 	if err != nil {
 		t.Fatalf("functiontool.New() error = %v", err)

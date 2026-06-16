@@ -41,9 +41,13 @@ const (
 	promptTemplate = `{{ if .SystemInstruction }}{{ .SystemInstruction }}
 
 {{ end }}I/O Requirements:
+{{ if .InputSchema }}
 - Read input JSON schema (text below).
+{{ else }}
+- Read input text (text below).
+{{ end }}
+{{ if .OutputSchema }}
 - Read output JSON schema (text below).
-- Read input JSON content (text below).
 - Produce output JSON that conforms to the output schema.
 
 STRICT OUTPUT CONTRACT:
@@ -59,14 +63,21 @@ Let me explore first.
 
 Valid example:
 {"status":"ok"}
+{{ else }}
+- Produce a direct text response.
+{{ end }}
 
+{{ if .InputSchema }}
 Input JSON Schema:
 {{ .InputSchema }}
+{{ end }}
 
+{{ if .OutputSchema }}
 Output JSON Schema:
 {{ .OutputSchema }}
+{{ end }}
 
-	Input JSON:
+{{ if .InputSchema }}Input JSON:{{ else }}Input:{{ end }}
 {{ .Input }}
 `
 )
@@ -83,6 +94,8 @@ type wrapperAgent struct {
 	systemInstruction         string
 	inputSchema               string
 	outputSchema              string
+	validateInput             bool
+	validateOutput            bool
 	maxAccumulatedOutputBytes int
 	outputValidationRetries   int
 }
@@ -90,6 +103,8 @@ type wrapperAgent struct {
 type options struct {
 	inputSchema               string
 	outputSchema              string
+	validateInput             bool
+	validateOutput            bool
 	systemInstruction         string
 	maxAccumulatedOutputBytes int
 	outputValidationRetries   int
@@ -102,6 +117,7 @@ type Option func(*options)
 func WithInputSchema(inputSchema string) Option {
 	return func(o *options) {
 		o.inputSchema = strings.TrimSpace(inputSchema)
+		o.validateInput = true
 	}
 }
 
@@ -109,6 +125,25 @@ func WithInputSchema(inputSchema string) Option {
 func WithOutputSchema(outputSchema string) Option {
 	return func(o *options) {
 		o.outputSchema = strings.TrimSpace(outputSchema)
+		o.validateOutput = true
+	}
+}
+
+// WithoutInputSchema disables input JSON schema validation and forwards the raw
+// user text into the structured wrapper prompt.
+func WithoutInputSchema() Option {
+	return func(o *options) {
+		o.inputSchema = ""
+		o.validateInput = false
+	}
+}
+
+// WithoutOutputSchema disables output JSON extraction and schema validation.
+// The wrapped agent's accumulated text is returned as-is.
+func WithoutOutputSchema() Option {
+	return func(o *options) {
+		o.outputSchema = ""
+		o.validateOutput = false
 	}
 }
 
@@ -149,6 +184,8 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 	opts := options{
 		inputSchema:               inputSchemaJSON,
 		outputSchema:              outputSchemaJSON,
+		validateInput:             true,
+		validateOutput:            true,
 		maxAccumulatedOutputBytes: defaultMaxAccumulatedOutputBytes,
 		outputValidationRetries:   1,
 	}
@@ -158,10 +195,10 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 		}
 		set(&opts)
 	}
-	if strings.TrimSpace(opts.inputSchema) == "" {
+	if opts.validateInput && strings.TrimSpace(opts.inputSchema) == "" {
 		opts.inputSchema = inputSchemaJSON
 	}
-	if strings.TrimSpace(opts.outputSchema) == "" {
+	if opts.validateOutput && strings.TrimSpace(opts.outputSchema) == "" {
 		opts.outputSchema = outputSchemaJSON
 	}
 	if opts.maxAccumulatedOutputBytes <= 0 {
@@ -170,11 +207,15 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 	if opts.outputValidationRetries < 0 {
 		opts.outputValidationRetries = 0
 	}
-	if err := validateSchemaDefinition(opts.inputSchema, "input"); err != nil {
-		return nil, err
+	if opts.validateInput {
+		if err := validateSchemaDefinition(opts.inputSchema, "input"); err != nil {
+			return nil, err
+		}
 	}
-	if err := validateSchemaDefinition(opts.outputSchema, "output"); err != nil {
-		return nil, err
+	if opts.validateOutput {
+		if err := validateSchemaDefinition(opts.outputSchema, "output"); err != nil {
+			return nil, err
+		}
 	}
 
 	name := strings.TrimSpace(wrapped.Name())
@@ -197,6 +238,8 @@ func NewAgent(wrapped adkagent.Agent, setters ...Option) (adkagent.Agent, error)
 		systemInstruction:         opts.systemInstruction,
 		inputSchema:               opts.inputSchema,
 		outputSchema:              opts.outputSchema,
+		validateInput:             opts.validateInput,
+		validateOutput:            opts.validateOutput,
 		maxAccumulatedOutputBytes: opts.maxAccumulatedOutputBytes,
 		outputValidationRetries:   opts.outputValidationRetries,
 	}, nil
@@ -228,10 +271,12 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			Str("raw_input_preview", truncateForLog(rawInput, 320)).
 			Msg("received structured wrapper input")
 
-		if err := validateInputSchema(w.inputSchema, rawInput); err != nil {
-			logger.Debug().Err(err).Msg("structured wrapper input validation failed")
-			yield(nil, fmt.Errorf("validate structured input: %w", err))
-			return
+		if w.validateInput {
+			if err := validateInputSchema(w.inputSchema, rawInput); err != nil {
+				logger.Debug().Err(err).Msg("structured wrapper input validation failed")
+				yield(nil, fmt.Errorf("validate structured input: %w", err))
+				return
+			}
 		}
 
 		prompt, err := buildPrompt(promptData{
@@ -278,6 +323,21 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			Int("accumulated_output_len", len(accumulatedText)).
 			Str("accumulated_output_preview", truncateForLog(accumulatedText, 320)).
 			Msg("collected accumulated output from inner agent")
+
+		if !w.validateOutput {
+			outputEvent := session.NewEvent(ctx.InvocationID())
+			outputEvent.Content = genai.NewContentFromText(accumulatedText, genai.RoleModel)
+			if !yield(outputEvent, nil) {
+				return
+			}
+
+			turnComplete := session.NewEvent(ctx.InvocationID())
+			turnComplete.TurnComplete = true
+			if !yield(turnComplete, nil) {
+				return
+			}
+			return
+		}
 
 		var jsonOutput string
 		var lastOutputErr error

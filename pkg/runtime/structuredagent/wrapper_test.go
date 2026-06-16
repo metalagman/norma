@@ -89,6 +89,85 @@ func TestNewAgent_UsesDefaultsWhenSchemasEmpty(t *testing.T) {
 	}
 }
 
+func TestNewAgent_CanDisableInputSchema(t *testing.T) {
+	t.Parallel()
+
+	var called int32
+	inner := newStaticOutputAgent(t, validStructuredOutputJSON, &called)
+	wrapped, err := NewAgent(inner, WithoutInputSchema())
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	out, runErr := runSingleTurn(t, wrapped, "plain review task")
+	if runErr != nil {
+		t.Fatalf("runSingleTurn() error = %v", runErr)
+	}
+	if !strings.Contains(out, `"output":"done"`) {
+		t.Fatalf("output = %q, want structured output", out)
+	}
+	if got := atomic.LoadInt32(&called); got != 1 {
+		t.Fatalf("inner called = %d, want 1", got)
+	}
+}
+
+func TestNewAgent_CanDisableOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	inner := newStaticOutputAgent(t, "plain response", nil)
+	wrapped, err := NewAgent(inner, WithoutOutputSchema())
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	out, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+	if runErr != nil {
+		t.Fatalf("runSingleTurn() error = %v", runErr)
+	}
+	if strings.TrimSpace(out) != "plain response" {
+		t.Fatalf("output = %q, want raw response", out)
+	}
+}
+
+func TestNewAgent_CanDisableBothSchemas(t *testing.T) {
+	t.Parallel()
+
+	inner := newStaticOutputAgent(t, "plain response", nil)
+	wrapped, err := NewAgent(inner, WithoutInputSchema(), WithoutOutputSchema())
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	out, runErr := runSingleTurn(t, wrapped, "plain request")
+	if runErr != nil {
+		t.Fatalf("runSingleTurn() error = %v", runErr)
+	}
+	if strings.TrimSpace(out) != "plain response" {
+		t.Fatalf("output = %q, want raw response", out)
+	}
+}
+
+func TestNewAgent_WithSchemaOptionsReenableValidation(t *testing.T) {
+	t.Parallel()
+
+	inner := newStaticOutputAgent(t, validStructuredOutputJSON, nil)
+	wrapped, err := NewAgent(inner, WithoutInputSchema(), WithInputSchema(""))
+	if err != nil {
+		t.Fatalf("NewAgent(input) error = %v", err)
+	}
+	if _, runErr := runSingleTurn(t, wrapped, "not-json"); runErr == nil {
+		t.Fatal("runSingleTurn(input) error = nil, want input validation error")
+	}
+
+	wrapped, err = NewAgent(inner, WithoutOutputSchema(), WithOutputSchema(""))
+	if err != nil {
+		t.Fatalf("NewAgent(output) error = %v", err)
+	}
+	if _, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`); runErr != nil {
+		t.Fatalf("runSingleTurn(output) error = %v", runErr)
+	}
+}
+
 func TestNewAgent_RejectsInvalidSchemas(t *testing.T) {
 	t.Parallel()
 
@@ -126,6 +205,38 @@ func TestBuildPrompt_IncludesStrictOutputContract(t *testing.T) {
 		"Invalid example (DO NOT DO THIS):",
 		"Valid example:",
 	)
+}
+
+func TestBuildPrompt_OmitsDisabledSchemaSections(t *testing.T) {
+	t.Parallel()
+
+	prompt, err := buildPrompt(promptData{
+		Input:        "plain review task",
+		OutputSchema: `{"type":"object"}`,
+	})
+	if err != nil {
+		t.Fatalf("buildPrompt() error = %v", err)
+	}
+	assertContainsAll(t, prompt,
+		"- Read input text (text below).",
+		"Output JSON Schema:",
+		"STRICT OUTPUT CONTRACT:",
+		"Input:\nplain review task",
+	)
+	assertNotContainsAny(t, prompt, "Input JSON Schema:", "Input JSON:")
+
+	rawPrompt, err := buildPrompt(promptData{
+		Input: "plain request",
+	})
+	if err != nil {
+		t.Fatalf("buildPrompt(raw) error = %v", err)
+	}
+	assertContainsAll(t, rawPrompt,
+		"- Read input text (text below).",
+		"- Produce a direct text response.",
+		"Input:\nplain request",
+	)
+	assertNotContainsAny(t, rawPrompt, "Input JSON Schema:", "Output JSON Schema:", "STRICT OUTPUT CONTRACT:")
 }
 
 func TestWrapperAgentValidationCases(t *testing.T) {
@@ -790,6 +901,15 @@ func assertContainsAll(t *testing.T, got string, wantParts ...string) {
 	for _, part := range wantParts {
 		if !strings.Contains(got, part) {
 			t.Fatalf("text does not contain %q; text=%q", part, got)
+		}
+	}
+}
+
+func assertNotContainsAny(t *testing.T, got string, unwantedParts ...string) {
+	t.Helper()
+	for _, part := range unwantedParts {
+		if strings.Contains(got, part) {
+			t.Fatalf("text contains unwanted %q; text=%q", part, got)
 		}
 	}
 }
