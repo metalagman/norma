@@ -19,6 +19,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/normahq/norma/pkg/runtime/providererror"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/artifact"
@@ -50,6 +51,34 @@ func expectedPromptsJSON(t *testing.T, prompts ...string) string {
 		t.Fatalf("json.Marshal(expected prompts) error = %v", err)
 	}
 	return string(raw)
+}
+
+func TestMapACPAgentMessageChunkCopiesProviderErrorMetadata(t *testing.T) {
+	t.Parallel()
+
+	ev, ok := mapACPAgentMessageChunk(zerolog.Nop(), "inv-1", &acp.SessionUpdateAgentMessageChunk{
+		Content: acp.TextBlock("Error: quota exceeded"),
+		Meta: map[string]any{
+			"provider_error": map[string]any{
+				"kind":       "quota_exceeded",
+				"message":    "quota exceeded",
+				"request_id": "req-1",
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("mapACPAgentMessageChunk() ok = false, want true")
+	}
+	got, ok := providererror.FromADKMetadata(ev.CustomMetadata)
+	if !ok {
+		t.Fatalf("provider error metadata missing: %#v", ev.CustomMetadata)
+	}
+	if got.Kind != providererror.KindQuotaExceeded {
+		t.Fatalf("Kind = %q, want %q", got.Kind, providererror.KindQuotaExceeded)
+	}
+	if got.RequestID != "req-1" {
+		t.Fatalf("RequestID = %q, want req-1", got.RequestID)
+	}
 }
 
 func TestClientPromptReceivesUpdates(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/normahq/norma/pkg/runtime/providererror"
 	"github.com/normahq/norma/pkg/runtime/sessionstate"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
@@ -377,6 +378,7 @@ func (a *Agent) run(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, er
 		if result.promptResult != nil {
 			ev.FinishReason = mapACPStopReasonToFinishReason(result.promptResult.Response.StopReason)
 			ev.UsageMetadata = mapACPUsageToUsageMetadata(result.promptResult.Usage)
+			copyACPProviderErrorMetadata(ev, result.promptResult.Response.Meta)
 		}
 		if result.finalOutput != "" {
 			ev.Content = genai.NewContentFromText(result.finalOutput, genai.RoleModel)
@@ -1532,7 +1534,22 @@ func mapACPAgentMessageChunk(logger zerolog.Logger, invocationID string, chunk *
 		}
 		ev.CustomMetadata["acp_message_id"] = *chunk.MessageId
 	}
+	copyACPProviderErrorMetadata(ev, chunk.Meta)
 	return ev, true
+}
+
+func copyACPProviderErrorMetadata(ev *session.Event, meta map[string]any) {
+	if ev == nil {
+		return
+	}
+	providerErr, ok := providererror.FromMetadata(meta)
+	if !ok {
+		return
+	}
+	if ev.CustomMetadata == nil {
+		ev.CustomMetadata = map[string]any{}
+	}
+	ev.CustomMetadata[providererror.ADKMetadataKey] = providerErr
 }
 
 func mapACPUserMessageChunk(logger zerolog.Logger, invocationID string, chunk *acp.SessionUpdateUserMessageChunk) (*session.Event, bool) {
