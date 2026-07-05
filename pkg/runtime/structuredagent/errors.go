@@ -2,8 +2,6 @@ package structuredagent
 
 import (
 	"errors"
-
-	"github.com/normahq/go-adk-acpagent/providererror"
 )
 
 // ErrStructuredIOSchemaValidation is the umbrella error for all structured I/O schema validation failures.
@@ -28,7 +26,6 @@ var ErrStructuredOutputSchemaValidation = errors.Join(
 type OutputValidationError struct {
 	Err               error
 	AccumulatedOutput string
-	ProviderError     *providererror.ProviderError
 }
 
 func (e *OutputValidationError) Error() string {

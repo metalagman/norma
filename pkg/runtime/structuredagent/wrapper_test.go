@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/normahq/go-adk-acpagent/providererror"
 	"github.com/rs/zerolog"
 
 	adkagent "google.golang.org/adk/agent"
@@ -20,6 +19,12 @@ import (
 
 const (
 	validStructuredOutputJSON = `{"output":"done"}`
+	validStructuredInputJSON  = `{"input":"hello"}`
+	objectSchemaJSON          = `{"type":"object"}`
+	outputFieldJSON           = `"output":"done"`
+	structuredWrapperTestApp  = "structured-wrapper-test"
+	validateStructuredOutput  = "validate structured output"
+	nonWhitespaceAfterJSON    = "non-whitespace content after JSON object"
 )
 
 func TestSentinelErrors(t *testing.T) {
@@ -53,7 +58,7 @@ func TestSentinelErrors(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	_, runErr = runSingleTurn(t, wrapped2, `{"input":"hello"}`)
+	_, runErr = runSingleTurn(t, wrapped2, validStructuredInputJSON)
 	if runErr == nil {
 		t.Fatal("expected error for invalid output")
 	}
@@ -68,32 +73,22 @@ func TestSentinelErrors(t *testing.T) {
 	}
 }
 
-func TestOutputValidationErrorCarriesProviderErrorMetadata(t *testing.T) {
+func TestOutputValidationErrorCarriesAccumulatedOutput(t *testing.T) {
 	t.Parallel()
 
-	inner := newStaticOutputAgentWithProviderError(t, "Error: quota exceeded", &providererror.ProviderError{
-		Kind:      providererror.KindQuotaExceeded,
-		Message:   "quota exceeded",
-		RequestID: "req-1",
-	})
+	inner := newStaticOutputAgent(t, "Error: quota exceeded", nil)
 	wrapped, err := NewAgent(inner, WithOutputValidationRetries(0))
 	if err != nil {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+	_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 	if runErr == nil {
 		t.Fatal("expected validation error")
 	}
 	var validationErr *OutputValidationError
 	if !errors.As(runErr, &validationErr) {
 		t.Fatalf("error = %v, want OutputValidationError", runErr)
-	}
-	if validationErr.ProviderError == nil {
-		t.Fatal("ProviderError = nil, want provider error")
-	}
-	if validationErr.ProviderError.Kind != providererror.KindQuotaExceeded {
-		t.Fatalf("ProviderError.Kind = %q, want %q", validationErr.ProviderError.Kind, providererror.KindQuotaExceeded)
 	}
 	if validationErr.AccumulatedOutput != "Error: quota exceeded" {
 		t.Fatalf("AccumulatedOutput = %q", validationErr.AccumulatedOutput)
@@ -112,16 +107,13 @@ func TestOutputValidationErrorWithoutProviderMetadata(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+	_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 	if runErr == nil {
 		t.Fatal("expected validation error")
 	}
 	var validationErr *OutputValidationError
 	if !errors.As(runErr, &validationErr) {
 		t.Fatalf("error = %v, want OutputValidationError", runErr)
-	}
-	if validationErr.ProviderError != nil {
-		t.Fatalf("ProviderError = %v, want nil", validationErr.ProviderError)
 	}
 }
 
@@ -161,7 +153,7 @@ func TestNewAgent_CanDisableInputSchema(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("runSingleTurn() error = %v", runErr)
 	}
-	if !strings.Contains(out, `"output":"done"`) {
+	if !strings.Contains(out, outputFieldJSON) {
 		t.Fatalf("output = %q, want structured output", out)
 	}
 	if got := atomic.LoadInt32(&called); got != 1 {
@@ -178,7 +170,7 @@ func TestNewAgent_CanDisableOutputSchema(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	out, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+	out, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 	if runErr != nil {
 		t.Fatalf("runSingleTurn() error = %v", runErr)
 	}
@@ -221,7 +213,7 @@ func TestNewAgent_WithSchemaOptionsReenableValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent(output) error = %v", err)
 	}
-	if _, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`); runErr != nil {
+	if _, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON); runErr != nil {
 		t.Fatalf("runSingleTurn(output) error = %v", runErr)
 	}
 }
@@ -246,9 +238,9 @@ func TestBuildPrompt_IncludesStrictOutputContract(t *testing.T) {
 	t.Parallel()
 
 	prompt, err := buildPrompt(promptData{
-		Input:        `{"input":"hello"}`,
-		InputSchema:  `{"type":"object"}`,
-		OutputSchema: `{"type":"object"}`,
+		Input:        validStructuredInputJSON,
+		InputSchema:  objectSchemaJSON,
+		OutputSchema: objectSchemaJSON,
 	})
 	if err != nil {
 		t.Fatalf("buildPrompt() error = %v", err)
@@ -270,7 +262,7 @@ func TestBuildPrompt_OmitsDisabledSchemaSections(t *testing.T) {
 
 	prompt, err := buildPrompt(promptData{
 		Input:        "plain review task",
-		OutputSchema: `{"type":"object"}`,
+		OutputSchema: objectSchemaJSON,
 	})
 	if err != nil {
 		t.Fatalf("buildPrompt() error = %v", err)
@@ -317,51 +309,51 @@ func TestWrapperAgentValidationCases(t *testing.T) {
 		},
 		{
 			name:            "invalid_output",
-			input:           `{"input":"hello"}`,
+			input:           validStructuredInputJSON,
 			output:          `{"status":"ok"}`,
-			wantErrContains: "validate structured output",
+			wantErrContains: validateStructuredOutput,
 			wantInnerCalls:  2,
 		},
 		{
 			name:              "valid_input_output",
-			input:             `{"input":"hello"}`,
+			input:             validStructuredInputJSON,
 			output:            validStructuredOutputJSON,
-			wantOutputContain: `"output":"done"`,
+			wantOutputContain: outputFieldJSON,
 			wantInnerCalls:    1,
 		},
 		{
 			name:              "valid_output_with_preface_and_newline_started_json",
-			input:             `{"input":"hello"}`,
+			input:             validStructuredInputJSON,
 			output:            "analysis\n" + validStructuredOutputJSON,
-			wantOutputContain: `"output":"done"`,
+			wantOutputContain: outputFieldJSON,
 			wantInnerCalls:    1,
 		},
 		{
 			name:              "output_with_trailing_backticks_succeeds",
-			input:             `{"input":"hello"}`,
+			input:             validStructuredInputJSON,
 			output:            "analysis\n" + validStructuredOutputJSON + "\n```",
-			wantOutputContain: `"output":"done"`,
+			wantOutputContain: outputFieldJSON,
 			wantInnerCalls:    1,
 		},
 		{
 			name:              "output_with_fenced_json_block_succeeds",
-			input:             `{"input":"hello"}`,
+			input:             validStructuredInputJSON,
 			output:            "```json\n" + validStructuredOutputJSON + "\n```",
-			wantOutputContain: `"output":"done"`,
+			wantOutputContain: outputFieldJSON,
 			wantInnerCalls:    1,
 		},
 		{
 			name:            "output_with_trailing_backticks_and_text_fails_validation",
-			input:           `{"input":"hello"}`,
+			input:           validStructuredInputJSON,
 			output:          "analysis\n" + validStructuredOutputJSON + "\n```\nextra",
-			wantErrContains: "validate structured output",
+			wantErrContains: validateStructuredOutput,
 			wantInnerCalls:  2,
 		},
 		{
 			name:            "output_without_line_started_json_payload",
-			input:           `{"input":"hello"}`,
+			input:           validStructuredInputJSON,
 			output:          "analysis " + validStructuredOutputJSON,
-			wantErrContains: "validate structured output",
+			wantErrContains: validateStructuredOutput,
 			wantInnerCalls:  2,
 		},
 	}
@@ -410,47 +402,47 @@ func TestExtractOutputJSON(t *testing.T) {
 	}{
 		{
 			name: "extract_from_byte_start",
-			raw:  `{"output":"done"}`,
-			want: `{"output":"done"}`,
+			raw:  validStructuredOutputJSON,
+			want: validStructuredOutputJSON,
 		},
 		{
 			name: "extract_from_line_start_after_preface",
-			raw:  "notes\n" + `{"output":"done"}`,
-			want: `{"output":"done"}`,
+			raw:  "notes\n" + validStructuredOutputJSON,
+			want: validStructuredOutputJSON,
 		},
 		{
 			name: "extract_allows_whitespace_after_json",
-			raw:  "notes\n" + `{"output":"done"}` + "\n  \t",
-			want: `{"output":"done"}`,
+			raw:  "notes\n" + validStructuredOutputJSON + "\n  \t",
+			want: validStructuredOutputJSON,
 		},
 		{
 			name: "extract_allows_markdown_closing_fence_after_json",
-			raw:  "notes\n" + `{"output":"done"}` + "\n```",
-			want: `{"output":"done"}`,
+			raw:  "notes\n" + validStructuredOutputJSON + "\n```",
+			want: validStructuredOutputJSON,
 		},
 		{
 			name: "extract_allows_fenced_json_block",
-			raw:  "```json\n" + `{"output":"done"}` + "\n```",
-			want: `{"output":"done"}`,
+			raw:  "```json\n" + validStructuredOutputJSON + "\n```",
+			want: validStructuredOutputJSON,
 		},
 		{
 			name:      "error_on_non_whitespace_after_json",
-			raw:       "notes\n" + `{"output":"done"}` + "\nextra",
-			wantError: "non-whitespace content after JSON object",
+			raw:       "notes\n" + validStructuredOutputJSON + "\nextra",
+			wantError: nonWhitespaceAfterJSON,
 		},
 		{
 			name:      "error_on_non_whitespace_after_markdown_closing_fence",
-			raw:       "notes\n" + `{"output":"done"}` + "\n```\nextra",
-			wantError: "non-whitespace content after JSON object",
+			raw:       "notes\n" + validStructuredOutputJSON + "\n```\nextra",
+			wantError: nonWhitespaceAfterJSON,
 		},
 		{
 			name:      "error_on_multiple_markdown_closing_fences",
-			raw:       "notes\n" + `{"output":"done"}` + "\n```\n```",
-			wantError: "non-whitespace content after JSON object",
+			raw:       "notes\n" + validStructuredOutputJSON + "\n```\n```",
+			wantError: nonWhitespaceAfterJSON,
 		},
 		{
 			name:      "error_when_no_line_started_json",
-			raw:       "notes " + `{"output":"done"}`,
+			raw:       "notes " + validStructuredOutputJSON,
 			wantError: "no JSON object found at byte start or line start",
 		},
 		{
@@ -502,11 +494,11 @@ func TestWrapperAgentLogsOutputValidationFailureWithContextLogger(t *testing.T) 
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	_, _, runErr := runSingleTurnWithContext(t, ctx, wrapped, `{"input":"hello"}`)
+	_, _, runErr := runSingleTurnWithContext(t, ctx, wrapped, validStructuredInputJSON)
 	if runErr == nil {
 		t.Fatal("expected validation error, got nil")
 	}
-	if !strings.Contains(runErr.Error(), "validate structured output") {
+	if !strings.Contains(runErr.Error(), validateStructuredOutput) {
 		t.Fatalf("error = %v, want validate structured output", runErr)
 	}
 
@@ -549,7 +541,7 @@ func TestWrapperAgentIncludesTextFromTurnCompleteEvent(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	out, turnCompleteCount, runErr := runSingleTurnWithMeta(t, wrapped, `{"input":"hello"}`)
+	out, turnCompleteCount, runErr := runSingleTurnWithMeta(t, wrapped, validStructuredInputJSON)
 	if runErr != nil {
 		t.Fatalf("runSingleTurnWithMeta() error = %v", runErr)
 	}
@@ -599,7 +591,7 @@ func TestWrapperAgentAppendsTurnCompleteWhenMissing(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	out, turnCompleteCount, runErr := runSingleTurnWithMeta(t, wrapped, `{"input":"hello"}`)
+	out, turnCompleteCount, runErr := runSingleTurnWithMeta(t, wrapped, validStructuredInputJSON)
 	if runErr != nil {
 		t.Fatalf("runSingleTurnWithMeta() error = %v", runErr)
 	}
@@ -646,7 +638,7 @@ func TestWrapperAgentStopsCollectingAfterTurnComplete(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	out, turnCompleteCount, runErr := runSingleTurnWithMeta(t, wrapped, `{"input":"hello"}`)
+	out, turnCompleteCount, runErr := runSingleTurnWithMeta(t, wrapped, validStructuredInputJSON)
 	if runErr != nil {
 		t.Fatalf("runSingleTurnWithMeta() error = %v", runErr)
 	}
@@ -695,7 +687,7 @@ func TestWrapperAgentSuppressesPassthroughEvents(t *testing.T) {
 
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
-		AppName:        "structured-wrapper-test",
+		AppName:        structuredWrapperTestApp,
 		Agent:          wrapped,
 		SessionService: sessionService,
 	})
@@ -705,7 +697,7 @@ func TestWrapperAgentSuppressesPassthroughEvents(t *testing.T) {
 
 	const userID = "test-user"
 	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
-		AppName: "structured-wrapper-test",
+		AppName: structuredWrapperTestApp,
 		UserID:  userID,
 	})
 	if err != nil {
@@ -718,7 +710,7 @@ func TestWrapperAgentSuppressesPassthroughEvents(t *testing.T) {
 		context.Background(),
 		userID,
 		sess.Session.ID(),
-		genai.NewContentFromText(`{"input":"hello"}`, genai.RoleUser),
+		genai.NewContentFromText(validStructuredInputJSON, genai.RoleUser),
 		adkagent.RunConfig{},
 	)
 	for ev, err := range events {
@@ -734,7 +726,7 @@ func TestWrapperAgentSuppressesPassthroughEvents(t *testing.T) {
 	if runErr == nil {
 		t.Fatal("expected validation error, got nil")
 	}
-	if !strings.Contains(runErr.Error(), "validate structured output") {
+	if !strings.Contains(runErr.Error(), validateStructuredOutput) {
 		t.Fatalf("error = %v, want validate structured output", runErr)
 	}
 	if sawPassthrough {
@@ -780,7 +772,7 @@ func TestWrapperAgentEmitsSingleJSONTextChunk(t *testing.T) {
 
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
-		AppName:        "structured-wrapper-test",
+		AppName:        structuredWrapperTestApp,
 		Agent:          wrapped,
 		SessionService: sessionService,
 	})
@@ -790,7 +782,7 @@ func TestWrapperAgentEmitsSingleJSONTextChunk(t *testing.T) {
 
 	const userID = "test-user"
 	sess, err := sessionService.Create(context.Background(), &session.CreateRequest{
-		AppName: "structured-wrapper-test",
+		AppName: structuredWrapperTestApp,
 		UserID:  userID,
 	})
 	if err != nil {
@@ -804,7 +796,7 @@ func TestWrapperAgentEmitsSingleJSONTextChunk(t *testing.T) {
 		context.Background(),
 		userID,
 		sess.Session.ID(),
-		genai.NewContentFromText(`{"input":"hello"}`, genai.RoleUser),
+		genai.NewContentFromText(validStructuredInputJSON, genai.RoleUser),
 		adkagent.RunConfig{},
 	)
 	for ev, runErr := range events {
@@ -850,7 +842,7 @@ func TestWrapperAgentRejectsAccumulatedOutputOverLimit(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+	_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 	if runErr == nil {
 		t.Fatal("expected accumulated output limit error, got nil")
 	}
@@ -888,35 +880,6 @@ func newStaticOutputAgent(t *testing.T, output string, called *int32) adkagent.A
 	return a
 }
 
-func newStaticOutputAgentWithProviderError(t *testing.T, output string, providerErr *providererror.ProviderError) adkagent.Agent {
-	t.Helper()
-
-	a, err := adkagent.New(adkagent.Config{
-		Name:        "StubProviderErrorAgent",
-		Description: "Stub provider error agent",
-		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
-			return func(yield func(*session.Event, error) bool) {
-				ev := session.NewEvent(ctx.InvocationID())
-				ev.Content = genai.NewContentFromText(output, genai.RoleModel)
-				ev.CustomMetadata = map[string]any{
-					providererror.ADKMetadataKey: providerErr,
-				}
-				if !yield(ev, nil) {
-					return
-				}
-
-				final := session.NewEvent(ctx.InvocationID())
-				final.TurnComplete = true
-				_ = yield(final, nil)
-			}
-		},
-	})
-	if err != nil {
-		t.Fatalf("agent.New() error = %v", err)
-	}
-	return a
-}
-
 func runSingleTurn(t *testing.T, a adkagent.Agent, input string) (string, error) {
 	t.Helper()
 
@@ -934,7 +897,7 @@ func runSingleTurnWithContext(t *testing.T, ctx context.Context, a adkagent.Agen
 
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
-		AppName:        "structured-wrapper-test",
+		AppName:        structuredWrapperTestApp,
 		Agent:          a,
 		SessionService: sessionService,
 	})
@@ -944,7 +907,7 @@ func runSingleTurnWithContext(t *testing.T, ctx context.Context, a adkagent.Agen
 
 	const userID = "test-user"
 	sess, err := sessionService.Create(ctx, &session.CreateRequest{
-		AppName: "structured-wrapper-test",
+		AppName: structuredWrapperTestApp,
 		UserID:  userID,
 	})
 	if err != nil {
@@ -1086,7 +1049,7 @@ func TestRetryMatrix(t *testing.T) {
 			t.Fatalf("NewAgent() error = %v", err)
 		}
 
-		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 		if runErr != nil {
 			t.Fatalf("expected success after retry, got error: %v", runErr)
 		}
@@ -1107,7 +1070,7 @@ func TestRetryMatrix(t *testing.T) {
 			t.Fatalf("NewAgent() error = %v", err)
 		}
 
-		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 		if runErr == nil {
 			t.Fatal("expected error after exhausted retries")
 		}
@@ -1135,7 +1098,7 @@ func TestRetryMatrix(t *testing.T) {
 			t.Fatalf("NewAgent() error = %v", err)
 		}
 
-		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 		if runErr != nil {
 			t.Fatalf("expected success after retry, got error: %v", runErr)
 		}
@@ -1156,7 +1119,7 @@ func TestRetryMatrix(t *testing.T) {
 			t.Fatalf("NewAgent() error = %v", err)
 		}
 
-		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 		if runErr == nil {
 			t.Fatal("expected error after exhausted retries")
 		}
@@ -1183,7 +1146,7 @@ func TestRetryMatrix(t *testing.T) {
 			t.Fatalf("NewAgent() error = %v", err)
 		}
 
-		_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+		_, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
 		if runErr == nil {
 			t.Fatal("expected error from inner agent")
 		}
