@@ -12,8 +12,8 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/normahq/go-adk-acpagent"
 	goalkeeperworkflow "github.com/normahq/norma/pkg/goalkeeper"
-	"github.com/normahq/norma/pkg/runtime/acpagent"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	adkrunner "google.golang.org/adk/runner"

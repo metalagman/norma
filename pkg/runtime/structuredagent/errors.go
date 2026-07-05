@@ -3,7 +3,7 @@ package structuredagent
 import (
 	"errors"
 
-	"github.com/normahq/norma/pkg/runtime/providererror"
+	"github.com/normahq/go-adk-acpagent/providererror"
 )
 
 // ErrStructuredIOSchemaValidation is the umbrella error for all structured I/O schema validation failures.

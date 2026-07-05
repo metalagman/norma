@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/normahq/go-adk-acpagent"
 	"github.com/normahq/norma/internal/apps/appio"
 	"github.com/normahq/norma/internal/logging"
-	"github.com/normahq/norma/pkg/runtime/acpagent"
 )
 
 const unknownValue = "unknown"
@@ -51,6 +51,10 @@ func Run(ctx context.Context, cfg RunConfig) (runErr error) {
 
 	lockedStderr := appio.NewSyncWriter(cfg.Stderr)
 	logger := logging.Ctx(ctx)
+	if logging.DebugEnabled() {
+		stderrLogger := logger.Output(lockedStderr)
+		logger = &stderrLogger
+	}
 
 	logger.Debug().
 		Str("working_dir", cfg.WorkingDir).

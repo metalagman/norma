@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/normahq/norma/pkg/runtime/providererror"
+	"github.com/normahq/go-adk-acpagent/providererror"
 	"github.com/rs/zerolog"
 
 	adkagent "google.golang.org/adk/agent"

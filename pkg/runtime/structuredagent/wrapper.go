@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/normahq/norma/pkg/runtime/providererror"
+	"github.com/normahq/go-adk-acpagent/providererror"
 	"github.com/rs/zerolog"
 	"github.com/xeipuuv/gojsonschema"
 	adkagent "google.golang.org/adk/agent"
