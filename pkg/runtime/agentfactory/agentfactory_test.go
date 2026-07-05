@@ -14,7 +14,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/norma/pkg/runtime/acpagent"
+	"github.com/normahq/go-adk-acpagent"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/hostedagent"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"

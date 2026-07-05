@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/normahq/go-adk-acpagent/providererror"
 	"github.com/rs/zerolog"
 
 	adkagent "google.golang.org/adk/agent"
@@ -64,6 +65,63 @@ func TestSentinelErrors(t *testing.T) {
 	}
 	if errors.Is(runErr, ErrStructuredInputSchemaValidation) {
 		t.Fatal("error should not satisfy ErrStructuredInputSchemaValidation for output validation failure")
+	}
+}
+
+func TestOutputValidationErrorCarriesProviderErrorMetadata(t *testing.T) {
+	t.Parallel()
+
+	inner := newStaticOutputAgentWithProviderError(t, "Error: quota exceeded", &providererror.ProviderError{
+		Kind:      providererror.KindQuotaExceeded,
+		Message:   "quota exceeded",
+		RequestID: "req-1",
+	})
+	wrapped, err := NewAgent(inner, WithOutputValidationRetries(0))
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+	if runErr == nil {
+		t.Fatal("expected validation error")
+	}
+	var validationErr *OutputValidationError
+	if !errors.As(runErr, &validationErr) {
+		t.Fatalf("error = %v, want OutputValidationError", runErr)
+	}
+	if validationErr.ProviderError == nil {
+		t.Fatal("ProviderError = nil, want provider error")
+	}
+	if validationErr.ProviderError.Kind != providererror.KindQuotaExceeded {
+		t.Fatalf("ProviderError.Kind = %q, want %q", validationErr.ProviderError.Kind, providererror.KindQuotaExceeded)
+	}
+	if validationErr.AccumulatedOutput != "Error: quota exceeded" {
+		t.Fatalf("AccumulatedOutput = %q", validationErr.AccumulatedOutput)
+	}
+	if !errors.Is(runErr, ErrStructuredOutputSchemaValidation) {
+		t.Fatalf("error = %v, want ErrStructuredOutputSchemaValidation", runErr)
+	}
+}
+
+func TestOutputValidationErrorWithoutProviderMetadata(t *testing.T) {
+	t.Parallel()
+
+	inner := newStaticOutputAgent(t, "not-json", nil)
+	wrapped, err := NewAgent(inner, WithOutputValidationRetries(0))
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	_, runErr := runSingleTurn(t, wrapped, `{"input":"hello"}`)
+	if runErr == nil {
+		t.Fatal("expected validation error")
+	}
+	var validationErr *OutputValidationError
+	if !errors.As(runErr, &validationErr) {
+		t.Fatalf("error = %v, want OutputValidationError", runErr)
+	}
+	if validationErr.ProviderError != nil {
+		t.Fatalf("ProviderError = %v, want nil", validationErr.ProviderError)
 	}
 }
 
@@ -814,6 +872,35 @@ func newStaticOutputAgent(t *testing.T, output string, called *int32) adkagent.A
 				}
 				ev := session.NewEvent(ctx.InvocationID())
 				ev.Content = genai.NewContentFromText(output, genai.RoleModel)
+				if !yield(ev, nil) {
+					return
+				}
+
+				final := session.NewEvent(ctx.InvocationID())
+				final.TurnComplete = true
+				_ = yield(final, nil)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+	return a
+}
+
+func newStaticOutputAgentWithProviderError(t *testing.T, output string, providerErr *providererror.ProviderError) adkagent.Agent {
+	t.Helper()
+
+	a, err := adkagent.New(adkagent.Config{
+		Name:        "StubProviderErrorAgent",
+		Description: "Stub provider error agent",
+		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {
+				ev := session.NewEvent(ctx.InvocationID())
+				ev.Content = genai.NewContentFromText(output, genai.RoleModel)
+				ev.CustomMetadata = map[string]any{
+					providererror.ADKMetadataKey: providerErr,
+				}
 				if !yield(ev, nil) {
 					return
 				}

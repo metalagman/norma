@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/normahq/go-adk-acpagent/providererror"
 	"github.com/rs/zerolog"
 	"github.com/xeipuuv/gojsonschema"
 	adkagent "google.golang.org/adk/agent"
@@ -301,7 +302,7 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			userContent:       genai.NewContentFromText(prompt, genai.RoleUser),
 		}
 
-		accumulatedText, totalEvents, textEventCount, sawTurnComplete, err := w.collectWrappedOutput(wrappedCtx)
+		accumulatedText, providerErr, totalEvents, textEventCount, sawTurnComplete, err := w.collectWrappedOutput(wrappedCtx)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -382,7 +383,11 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 					Str("validation_json_full", validationJSONForLog(accumulatedText)).
 					Msg("output schema validation failed, retrying")
 
-				accumulatedText, _, _, _, lastOutputErr = w.collectWrappedOutput(wrappedCtx)
+				var retryProviderErr *providererror.ProviderError
+				accumulatedText, retryProviderErr, _, _, _, lastOutputErr = w.collectWrappedOutput(wrappedCtx)
+				if retryProviderErr != nil {
+					providerErr = retryProviderErr
+				}
 			}
 		}
 
@@ -395,7 +400,11 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 				Int("accumulated_output_len", len(accumulatedText)).
 				Str("validation_json_full", validationJSONForLog(accumulatedText)).
 				Msg("output schema validation failed after all retries")
-			yield(nil, fmt.Errorf("validate structured output: %w", lastOutputErr))
+			yield(nil, fmt.Errorf("validate structured output: %w", &OutputValidationError{
+				Err:               lastOutputErr,
+				AccumulatedOutput: accumulatedText,
+				ProviderError:     providerErr,
+			}))
 			return
 		}
 
@@ -413,35 +422,39 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 	}
 }
 
-func (w *wrapperAgent) collectWrappedOutput(ctx adkagent.InvocationContext) (string, int, int, bool, error) {
+func (w *wrapperAgent) collectWrappedOutput(ctx adkagent.InvocationContext) (string, *providererror.ProviderError, int, int, bool, error) {
 	var partialText strings.Builder
 	finalText := ""
 	sawFinalText := false
 	sawTurnComplete := false
 	totalEvents := 0
 	textEventCount := 0
+	var providerErr *providererror.ProviderError
 
 	for ev, err := range w.wrapped.Run(ctx) {
 		if err != nil {
-			return "", totalEvents, textEventCount, sawTurnComplete, err
+			return "", providerErr, totalEvents, textEventCount, sawTurnComplete, err
 		}
 		if ev == nil {
 			continue
 		}
 		totalEvents++
+		if err, ok := providererror.FromADKMetadata(ev.CustomMetadata); ok {
+			providerErr = err
+		}
 		text := eventText(ev)
 
 		if text != "" {
 			if ev.TurnComplete && !ev.Partial {
 				if len(text) > w.maxAccumulatedOutputBytes {
-					return "", totalEvents, textEventCount, sawTurnComplete,
+					return "", providerErr, totalEvents, textEventCount, sawTurnComplete,
 						fmt.Errorf("accumulated output exceeds limit: %d bytes", w.maxAccumulatedOutputBytes)
 				}
 				finalText = text
 				sawFinalText = true
 			} else {
 				if partialText.Len()+len(text) > w.maxAccumulatedOutputBytes {
-					return "", totalEvents, textEventCount, sawTurnComplete,
+					return "", providerErr, totalEvents, textEventCount, sawTurnComplete,
 						fmt.Errorf("accumulated output exceeds limit: %d bytes", w.maxAccumulatedOutputBytes)
 				}
 				partialText.WriteString(text)
@@ -456,9 +469,9 @@ func (w *wrapperAgent) collectWrappedOutput(ctx adkagent.InvocationContext) (str
 	}
 
 	if sawFinalText {
-		return finalText, totalEvents, textEventCount, sawTurnComplete, nil
+		return finalText, providerErr, totalEvents, textEventCount, sawTurnComplete, nil
 	}
-	return partialText.String(), totalEvents, textEventCount, sawTurnComplete, nil
+	return partialText.String(), providerErr, totalEvents, textEventCount, sawTurnComplete, nil
 }
 
 type wrapperInvocationContext struct {

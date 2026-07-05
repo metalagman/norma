@@ -56,8 +56,8 @@ func TestRunShowsPeerDisconnectDiagnosticsInDebug(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 
-	if got := stderr.String(); !strings.Contains(got, "peer connection closed") {
-		t.Fatalf("stderr = %q, want peer disconnect diagnostics in debug mode", got)
+	if got := stderr.String(); !strings.Contains(got, "acp process exited during close") {
+		t.Fatalf("stderr = %q, want close diagnostics in debug mode", got)
 	}
 }
 
