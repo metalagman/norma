@@ -13,6 +13,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/norma/internal/logging"
 	goalkeeperworkflow "github.com/normahq/norma/pkg/goalkeeper"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
@@ -189,7 +190,6 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 }
 
 func newACPAgent(ctx context.Context, cfg acpRuntimeConfig) (closableAgent, error) {
-	logger := cfg.Logger.With().Str("agent_id", cfg.AgentID).Logger()
 	agentRuntime, err := acpagent.New(acpagent.Config{
 		Context:           ctx,
 		Name:              cfg.Name,
@@ -199,7 +199,7 @@ func newACPAgent(ctx context.Context, cfg acpRuntimeConfig) (closableAgent, erro
 		WorkingDir:        cfg.WorkingDir,
 		Stderr:            cfg.Stderr,
 		PermissionHandler: autoAllowPermission,
-		Logger:            &logger,
+		Logger:            logging.Slog().With("component", "app.goalkeeper.acp", "agent_id", cfg.AgentID),
 		Instruction:       cfg.Instruction,
 	})
 	if err != nil {

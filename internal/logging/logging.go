@@ -84,6 +84,11 @@ func TraceEnabled() bool {
 	return globalOpts.level == LevelTrace
 }
 
+// Slog returns the configured slog logger for third-party packages.
+func Slog() *slog.Logger {
+	return slog.Default()
+}
+
 func resolveLevels(levelRaw string) (string, zerolog.Level, slog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(levelRaw)) {
 	case "", LevelInfo:

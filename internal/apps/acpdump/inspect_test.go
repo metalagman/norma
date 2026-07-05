@@ -38,7 +38,7 @@ func TestRunSuppressesPeerDisconnectInfoByDefault(t *testing.T) {
 	}
 }
 
-func TestRunShowsPeerDisconnectDiagnosticsInDebug(t *testing.T) {
+func TestRunKeepsACPDiagnosticsOutOfForwardedStderrInDebug(t *testing.T) {
 	t.Setenv("GO_WANT_ACPDUMP_HELPER", "1")
 	if err := logging.Init(logging.WithLevel(logging.LevelDebug)); err != nil {
 		t.Fatalf("logging.Init() error = %v", err)
@@ -56,8 +56,12 @@ func TestRunShowsPeerDisconnectDiagnosticsInDebug(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 
-	if got := stderr.String(); !strings.Contains(got, "acp process exited during close") {
-		t.Fatalf("stderr = %q, want close diagnostics in debug mode", got)
+	got := stderr.String()
+	if !strings.Contains(got, "inspecting ACP agent") {
+		t.Fatalf("stderr = %q, want app debug message", got)
+	}
+	if strings.Contains(got, "acp process exited during close") || strings.Contains(got, "peer connection closed") {
+		t.Fatalf("stderr = %q, want no ACP package diagnostics", got)
 	}
 }
 

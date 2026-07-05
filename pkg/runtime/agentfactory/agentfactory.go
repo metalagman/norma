@@ -15,12 +15,12 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/hostedagent"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/normahq/norma/pkg/runtime/poolagent"
 	"github.com/normahq/norma/pkg/runtime/sessionstate"
-	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/tool"
@@ -509,20 +509,6 @@ var newOpenAIModel = newOpenAIModelDefault
 
 var newAIStudioModel = newAIStudioModelDefault
 
-func loggerFromContext(ctx context.Context) *zerolog.Logger {
-	if ctx == nil {
-		l := zerolog.Nop()
-		return &l
-	}
-	ctxLogger := zerolog.Ctx(ctx)
-	if ctxLogger == nil || ctxLogger == zerolog.DefaultContextLogger || ctxLogger.GetLevel() == zerolog.Disabled {
-		l := zerolog.Nop()
-		return &l
-	}
-	l := ctxLogger.With().Logger()
-	return &l
-}
-
 func effectiveName(req BuildRequest) string {
 	name := strings.TrimSpace(req.Name)
 	if name != "" {
@@ -597,7 +583,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 		ReasoningEffort:   reasoningEffort,
 		Stderr:            f.stderrWriter,
 		PermissionHandler: f.permissionHandler,
-		Logger:            loggerFromContext(ctx),
+		Logger:            logging.Slog().With("component", "runtime.agentfactory.acp"),
 		MCPServers:        toRuntimeMCPServers(resolvedMCP),
 		OutputKey:         strings.TrimSpace(req.OutputKey),
 	})

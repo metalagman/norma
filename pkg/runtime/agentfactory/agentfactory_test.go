@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"iter"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,7 +20,6 @@ import (
 	"github.com/normahq/norma/pkg/runtime/hostedagent"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/normahq/norma/pkg/runtime/sessionstate"
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
@@ -252,21 +252,19 @@ func TestFactoryBuild_RejectsReasoningEffortOverrideForUnsupportedType(t *testin
 	assert.Contains(t, err.Error(), "reasoning_effort is only supported for type codex_acp")
 }
 
-func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
+func TestACPConstructor_PassesConfiguredSlogLogger(t *testing.T) {
 	origNewACPAgent := newACPAgent
 	t.Cleanup(func() {
 		newACPAgent = origNewACPAgent
 	})
 
-	var capturedLogger *zerolog.Logger
+	var capturedLogger *slog.Logger
 	newACPAgent = func(cfg acpagent.Config) (agent.Agent, error) {
 		capturedLogger = cfg.Logger
 		return nil, nil
 	}
 
-	var logBuf bytes.Buffer
-	baseLogger := zerolog.New(&logBuf).Level(zerolog.TraceLevel)
-	ctx := baseLogger.WithContext(context.Background())
+	ctx := context.Background()
 	factory := New(map[string]agentconfig.Config{
 		"test-acp": {
 			Type: agentconfig.AgentTypeGenericACP,
@@ -291,8 +289,8 @@ func TestACPConstructor_PropagatesContextLogger(t *testing.T) {
 	if capturedLogger == nil {
 		t.Fatal("acpConstructor() did not pass logger to acpagent config")
 	}
-	if capturedLogger.GetLevel() != zerolog.TraceLevel {
-		t.Fatalf("captured logger level = %s, want %s", capturedLogger.GetLevel(), zerolog.TraceLevel)
+	if !capturedLogger.Enabled(context.Background(), slog.LevelInfo) {
+		t.Fatal("captured logger should enable info level")
 	}
 }
 

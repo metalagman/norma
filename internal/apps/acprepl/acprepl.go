@@ -15,6 +15,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/go-adk-acpagent"
 	"github.com/normahq/norma/internal/apps/appio"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/agent"
 	runnerpkg "google.golang.org/adk/runner"
@@ -94,7 +95,7 @@ func RunREPL(
 				WorkingDir:        workingDir,
 				Stderr:            agentStderr,
 				PermissionHandler: permissionHandler,
-				Logger:            l,
+				Logger:            logging.Slog().With("component", "tool.acp_repl"),
 			})
 			if err != nil {
 				l.Error().Err(err).Msg("failed to create ACP runtime")

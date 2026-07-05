@@ -15,6 +15,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/agent"
 	adkrunner "google.golang.org/adk/runner"
@@ -357,7 +358,7 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		WorkingDir:        cfg.WorkingDir,
 		Stderr:            cfg.Stderr,
 		PermissionHandler: autoAllowPermission,
-		Logger:            &logger,
+		Logger:            logging.Slog().With("component", "app.pdcasync.acp", "agent_id", cfg.AgentID),
 		Instruction:       cfg.Instruction,
 		MCPServers:        cfg.MCPServers,
 	})

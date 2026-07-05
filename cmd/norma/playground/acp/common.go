@@ -14,6 +14,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"google.golang.org/adk/agent"
@@ -297,7 +298,7 @@ func runStandardACP(
 		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,
 		PermissionHandler: ui.RequestPermission,
-		Logger:            &logger,
+		Logger:            logging.Slog().With("component", "playground.acp"),
 	})
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to create ACP runtime")
@@ -374,7 +375,7 @@ func runACPWeb(
 		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,
 		PermissionHandler: autoAllowPermission,
-		Logger:            &logger,
+		Logger:            logging.Slog().With("component", "playground.acp.web"),
 	})
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to create ACP runtime")
