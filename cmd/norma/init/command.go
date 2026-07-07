@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/git"
+	"github.com/normahq/norma/v2/internal/git"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -110,27 +110,27 @@ const NormaGitignoreContent = `# ignore everything in .norma by default
 `
 const DefaultConfigYAML = `runtime:
   providers:
-    gemini_acp_agent:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
-    opencode_acp_agent:
+    opencode:
       type: opencode_acp
       opencode_acp:
         model: opencode/big-pickle
-    codex_acp_agent:
+    codex:
       type: codex_acp
       codex_acp:
         model: gpt-5-codex
-    copilot_acp:
-      type: copilot_acp
-      copilot_acp:
-        model: gpt-5-codex
-    claude_code_acp_agent:
+    claude_code:
       type: claude_code_acp
       claude_code_acp:
         model: claude-sonnet-4-20250514
-    custom_generic_acp_agent:
+    copilot:
+      type: copilot_acp
+      copilot_acp:
+        model: gpt-5-codex
+    gemini:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+    custom_generic:
       type: generic_acp
       generic_acp:
         cmd: ["custom-acp-cli", "--acp"]
@@ -138,8 +138,8 @@ const DefaultConfigYAML = `runtime:
       type: pool
       pool:
         members:
-          - opencode_acp_agent
-          - gemini_acp_agent
+          - opencode
+          - codex
 
   # Example MCP server configurations:
   # mcp_servers:
@@ -149,20 +149,20 @@ const DefaultConfigYAML = `runtime:
 
 cli:
   pdca:
-    plan: gemini_acp_agent
-    do: gemini_acp_agent
-    check: gemini_acp_agent
-    act: gemini_acp_agent
+    plan: opencode
+    do: opencode
+    check: opencode
+    act: opencode
   budgets:
     max_iterations: 5
   retention:
     keep_last: 50
     keep_days: 30
 planner:
-  provider: gemini_acp_agent
+  provider: opencode
 swarm:
   primary_role: coordinator
-  default_provider: gemini_acp_agent
+  default_provider: opencode
   roles:
     coordinator:
       assignee: norma-coordinator
@@ -177,69 +177,69 @@ profiles:
   default:
     cli:
       pdca:
-        plan: gemini_acp_agent
-        do: gemini_acp_agent
-        check: gemini_acp_agent
-        act: gemini_acp_agent
+        plan: opencode
+        do: opencode
+        check: opencode
+        act: opencode
     planner:
-      provider: gemini_acp_agent
+      provider: opencode
     swarm:
-      default_provider: gemini_acp_agent
-  gemini:
-    cli:
-      pdca:
-        plan: gemini_acp_agent
-        do: gemini_acp_agent
-        check: gemini_acp_agent
-        act: gemini_acp_agent
-    planner:
-      provider: gemini_acp_agent
-    swarm:
-      default_provider: gemini_acp_agent
+      default_provider: opencode
   opencode:
     cli:
       pdca:
-        plan: opencode_acp_agent
-        do: opencode_acp_agent
-        check: opencode_acp_agent
-        act: opencode_acp_agent
+        plan: opencode
+        do: opencode
+        check: opencode
+        act: opencode
     planner:
-      provider: opencode_acp_agent
+      provider: opencode
     swarm:
-      default_provider: opencode_acp_agent
+      default_provider: opencode
   codex:
     cli:
       pdca:
-        plan: codex_acp_agent
-        do: codex_acp_agent
-        check: codex_acp_agent
-        act: codex_acp_agent
+        plan: codex
+        do: codex
+        check: codex
+        act: codex
     planner:
-      provider: codex_acp_agent
+      provider: codex
     swarm:
-      default_provider: codex_acp_agent
-  acp:
+      default_provider: codex
+  claude_code:
     cli:
       pdca:
-        plan: gemini_acp_agent
-        do: opencode_acp_agent
-        check: codex_acp_agent
-        act: codex_acp_agent
+        plan: claude_code
+        do: claude_code
+        check: claude_code
+        act: claude_code
     planner:
-      provider: gemini_acp_agent
+      provider: claude_code
     swarm:
-      default_provider: codex_acp_agent
+      default_provider: claude_code
   copilot:
     cli:
       pdca:
-        plan: copilot_acp
-        do: copilot_acp
-        check: copilot_acp
-        act: copilot_acp
+        plan: copilot
+        do: copilot
+        check: copilot
+        act: copilot
     planner:
-      provider: copilot_acp
+      provider: copilot
     swarm:
-      default_provider: copilot_acp
+      default_provider: copilot
+  gemini:
+    cli:
+      pdca:
+        plan: gemini
+        do: gemini
+        check: gemini
+        act: gemini
+    planner:
+      provider: gemini
+    swarm:
+      default_provider: gemini
   pool_fallback:
     cli:
       pdca:

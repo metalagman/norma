@@ -1,4 +1,4 @@
-module github.com/normahq/norma
+module github.com/normahq/norma/v2
 
 go 1.26.4
 
@@ -9,7 +9,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/go-playground/validator/v10 v10.30.2
-	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/joho/godotenv v1.5.1
 	github.com/kazhuravlev/options-gen v0.55.5
 	github.com/modelcontextprotocol/go-sdk v1.5.0
@@ -23,8 +22,12 @@ require (
 	go.uber.org/fx v1.24.0
 	google.golang.org/adk/v2 v2.0.0
 	google.golang.org/genai v1.57.0
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.27.0
+)
+
+require (
+	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 require (
@@ -96,7 +99,7 @@ require (
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/elastic/go-json-schema-generate v0.0.0-20220519132038-c708d18d6ca2 // indirect
+	github.com/elastic/go-json-schema-generate v0.0.0-20220519132038-c708d18d6ca2
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fatih/color v1.19.0 // indirect
@@ -188,8 +191,6 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/metalagman/appkit v0.1.0 // indirect
-	github.com/metalagman/omnidist v0.1.24 // indirect
 	github.com/mgechev/revive v1.15.0 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
@@ -202,6 +203,7 @@ require (
 	github.com/nakabonne/nestif v0.3.1 // indirect
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
+	github.com/normahq/runtime/v2 v2.0.0
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
@@ -315,9 +317,6 @@ require (
 )
 
 tool (
-	github.com/elastic/go-json-schema-generate
-	github.com/elastic/go-json-schema-generate/cmd/schema-generate
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/kazhuravlev/options-gen/cmd/options-gen
-	github.com/metalagman/omnidist/cmd/omnidist
 )

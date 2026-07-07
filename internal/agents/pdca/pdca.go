@@ -3,8 +3,8 @@ package pdca
 import (
 	"sync"
 
-	"github.com/normahq/norma/internal/agents/pdca/contracts"
-	"github.com/normahq/norma/internal/agents/pdca/roles"
+	"github.com/normahq/norma/v2/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/v2/internal/agents/pdca/roles"
 )
 
 const (

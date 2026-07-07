@@ -1,4 +1,4 @@
-package acprepl
+package agentrepl
 
 import (
 	"bytes"
@@ -126,8 +126,8 @@ func newTestSession(t *testing.T) session.Session {
 	t.Helper()
 	sessionService := session.InMemoryService()
 	created, err := sessionService.Create(context.Background(), &session.CreateRequest{
-		AppName: "acprepl-test",
-		UserID:  "acprepl-test-user",
+		AppName: "agentrepl-test",
+		UserID:  "agentrepl-test-user",
 	})
 	if err != nil {
 		t.Fatalf("session.Create() error = %v", err)

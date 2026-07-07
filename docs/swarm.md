@@ -29,7 +29,7 @@ Swarm configuration lives under the top-level `swarm` key in `.norma/config.yaml
 ```yaml
 swarm:
   primary_role: coordinator
-  default_provider: codex_acp_agent
+  default_provider: codex
   roles:
     coordinator:
       assignee: norma-coordinator
@@ -37,16 +37,16 @@ swarm:
     planner:
       assignee: norma-planner
       instruction: Break down work and assign tasks to roles.
-      provider: gemini_acp_agent
+      provider: opencode
     implementer:
       assignee: norma-implementer
       instruction: Implement assigned tasks.
-      provider: opencode_acp_agent
+      provider: codex
 
 profiles:
   opencode:
     swarm:
-      default_provider: opencode_acp_agent
+      default_provider: opencode
 ```
 
 Rules:

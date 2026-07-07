@@ -1,4 +1,4 @@
-package acprepl
+package agentrepl
 
 import (
 	"bufio"
@@ -13,9 +13,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/go-adk-acpagent/v2"
-	"github.com/normahq/norma/internal/apps/appio"
-	"github.com/normahq/norma/internal/logging"
+	"github.com/normahq/norma/v2/internal/apps/appio"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/v2/agent"
 	runnerpkg "google.golang.org/adk/v2/runner"
@@ -27,8 +25,8 @@ const (
 	toolReplCommandExit  = "exit"
 	toolReplCommandQuit  = "quit"
 	acpToolCallEventName = "acp_tool_call"
-	defaultREPLAppName   = "norma-tool-acp-repl"
-	defaultREPLUserID    = "norma-tool-user"
+	defaultREPLAppName   = "norma-agent-repl"
+	defaultREPLUserID    = "norma-agent-repl-user"
 
 	ansiGray  = "\x1b[90m"
 	ansiReset = "\x1b[0m"
@@ -45,7 +43,7 @@ var (
 )
 
 // PermissionHandler decides how ACP permission requests should be handled.
-type PermissionHandler = acpagent.PermissionHandler
+type PermissionHandler func(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
 
 // AgentFactory builds an ADK agent and returns an optional close function.
 type AgentFactory func(context.Context, PermissionHandler, io.Writer) (adkagent.Agent, func() error, error)
@@ -60,60 +58,6 @@ type AgentREPLConfig struct {
 	AgentFactory        AgentFactory
 	StartupPrompt       string
 	StartupPromptSilent bool
-}
-
-func RunREPL(
-	ctx context.Context,
-	workingDir string,
-	command []string,
-	sessionModel string,
-	sessionMode string,
-	stdin io.Reader,
-	stdout io.Writer,
-	stderr io.Writer,
-) error {
-	return RunAgentREPL(ctx, AgentREPLConfig{
-		AppName: defaultREPLAppName,
-		UserID:  defaultREPLUserID,
-		Stdin:   stdin,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		AgentFactory: func(ctx context.Context, permissionHandler PermissionHandler, agentStderr io.Writer) (adkagent.Agent, func() error, error) {
-			l := zerolog.Ctx(ctx)
-			l.Debug().
-				Str("working_dir", workingDir).
-				Strs("command", command).
-				Msg("starting ACP REPL tool")
-
-			agentRuntime, err := acpagent.New(acpagent.Config{
-				Context:           ctx,
-				Name:              "acp_repl_agent",
-				Description:       "Generic ACP REPL tool",
-				SessionConfig:     acpSessionConfigValues(sessionModel, sessionMode),
-				Command:           command,
-				WorkingDir:        workingDir,
-				Stderr:            agentStderr,
-				PermissionHandler: permissionHandler,
-				Logger:            logging.Slog().With("component", "tool.acp_repl"),
-			})
-			if err != nil {
-				l.Error().Err(err).Msg("failed to create ACP runtime")
-				return nil, nil, err
-			}
-			return agentRuntime, agentRuntime.Close, nil
-		},
-	})
-}
-
-func acpSessionConfigValues(modelName, mode string) []acpagent.SessionConfigValue {
-	values := make([]acpagent.SessionConfigValue, 0, 2)
-	if modelName = strings.TrimSpace(modelName); modelName != "" {
-		values = append(values, acpagent.SessionConfigValue{ID: "model", Value: modelName})
-	}
-	if mode = strings.TrimSpace(mode); mode != "" {
-		values = append(values, acpagent.SessionConfigValue{ID: "mode", Value: mode})
-	}
-	return values
 }
 
 // RunAgentREPL runs a line-based REPL for an ADK agent factory.
@@ -209,14 +153,14 @@ func newAgentRunner(ctx context.Context, a adkagent.Agent, appName, userID strin
 		SessionService: sessionService,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("create ACP REPL runner: %w", err)
+		return nil, nil, fmt.Errorf("create agent REPL runner: %w", err)
 	}
 	sess, err := sessionService.Create(ctx, &session.CreateRequest{
 		AppName: appName,
 		UserID:  userID,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("create ACP REPL session: %w", err)
+		return nil, nil, fmt.Errorf("create agent REPL session: %w", err)
 	}
 	return r, sess.Session, nil
 }

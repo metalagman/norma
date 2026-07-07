@@ -15,7 +15,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/go-adk-acpagent/v2"
-	"github.com/normahq/norma/internal/logging"
+	"github.com/normahq/norma/v2/internal/logging"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/v2/agent"
 	adkrunner "google.golang.org/adk/v2/runner"

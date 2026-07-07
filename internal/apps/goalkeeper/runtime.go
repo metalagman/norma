@@ -13,8 +13,8 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/normahq/go-adk-acpagent/v2"
-	"github.com/normahq/norma/internal/logging"
-	goalkeeperworkflow "github.com/normahq/norma/pkg/goalkeeper"
+	"github.com/normahq/norma/v2/internal/logging"
+	goalkeeperworkflow "github.com/normahq/norma/v2/pkg/goalkeeper"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/v2/agent"
 	adkrunner "google.golang.org/adk/v2/runner"

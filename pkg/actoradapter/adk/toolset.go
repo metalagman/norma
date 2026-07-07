@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/normahq/norma/pkg/actorlayer"
+	"github.com/normahq/norma/v2/pkg/actorlayer"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"

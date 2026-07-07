@@ -14,11 +14,11 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	generictaskmaster "github.com/normahq/norma/internal/apps/taskmaster"
-	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
-	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/agentfactory"
+	generictaskmaster "github.com/normahq/norma/v2/internal/apps/taskmaster"
+	"github.com/normahq/runtime/v2/agentconfig"
+	"github.com/normahq/runtime/v2/agentfactory"
+	taskmasterrt "github.com/normahq/runtime/v2/taskmaster"
+	taskmasteradk "github.com/normahq/runtime/v2/taskmaster/adk"
 	"github.com/rs/zerolog"
 )
 

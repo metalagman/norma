@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
+	taskmasterrt "github.com/normahq/runtime/v2/taskmaster"
 	"github.com/rs/zerolog"
 )
 

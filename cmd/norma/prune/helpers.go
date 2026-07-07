@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/normahq/norma/internal/db"
+	"github.com/normahq/norma/v2/internal/db"
 )
 
 func openDB(ctx context.Context) (*sql.DB, string, func(), error) {

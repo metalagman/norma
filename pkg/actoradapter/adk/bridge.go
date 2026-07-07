@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"iter"
 
-	"github.com/normahq/norma/pkg/actorlayer"
+	"github.com/normahq/norma/v2/pkg/actorlayer"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"

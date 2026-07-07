@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	dbpkg "github.com/normahq/norma/internal/db"
+	dbpkg "github.com/normahq/norma/v2/internal/db"
 )
 
 func TestRunInsertsMissingStepRecords(t *testing.T) {

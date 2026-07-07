@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/normahq/norma/internal/agents/swarm"
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/agents/swarm"
+	"github.com/normahq/norma/v2/internal/task"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

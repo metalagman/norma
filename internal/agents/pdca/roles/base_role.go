@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/normahq/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/v2/internal/agents/pdca/contracts"
 )
 
 //go:embed common.gotmpl

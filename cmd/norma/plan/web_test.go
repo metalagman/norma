@@ -3,7 +3,7 @@ package plancmd
 import (
 	"testing"
 
-	"github.com/normahq/norma/internal/logging"
+	"github.com/normahq/norma/v2/internal/logging"
 )
 
 func TestEnsurePlanWebDebugLoggingEnablesDebug(t *testing.T) {

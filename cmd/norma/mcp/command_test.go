@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/task"
 )
 
 func TestCommandRegistersTasks(t *testing.T) {

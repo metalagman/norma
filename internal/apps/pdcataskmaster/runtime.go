@@ -15,11 +15,11 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/agentfactory"
-	"github.com/normahq/norma/pkg/runtime/mcpregistry"
-	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
-	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
+	"github.com/normahq/runtime/v2/agentconfig"
+	"github.com/normahq/runtime/v2/agentfactory"
+	"github.com/normahq/runtime/v2/mcpregistry"
+	taskmasterrt "github.com/normahq/runtime/v2/taskmaster"
+	taskmasteradk "github.com/normahq/runtime/v2/taskmaster/adk"
 	"github.com/rs/zerolog"
 )
 

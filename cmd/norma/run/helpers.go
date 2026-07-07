@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/norma/internal/db"
-	"github.com/normahq/norma/internal/run"
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/config"
+	"github.com/normahq/norma/v2/internal/db"
+	"github.com/normahq/norma/v2/internal/run"
+	"github.com/normahq/norma/v2/internal/task"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )

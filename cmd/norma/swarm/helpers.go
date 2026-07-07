@@ -1,7 +1,7 @@
 package swarmcmd
 
 import (
-	"github.com/normahq/norma/internal/config"
+	"github.com/normahq/norma/v2/internal/config"
 	"github.com/spf13/viper"
 )
 

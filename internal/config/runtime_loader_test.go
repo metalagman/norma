@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/runtime/v2/appconfig"
 )
 
 type appConfigDocumentForTest struct {

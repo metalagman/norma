@@ -12,12 +12,12 @@ Both `$VAR` and `${VAR}` placeholders are supported (envsubst-style), and substi
 Example:
 
 ```yaml
-norma:
-  agents:
-    gemini_acp:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
+runtime:
+  providers:
+    opencode:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
 ```
 
 If any referenced variable is missing, config expansion fails and reports the missing variable name(s).

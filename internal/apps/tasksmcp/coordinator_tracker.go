@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/task"
 )
 
 type coordinatorAssigningTracker struct {

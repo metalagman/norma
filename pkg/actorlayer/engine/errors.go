@@ -3,7 +3,7 @@ package engine
 import (
 	"fmt"
 
-	actorlayer "github.com/normahq/norma/pkg/actorlayer"
+	actorlayer "github.com/normahq/norma/v2/pkg/actorlayer"
 )
 
 var ErrActorNotFound = actorlayer.ErrActorNotFound

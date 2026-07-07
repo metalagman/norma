@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/normahq/norma/internal/git"
+	"github.com/normahq/norma/v2/internal/git"
 	"github.com/spf13/cobra"
 )
 

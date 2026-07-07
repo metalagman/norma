@@ -1,7 +1,7 @@
 package do
 
-//go:generate go tool schema-generate -p do -o input.go input.schema.json
-//go:generate go tool schema-generate -p do -o output.go output.schema.json
+//go:generate go run github.com/normahq/norma/v2/internal/tools/schema-generate -p do -o input.go input.schema.json
+//go:generate go run github.com/normahq/norma/v2/internal/tools/schema-generate -p do -o output.go output.schema.json
 //go:generate gofmt -w input.go output.go
 
 import _ "embed"

@@ -1,12 +1,12 @@
 package playgroundcmd
 
 import (
-	goalkeepercmd "github.com/normahq/norma/cmd/norma/playground/goalkeeper"
-	goalkeeperactorcmd "github.com/normahq/norma/cmd/norma/playground/goalkeeperactor"
-	pdcasynccmd "github.com/normahq/norma/cmd/norma/playground/pdcasync"
-	pdcataskmastercmd "github.com/normahq/norma/cmd/norma/playground/pdcataskmaster"
-	taskmastercmd "github.com/normahq/norma/cmd/norma/playground/taskmaster"
-	taskmasterchatcmd "github.com/normahq/norma/cmd/norma/playground/taskmasterchat"
+	goalkeepercmd "github.com/normahq/norma/v2/cmd/norma/playground/goalkeeper"
+	goalkeeperactorcmd "github.com/normahq/norma/v2/cmd/norma/playground/goalkeeperactor"
+	pdcasynccmd "github.com/normahq/norma/v2/cmd/norma/playground/pdcasync"
+	pdcataskmastercmd "github.com/normahq/norma/v2/cmd/norma/playground/pdcataskmaster"
+	taskmastercmd "github.com/normahq/norma/v2/cmd/norma/playground/taskmaster"
+	taskmasterchatcmd "github.com/normahq/norma/v2/cmd/norma/playground/taskmasterchat"
 	"github.com/spf13/cobra"
 )
 

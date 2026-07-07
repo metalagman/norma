@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/agents/pdca/contracts"
-	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/norma/internal/db"
-	runpkg "github.com/normahq/norma/internal/run"
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/v2/internal/config"
+	"github.com/normahq/norma/v2/internal/db"
+	runpkg "github.com/normahq/norma/v2/internal/run"
+	"github.com/normahq/norma/v2/internal/task"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/v2/session"

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/runtime/v2/agentconfig"
 )
 
 func TestRoleMCPServersPlanRole(t *testing.T) {

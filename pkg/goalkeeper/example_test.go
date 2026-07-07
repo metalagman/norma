@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"iter"
 
-	"github.com/normahq/norma/pkg/goalkeeper"
+	"github.com/normahq/norma/v2/pkg/goalkeeper"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 )

@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/normahq/norma/internal/adkrunner"
-	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/norma/internal/db"
-	"github.com/normahq/norma/internal/git"
-	"github.com/normahq/norma/internal/reconcile"
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/adkrunner"
+	"github.com/normahq/norma/v2/internal/config"
+	"github.com/normahq/norma/v2/internal/db"
+	"github.com/normahq/norma/v2/internal/git"
+	"github.com/normahq/norma/v2/internal/reconcile"
+	"github.com/normahq/norma/v2/internal/task"
 	"github.com/rs/zerolog/log"
 )
 

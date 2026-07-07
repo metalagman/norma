@@ -64,13 +64,13 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 ## 🏁 Getting Started
 
 ### 1. Requirements
-- **Go 1.25+**
+- **Go 1.26+**
 - **bd** ([Beads CLI](https://github.com/gastownhall/beads)) installed in your PATH.
 - **Git**
 
 ### 2. Install
 ```bash
-go install github.com/normahq/norma/cmd/norma@latest
+go install github.com/normahq/norma/v2/cmd/norma@latest
 ```
 
 ### 3. Initialize & Configure
@@ -89,43 +89,47 @@ norma init
 | `--trace` | bool | `false` | Enable trace logging (overrides --debug) |
 | `--profile` | string | `""` | Config profile name |
 
-The default configuration uses the `gemini_acp` agent. You can customize runtime core in `.norma/config.yaml` (or app-specific `.norma/<app>.yaml`):
+The default configuration uses an OpenCode ACP provider named `opencode`. You can customize runtime core in `.norma/config.yaml` (or app-specific `.norma/<app>.yaml`):
 
 ```yaml
-norma:
-  agents:
-    gemini_acp_agent:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
-    opencode_acp_agent:
+runtime:
+  providers:
+    opencode:
       type: opencode_acp
       opencode_acp:
         model: opencode/big-pickle
-    copilot_acp:
-      type: copilot_acp
-      copilot_acp:
+    codex:
+      type: codex_acp
+      codex_acp:
         model: gpt-5-codex
-    claude_code_acp_agent:
+    claude_code:
       type: claude_code_acp
       claude_code_acp:
         model: claude-sonnet-4-20250514
+    copilot:
+      type: copilot_acp
+      copilot_acp:
+        model: gpt-5-codex
+    gemini:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
 cli:
   pdca:
-    plan: gemini_acp_agent
-    do: gemini_acp_agent
-    check: gemini_acp_agent
-    act: gemini_acp_agent
+    plan: opencode
+    do: opencode
+    check: opencode
+    act: opencode
   budgets:
     max_iterations: 5
   retention:
     keep_last: 50
     keep_days: 30
 planner:
-  provider: gemini_acp_agent
+  provider: opencode
 swarm:
   primary_role: coordinator
-  default_provider: gemini_acp_agent
+  default_provider: opencode
   roles:
     coordinator:
       assignee: norma-coordinator
@@ -140,36 +144,58 @@ profiles:
   default:
     cli:
       pdca:
-        plan: gemini_acp_agent
-        do: gemini_acp_agent
-        check: gemini_acp_agent
-        act: gemini_acp_agent
+        plan: opencode
+        do: opencode
+        check: opencode
+        act: opencode
     planner:
-      provider: gemini_acp_agent
+      provider: opencode
     swarm:
-      default_provider: gemini_acp_agent
+      default_provider: opencode
   opencode:
     cli:
       pdca:
-        plan: opencode_acp_agent
-        do: opencode_acp_agent
-        check: opencode_acp_agent
-        act: opencode_acp_agent
+        plan: opencode
+        do: opencode
+        check: opencode
+        act: opencode
     planner:
-      provider: opencode_acp_agent
+      provider: opencode
     swarm:
-      default_provider: opencode_acp_agent
+      default_provider: opencode
+  codex:
+    cli:
+      pdca:
+        plan: codex
+        do: codex
+        check: codex
+        act: codex
+    planner:
+      provider: codex
+    swarm:
+      default_provider: codex
+  claude_code:
+    cli:
+      pdca:
+        plan: claude_code
+        do: claude_code
+        check: claude_code
+        act: claude_code
+    planner:
+      provider: claude_code
+    swarm:
+      default_provider: claude_code
   copilot:
     cli:
       pdca:
-        plan: copilot_acp
-        do: copilot_acp
-        check: copilot_acp
-        act: copilot_acp
+        plan: copilot
+        do: copilot
+        check: copilot
+        act: copilot
     planner:
-      provider: copilot_acp
+      provider: copilot
     swarm:
-      default_provider: copilot_acp
+      default_provider: copilot
 ```
 
 ## 📖 Documentation
@@ -230,82 +256,21 @@ Notes:
 - Bridge docs live in the standalone repository:
   <https://github.com/normahq/codex-acp-bridge>
 
-### 8. Generic ACP Inspector (`acp-dump`)
-Inspect any stdio ACP server command without changing Norma config.
+### 8. Standalone Protocol Tools
+
+Protocol inspection and REPL helpers are distributed as standalone tools:
+
+- `acp-dump`: <https://github.com/normahq/acp-dump>
+- `mcp-dump`: <https://github.com/normahq/mcp-dump>
+- `acp-repl`: <https://github.com/normahq/acp-repl>
+
+Install with npm:
 
 ```bash
-# Human-readable summary
-norma tool acp-dump -- opencode acp
-
-# JSON output for scripts
-norma tool acp-dump --json -- gemini --experimental-acp
+npm install -g @normahq/acp-dump@latest
+npm install -g @normahq/mcp-dump@latest
+npm install -g @normahq/acp-repl@latest
 ```
-
-Standalone binary is also available as `acp-dump`.
-
-### 9. Generic MCP Inspector (`mcp-dump`)
-Inspect any stdio MCP server command and dump capabilities plus MCP tool schemas.
-
-```bash
-# Human-readable summary
-norma tool mcp-dump -- codex mcp-server
-
-# JSON output for scripts
-norma tool mcp-dump --json -- codex mcp-server
-```
-
-Standalone binary is also available as `mcp-dump`.
-
-### 10. Generic ACP REPL (`acp-repl`)
-Run an interactive terminal REPL against any stdio ACP server command.
-
-```bash
-norma tool acp-repl -- opencode acp
-norma tool acp-repl --model opencode/big-pickle --mode coding -- opencode acp
-norma tool acp-repl -- gemini --experimental-acp
-```
-
-Standalone binary is also available as `acp-repl`.
-
-### 11. Omnidist Multi-Profile Distribution
-Norma uses [Omnidist](https://github.com/metalagman/omnidist) profiles for build/stage/verify/publish flows across all command binaries.
-
-Profiles configured in `.omnidist/omnidist.yaml`:
-- `norma`
-- `acp-dump`
-- `mcp-dump`
-- `acp-repl`
-
-npm distributions use the `@normahq` scope:
-- `@normahq/norma`
-- `@normahq/acp-dump`
-- `@normahq/mcp-dump`
-- `@normahq/acp-repl`
-
-Quickstart per profile:
-
-```bash
-omnidist --profile norma quickstart
-omnidist --profile acp-dump quickstart
-omnidist --profile mcp-dump quickstart
-omnidist --profile acp-repl quickstart
-```
-
-Run build pipeline for a profile:
-
-```bash
-omnidist --profile <profile> build
-omnidist --profile <profile> stage
-omnidist --profile <profile> verify
-omnidist --profile <profile> npm publish
-```
-
-GitHub release workflows are split per profile and run on `v*` tag pushes:
-- `omnidist-release-acp-dump.yml`
-- `omnidist-release-mcp-dump.yml`
-- `omnidist-release-acp-repl.yml`
-
-Publishing uses npm only.
 
 ---
 

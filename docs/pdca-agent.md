@@ -245,22 +245,22 @@ Norma supports **pool agents** that provide ordered failover across multiple ACP
 Pool agents are configured with `type: pool` and a `pool.members` list of agent IDs to try in order:
 
 ```yaml
-norma:
-  agents:
-    primary_agent:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
-    fallback_agent:
+runtime:
+  providers:
+    primary:
       type: opencode_acp
       opencode_acp:
         model: opencode/big-pickle
+    fallback:
+      type: codex_acp
+      codex_acp:
+        model: gpt-5-codex
     my_pool:
       type: pool
       pool:
         members:
-          - primary_agent
-          - fallback_agent
+          - primary
+          - fallback
 ```
 
 ### Behavior
@@ -296,8 +296,8 @@ When all pool members fail, the error message includes:
 Example error:
 ```
 pool "my_pool": all 2 members failed
-  [1] primary_agent: create agent "primary_agent": ...
-  [2] fallback_agent: create agent "fallback_agent": ...
+  [1] primary: create agent "primary": ...
+  [2] fallback: create agent "fallback": ...
 ```
 
 ## MCP Servers Configuration
@@ -311,7 +311,7 @@ MCP servers are defined in `norma.mcp_servers`, and agents reference them by nam
 The selected config file is env-expanded before YAML parsing, so both `$VAR` and `${VAR}` placeholders work anywhere in the file. For `stdio` MCP servers, the launched child process inherits Norma's full process environment by default, and `env` overrides individual variables.
 
 ```yaml
-norma:
+runtime:
   mcp_servers:
     my_mcp_server:
       type: stdio
@@ -321,11 +321,11 @@ norma:
         API_KEY: ${API_KEY}
       working_dir: /path/to/workdir
 
-  agents:
+  providers:
     my_agent:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
       mcp_servers:
         - my_mcp_server
 ```

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/normahq/norma/internal/apps/taskmasterchat"
+	"github.com/normahq/norma/v2/internal/apps/taskmasterchat"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

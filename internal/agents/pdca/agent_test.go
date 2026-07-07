@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/normahq/norma/internal/agents/pdca/contracts"
-	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
-	"github.com/normahq/norma/pkg/runtime/structuredagent"
+	"github.com/normahq/norma/v2/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/v2/internal/config"
+	"github.com/normahq/runtime/v2/agentconfig"
+	runtimeconfig "github.com/normahq/runtime/v2/appconfig"
+	"github.com/normahq/runtime/v2/structuredagent"
 )
 
 const (

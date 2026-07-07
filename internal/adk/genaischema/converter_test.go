@@ -3,7 +3,7 @@ package genaischema_test
 import (
 	"testing"
 
-	"github.com/normahq/norma/internal/adk/genaischema"
+	"github.com/normahq/norma/v2/internal/adk/genaischema"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/genai"
 )

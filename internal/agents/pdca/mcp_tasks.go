@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/apps/sessionmcp"
-	"github.com/normahq/norma/internal/apps/tasksmcp"
-	"github.com/normahq/norma/internal/task"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/v2/internal/apps/sessionmcp"
+	"github.com/normahq/norma/v2/internal/apps/tasksmcp"
+	"github.com/normahq/norma/v2/internal/task"
+	"github.com/normahq/runtime/v2/agentconfig"
 )
 
 const (

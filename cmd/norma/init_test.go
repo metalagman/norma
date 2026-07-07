@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	initcmd "github.com/normahq/norma/cmd/norma/init"
-	"github.com/normahq/norma/internal/config"
+	initcmd "github.com/normahq/norma/v2/cmd/norma/init"
+	"github.com/normahq/norma/v2/internal/config"
 	"github.com/spf13/viper"
 )
 
@@ -25,7 +25,7 @@ func TestDefaultConfigYAML_IsLoadable(t *testing.T) {
 }
 
 func TestDefaultConfigYAML_CodexProfileResolvesCodexAgent(t *testing.T) {
-	const codexAgentID = "codex_acp_agent"
+	const codexAgentID = "codex"
 
 	workingDir := t.TempDir()
 	t.Setenv("GOOGLE_API_KEY", "test-google-api-key")

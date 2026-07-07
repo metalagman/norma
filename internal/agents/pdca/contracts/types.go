@@ -3,7 +3,7 @@ package contracts
 import (
 	"encoding/json"
 
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/task"
 )
 
 // RawAgentRequest is the raw JSON bytes passed to role MapRequest implementations.

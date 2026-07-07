@@ -572,10 +572,6 @@ github.com/mattn/go-sqlite3 v1.14.16 h1:yOQRA0RpS5PFz/oikGwBEqvAWhWg5ufRz4ETLjwp
 github.com/mattn/go-sqlite3 v1.14.16/go.mod h1:2eHXhiwb8IkHr+BDWZGa96P6+rkvnG63S2DGjv9HUNg=
 github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0jegS5sx/RkqARlsWZ6pIwiU=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
-github.com/metalagman/appkit v0.1.0 h1:Dz6Ampv0mFSUJ98t0NpqrsElF/8po6YEOVOPwnB67Dk=
-github.com/metalagman/appkit v0.1.0/go.mod h1:KkYJeIjAR/XC536vWyfSLl2j9p9psPzhnXWhecMYgns=
-github.com/metalagman/omnidist v0.1.24 h1:WQaoE9pVss/XOZILd7sv502Dhbc3acINzFUXd35PcU0=
-github.com/metalagman/omnidist v0.1.24/go.mod h1:rjyG19hwC/Ar1meTk49xyhKqrunY7ePYfFxXnFp3dCc=
 github.com/mgechev/revive v1.15.0 h1:vJ0HzSBzfNyPbHKolgiFjHxLek9KUijhqh42yGoqZ8Q=
 github.com/mgechev/revive v1.15.0/go.mod h1:LlAKO3QQe9OJ0pVZzI2GPa8CbXGZ/9lNpCGvK4T/a8A=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=
@@ -613,6 +609,8 @@ github.com/nishanths/predeclared v0.2.2 h1:V2EPdZPliZymNAn79T8RkNApBjMmVKh5XRpLm
 github.com/nishanths/predeclared v0.2.2/go.mod h1:RROzoN6TnGQupbC+lqggsOlcgysk3LMK/HI84Mp280c=
 github.com/normahq/go-adk-acpagent/v2 v2.0.1 h1:aV155aVsQvlvE4w+1ekwPfBhj1MJ6h/l9ChnRkt9YWQ=
 github.com/normahq/go-adk-acpagent/v2 v2.0.1/go.mod h1:ag4yVa30T38pyQsZ9w7j/f0OS0ST+VGHmrxduTrbHhY=
+github.com/normahq/runtime/v2 v2.0.0 h1:mx0HdIwGZLa4rYoaPCQ8oGrmcCpGQrwbFeJ2oKmBLCE=
+github.com/normahq/runtime/v2 v2.0.0/go.mod h1:6TipPp0mHZwXEP8iPLakne9ulNS0Ha/1GimkT16uKyk=
 github.com/nunnatsa/ginkgolinter v0.23.0 h1:x3o4DGYOWbBMP/VdNQKgSj+25aJKx2Pe6lHr8gBcgf8=
 github.com/nunnatsa/ginkgolinter v0.23.0/go.mod h1:9qN1+0akwXEccwV1CAcCDfcoBlWXHB+ML9884pL4SZ4=
 github.com/onsi/ginkgo/v2 v2.28.2 h1:DTrMfpqxiNUyQ3Y0zhn1n3cOO2euFgQPYIpkWwxVFps=

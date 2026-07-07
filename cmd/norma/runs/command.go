@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/normahq/norma/internal/run"
+	"github.com/normahq/norma/v2/internal/run"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

@@ -31,7 +31,8 @@ func TestDecoratedAgentName(t *testing.T) {
 		base string
 		want string
 	}{
-		{base: "opencode_acp_agent", want: "opencode_acp_planner"},
+		{base: "opencode", want: "opencode_planner"},
+		{base: "custom_agent", want: "custom_planner"},
 		{base: "opencode_acp", want: "opencode_acp_planner"},
 		{base: "opencode_acp_planner", want: "opencode_acp_planner"},
 		{base: " ", want: "planner"},
@@ -51,7 +52,7 @@ func TestPlannerWrapperInjectsInstructionPrompt(t *testing.T) {
 	t.Parallel()
 
 	var seenPrompt string
-	base := mustNewTestAgent(t, "opencode_acp_agent", "base agent", func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+	base := mustNewTestAgent(t, "opencode", "base agent", func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 		seenPrompt = contentText(ctx.UserContent())
 		return turnComplete(ctx.InvocationID())
 	})
@@ -61,8 +62,8 @@ func TestPlannerWrapperInjectsInstructionPrompt(t *testing.T) {
 		t.Fatalf("New(base) error = %v", err)
 	}
 
-	if wrapped.Name() != "opencode_acp_planner" {
-		t.Fatalf("wrapped.Name() = %q, want %q", wrapped.Name(), "opencode_acp_planner")
+	if wrapped.Name() != "opencode_planner" {
+		t.Fatalf("wrapped.Name() = %q, want %q", wrapped.Name(), "opencode_planner")
 	}
 	if wrapped.Description() != "base agent" {
 		t.Fatalf("wrapped.Description() = %q, want %q", wrapped.Description(), "base agent")
@@ -82,7 +83,7 @@ func TestPlannerWrapperInjectsCoordinatorRoutingPrompt(t *testing.T) {
 	t.Parallel()
 
 	var seenPrompt string
-	base := mustNewTestAgent(t, "opencode_acp_agent", "base agent", func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+	base := mustNewTestAgent(t, "opencode", "base agent", func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 		seenPrompt = contentText(ctx.UserContent())
 		return turnComplete(ctx.InvocationID())
 	})

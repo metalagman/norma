@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/task"
 )
 
 func TestNewServerRequiresTracker(t *testing.T) {

@@ -12,18 +12,17 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	initcmd "github.com/normahq/norma/cmd/norma/init"
-	loopcmd "github.com/normahq/norma/cmd/norma/loop"
-	mcpcmd "github.com/normahq/norma/cmd/norma/mcp"
-	plancmd "github.com/normahq/norma/cmd/norma/plan"
-	playgroundcmd "github.com/normahq/norma/cmd/norma/playground"
-	prunecmd "github.com/normahq/norma/cmd/norma/prune"
-	runcmd "github.com/normahq/norma/cmd/norma/run"
-	runscmd "github.com/normahq/norma/cmd/norma/runs"
-	swarmcmd "github.com/normahq/norma/cmd/norma/swarm"
-	toolcmd "github.com/normahq/norma/cmd/norma/tool"
-	"github.com/normahq/norma/internal/git"
-	"github.com/normahq/norma/internal/logging"
+	initcmd "github.com/normahq/norma/v2/cmd/norma/init"
+	loopcmd "github.com/normahq/norma/v2/cmd/norma/loop"
+	mcpcmd "github.com/normahq/norma/v2/cmd/norma/mcp"
+	plancmd "github.com/normahq/norma/v2/cmd/norma/plan"
+	playgroundcmd "github.com/normahq/norma/v2/cmd/norma/playground"
+	prunecmd "github.com/normahq/norma/v2/cmd/norma/prune"
+	runcmd "github.com/normahq/norma/v2/cmd/norma/run"
+	runscmd "github.com/normahq/norma/v2/cmd/norma/runs"
+	swarmcmd "github.com/normahq/norma/v2/cmd/norma/swarm"
+	"github.com/normahq/norma/v2/internal/git"
+	"github.com/normahq/norma/v2/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -86,7 +85,6 @@ func Execute() error {
 	rootCmd.AddCommand(swarmcmd.Command())
 	rootCmd.AddCommand(plancmd.Command())
 	rootCmd.AddCommand(mcpcmd.Command())
-	rootCmd.AddCommand(toolcmd.Command())
 	rootCmd.AddCommand(playgroundcmd.Command())
 	rootCmd.AddCommand(initcmd.Command())
 	rootCmd.AddCommand(prunecmd.Command())

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/apps/goalkeeper"
+	"github.com/normahq/norma/v2/internal/apps/goalkeeper"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

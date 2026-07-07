@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/normahq/norma/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/v2/internal/agents/pdca/contracts"
 	"github.com/xeipuuv/gojsonschema"
 )
 

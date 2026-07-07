@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/normahq/norma/internal/adkrunner"
-	"github.com/normahq/norma/internal/git"
-	"github.com/normahq/norma/internal/reconcile"
-	runpkg "github.com/normahq/norma/internal/run"
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/adkrunner"
+	"github.com/normahq/norma/v2/internal/git"
+	"github.com/normahq/norma/v2/internal/reconcile"
+	runpkg "github.com/normahq/norma/v2/internal/run"
+	"github.com/normahq/norma/v2/internal/task"
 )
 
 var taskIDPattern = regexp.MustCompile(`^norma-[a-z0-9]+(?:\.[a-z0-9]+)*$`)

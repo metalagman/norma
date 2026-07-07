@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	actorlayer "github.com/normahq/norma/pkg/actorlayer"
-	"github.com/normahq/norma/pkg/actorlayer/dispatch"
+	actorlayer "github.com/normahq/norma/v2/pkg/actorlayer"
+	"github.com/normahq/norma/v2/pkg/actorlayer/dispatch"
 )
 
 func TestResolveError(t *testing.T) {

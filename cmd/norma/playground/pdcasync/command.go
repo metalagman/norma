@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/internal/apps/pdcasync"
+	"github.com/normahq/norma/v2/internal/apps/pdcasync"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

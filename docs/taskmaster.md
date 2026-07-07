@@ -96,8 +96,8 @@ These timer tasks are supplemental background traffic and continue until the com
 
 The unstable reusable runtime now lives under:
 
-- `pkg/runtime/taskmaster`
-- `pkg/runtime/taskmaster/adk`
+- `github.com/normahq/runtime/v2/taskmaster`
+- `github.com/normahq/runtime/v2/taskmaster/adk`
 
 That local runtime provides:
 
@@ -113,7 +113,7 @@ The app owns all app-level wiring:
 
 - building `agent.Agent` instances with `agentfactory`
 - creating any ingress protocol such as MCP, CLI bootstrap, or timers
-- injecting the wrapped local nodes into `pkg/runtime/taskmaster`
+- injecting the wrapped local nodes into `github.com/normahq/runtime/v2/taskmaster`
 
 ## Relation to Other Playgrounds
 

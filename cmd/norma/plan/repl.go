@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/normahq/norma/internal/apps/acprepl"
-	"github.com/normahq/norma/internal/git"
+	"github.com/normahq/norma/v2/internal/apps/agentrepl"
+	"github.com/normahq/norma/v2/internal/git"
 	"github.com/spf13/cobra"
 	adkagent "google.golang.org/adk/v2/agent"
 )
@@ -47,7 +47,7 @@ func runREPL(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	return acprepl.RunAgentREPL(cmd.Context(), plannerREPLConfig(cmd, workingDir, plannerCfg))
+	return agentrepl.RunAgentREPL(cmd.Context(), plannerREPLConfig(cmd, workingDir, plannerCfg))
 }
 
 func printPlannerREPLIntro(stdout io.Writer) error {
@@ -55,8 +55,8 @@ func printPlannerREPLIntro(stdout io.Writer) error {
 	return err
 }
 
-func plannerREPLConfig(cmd *cobra.Command, workingDir string, cfg plannerRuntimeConfig) acprepl.AgentREPLConfig {
-	return acprepl.AgentREPLConfig{
+func plannerREPLConfig(cmd *cobra.Command, workingDir string, cfg plannerRuntimeConfig) agentrepl.AgentREPLConfig {
+	return agentrepl.AgentREPLConfig{
 		AppName: plannerREPLAppName,
 		UserID:  plannerREPLUserID,
 		Stdin:   cmd.InOrStdin(),
@@ -64,7 +64,7 @@ func plannerREPLConfig(cmd *cobra.Command, workingDir string, cfg plannerRuntime
 		Stderr:  cmd.ErrOrStderr(),
 		AgentFactory: func(
 			ctx context.Context,
-			permissionHandler acprepl.PermissionHandler,
+			permissionHandler agentrepl.PermissionHandler,
 			stderr io.Writer,
 		) (adkagent.Agent, func() error, error) {
 			return createPlannerAgentWithOptions(ctx, workingDir, cfg, plannerAgentCreateOptions{

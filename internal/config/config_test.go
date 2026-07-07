@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/runtime/v2/agentconfig"
+	runtimeconfig "github.com/normahq/runtime/v2/appconfig"
 )
 
 const (
 	opencodeACPType    = "opencode_acp"
-	opencodeACPAgentID = "opencode_acp_agent"
+	opencodeACPAgentID = "opencode"
 )
 
 func TestResolveRoleIDs_ResolvesPDCARolesFromGlobalAgents(t *testing.T) {

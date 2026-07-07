@@ -1,4 +1,4 @@
-package acprepl
+package agentrepl
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
@@ -530,49 +531,68 @@ func TestRenderACPToolEvent_LargeToolCallPayload(t *testing.T) {
 	}
 }
 
-func TestRunREPLRejectsNilStreams(t *testing.T) {
-	ctx := context.Background()
-	workingDir := t.TempDir()
-	command := []string{"fake", "command"}
-
+func TestRunAgentREPLRejectsInvalidConfig(t *testing.T) {
 	testCases := []struct {
-		name   string
-		stdin  io.Reader
-		stdout io.Writer
-		stderr io.Writer
-		want   string
+		name    string
+		stdin   io.Reader
+		stdout  io.Writer
+		stderr  io.Writer
+		factory AgentFactory
+		want    string
 	}{
 		{
 			name:   "nil stdin",
 			stdin:  nil,
 			stdout: io.Discard,
 			stderr: io.Discard,
-			want:   "stdin is required",
+			factory: func(context.Context, PermissionHandler, io.Writer) (adkagent.Agent, func() error, error) {
+				return nil, nil, nil
+			},
+			want: "stdin is required",
 		},
 		{
 			name:   "nil stdout",
 			stdin:  strings.NewReader(""),
 			stdout: nil,
 			stderr: io.Discard,
-			want:   "stdout is required",
+			factory: func(context.Context, PermissionHandler, io.Writer) (adkagent.Agent, func() error, error) {
+				return nil, nil, nil
+			},
+			want: "stdout is required",
 		},
 		{
 			name:   "nil stderr",
 			stdin:  strings.NewReader(""),
 			stdout: io.Discard,
 			stderr: nil,
-			want:   "stderr is required",
+			factory: func(context.Context, PermissionHandler, io.Writer) (adkagent.Agent, func() error, error) {
+				return nil, nil, nil
+			},
+			want: "stderr is required",
+		},
+		{
+			name:    "nil agent factory",
+			stdin:   strings.NewReader(""),
+			stdout:  io.Discard,
+			stderr:  io.Discard,
+			factory: nil,
+			want:    "agent factory is required",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := RunREPL(ctx, workingDir, command, "", "", tc.stdin, tc.stdout, tc.stderr)
+			err := RunAgentREPL(context.Background(), AgentREPLConfig{
+				Stdin:        tc.stdin,
+				Stdout:       tc.stdout,
+				Stderr:       tc.stderr,
+				AgentFactory: tc.factory,
+			})
 			if err == nil {
-				t.Fatal("RunREPL() error = nil, want non-nil")
+				t.Fatal("RunAgentREPL() error = nil, want non-nil")
 			}
 			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("RunREPL() error = %q, want containing %q", err.Error(), tc.want)
+				t.Fatalf("RunAgentREPL() error = %q, want containing %q", err.Error(), tc.want)
 			}
 		})
 	}

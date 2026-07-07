@@ -51,18 +51,18 @@ This wrapper accepts flat local target names `plan`, `do`, `check`, and `act`. I
 
 `taskmaster.schedule_task` also requires `session_id`. The root keeps the same session across PDCA turns for the same conversation.
 
-`taskmaster.finish` still exists in this wrapper, but it is wrapper-owned. The entire MCP surface is app-owned here; it is not part of shared `pkg/runtime/taskmaster`.
+`taskmaster.finish` still exists in this wrapper, but it is wrapper-owned. The entire MCP surface is app-owned here; it is not part of shared `github.com/normahq/runtime/v2/taskmaster`.
 
 This wrapper is now built on the local reusable runtime packages:
 
-- `pkg/runtime/taskmaster`
-- `pkg/runtime/taskmaster/adk`
+- `github.com/normahq/runtime/v2/taskmaster`
+- `github.com/normahq/runtime/v2/taskmaster/adk`
 
 Its app-level wiring is wrapper-owned:
 
 - the wrapper builds `agent.Agent` instances with `agentfactory`
 - the wrapper creates the MCP server instance and registers its own PDCA control tools
-- `pkg/runtime/taskmaster/adk` only wraps those built agents as local nodes
+- `github.com/normahq/runtime/v2/taskmaster/adk` only wraps those built agents as local nodes
 
 ## Relation to Other Playgrounds
 

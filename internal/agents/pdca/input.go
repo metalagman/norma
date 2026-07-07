@@ -1,6 +1,6 @@
 package pdca
 
-import "github.com/normahq/norma/internal/task"
+import "github.com/normahq/norma/v2/internal/task"
 
 // AgentInput is PDCA-specific input used to build the PDCA ADK agent.
 type AgentInput struct {

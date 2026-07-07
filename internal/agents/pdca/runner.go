@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/normahq/norma/internal/agents/pdca/contracts"
-	"github.com/normahq/norma/internal/config"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/agentfactory"
-	"github.com/normahq/norma/pkg/runtime/mcpregistry"
-	"github.com/normahq/norma/pkg/runtime/structuredagent"
+	"github.com/normahq/norma/v2/internal/agents/pdca/contracts"
+	"github.com/normahq/norma/v2/internal/config"
+	"github.com/normahq/runtime/v2/agentconfig"
+	"github.com/normahq/runtime/v2/agentfactory"
+	"github.com/normahq/runtime/v2/mcpregistry"
+	"github.com/normahq/runtime/v2/structuredagent"
 	"github.com/rs/zerolog/log"
 
 	"google.golang.org/adk/v2/agent"

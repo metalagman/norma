@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/normahq/norma/internal/task"
+	"github.com/normahq/norma/v2/internal/task"
 
 	"google.golang.org/adk/v2/session"
 )

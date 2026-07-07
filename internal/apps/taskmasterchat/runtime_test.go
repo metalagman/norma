@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
+	taskmasterrt "github.com/normahq/runtime/v2/taskmaster"
 )
 
 func TestRootInstructionDefinesFakeChatCoordinator(t *testing.T) {

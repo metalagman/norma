@@ -3,7 +3,7 @@ package persistence
 import (
 	"context"
 
-	"github.com/normahq/norma/pkg/actorlayer"
+	"github.com/normahq/norma/v2/pkg/actorlayer"
 )
 
 // StateStore defines persistent actor state operations keyed by ActorID.

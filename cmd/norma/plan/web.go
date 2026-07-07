@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/normahq/norma/internal/logging"
+	"github.com/normahq/norma/v2/internal/logging"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/artifact"
 	"google.golang.org/adk/v2/cmd/launcher"
