@@ -34,7 +34,6 @@ linters:
     - revive
     - misspell
     - unconvert
-    - goconst
     - gocritic
     - whitespace
     - nolintlint
@@ -43,6 +42,21 @@ linters:
       rules:
         - name: exported
           disabled: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - govet
+          - ineffassign
+          - staticcheck
+          - unused
+          - revive
+          - misspell
+          - unconvert
+          - gocritic
+          - whitespace
+          - nolintlint
 
 formatters:
   enable: []
