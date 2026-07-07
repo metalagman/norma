@@ -1,7 +1,6 @@
 // Package runtime groups reusable agent runtime packages extracted from norma.
 //
 // The root package is documentation-only. Functional APIs live in subpackages:
-//   - acpagent for deprecated compatibility aliases to github.com/normahq/go-adk-acpagent/v2
 //   - agentconfig for provider and MCP configuration schemas
 //   - agentfactory for building runtime agents from validated configuration
 //   - appconfig for loading and validating application config documents
