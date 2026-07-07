@@ -1,14 +1,15 @@
 package goalkeeper
 
 import (
+	"context"
 	"fmt"
 	"iter"
 	"strings"
 	"time"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/workflowagents/loopagent"
-	"google.golang.org/adk/session"
+	"github.com/normahq/norma/internal/adkcompat/loopagent"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 )
 
 const rootAgentName = "Goalkeeper"
@@ -141,7 +142,7 @@ func newStepEvent(
 	eventType string,
 	stats stepStats,
 ) *session.Event {
-	ev := session.NewEvent(invocationID)
+	ev := session.NewEvent(context.Background(), invocationID)
 	ev.CustomMetadata = map[string]any{
 		metadataEventKey:     eventType,
 		metadataStepKey:      spec.name,

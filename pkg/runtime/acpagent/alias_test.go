@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	upstream "github.com/normahq/go-adk-acpagent"
+	upstream "github.com/normahq/go-adk-acpagent/v2"
 )
 
 func TestAliasesUseUpstreamValues(t *testing.T) {

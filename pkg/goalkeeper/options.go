@@ -1,6 +1,6 @@
 package goalkeeper
 
-import "google.golang.org/adk/agent"
+import "google.golang.org/adk/v2/agent"
 
 //go:generate go tool options-gen -from-struct=Options -out-filename=options_generated.go
 

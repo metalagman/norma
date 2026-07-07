@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/normahq/norma/pkg/actorlayer"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -46,7 +46,7 @@ func TestFinalEventBecomesAskReply(t *testing.T) {
 
 	r := &fakeRunner{}
 	r.run = func(_ int, _ string, _ string, _ *genai.Content, _ adkagent.RunConfig) iter.Seq2[*session.Event, error] {
-		final := session.NewEvent("inv")
+		final := session.NewEvent(context.Background(), "inv")
 		final.Content = genai.NewContentFromText("done", genai.RoleModel)
 		final.TurnComplete = true
 		return seqEvents([]*session.Event{final}, nil)
@@ -174,7 +174,7 @@ func TestTransferPolicyRejectReturnsAskError(t *testing.T) {
 
 	r := &fakeRunner{}
 	r.run = func(_ int, _ string, _ string, _ *genai.Content, _ adkagent.RunConfig) iter.Seq2[*session.Event, error] {
-		ev := session.NewEvent("inv")
+		ev := session.NewEvent(context.Background(), "inv")
 		ev.Actions.TransferToAgent = testTransferAgent
 		return seqEvents([]*session.Event{ev}, nil)
 	}
@@ -197,7 +197,7 @@ func TestTransferPolicyTellDispatchesActionMessage(t *testing.T) {
 
 	r := &fakeRunner{}
 	r.run = func(_ int, _ string, _ string, _ *genai.Content, _ adkagent.RunConfig) iter.Seq2[*session.Event, error] {
-		ev := session.NewEvent("inv")
+		ev := session.NewEvent(context.Background(), "inv")
 		ev.Actions.TransferToAgent = testTransferAgent
 		return seqEvents([]*session.Event{ev}, nil)
 	}
@@ -248,9 +248,9 @@ func TestTransferPolicyAskDispatchesActionMessage(t *testing.T) {
 
 	r := &fakeRunner{}
 	r.run = func(_ int, _ string, _ string, _ *genai.Content, _ adkagent.RunConfig) iter.Seq2[*session.Event, error] {
-		ev := session.NewEvent("inv")
+		ev := session.NewEvent(context.Background(), "inv")
 		ev.Actions.TransferToAgent = testTransferAgent
-		final := session.NewEvent("inv")
+		final := session.NewEvent(context.Background(), "inv")
 		final.Content = genai.NewContentFromText("done", genai.RoleModel)
 		final.TurnComplete = true
 		return seqEvents([]*session.Event{ev, final}, nil)
@@ -308,7 +308,7 @@ func TestTransferPolicyAskMissingTargetReturnsAskError(t *testing.T) {
 
 	r := &fakeRunner{}
 	r.run = func(_ int, _ string, _ string, _ *genai.Content, _ adkagent.RunConfig) iter.Seq2[*session.Event, error] {
-		ev := session.NewEvent("inv")
+		ev := session.NewEvent(context.Background(), "inv")
 		ev.Actions.TransferToAgent = testTransferAgent
 		return seqEvents([]*session.Event{ev}, nil)
 	}

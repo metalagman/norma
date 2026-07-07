@@ -11,8 +11,8 @@ import (
 
 	"github.com/normahq/norma/internal/task"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -120,7 +120,7 @@ func (w *loopRuntime) waitWithSelectorBackoff(ctx agent.InvocationContext, yield
 		Str("reason", reason).
 		Msg("selector waiting with backoff")
 
-	ev := session.NewEvent(ctx.InvocationID())
+	ev := session.NewEvent(context.Background(), ctx.InvocationID())
 	ev.Partial = true
 	ev.Content = &genai.Content{
 		Parts: []*genai.Part{

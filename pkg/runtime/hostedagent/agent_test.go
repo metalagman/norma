@@ -5,12 +5,12 @@ import (
 	"iter"
 	"testing"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/model"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
 )
 
@@ -44,7 +44,7 @@ func TestNew_PassesToolsToLLMAgent(t *testing.T) {
 	ping, err := functiontool.New(functiontool.Config{
 		Name:        "ping",
 		Description: "Returns the input value.",
-	}, func(_ tool.Context, args pingArgs) (pingResult, error) {
+	}, func(_ agent.Context, args pingArgs) (pingResult, error) {
 		return pingResult(args), nil
 	})
 	if err != nil {

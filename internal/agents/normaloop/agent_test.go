@@ -20,8 +20,8 @@ import (
 	"github.com/normahq/norma/internal/task"
 	"github.com/rs/zerolog"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 )
 
 type mockTracker struct {

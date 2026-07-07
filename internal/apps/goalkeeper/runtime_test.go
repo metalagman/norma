@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -533,14 +533,14 @@ func textEventPartial(invocationID string, text string) *session.Event {
 }
 
 func textEventWithPartial(invocationID string, text string, partial bool) *session.Event {
-	ev := session.NewEvent(invocationID)
+	ev := session.NewEvent(context.Background(), invocationID)
 	ev.Content = genai.NewContentFromText(text, genai.RoleModel)
 	ev.Partial = partial
 	return ev
 }
 
 func contentEvent(invocationID string, partial bool, parts ...*genai.Part) *session.Event {
-	ev := session.NewEvent(invocationID)
+	ev := session.NewEvent(context.Background(), invocationID)
 	ev.Content = &genai.Content{Role: genai.RoleModel, Parts: parts}
 	ev.Partial = partial
 	return ev

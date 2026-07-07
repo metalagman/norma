@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -313,7 +313,7 @@ func TestRenderACPToolEvent_SuppressesDuplicateFinalTurnText(t *testing.T) {
 }
 
 func testEvent(partial bool, turnComplete bool, parts []*genai.Part) *session.Event {
-	ev := session.NewEvent("inv-1")
+	ev := session.NewEvent(context.Background(), "inv-1")
 	if len(parts) > 0 {
 		ev.Content = genai.NewContentFromParts(parts, genai.RoleModel)
 	}

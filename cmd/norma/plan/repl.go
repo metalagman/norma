@@ -9,7 +9,7 @@ import (
 	"github.com/normahq/norma/internal/apps/acprepl"
 	"github.com/normahq/norma/internal/git"
 	"github.com/spf13/cobra"
-	adkagent "google.golang.org/adk/agent"
+	adkagent "google.golang.org/adk/v2/agent"
 )
 
 const (

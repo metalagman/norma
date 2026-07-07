@@ -6,7 +6,7 @@ import (
 
 	"github.com/normahq/norma/internal/task"
 
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 )
 
 func retryEligibleTasks(state session.State, items []task.Task, now time.Time) []task.Task {

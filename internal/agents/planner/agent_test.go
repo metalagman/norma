@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -190,7 +190,7 @@ func runAgentOnce(t *testing.T, ag adkagent.Agent, prompt string) {
 
 func turnComplete(invocationID string) iter.Seq2[*session.Event, error] {
 	return func(yield func(*session.Event, error) bool) {
-		ev := session.NewEvent(invocationID)
+		ev := session.NewEvent(context.Background(), invocationID)
 		ev.TurnComplete = true
 		yield(ev, nil)
 	}

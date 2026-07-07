@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 )
 
 var (

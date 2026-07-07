@@ -12,8 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/xeipuuv/gojsonschema"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -325,13 +325,13 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			Msg("collected accumulated output from inner agent")
 
 		if !w.validateOutput {
-			outputEvent := session.NewEvent(ctx.InvocationID())
+			outputEvent := session.NewEvent(context.Background(), ctx.InvocationID())
 			outputEvent.Content = genai.NewContentFromText(accumulatedText, genai.RoleModel)
 			if !yield(outputEvent, nil) {
 				return
 			}
 
-			turnComplete := session.NewEvent(ctx.InvocationID())
+			turnComplete := session.NewEvent(context.Background(), ctx.InvocationID())
 			turnComplete.TurnComplete = true
 			if !yield(turnComplete, nil) {
 				return
@@ -402,13 +402,13 @@ func (w *wrapperAgent) Run(ctx adkagent.InvocationContext) iter.Seq2[*session.Ev
 			return
 		}
 
-		outputEvent := session.NewEvent(ctx.InvocationID())
+		outputEvent := session.NewEvent(context.Background(), ctx.InvocationID())
 		outputEvent.Content = genai.NewContentFromText(jsonOutput, genai.RoleModel)
 		if !yield(outputEvent, nil) {
 			return
 		}
 
-		turnComplete := session.NewEvent(ctx.InvocationID())
+		turnComplete := session.NewEvent(context.Background(), ctx.InvocationID())
 		turnComplete.TurnComplete = true
 		if !yield(turnComplete, nil) {
 			return

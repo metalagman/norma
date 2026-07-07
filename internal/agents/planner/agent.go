@@ -6,8 +6,8 @@ import (
 	"iter"
 	"strings"
 
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -96,6 +96,11 @@ func (c plannerInvocationContext) UserContent() *genai.Content {
 
 func (c plannerInvocationContext) WithContext(ctx context.Context) adkagent.InvocationContext {
 	c.InvocationContext = c.InvocationContext.WithContext(ctx)
+	return c
+}
+
+func (c plannerInvocationContext) WithICDelta(d *adkagent.InvocationContextDelta) adkagent.InvocationContext {
+	c.InvocationContext = c.InvocationContext.WithICDelta(d)
 	return c
 }
 

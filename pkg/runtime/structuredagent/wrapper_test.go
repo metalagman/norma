@@ -10,9 +10,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 	"iter"
 )
@@ -525,7 +525,7 @@ func TestWrapperAgentIncludesTextFromTurnCompleteEvent(t *testing.T) {
 		Description: "Inner agent emits final text on turn_complete event",
 		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(yield func(*session.Event, error) bool) {
-				ev := session.NewEvent(ctx.InvocationID())
+				ev := session.NewEvent(context.Background(), ctx.InvocationID())
 				ev.Content = genai.NewContentFromText(validStructuredOutputJSON, genai.RoleModel)
 				ev.TurnComplete = true
 				_ = yield(ev, nil)
@@ -576,7 +576,7 @@ func TestWrapperAgentAppendsTurnCompleteWhenMissing(t *testing.T) {
 		Description: "Inner agent without turn complete event",
 		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(yield func(*session.Event, error) bool) {
-				ev := session.NewEvent(ctx.InvocationID())
+				ev := session.NewEvent(context.Background(), ctx.InvocationID())
 				ev.Content = genai.NewContentFromText(validStructuredOutputJSON, genai.RoleModel)
 				_ = yield(ev, nil)
 			}
@@ -611,19 +611,19 @@ func TestWrapperAgentStopsCollectingAfterTurnComplete(t *testing.T) {
 		Description: "Inner agent with post-turncomplete event",
 		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(yield func(*session.Event, error) bool) {
-				first := session.NewEvent(ctx.InvocationID())
+				first := session.NewEvent(context.Background(), ctx.InvocationID())
 				first.Content = genai.NewContentFromText(validStructuredOutputJSON, genai.RoleModel)
 				if !yield(first, nil) {
 					return
 				}
 
-				done := session.NewEvent(ctx.InvocationID())
+				done := session.NewEvent(context.Background(), ctx.InvocationID())
 				done.TurnComplete = true
 				if !yield(done, nil) {
 					return
 				}
 
-				late := session.NewEvent(ctx.InvocationID())
+				late := session.NewEvent(context.Background(), ctx.InvocationID())
 				late.Content = genai.NewContentFromText("late", genai.RoleModel)
 				_ = yield(late, nil)
 			}
@@ -658,19 +658,19 @@ func TestWrapperAgentSuppressesPassthroughEvents(t *testing.T) {
 		Description: "Inner agent with passthrough event before invalid text output",
 		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(yield func(*session.Event, error) bool) {
-				passthrough := session.NewEvent(ctx.InvocationID())
+				passthrough := session.NewEvent(context.Background(), ctx.InvocationID())
 				passthrough.Author = "passthrough"
 				if !yield(passthrough, nil) {
 					return
 				}
 
-				invalid := session.NewEvent(ctx.InvocationID())
+				invalid := session.NewEvent(context.Background(), ctx.InvocationID())
 				invalid.Content = genai.NewContentFromText("not-json", genai.RoleModel)
 				if !yield(invalid, nil) {
 					return
 				}
 
-				done := session.NewEvent(ctx.InvocationID())
+				done := session.NewEvent(context.Background(), ctx.InvocationID())
 				done.TurnComplete = true
 				_ = yield(done, nil)
 			}
@@ -748,14 +748,14 @@ func TestWrapperAgentEmitsSingleJSONTextChunk(t *testing.T) {
 					`done"}`,
 				}
 				for _, chunk := range chunks {
-					ev := session.NewEvent(ctx.InvocationID())
+					ev := session.NewEvent(context.Background(), ctx.InvocationID())
 					ev.Content = genai.NewContentFromText(chunk, genai.RoleModel)
 					if !yield(ev, nil) {
 						return
 					}
 				}
 
-				done := session.NewEvent(ctx.InvocationID())
+				done := session.NewEvent(context.Background(), ctx.InvocationID())
 				done.TurnComplete = true
 				_ = yield(done, nil)
 			}
@@ -862,13 +862,13 @@ func newStaticOutputAgent(t *testing.T, output string, called *int32) adkagent.A
 				if called != nil {
 					atomic.AddInt32(called, 1)
 				}
-				ev := session.NewEvent(ctx.InvocationID())
+				ev := session.NewEvent(context.Background(), ctx.InvocationID())
 				ev.Content = genai.NewContentFromText(output, genai.RoleModel)
 				if !yield(ev, nil) {
 					return
 				}
 
-				final := session.NewEvent(ctx.InvocationID())
+				final := session.NewEvent(context.Background(), ctx.InvocationID())
 				final.TurnComplete = true
 				_ = yield(final, nil)
 			}
@@ -978,7 +978,7 @@ func newMultiOutputAgent(t *testing.T, outputs []string, calls *int32, runErr er
 				}
 
 				if runErr != nil {
-					ev := session.NewEvent(ctx.InvocationID())
+					ev := session.NewEvent(context.Background(), ctx.InvocationID())
 					if !yield(ev, runErr) {
 						return
 					}
@@ -990,13 +990,13 @@ func newMultiOutputAgent(t *testing.T, outputs []string, calls *int32, runErr er
 					outputIdx++
 				}
 
-				ev := session.NewEvent(ctx.InvocationID())
+				ev := session.NewEvent(context.Background(), ctx.InvocationID())
 				ev.Content = genai.NewContentFromText(output, genai.RoleModel)
 				if !yield(ev, nil) {
 					return
 				}
 
-				final := session.NewEvent(ctx.InvocationID())
+				final := session.NewEvent(context.Background(), ctx.InvocationID())
 				final.TurnComplete = true
 				_ = yield(final, nil)
 			}

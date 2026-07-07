@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -296,7 +296,7 @@ func TestWorkflowPassVerdictRequiresExactVisiblePrefix(t *testing.T) {
 		{
 			name: "thought only",
 			event: func(invocationID string) *session.Event {
-				ev := session.NewEvent(invocationID)
+				ev := session.NewEvent(context.Background(), invocationID)
 				ev.Content = &genai.Content{
 					Role: genai.RoleModel,
 					Parts: []*genai.Part{
@@ -474,7 +474,7 @@ func collectTestRunWithSession(t *testing.T, ag agent.Agent, prompt string) ([]*
 }
 
 func textEvent(invocationID string, text string) *session.Event {
-	ev := session.NewEvent(invocationID)
+	ev := session.NewEvent(context.Background(), invocationID)
 	ev.Content = genai.NewContentFromText(text, genai.RoleModel)
 	return ev
 }

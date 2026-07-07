@@ -3,7 +3,7 @@ package adk
 import (
 	"strings"
 
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 )
 
 func visibleText(ev *session.Event) string {

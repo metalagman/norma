@@ -13,13 +13,13 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/go-adk-acpagent/v2"
 	"github.com/normahq/norma/internal/apps/appio"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
-	adkagent "google.golang.org/adk/agent"
-	runnerpkg "google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	runnerpkg "google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -89,8 +89,7 @@ func RunREPL(
 				Context:           ctx,
 				Name:              "acp_repl_agent",
 				Description:       "Generic ACP REPL tool",
-				Model:             strings.TrimSpace(sessionModel),
-				Mode:              strings.TrimSpace(sessionMode),
+				SessionConfig:     acpSessionConfigValues(sessionModel, sessionMode),
 				Command:           command,
 				WorkingDir:        workingDir,
 				Stderr:            agentStderr,
@@ -104,6 +103,17 @@ func RunREPL(
 			return agentRuntime, agentRuntime.Close, nil
 		},
 	})
+}
+
+func acpSessionConfigValues(modelName, mode string) []acpagent.SessionConfigValue {
+	values := make([]acpagent.SessionConfigValue, 0, 2)
+	if modelName = strings.TrimSpace(modelName); modelName != "" {
+		values = append(values, acpagent.SessionConfigValue{ID: "model", Value: modelName})
+	}
+	if mode = strings.TrimSpace(mode); mode != "" {
+		values = append(values, acpagent.SessionConfigValue{ID: "mode", Value: mode})
+	}
+	return values
 }
 
 // RunAgentREPL runs a line-based REPL for an ADK agent factory.

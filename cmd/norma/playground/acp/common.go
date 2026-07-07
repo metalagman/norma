@@ -13,16 +13,16 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/go-adk-acpagent/v2"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/artifact"
-	"google.golang.org/adk/cmd/launcher"
-	"google.golang.org/adk/cmd/launcher/full"
-	runnerpkg "google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/artifact"
+	"google.golang.org/adk/v2/cmd/launcher"
+	"google.golang.org/adk/v2/cmd/launcher/full"
+	runnerpkg "google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -293,7 +293,6 @@ func runStandardACP(
 		Context:           ctx,
 		Name:              spec.name,
 		Description:       spec.description,
-		Model:             sessionModel,
 		Command:           command,
 		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,
@@ -370,7 +369,6 @@ func runACPWeb(
 		Context:           ctx,
 		Name:              spec.name,
 		Description:       spec.description,
-		Model:             sessionModel,
 		Command:           command,
 		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,

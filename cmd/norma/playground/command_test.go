@@ -291,7 +291,6 @@ func TestRunACPInfoHuman(t *testing.T) {
 				"Auth methods (0):",
 				"Session: session-1",
 				"Session modes: unavailable",
-				"Session models: unavailable",
 			} {
 				if !strings.Contains(out, want) {
 					t.Fatalf("stdout = %q, want substring %q", out, want)

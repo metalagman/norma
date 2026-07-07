@@ -1,10 +1,11 @@
 package plancmd
 
 import (
+	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -127,19 +128,19 @@ func TestPlannerModel_CompletedAndFailedQuit(t *testing.T) {
 }
 
 func eventWithPart(part *genai.Part) *session.Event {
-	ev := session.NewEvent("inv-1")
+	ev := session.NewEvent(context.Background(), "inv-1")
 	ev.Content = genai.NewContentFromParts([]*genai.Part{part}, genai.RoleModel)
 	return ev
 }
 
 func partialEvent() *session.Event {
-	ev := session.NewEvent("inv-partial")
+	ev := session.NewEvent(context.Background(), "inv-partial")
 	ev.Partial = true
 	return ev
 }
 
 func turnCompleteEvent() *session.Event {
-	ev := session.NewEvent("inv-complete")
+	ev := session.NewEvent(context.Background(), "inv-complete")
 	ev.TurnComplete = true
 	return ev
 }

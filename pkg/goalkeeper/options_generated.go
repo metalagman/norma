@@ -7,7 +7,7 @@ import (
 
 	errors461e464ebed9 "github.com/kazhuravlev/options-gen/pkg/errors"
 	validator461e464ebed9 "github.com/kazhuravlev/options-gen/pkg/validator"
-	"google.golang.org/adk/agent"
+	"google.golang.org/adk/v2/agent"
 )
 
 type OptOptionsSetter func(o *Options)

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/go-adk-acpagent/v2"
 	"github.com/normahq/norma/internal/apps/appio"
 	"github.com/normahq/norma/internal/logging"
 )
@@ -85,7 +85,7 @@ func Run(ctx context.Context, cfg RunConfig) (runErr error) {
 		runErr = fmt.Errorf("initialize acp client: %w", err)
 		return runErr
 	}
-	sessionResp, err := client.CreateSession(ctx, cfg.WorkingDir, cfg.SessionModel, "", nil)
+	sessionResp, err := client.CreateSession(ctx, cfg.WorkingDir, acpSessionConfigValues(cfg.SessionModel), nil)
 	if err != nil {
 		runErr = fmt.Errorf("create acp session: %w", err)
 		return runErr
@@ -210,7 +210,14 @@ func writeSessionSummary(stdout io.Writer, session *acp.NewSessionResponse) erro
 	if err := writeSessionModeSummary(stdout, session.Modes); err != nil {
 		return err
 	}
-	return writeSessionModelSummary(stdout, session.Models)
+	return nil
+}
+
+func acpSessionConfigValues(modelName string) []acpagent.SessionConfigValue {
+	if modelName = strings.TrimSpace(modelName); modelName == "" {
+		return nil
+	}
+	return []acpagent.SessionConfigValue{{ID: "model", Value: modelName}}
 }
 
 func writeSessionModeSummary(stdout io.Writer, modes *acp.SessionModeState) error {
@@ -225,26 +232,6 @@ func writeSessionModeSummary(stdout io.Writer, modes *acp.SessionModeState) erro
 		line := fmt.Sprintf("- %s: %s", mode.Id, strings.TrimSpace(mode.Name))
 		if mode.Description != nil && strings.TrimSpace(*mode.Description) != "" {
 			line += ": " + strings.TrimSpace(*mode.Description)
-		}
-		if _, err := fmt.Fprintln(stdout, line); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeSessionModelSummary(stdout io.Writer, models *acp.SessionModelState) error {
-	if models == nil {
-		_, err := fmt.Fprintln(stdout, "Session models: unavailable")
-		return err
-	}
-	if _, err := fmt.Fprintf(stdout, "Session models: current=%s, available (%d):\n", models.CurrentModelId, len(models.AvailableModels)); err != nil {
-		return err
-	}
-	for _, model := range models.AvailableModels {
-		line := fmt.Sprintf("- %s: %s", model.ModelId, strings.TrimSpace(model.Name))
-		if model.Description != nil && strings.TrimSpace(*model.Description) != "" {
-			line += ": " + strings.TrimSpace(*model.Description)
 		}
 		if _, err := fmt.Fprintln(stdout, line); err != nil {
 			return err

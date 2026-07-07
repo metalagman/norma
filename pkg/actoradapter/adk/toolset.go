@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/normahq/norma/pkg/actorlayer"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 )
 
 const (
@@ -219,7 +219,7 @@ type toolsetService struct {
 	cfg ToolsetConfig
 }
 
-func (s *toolsetService) actorSend(ctx tool.Context, in actorSendInput) (actorSendOutput, error) {
+func (s *toolsetService) actorSend(ctx agent.Context, in actorSendInput) (actorSendOutput, error) {
 	err := s.send(ctx, in)
 	if err != nil {
 		return actorSendOutput{}, err
@@ -227,7 +227,7 @@ func (s *toolsetService) actorSend(ctx tool.Context, in actorSendInput) (actorSe
 	return actorSendOutput{OK: true}, nil
 }
 
-func (s *toolsetService) actorAsk(ctx tool.Context, in actorAskInput) (actorAskOutput, error) {
+func (s *toolsetService) actorAsk(ctx agent.Context, in actorAskInput) (actorAskOutput, error) {
 	reply, err := s.ask(ctx, in)
 	if err != nil {
 		return actorAskOutput{}, err
@@ -235,7 +235,7 @@ func (s *toolsetService) actorAsk(ctx tool.Context, in actorAskInput) (actorAskO
 	return actorAskOutput{OK: true, Reply: reply.Payload, ReplyID: string(reply.ID)}, nil
 }
 
-func (s *toolsetService) actorPublish(ctx tool.Context, in actorPublishInput) (actorPublishOutput, error) {
+func (s *toolsetService) actorPublish(ctx agent.Context, in actorPublishInput) (actorPublishOutput, error) {
 	err := s.publish(ctx, in)
 	if err != nil {
 		return actorPublishOutput{}, err

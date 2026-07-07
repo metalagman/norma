@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -584,7 +584,7 @@ func mustNewTestAgent(
 }
 
 func textEvent(invocationID string, text string) *session.Event {
-	ev := session.NewEvent(invocationID)
+	ev := session.NewEvent(context.Background(), invocationID)
 	ev.Content = genai.NewContentFromText(text, genai.RoleModel)
 	return ev
 }

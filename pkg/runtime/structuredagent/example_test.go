@@ -1,11 +1,12 @@
 package structuredagent
 
 import (
+	"context"
 	"fmt"
 	"iter"
 
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -15,7 +16,7 @@ func ExampleNewAgent() {
 		Description: "Formats structured output",
 		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
 			return func(yield func(*session.Event, error) bool) {
-				ev := session.NewEvent(ctx.InvocationID())
+				ev := session.NewEvent(context.Background(), ctx.InvocationID())
 				ev.Content = genai.NewContentFromText(`{"output":"done"}`, genai.RoleModel)
 				ev.TurnComplete = true
 				_ = yield(ev, nil)

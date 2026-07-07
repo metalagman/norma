@@ -14,12 +14,12 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/go-adk-acpagent/v2"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -353,7 +353,7 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		Context:           ctx,
 		Name:              cfg.Name,
 		Description:       cfg.Description,
-		Model:             defaultModel,
+		SessionConfig:     []acpagent.SessionConfigValue{{ID: "model", Value: defaultModel}},
 		Command:           cfg.Command,
 		WorkingDir:        cfg.WorkingDir,
 		Stderr:            cfg.Stderr,

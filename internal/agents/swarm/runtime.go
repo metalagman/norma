@@ -17,7 +17,7 @@ import (
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/agent"
+	"google.golang.org/adk/v2/agent"
 	"google.golang.org/genai"
 )
 

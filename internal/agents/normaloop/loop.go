@@ -13,8 +13,8 @@ import (
 	"github.com/normahq/norma/internal/task"
 	"github.com/rs/zerolog"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/workflowagents/loopagent"
+	"github.com/normahq/norma/internal/adkcompat/loopagent"
+	"google.golang.org/adk/v2/agent"
 )
 
 const (

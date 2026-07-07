@@ -16,7 +16,7 @@ import (
 	"github.com/normahq/norma/internal/task"
 	"github.com/rs/zerolog/log"
 
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 

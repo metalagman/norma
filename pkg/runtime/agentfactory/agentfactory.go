@@ -14,17 +14,17 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/go-adk-acpagent"
+	"github.com/normahq/go-adk-acpagent/v2"
 	"github.com/normahq/norma/internal/logging"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/hostedagent"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/normahq/norma/pkg/runtime/poolagent"
 	"github.com/normahq/norma/pkg/runtime/sessionstate"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/model"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/mcptoolset"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/mcptoolset"
 )
 
 // BuildRequest defines the parameters for building a new agent instance.
@@ -574,8 +574,7 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 		Context:           ctx,
 		Name:              effectiveName(req),
 		Description:       effectiveDescription(req, cfg),
-		Model:             cfg.Model,
-		Mode:              cfg.Mode,
+		SessionConfig:     acpSessionConfigValues(cfg.Model, cfg.Mode),
 		Instruction:       effectiveInstruction(req, cfg),
 		GlobalInstruction: effectiveGlobalInstruction(req),
 		Command:           append([]string(nil), cfg.Command...),
@@ -587,6 +586,17 @@ var acpConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, r
 		MCPServers:        toRuntimeMCPServers(resolvedMCP),
 		OutputKey:         strings.TrimSpace(req.OutputKey),
 	})
+}
+
+func acpSessionConfigValues(modelName, mode string) []acpagent.SessionConfigValue {
+	values := make([]acpagent.SessionConfigValue, 0, 2)
+	if modelName = strings.TrimSpace(modelName); modelName != "" {
+		values = append(values, acpagent.SessionConfigValue{ID: "model", Value: modelName})
+	}
+	if mode = strings.TrimSpace(mode); mode != "" {
+		values = append(values, acpagent.SessionConfigValue{ID: "mode", Value: mode})
+	}
+	return values
 }
 
 var poolConstructor = func(ctx context.Context, cfg agentconfig.ResolvedConfig, req BuildRequest, f *Factory, _ map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {

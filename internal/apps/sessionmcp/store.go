@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 )
 
 // Store is the interface for session state storage drivers.

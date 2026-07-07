@@ -16,9 +16,9 @@ import (
 	"github.com/normahq/norma/pkg/runtime/structuredagent"
 	"github.com/rs/zerolog/log"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 

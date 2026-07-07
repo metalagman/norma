@@ -26,9 +26,9 @@ import (
 	"github.com/normahq/norma/pkg/runtime/structuredagent"
 	"github.com/rs/zerolog/log"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/workflowagents/loopagent"
-	"google.golang.org/adk/session"
+	"github.com/normahq/norma/internal/adkcompat/loopagent"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 )
 
 const stopReasonReplanRequired = "replan_required"
@@ -289,7 +289,7 @@ func (r *roleAgent) processResult(ctx agent.InvocationContext, yield func(*sessi
 			yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 			return
 		}
-		ev := session.NewEvent(ctx.InvocationID())
+		ev := session.NewEvent(context.Background(), ctx.InvocationID())
 		ev.Actions.Escalate = true
 		_ = yield(ev, nil)
 		return
@@ -333,7 +333,7 @@ func setActDecision(ctx agent.InvocationContext, yield func(*session.Event, erro
 			yield(nil, fmt.Errorf("set stop flag in session state: %w", err))
 			return false
 		}
-		ev := session.NewEvent(ctx.InvocationID())
+		ev := session.NewEvent(context.Background(), ctx.InvocationID())
 		ev.Actions.Escalate = true
 		_ = yield(ev, nil)
 		return false

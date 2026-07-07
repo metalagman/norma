@@ -3,7 +3,7 @@ package acpagent
 import (
 	"context"
 
-	upstream "github.com/normahq/go-adk-acpagent"
+	upstream "github.com/normahq/go-adk-acpagent/v2"
 )
 
 // Deprecated: use github.com/normahq/go-adk-acpagent.

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	adkagent "google.golang.org/adk/agent"
-	runnerpkg "google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	runnerpkg "google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 )
 
 const testStartupPrompt = "hello"
