@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	runtimedebug "runtime/debug"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -33,6 +34,7 @@ var (
 	debug        bool
 	trace        bool
 	profile      string
+	version      = "dev"
 	runBeadsInit = func(ctx context.Context, workingDir string) error {
 		cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", "norma")
 		cmd.Dir = workingDir
@@ -41,8 +43,9 @@ var (
 		return cmd.Run()
 	}
 	rootCmd = &cobra.Command{
-		Use:   "codex",
-		Short: "codex is a minimal agent workflow runner",
+		Use:     "norma",
+		Short:   "norma is an autonomous agent workflow orchestrator",
+		Version: versionString(),
 	}
 )
 
@@ -95,6 +98,17 @@ func initDotEnv() {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		cobra.CheckErr(fmt.Errorf(".env load: %w", err))
 	}
+}
+
+func versionString() string {
+	if strings.TrimSpace(version) != "" && version != "dev" {
+		return version
+	}
+	info, ok := runtimedebug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return version
+	}
+	return info.Main.Version
 }
 
 func initBeads(ctx context.Context) error {

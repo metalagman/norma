@@ -18,6 +18,8 @@
 *.out
 cmd/norma/norma
 /norma
+/codex
+/stub.txt
 
 # Coverage / profiling output
 coverage/
@@ -43,6 +45,8 @@ Thumbs.db
 
 .env
 .codex
+.gemini/
+.norma/config.yaml
 
 # Dolt database files (added by bd init)
 .dolt/

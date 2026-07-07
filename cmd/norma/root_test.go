@@ -5,8 +5,34 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestRootCommandUsesNormaMetadata(t *testing.T) {
+	if rootCmd.Use != "norma" {
+		t.Fatalf("root use = %q, want norma", rootCmd.Use)
+	}
+	if !strings.Contains(rootCmd.Short, "norma") {
+		t.Fatalf("root short = %q, want norma description", rootCmd.Short)
+	}
+	if strings.Contains(rootCmd.Short, "codex") {
+		t.Fatalf("root short = %q, want no codex metadata", rootCmd.Short)
+	}
+	if rootCmd.Version == "" {
+		t.Fatal("root version is empty")
+	}
+}
+
+func TestVersionStringUsesExplicitVersion(t *testing.T) {
+	prev := version
+	version = "v9.9.9"
+	t.Cleanup(func() { version = prev })
+
+	if got := versionString(); got != "v9.9.9" {
+		t.Fatalf("versionString() = %q, want v9.9.9", got)
+	}
+}
 
 func TestInitBeads_SkipsWhenBeadsExistsAtGitTopLevel(t *testing.T) {
 	workingDir := t.TempDir()
