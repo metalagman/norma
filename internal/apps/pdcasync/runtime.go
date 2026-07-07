@@ -584,7 +584,7 @@ func BuildCodexACPCommand(bridgeBin string) []string {
 	if trimmed := strings.TrimSpace(bridgeBin); trimmed != "" {
 		return []string{trimmed}
 	}
-	return []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
+	return []string{"npx", "-y", "@normahq/codex-acp-bridge@1.6.3"}
 }
 
 func runWithRunner(

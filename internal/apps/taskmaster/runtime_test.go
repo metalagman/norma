@@ -15,7 +15,7 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	t.Parallel()
 
 	got := BuildCodexACPCommand("")
-	want := []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
+	want := []string{"npx", "-y", "@normahq/codex-acp-bridge@1.6.3"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("BuildCodexACPCommand(\"\") = %v, want %v", got, want)
 	}

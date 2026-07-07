@@ -179,6 +179,54 @@ func TestNewAgent_CanDisableOutputSchema(t *testing.T) {
 	}
 }
 
+func TestWrapperAgentPreservesStructuredPromptAcrossContextDelta(t *testing.T) {
+	t.Parallel()
+
+	inner, err := adkagent.New(adkagent.Config{
+		Name:        "DeltaInnerAgent",
+		Description: "Inner agent that simulates ADK v2 context rebinding",
+		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {
+				ctx = ctx.WithICDelta(&adkagent.InvocationContextDelta{})
+				prompt := contentText(ctx.UserContent())
+				if !strings.Contains(prompt, "Produce output JSON") {
+					yield(nil, errors.New("inner agent did not receive structured prompt"))
+					return
+				}
+				if !strings.Contains(prompt, validStructuredInputJSON) {
+					yield(nil, errors.New("inner agent prompt did not include original input"))
+					return
+				}
+
+				ev := session.NewEvent(context.Background(), ctx.InvocationID())
+				ev.Content = genai.NewContentFromText(validStructuredOutputJSON, genai.RoleModel)
+				if !yield(ev, nil) {
+					return
+				}
+
+				final := session.NewEvent(context.Background(), ctx.InvocationID())
+				final.TurnComplete = true
+				_ = yield(final, nil)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+	wrapped, err := NewAgent(inner)
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	out, runErr := runSingleTurn(t, wrapped, validStructuredInputJSON)
+	if runErr != nil {
+		t.Fatalf("runSingleTurn() error = %v", runErr)
+	}
+	if !strings.Contains(out, outputFieldJSON) {
+		t.Fatalf("output = %q, want structured output", out)
+	}
+}
+
 func TestNewAgent_CanDisableBothSchemas(t *testing.T) {
 	t.Parallel()
 

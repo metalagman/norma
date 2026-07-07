@@ -293,6 +293,7 @@ func runStandardACP(
 		Context:           ctx,
 		Name:              spec.name,
 		Description:       spec.description,
+		SessionConfig:     acpSessionConfigValues(sessionModel),
 		Command:           command,
 		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,
@@ -342,6 +343,13 @@ func runStandardACP(
 	}
 }
 
+func acpSessionConfigValues(modelName string) []acpagent.SessionConfigValue {
+	if modelName = strings.TrimSpace(modelName); modelName == "" {
+		return nil
+	}
+	return []acpagent.SessionConfigValue{{ID: "model", Value: modelName}}
+}
+
 func runACPWeb(
 	ctx context.Context,
 	workingDir string,
@@ -369,6 +377,7 @@ func runACPWeb(
 		Context:           ctx,
 		Name:              spec.name,
 		Description:       spec.description,
+		SessionConfig:     acpSessionConfigValues(sessionModel),
 		Command:           command,
 		WorkingDir:        workingDir,
 		Stderr:            lockedStderr,

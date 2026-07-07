@@ -13,21 +13,23 @@ import (
 	"sync"
 	"testing"
 
+	acp "github.com/coder/acp-go-sdk"
 	acpcmd "github.com/normahq/norma/cmd/norma/playground/acp"
 )
 
 const (
-	methodInitialize        = "initialize"
-	methodSessionNew        = "session/new"
-	methodSessionSetModel   = "session/set_model"
-	methodSessionPrompt     = "session/prompt"
-	methodSessionCancel     = "session/cancel"
-	methodSessionUpdate     = "session/update"
-	updateAgentMessageChunk = "agent_message_chunk"
-	sessionOneHelloResponse = "session-1:hello\n"
-	acpSubcommandGemini     = "gemini"
-	acpSubcommandOpenCode   = "opencode"
-	acpSubcommandCodex      = "codex"
+	methodInitialize             = "initialize"
+	methodSessionNew             = "session/new"
+	methodSessionSetModel        = "session/set_model"
+	methodSessionSetConfigOption = "session/set_config_option"
+	methodSessionPrompt          = "session/prompt"
+	methodSessionCancel          = "session/cancel"
+	methodSessionUpdate          = "session/update"
+	updateAgentMessageChunk      = "agent_message_chunk"
+	sessionOneHelloResponse      = "session-1:hello\n"
+	acpSubcommandGemini          = "gemini"
+	acpSubcommandOpenCode        = "opencode"
+	acpSubcommandCodex           = "codex"
 )
 
 func TestPlaygroundCommandRegistered(t *testing.T) {
@@ -92,7 +94,7 @@ func TestPlaygroundGeminiACPDoesNotExposeLegacyDebugFlags(t *testing.T) {
 }
 
 func TestRunGeminiACPOneShot(t *testing.T) {
-	wrapper, argsFile := writeGeminiWrapper(t)
+	wrapper, argsFile := writeGeminiWrapperWithModelConfig(t)
 	stdout := &lockedBuffer{}
 	stderr := &lockedBuffer{}
 
@@ -129,7 +131,7 @@ func TestRunGeminiACPReusesSessionInREPL(t *testing.T) {
 }
 
 func TestRunOpenCodeACPOneShot(t *testing.T) {
-	wrapper, argsFile := writeOpenCodeWrapper(t)
+	wrapper, argsFile := writeOpenCodeWrapperExpectingModel(t, "opencode/test-model")
 	stdout := &lockedBuffer{}
 	stderr := &lockedBuffer{}
 
@@ -155,6 +157,25 @@ func TestRunOpenCodeACPOneShot(t *testing.T) {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v do not contain %q", args, want)
 		}
+	}
+}
+
+func TestRunOpenCodeACPPropagatesSessionModel(t *testing.T) {
+	const wantModel = "opencode/test-model"
+	wrapper, _ := writeOpenCodeWrapperExpectingModel(t, wantModel)
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
+
+	err := acpcmd.RunOpenCodeACP(context.Background(), t.TempDir(), acpcmd.OpenCodeOptions{
+		Prompt:      "hello",
+		Model:       wantModel,
+		OpenCodeBin: wrapper,
+	}, strings.NewReader(""), stdout, stderr)
+	if err != nil {
+		t.Fatalf("RunOpenCodeACP() error = %v", err)
+	}
+	if got := stdout.String(); got != sessionOneHelloResponse {
+		t.Fatalf("stdout = %q, want %q", got, sessionOneHelloResponse)
 	}
 }
 
@@ -187,6 +208,25 @@ func TestRunCodexACPOneShot(t *testing.T) {
 	args := readArgsFile(t, argsFile)
 	if len(args) != 0 {
 		t.Fatalf("args = %v, want empty args for direct bridge binary", args)
+	}
+}
+
+func TestRunCodexACPPropagatesSessionModel(t *testing.T) {
+	const wantModel = "gpt-5-codex"
+	wrapper, _ := writeCodexACPWrapperExpectingModel(t, wantModel)
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
+
+	err := acpcmd.RunCodexACP(context.Background(), t.TempDir(), acpcmd.CodexOptions{
+		Prompt:    "hello",
+		Model:     wantModel,
+		BridgeBin: wrapper,
+	}, strings.NewReader(""), stdout, stderr)
+	if err != nil {
+		t.Fatalf("RunCodexACP() error = %v", err)
+	}
+	if got := stdout.String(); got != sessionOneHelloResponse {
+		t.Fatalf("stdout = %q, want %q", got, sessionOneHelloResponse)
 	}
 }
 
@@ -347,7 +387,7 @@ func TestBuildCodexACPCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCodexACPCommand() error = %v", err)
 	}
-	want := []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
+	want := []string{"npx", "-y", "@normahq/codex-acp-bridge@1.6.3"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("buildCodexACPCommand() = %v, want %v", got, want)
 	}
@@ -370,52 +410,59 @@ func TestBuildCodexACPCommandWithAgentName(t *testing.T) {
 
 func writeGeminiWrapper(t *testing.T) (string, string) {
 	t.Helper()
-	dir := t.TempDir()
-	argsFile := filepath.Join(dir, "args.txt")
-	wrapperPath := filepath.Join(dir, "gemini-wrapper.sh")
-	script := fmt.Sprintf(`#!/bin/sh
-: > %s
-for arg in "$@"; do
-  printf '%%s\n' "$arg" >> %s
-done
-exec env GO_WANT_PLAYGROUND_ACP_HELPER=1 %s -test.run=TestPlaygroundACPHelperProcess -- "$@"
-`, shellQuote(argsFile), shellQuote(argsFile), shellQuote(os.Args[0]))
-	if err := os.WriteFile(wrapperPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", wrapperPath, err)
-	}
-	return wrapperPath, argsFile
+	return writeACPWrapper(t, "gemini-wrapper.sh", nil)
+}
+
+func writeGeminiWrapperWithModelConfig(t *testing.T) (string, string) {
+	t.Helper()
+	return writeACPWrapper(t, "gemini-wrapper.sh", []string{"GO_WANT_PLAYGROUND_ACP_ENABLE_MODEL_CONFIG=1"})
 }
 
 func writeOpenCodeWrapper(t *testing.T) (string, string) {
 	t.Helper()
-	dir := t.TempDir()
-	argsFile := filepath.Join(dir, "args.txt")
-	wrapperPath := filepath.Join(dir, "opencode-wrapper.sh")
-	script := fmt.Sprintf(`#!/bin/sh
-: > %s
-for arg in "$@"; do
-  printf '%%s\n' "$arg" >> %s
-done
-exec env GO_WANT_PLAYGROUND_ACP_HELPER=1 %s -test.run=TestPlaygroundACPHelperProcess -- "$@"
-`, shellQuote(argsFile), shellQuote(argsFile), shellQuote(os.Args[0]))
-	if err := os.WriteFile(wrapperPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", wrapperPath, err)
-	}
-	return wrapperPath, argsFile
+	return writeACPWrapper(t, "opencode-wrapper.sh", nil)
+}
+
+func writeOpenCodeWrapperExpectingModel(t *testing.T, model string) (string, string) {
+	t.Helper()
+	return writeACPWrapperExpectingModel(t, "opencode-wrapper.sh", model)
 }
 
 func writeCodexACPWrapper(t *testing.T) (string, string) {
 	t.Helper()
+	return writeACPWrapper(t, "codex-acp-bridge-wrapper.sh", nil)
+}
+
+func writeCodexACPWrapperExpectingModel(t *testing.T, model string) (string, string) {
+	t.Helper()
+	return writeACPWrapperExpectingModel(t, "codex-acp-bridge-wrapper.sh", model)
+}
+
+func writeACPWrapperExpectingModel(t *testing.T, fileName string, model string) (string, string) {
+	t.Helper()
+	return writeACPWrapper(t, fileName, []string{
+		"GO_WANT_PLAYGROUND_ACP_ENABLE_MODEL_CONFIG=1",
+		"GO_WANT_PLAYGROUND_ACP_EXPECT_MODEL=" + model,
+	})
+}
+
+func writeACPWrapper(t *testing.T, fileName string, env []string) (string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args.txt")
-	wrapperPath := filepath.Join(dir, "codex-acp-bridge-wrapper.sh")
+	wrapperPath := filepath.Join(dir, fileName)
+	envArgs := []string{"GO_WANT_PLAYGROUND_ACP_HELPER=1"}
+	envArgs = append(envArgs, env...)
+	for i, envArg := range envArgs {
+		envArgs[i] = shellQuote(envArg)
+	}
 	script := fmt.Sprintf(`#!/bin/sh
 : > %s
 for arg in "$@"; do
   printf '%%s\n' "$arg" >> %s
 done
-exec env GO_WANT_PLAYGROUND_ACP_HELPER=1 %s -test.run=TestPlaygroundACPHelperProcess -- "$@"
-`, shellQuote(argsFile), shellQuote(argsFile), shellQuote(os.Args[0]))
+exec env %s %s -test.run=TestPlaygroundACPHelperProcess -- "$@"
+`, shellQuote(argsFile), shellQuote(argsFile), strings.Join(envArgs, " "), shellQuote(os.Args[0]))
 	if err := os.WriteFile(wrapperPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", wrapperPath, err)
 	}
@@ -460,6 +507,7 @@ func runPlaygroundACPHelper(stdin *os.File, stdout *os.File) {
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	sessionCount := 0
+	modelValue := ""
 
 	for scanner.Scan() {
 		var msg helperEnvelope
@@ -469,10 +517,26 @@ func runPlaygroundACPHelper(stdin *os.File, stdout *os.File) {
 			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(helperInitializeResponse{ProtocolVersion: 1})})
 		case methodSessionNew:
 			sessionCount++
-			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(helperNewSessionResponse{SessionID: fmt.Sprintf("session-%d", sessionCount)})})
+			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(helperNewSessionResponse{
+				SessionID:     fmt.Sprintf("session-%d", sessionCount),
+				ConfigOptions: helperInitialConfigOptions(),
+			})})
 		case methodSessionSetModel:
 			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(helperSetSessionModelResponse{})})
+		case methodSessionSetConfigOption:
+			var req helperSetSessionConfigOptionRequest
+			mustHelper(json.Unmarshal(msg.Params, &req))
+			if req.ConfigID == "model" {
+				modelValue = req.Value
+			}
+			writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Result: mustHelperJSON(helperSetSessionConfigOptionResponse{
+				ConfigOptions: helperModelConfigOptions(modelValue, req.ConfigID),
+			})})
 		case methodSessionPrompt:
+			if wantModel := os.Getenv("GO_WANT_PLAYGROUND_ACP_EXPECT_MODEL"); wantModel != "" && modelValue != wantModel {
+				writeHelperEnvelope(stdout, helperEnvelope{JSONRPC: "2.0", ID: msg.ID, Error: &helperError{Code: -32000, Message: fmt.Sprintf("model = %q, want %q", modelValue, wantModel)}})
+				continue
+			}
 			var req helperPromptRequest
 			mustHelper(json.Unmarshal(msg.Params, &req))
 			writeHelperUpdate(stdout, req.SessionID, req.SessionID+":")
@@ -504,7 +568,8 @@ type helperInitializeResponse struct {
 }
 
 type helperNewSessionResponse struct {
-	SessionID string `json:"sessionId"`
+	SessionID     string                    `json:"sessionId"`
+	ConfigOptions []acp.SessionConfigOption `json:"configOptions,omitempty"`
 }
 
 type helperPromptResponse struct {
@@ -512,6 +577,42 @@ type helperPromptResponse struct {
 }
 
 type helperSetSessionModelResponse struct{}
+
+type helperSetSessionConfigOptionRequest struct {
+	SessionID string `json:"sessionId"`
+	ConfigID  string `json:"configId"`
+	Value     string `json:"value"`
+}
+
+type helperSetSessionConfigOptionResponse struct {
+	ConfigOptions []acp.SessionConfigOption `json:"configOptions"`
+}
+
+func helperInitialConfigOptions() []acp.SessionConfigOption {
+	if os.Getenv("GO_WANT_PLAYGROUND_ACP_ENABLE_MODEL_CONFIG") == "" && os.Getenv("GO_WANT_PLAYGROUND_ACP_EXPECT_MODEL") == "" {
+		return nil
+	}
+	return helperModelConfigOptions("default-model", "model")
+}
+
+func helperModelConfigOptions(model string, configID string) []acp.SessionConfigOption {
+	if strings.TrimSpace(configID) == "" {
+		return nil
+	}
+	modelCategory := acp.SessionConfigOptionCategoryModel
+	option := acp.NewSessionConfigOptionSelect(
+		acp.SessionConfigValueId(model),
+		acp.SessionConfigSelectOptions{
+			Ungrouped: &acp.SessionConfigSelectOptionsUngrouped{
+				{Name: model, Value: acp.SessionConfigValueId(model)},
+			},
+		},
+	)
+	option.Select.Id = acp.SessionConfigId(configID)
+	option.Select.Name = "Model"
+	option.Select.Category = &modelCategory
+	return []acp.SessionConfigOption{option}
+}
 
 type helperPromptRequest struct {
 	SessionID string              `json:"sessionId"`

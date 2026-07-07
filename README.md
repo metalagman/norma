@@ -221,11 +221,11 @@ Swarm notes:
 Codex ACP bridge is now distributed as a standalone package.
 
 ```bash
-npx -y @normahq/codex-acp-bridge@latest
+npx -y @normahq/codex-acp-bridge@1.6.3
 ```
 
 Notes:
-- `codex_acp` agent type resolves to `npx -y @normahq/codex-acp-bridge@latest`.
+- `codex_acp` agent type resolves to `npx -y @normahq/codex-acp-bridge@1.6.3`.
 - Per-session Codex defaults are set via ACP `session/new._meta.codex`.
 - Bridge docs live in the standalone repository:
   <https://github.com/normahq/codex-acp-bridge>

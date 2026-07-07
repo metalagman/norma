@@ -53,6 +53,12 @@ type ACPConfig struct {
 	Mode string `json:"mode,omitempty"       yaml:"mode,omitempty"       mapstructure:"mode"       validate:"omitempty,notblank"`
 }
 
+const (
+	codexACPBridgePackage = "@normahq/codex-acp-bridge@1.6.3"
+	npxCommand            = "npx"
+	npxYesFlag            = "-y"
+)
+
 // LocalAPIConfig is a local API-backed runtime configuration block.
 type LocalAPIConfig struct {
 	// APIKey authenticates requests to the hosted provider API.
@@ -559,7 +565,7 @@ func NormalizeConfig(cfg Config, executablePath string) (ResolvedConfig, error) 
 			return ResolvedConfig{}, fmt.Errorf("codex_acp block is required")
 		}
 		return resolveACPConfig(resolved, AgentTypeGenericACP, ACPConfig{
-			Cmd:             []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"},
+			Cmd:             []string{npxCommand, npxYesFlag, codexACPBridgePackage},
 			ExtraArgs:       append([]string(nil), cfg.CodexACP.ExtraArgs...),
 			Model:           cfg.CodexACP.Model,
 			ReasoningEffort: cfg.CodexACP.ReasoningEffort,

@@ -40,7 +40,7 @@ func CodexInfoCommand() *cobra.Command {
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
-			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@latest)")
+			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@1.6.3)")
 		},
 		func(ctx context.Context, workingDir string, jsonOutput bool, stdout io.Writer, stderr io.Writer) error {
 			return RunCodexACPInfo(ctx, workingDir, opts, jsonOutput, stdout, stderr)
@@ -56,7 +56,7 @@ func CodexWebCommand() *cobra.Command {
 		func(cmd *cobra.Command) {
 			cmd.Flags().StringVar(&opts.Model, "model", "", "Codex model name")
 			cmd.Flags().StringVar(&opts.Name, "name", "", "ACP agent name exposed by the Codex proxy")
-			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@latest)")
+			cmd.Flags().StringVar(&opts.BridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@1.6.3)")
 		},
 		func(ctx context.Context, workingDir string, launcherArgs []string, stderr io.Writer) error {
 			return RunCodexACPWeb(ctx, workingDir, opts, launcherArgs, stderr)
@@ -79,7 +79,7 @@ func RunCodexACP(ctx context.Context, workingDir string, opts CodexOptions, stdi
 
 func BuildCodexACPCommand(opts CodexOptions) ([]string, error) {
 	bridgeBin := strings.TrimSpace(opts.BridgeBin)
-	cmd := []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
+	cmd := []string{"npx", "-y", "@normahq/codex-acp-bridge@1.6.3"}
 	if bridgeBin != "" {
 		cmd = []string{bridgeBin}
 	}

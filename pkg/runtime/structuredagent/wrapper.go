@@ -486,6 +486,11 @@ func (c wrapperInvocationContext) WithContext(ctx context.Context) adkagent.Invo
 	}
 }
 
+func (c wrapperInvocationContext) WithICDelta(d *adkagent.InvocationContextDelta) adkagent.InvocationContext {
+	c.InvocationContext = c.InvocationContext.WithICDelta(d)
+	return c
+}
+
 type promptData struct {
 	Input             string
 	InputSchema       string

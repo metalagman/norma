@@ -15,10 +15,10 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
-	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
+	taskmasterrt "github.com/normahq/norma/pkg/runtime/taskmaster"
+	taskmasteradk "github.com/normahq/norma/pkg/runtime/taskmaster/adk"
 	"github.com/rs/zerolog"
 )
 
@@ -58,7 +58,7 @@ func BuildCodexACPCommand(bridgeBin string) []string {
 	if trimmed := strings.TrimSpace(bridgeBin); trimmed != "" {
 		return []string{trimmed}
 	}
-	return []string{"npx", "-y", "@normahq/codex-acp-bridge@latest"}
+	return []string{"npx", "-y", "@normahq/codex-acp-bridge@1.6.3"}
 }
 
 func Run(ctx context.Context, cfg Config, initialContent string) error {

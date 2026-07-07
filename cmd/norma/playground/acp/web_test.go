@@ -38,3 +38,17 @@ func TestForceGlobalDebugLogging(t *testing.T) {
 		t.Fatalf("restored global log level = %s, want %s", got, zerolog.InfoLevel)
 	}
 }
+
+func TestACPSessionConfigValues(t *testing.T) {
+	if got := acpSessionConfigValues("   "); got != nil {
+		t.Fatalf("acpSessionConfigValues(empty) = %#v, want nil", got)
+	}
+
+	got := acpSessionConfigValues("  model/test  ")
+	if len(got) != 1 {
+		t.Fatalf("len(acpSessionConfigValues(model)) = %d, want 1", len(got))
+	}
+	if got[0].ID != "model" || got[0].Value != "model/test" {
+		t.Fatalf("acpSessionConfigValues(model) = %#v, want model config", got)
+	}
+}
