@@ -16,12 +16,12 @@ type options struct {
 	maxIterations uint
 }
 
-// Command builds the `norma playground goalkeeper-actor` command.
+// Command builds the `norma goalkeeper-actor` command.
 func Command() *cobra.Command {
 	opts := options{}
 	cmd := &cobra.Command{
 		Use:          "goalkeeper-actor <goal>",
-		Short:        "Run the Goalkeeper actor-based playground",
+		Short:        "Run the experimental Goalkeeper actor-based app",
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

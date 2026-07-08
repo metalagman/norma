@@ -1,12 +1,11 @@
-package pdcataskmastercmd
+package taskmasterchatcmd
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/normahq/norma/v2/internal/apps/pdcataskmaster"
+	"github.com/normahq/norma/v2/internal/apps/taskmasterchat"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -15,15 +14,15 @@ type options struct {
 	bridgeBin string
 }
 
-// Command builds the `norma playground pdca-taskmaster` command.
+// Command builds the `norma taskmaster-chat` command.
 func Command() *cobra.Command {
 	opts := options{}
 	cmd := &cobra.Command{
-		Use:          "pdca-taskmaster <goal>",
-		Short:        "Run the experimental PDCA Taskmaster async harness",
-		Args:         cobra.MinimumNArgs(1),
+		Use:          "taskmaster-chat",
+		Short:        "Run the experimental generic Taskmaster harness as a local fake chat",
+		Args:         cobra.NoArgs,
 		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			workingDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("get current working directory: %w", err)
@@ -32,10 +31,10 @@ func Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
-			return pdcataskmaster.Run(cmd.Context(), pdcataskmaster.Config{
-				Goal:       strings.Join(args, " "),
+			return taskmasterchat.Run(cmd.Context(), taskmasterchat.Config{
 				WorkingDir: workingDir,
 				BridgeBin:  opts.bridgeBin,
+				Stdin:      cmd.InOrStdin(),
 				Stdout:     cmd.OutOrStdout(),
 				Stderr:     cmd.ErrOrStderr(),
 				Logger:     &log.Logger,

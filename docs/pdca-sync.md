@@ -1,16 +1,16 @@
-# `pdca-sync` playground
+# `pdca-sync` experimental command
 
 Run:
 
 ```bash
-norma playground pdca-sync "ship the goal" \
+norma pdca-sync "ship the goal" \
   --bridge-bin /path/to/codex-acp-bridge \
   --max-iterations 5
 ```
 
-`pdca-sync` is an experimental **synchronous** PDCA playground.
+`pdca-sync` is an experimental **synchronous** PDCA app.
 
-In the current playground family:
+In the current experimental command family:
 - `taskmaster` = generic async harness
 - `pdca-taskmaster` = async PDCA wrapper
 - `pdca-sync` = sync PDCA wrapper
@@ -19,14 +19,14 @@ It boots:
 - one root coordinator agent
 - four fixed child agents: `plan`, `do`, `check`, `act`
 
-This playground uses:
+This experimental app uses:
 - ACP-backed ADK agents
 - plain-text prompts only
 - plain-text child outputs only
 - one internal synchronous MCP control tool for child prompting
 - a model-backed coordinator root agent
 
-This playground does **not** use:
+This experimental app does **not** use:
 - Taskmaster tasks
 - envelopes
 - `report_to`

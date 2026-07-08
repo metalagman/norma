@@ -33,7 +33,7 @@ func TestRootInstructionDefinesSyncCoordinator(t *testing.T) {
 
 	got := rootInstruction(7)
 	for _, want := range []string{
-		"synchronous PDCA playground",
+		"synchronous experimental PDCA app",
 		"pdca.prompt_subagent",
 		"The canonical PDCA check verdict literals are `pass` and `fail`.",
 		"The canonical PDCA act decision literals are `close`, `continue`, and `replan`.",

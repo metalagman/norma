@@ -212,7 +212,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		baseLogger = zerolog.Ctx(ctx)
 	}
 	logger := baseLogger.With().
-		Str("component", "playground.pdca_sync").
+		Str("component", "experimental.pdca_sync").
 		Str("agent_type", defaultAgentType).
 		Str("model", defaultModel).
 		Logger()
@@ -536,7 +536,7 @@ func (s *service) recordSuccessfulInvocation(agentName string) {
 
 func rootInstruction(maxIterations int) string {
 	return strings.Join([]string{
-		"You are the coordinator root agent of a synchronous PDCA playground.",
+		"You are the coordinator root agent of a synchronous experimental PDCA app.",
 		"You receive only prompt text as your turn input.",
 		"You coordinate four plain-text child agents named plan, do, check, and act.",
 		"The canonical PDCA roles are: plan, do, check, act.",
@@ -549,7 +549,7 @@ func rootInstruction(maxIterations int) string {
 		"Child invocation is a blackbox runtime action.",
 		"Use only the pdca.prompt_subagent tool to synchronously prompt one child agent at a time.",
 		"The tool takes an agent name and a plain-text prompt, and returns that child agent's plain-text result.",
-		"There is no task, envelope, queue, report, or finish protocol in this playground.",
+		"There is no task, envelope, queue, report, or finish protocol in this experimental app.",
 		"The runtime does not enforce phase order. You decide which child agent to prompt next.",
 		"When you prompt plan after an act call, that starts the next iteration.",
 		fmt.Sprintf("The run is limited to %d iterations.", maxIterations),

@@ -37,7 +37,7 @@ const (
 	sessionID = "goalkeeper-session"
 )
 
-// Config configures the Goalkeeper playground run.
+// Config configures the experimental Goalkeeper run.
 type Config struct {
 	Goal          string
 	WorkingDir    string
@@ -74,7 +74,7 @@ type stepLogSpec struct {
 	ID    string
 }
 
-// Run executes the Goalkeeper playground workflow once.
+// Run executes the experimental Goalkeeper workflow once.
 func Run(ctx context.Context, cfg Config) error {
 	return run(ctx, cfg, defaultDeps())
 }
@@ -118,7 +118,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		baseLogger = zerolog.Ctx(ctx)
 	}
 	logger := baseLogger.With().
-		Str("component", "playground.goalkeeper").
+		Str("component", "experimental.goalkeeper").
 		Str("agent_type", defaultAgentType).
 		Str("model", defaultModel).
 		Logger()

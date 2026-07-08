@@ -36,14 +36,14 @@ func TestWithAgentContextLogger(t *testing.T) {
 
 	var logBuf bytes.Buffer
 	baseLogger := zerolog.New(&logBuf).Level(zerolog.TraceLevel).With().
-		Str("component", "playground.goalkeeper_actor").
+		Str("component", "experimental.goalkeeper_actor").
 		Logger()
 
 	ctx := withAgentContextLogger(context.Background(), baseLogger, workerAgentID)
 	zerolog.Ctx(ctx).Debug().Msg("test-log")
 
 	logLine := logBuf.String()
-	if !strings.Contains(logLine, `"component":"playground.goalkeeper_actor"`) {
+	if !strings.Contains(logLine, `"component":"experimental.goalkeeper_actor"`) {
 		t.Fatalf("log = %q, want component field", logLine)
 	}
 	if !strings.Contains(logLine, `"agent_id":"worker"`) {

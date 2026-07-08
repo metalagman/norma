@@ -23,7 +23,7 @@ func setupMCPServer(t *testing.T) (context.Context, func(), *mcp.ClientSession) 
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 
 	server := mcp.NewServer(
-		&mcp.Implementation{Name: "norma-playground-ping-pong", Version: "1.0.0"},
+		&mcp.Implementation{Name: "norma-ping-pong", Version: "1.0.0"},
 		nil,
 	)
 
@@ -65,7 +65,7 @@ func TestMCPServerInitializeAndListTools(t *testing.T) {
 	defer cleanup()
 
 	result := session.InitializeResult()
-	assert.Equal(t, "norma-playground-ping-pong", result.ServerInfo.Name)
+	assert.Equal(t, "norma-ping-pong", result.ServerInfo.Name)
 	assert.Equal(t, "1.0.0", result.ServerInfo.Version)
 
 	tools, err := session.ListTools(context.Background(), nil)
@@ -151,7 +151,7 @@ func TestServerHasCorrectIdentity(t *testing.T) {
 	defer cleanup()
 
 	result := session.InitializeResult()
-	assert.Equal(t, "norma-playground-ping-pong", result.ServerInfo.Name)
+	assert.Equal(t, "norma-ping-pong", result.ServerInfo.Name)
 	assert.Equal(t, "1.0.0", result.ServerInfo.Version)
 	assert.NotEmpty(t, result.ProtocolVersion)
 }

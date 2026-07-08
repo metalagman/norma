@@ -10,7 +10,7 @@ norma bridges the gap between high-level task management and low-level code exec
 
 - a strict **Plan -> Do -> Check -> Act (PDCA)** cycle for one task at a time
 
-The repository also contains experimental harnesses for swarm and playground workflows. Those surfaces are available for internal evaluation, but PDCA is the supported core workflow.
+The repository also contains experimental root commands for swarm and app harnesses. Those surfaces are available for internal evaluation, but PDCA is the supported core workflow.
 
 Built for transparency and reliability, norma ensures every agent action is logged, every change is isolated in a Git worktree, and durable implementation history lives on a task-scoped branch.
 
@@ -205,9 +205,9 @@ profiles:
 - [PDCA Workflow and Norma Loop](docs/pdca-agent.md)
 - [NormaLoop Orchestration](docs/normaloop-agent.md)
 - [Swarm Harness](docs/swarm.md)
-- [Goalkeeper Playground](docs/goalkeeper.md)
-- [Goalkeeper Actor Playground](docs/goalkeeper-actor.md)
-- [Taskmaster Playground](docs/taskmaster.md)
+- [Experimental Goalkeeper Command](docs/goalkeeper.md)
+- [Experimental Goalkeeper Actor Command](docs/goalkeeper-actor.md)
+- [Experimental Taskmaster Commands](docs/taskmaster.md)
 - [Actorlayer Runtime (Actor Model over ADK)](docs/actorlayer.md)
 
 ### 4. Create a Task & Run

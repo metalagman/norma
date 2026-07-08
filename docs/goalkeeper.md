@@ -1,14 +1,14 @@
-# `goalkeeper` playground
+# `goalkeeper` experimental command
 
 Run:
 
 ```bash
-norma playground goalkeeper "ship the goal" \
+norma goalkeeper "ship the goal" \
   --max-iterations 5 \
   --bridge-bin /path/to/codex-acp-bridge
 ```
 
-`goalkeeper` is an experimental ADK workflow playground for one prompt-driven work loop followed by validation.
+`goalkeeper` is an experimental ADK workflow app for one prompt-driven work loop followed by validation.
 
 It boots:
 - one ADK LoopAgent workflow agent named `Goalkeeper`
@@ -26,7 +26,7 @@ Both child agents use:
 - the same resolved current working directory
 - the same ADK runner session for the workflow turn
 
-This playground does not use:
+This experimental app does not use:
 - Taskmaster queues
 - PDCA phase agents
 - structured PDCA JSON contracts
@@ -66,7 +66,7 @@ When `--debug` is enabled, the runtime also logs one `goalkeeper model final tex
 
 `goal_reached=true` is logged only when the validator response starts with `verdict: pass`. `verdict: fail`, missing verdicts, and malformed verdicts are logged as not reached and produce a non-zero exit status.
 
-## Relation to Other Playgrounds
+## Relation to Other Experimental Commands
 
 - `taskmaster` = generic async inbox runner
 - `pdca-taskmaster` = async PDCA wrapper

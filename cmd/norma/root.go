@@ -13,15 +13,20 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	goalkeepercmd "github.com/normahq/norma/v2/cmd/norma/goalkeeper"
+	goalkeeperactorcmd "github.com/normahq/norma/v2/cmd/norma/goalkeeperactor"
 	initcmd "github.com/normahq/norma/v2/cmd/norma/init"
 	loopcmd "github.com/normahq/norma/v2/cmd/norma/loop"
 	mcpcmd "github.com/normahq/norma/v2/cmd/norma/mcp"
+	pdcasynccmd "github.com/normahq/norma/v2/cmd/norma/pdcasync"
+	pdcataskmastercmd "github.com/normahq/norma/v2/cmd/norma/pdcataskmaster"
 	plancmd "github.com/normahq/norma/v2/cmd/norma/plan"
-	playgroundcmd "github.com/normahq/norma/v2/cmd/norma/playground"
 	prunecmd "github.com/normahq/norma/v2/cmd/norma/prune"
 	runcmd "github.com/normahq/norma/v2/cmd/norma/run"
 	runscmd "github.com/normahq/norma/v2/cmd/norma/runs"
 	swarmcmd "github.com/normahq/norma/v2/cmd/norma/swarm"
+	taskmastercmd "github.com/normahq/norma/v2/cmd/norma/taskmaster"
+	taskmasterchatcmd "github.com/normahq/norma/v2/cmd/norma/taskmasterchat"
 	"github.com/normahq/norma/v2/internal/git"
 	"github.com/normahq/norma/v2/internal/logging"
 	"github.com/rs/zerolog/log"
@@ -88,7 +93,12 @@ func Execute() error {
 	rootCmd.AddCommand(swarmcmd.Command())
 	rootCmd.AddCommand(plancmd.Command())
 	rootCmd.AddCommand(mcpcmd.Command())
-	rootCmd.AddCommand(playgroundcmd.Command())
+	rootCmd.AddCommand(goalkeepercmd.Command())
+	rootCmd.AddCommand(goalkeeperactorcmd.Command())
+	rootCmd.AddCommand(pdcasynccmd.Command())
+	rootCmd.AddCommand(pdcataskmastercmd.Command())
+	rootCmd.AddCommand(taskmastercmd.Command())
+	rootCmd.AddCommand(taskmasterchatcmd.Command())
 	rootCmd.AddCommand(initcmd.Command())
 	rootCmd.AddCommand(prunecmd.Command())
 	return rootCmd.Execute()

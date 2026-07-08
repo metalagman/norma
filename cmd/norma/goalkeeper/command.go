@@ -1,4 +1,4 @@
-package pdcasynccmd
+package goalkeepercmd
 
 import (
 	"fmt"
@@ -6,22 +6,22 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/normahq/norma/v2/internal/apps/pdcasync"
+	"github.com/normahq/norma/v2/internal/apps/goalkeeper"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 type options struct {
 	bridgeBin     string
-	maxIterations int
+	maxIterations uint
 }
 
-// Command builds the `norma playground pdca-sync` command.
+// Command builds the `norma goalkeeper` command.
 func Command() *cobra.Command {
 	opts := options{}
 	cmd := &cobra.Command{
-		Use:          "pdca-sync <goal>",
-		Short:        "Run the experimental synchronous PDCA coordinator playground",
+		Use:          "goalkeeper <goal>",
+		Short:        "Run the experimental Goalkeeper worker-then-validator app",
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -33,7 +33,7 @@ func Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("resolve working directory: %w", err)
 			}
-			return pdcasync.Run(cmd.Context(), pdcasync.Config{
+			return goalkeeper.Run(cmd.Context(), goalkeeper.Config{
 				Goal:          strings.Join(args, " "),
 				WorkingDir:    workingDir,
 				BridgeBin:     opts.bridgeBin,
@@ -45,6 +45,6 @@ func Command() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.bridgeBin, "bridge-bin", "", "Codex ACP proxy executable path (defaults to npx @normahq/codex-acp-bridge@1.6.3)")
-	cmd.Flags().IntVar(&opts.maxIterations, "max-iterations", 5, "maximum number of act->plan loopback iterations")
+	cmd.Flags().UintVar(&opts.maxIterations, "max-iterations", 5, "maximum worker-validator retry iterations")
 	return cmd
 }

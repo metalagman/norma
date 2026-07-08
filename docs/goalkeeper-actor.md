@@ -1,9 +1,9 @@
-# `goalkeeper-actor` playground
+# `goalkeeper-actor` experimental command
 
 Run:
 
 ```bash
-norma playground goalkeeper-actor "ship the goal" \
+norma goalkeeper-actor "ship the goal" \
   --max-iterations 5 \
   --bridge-bin /path/to/codex-acp-bridge
 ```
@@ -28,12 +28,12 @@ Worker and validator use:
 - shared ADK in-memory session service
 - one conversation id propagated via actor headers
 
-Output contract matches `playground goalkeeper`:
+Output contract matches `goalkeeper`:
 - print final validator output
 - print total run time
 - exit 0 only when validator verdict is `pass`
 
-This playground does not use:
+This experimental app does not use:
 - Taskmaster queues
 - PDCA phase agents
 - persistence or remote actor transport

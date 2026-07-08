@@ -10,5 +10,6 @@ func Command() *cobra.Command {
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(TasksCommand())
+	cmd.AddCommand(PingPongCommand())
 	return cmd
 }

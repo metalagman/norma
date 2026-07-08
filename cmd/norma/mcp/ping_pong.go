@@ -12,7 +12,7 @@ import (
 func PingPongCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:          "ping-pong",
-		Short:        "Run a ping-pong MCP server over stdio",
+		Short:        "Run the experimental ping-pong MCP server over stdio",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPingPongServer(cmd.Context())
@@ -31,7 +31,7 @@ type pingOutput struct {
 func runPingPongServer(ctx context.Context) error {
 	server := mcp.NewServer(
 		&mcp.Implementation{
-			Name:    "norma-playground-ping-pong",
+			Name:    "norma-ping-pong",
 			Version: "1.0.0",
 		},
 		nil,

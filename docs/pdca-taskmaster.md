@@ -1,9 +1,9 @@
-# `pdca-taskmaster` playground
+# `pdca-taskmaster` experimental command
 
 `pdca-taskmaster` is the PDCA-specific async wrapper over the shared Taskmaster async harness:
 
 ```bash
-norma playground pdca-taskmaster "ship the goal" \
+norma pdca-taskmaster "ship the goal" \
   --bridge-bin /path/to/codex-acp-bridge
 ```
 
@@ -64,10 +64,10 @@ Its app-level wiring is wrapper-owned:
 - the wrapper creates the MCP server instance and registers its own PDCA control tools
 - `github.com/normahq/runtime/v2/taskmaster/adk` only wraps those built agents as local nodes
 
-## Relation to Other Playgrounds
+## Relation to Other Experimental Commands
 
 - `taskmaster` = generic inbox runner
 - `pdca-taskmaster` = async PDCA wrapper
-- `pdca-sync` = sync PDCA playground
+- `pdca-sync` = sync PDCA app
 
 Use [PDCA Loop](pdca-agent.md) for the real structured PDCA runtime behind `norma loop`.

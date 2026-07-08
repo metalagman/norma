@@ -1,15 +1,15 @@
-# `taskmaster` playground
+# `taskmaster` experimental commands
 
 Taskmaster is an experimental **generic async task harness** exposed as:
 
 ```bash
-norma playground taskmaster \
+norma taskmaster \
   --bridge-bin /path/to/codex-acp-bridge
 
-norma playground taskmaster "count total lines of the go files" \
+norma taskmaster "count total lines of the go files" \
   --bridge-bin /path/to/codex-acp-bridge
 
-norma playground taskmaster-chat \
+norma taskmaster-chat \
   --bridge-bin /path/to/codex-acp-bridge
 ```
 
@@ -55,19 +55,19 @@ Generic `taskmaster` routes root outcomes to one app-owned sink:
 }
 ```
 
-Messages sent to that target are written to the current playground log and are **not** delivered back to the root agent.
+Messages sent to that target are written to the current app log and are **not** delivered back to the root agent.
 
 ## Runtime Flow
 
 The generic flow is:
 
-1. The playground starts the Taskmaster inbox runner.
+1. The app starts the Taskmaster inbox runner.
 2. If optional CLI content is provided, the wrapper enqueues one initial root job message.
    - the message content is passed through unchanged
 3. The background timer may enqueue additional root job messages while the run is active.
 4. The app-level outcome router converts root outcomes into notification/error messages for `integration/cli/log`.
 5. The run stays active until the host context is canceled, typically by `SIGINT` or `SIGTERM`.
-6. On shutdown, the playground stops gracefully.
+6. On shutdown, the app stops gracefully.
 
 Stdout remains reserved for:
 
@@ -79,7 +79,7 @@ Generic `taskmaster` also runs a background timer. While the run is active, it p
 
 These timer tasks are supplemental background traffic and continue until the command context is canceled.
 
-## Fake Chat Playground
+## Fake Chat App
 
 `taskmaster-chat` wraps the same single-agent runtime as a local fake chat harness:
 
@@ -115,8 +115,8 @@ The app owns all app-level wiring:
 - creating any ingress protocol such as MCP, CLI bootstrap, or timers
 - injecting the wrapped local nodes into `github.com/normahq/runtime/v2/taskmaster`
 
-## Relation to Other Playgrounds
+## Relation to Other Experimental Commands
 
 - `taskmaster` = generic async harness
 - `pdca-taskmaster` = async PDCA wrapper over the same harness core
-- `pdca-sync` = sync PDCA playground
+- `pdca-sync` = sync PDCA app

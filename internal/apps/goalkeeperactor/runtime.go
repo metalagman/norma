@@ -43,7 +43,7 @@ const (
 	headerUserID         = "user_id"
 )
 
-// Config configures the actor-based Goalkeeper playground run.
+// Config configures the experimental actor-based Goalkeeper run.
 type Config struct {
 	Goal          string
 	WorkingDir    string
@@ -74,7 +74,7 @@ type runtimeDeps struct {
 	newACPAgent func(context.Context, acpRuntimeConfig) (closableAgent, error)
 }
 
-// Run executes the actor-based Goalkeeper playground workflow once.
+// Run executes the experimental actor-based Goalkeeper workflow once.
 func Run(ctx context.Context, cfg Config) error {
 	return run(ctx, cfg, defaultDeps())
 }
@@ -115,7 +115,7 @@ func run(ctx context.Context, cfg Config, deps runtimeDeps) error {
 		baseLogger = zerolog.Ctx(ctx)
 	}
 	logger := baseLogger.With().
-		Str("component", "playground.goalkeeper_actor").
+		Str("component", "experimental.goalkeeper_actor").
 		Str("agent_type", defaultAgentType).
 		Str("model", defaultModel).
 		Logger()
