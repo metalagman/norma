@@ -73,7 +73,7 @@ func TestWorkflowRunsWorkerThenValidatorWithSharedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	got := runTestAgentOnce(t, workflow)
 	if got != "verdict: pass\nworker_result=created artifact" {
 		t.Fatalf("workflow output = %q, want validator output from shared state", got)
 	}
@@ -104,7 +104,7 @@ func TestWorkflowPassVerdictEscalatesAndStopsAfterOneIteration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	got := runTestAgentOnce(t, workflow)
 	if got != "verdict: pass\nall good" {
 		t.Fatalf("workflow output = %q, want validator pass output", got)
 	}
@@ -196,7 +196,7 @@ func TestWorkflowFailThenPassRetriesUntilPass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	got := runTestAgentOnce(t, workflow)
 	if got != "verdict: pass\nfixed" {
 		t.Fatalf("workflow output = %q, want second validator pass output", got)
 	}
@@ -234,7 +234,7 @@ func TestWorkflowRepeatedFailStopsAtMaxIterations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	got := runTestAgentOnce(t, workflow, "Goal:\nship")
+	got := runTestAgentOnce(t, workflow)
 	if got != "verdict: fail\nnot yet" {
 		t.Fatalf("workflow output = %q, want final validator fail output", got)
 	}
@@ -329,7 +329,7 @@ func TestWorkflowPassVerdictRequiresExactVisiblePrefix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
-			_ = runTestAgentOnce(t, workflow, "Goal:\nship")
+			_ = runTestAgentOnce(t, workflow)
 			if validatorRuns != 2 {
 				t.Fatalf("validatorRuns = %d, want 2", validatorRuns)
 			}
@@ -372,8 +372,9 @@ func mustNewTestAgent(
 	return ag
 }
 
-func runTestAgentOnce(t *testing.T, ag agent.Agent, prompt string) string {
+func runTestAgentOnce(t *testing.T, ag agent.Agent) string {
 	t.Helper()
+	const prompt = "Goal:\nship"
 
 	sessionService := session.InMemoryService()
 	runner, err := adkrunner.New(adkrunner.Config{

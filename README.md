@@ -6,10 +6,11 @@
 
 **norma** is a robust, autonomous agent workflow orchestrator written in Go. While built with Go's performance and reliability, it is designed to orchestrate development tasks for **any project**, regardless of the language or stack.
 
-norma bridges the gap between high-level task management and low-level code execution with two orchestration modes:
+norma bridges the gap between high-level task management and low-level code execution with a strict core orchestration mode:
 
 - a strict **Plan -> Do -> Check -> Act (PDCA)** cycle for one task at a time
-- an assignee-routed **swarm harness** for multi-role execution over a Beads epic
+
+The repository also contains experimental harnesses for swarm and playground workflows. Those surfaces are available for internal evaluation, but PDCA is the supported core workflow.
 
 Built for transparency and reliability, norma ensures every agent action is logged, every change is isolated in a Git worktree, and durable implementation history lives on a task-scoped branch.
 
@@ -18,7 +19,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 ## 🚀 Key Highlights
 
 - **Fixed PDCA Workflow:** A strict execution loop for one task: `Plan`, `Do`, `Check`, `Act`.
-- **Swarm Harness:** Route ready Beads tasks to configured role agents by `assignee`, with Beads state as the control surface.
+- **Experimental Swarm Harness:** Route ready Beads tasks to configured role agents by `assignee`, with Beads state as the control surface.
 - **Isolated Git Workspaces:** Every run operates in a dedicated Git worktree on a task-scoped branch (`norma/task/<id>`). No more messy working trees or accidental commits.
 - **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/gastownhall/beads). Task status and workflow phase labels stay in Beads; implementation progress stays in Git.
 - **Branch-First Recovery:** Interrupted runs are retried from the task branch (`norma/task/<id>`) instead of using persisted role state in Beads notes.
@@ -37,7 +38,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 3. **CHECK:** Evaluate the workspace against acceptance criteria and produce a verdict: `pass` or `fail`.
 4. **ACT:** Choose the next action from that verdict. `pass` must use `decision=close`, which lets Norma merge and commit changes using **Conventional Commits**. `fail` uses `decision=continue` to retry or `decision=replan` to create replacement work.
 
-### Swarm
+### Experimental Swarm
 
 1. Select ready Beads leaf tasks under one epic.
 2. Route each task by `assignee` to a configured role agent.
@@ -230,7 +231,7 @@ norma plan repl  # line-based REPL
 
 ### 6. Run a Swarm Epic
 
-Use `norma swarm <epic-id>` when work is already broken into Beads tasks and routed by assignee.
+Use `norma swarm <epic-id>` for internal evaluation when work is already broken into Beads tasks and routed by assignee. This is not part of the core PDCA MVP surface.
 
 ```bash
 norma swarm norma-phmp

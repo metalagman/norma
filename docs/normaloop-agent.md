@@ -2,7 +2,7 @@
 
 This document describes how the loop command orchestrates tasks with the PDCA workflow agent.
 
-Swarm is a separate workflow. `norma loop` remains the strict PDCA path for one selected task at a time. See [Swarm Harness](swarm.md) for the assignee-routed multi-role workflow.
+`norma loop` is the core strict PDCA path for one selected task at a time. The swarm harness is an experimental non-core surface pending a product support decision.
 
 ## Config env substitution
 
@@ -37,18 +37,17 @@ For each cycle, `norma loop`:
 
 ### 1) Loop setup
 
-- CLI command: `cmd/norma/loop.go`
+- CLI command: `cmd/norma/loop/command.go`
 - Creates:
   - Beads tracker: `task.NewBeadsTracker("")`
   - run store: `db.NewStore(...)`
   - PDCA agent factory: `pdca.NewFactory(...)`
-  - normaloop loop agent: `normaloop.NewLoop(...)`
-  - runner: `run.NewADKRunner(...)`
+  - normaloop loop agent: `normaloop.New(...)`
 
 ### 2) Read tasks from Beads
 
-- `runTasks(...)` loads tasks with status `todo`: `cmd/norma/task.go`
-- Tracker maps `todo` -> `bd list --status open`: `internal/task/beads_tracker.go`
+- The selector agent loads ready tasks through `task.SelectNextReady(...)`.
+- Tracker maps Norma status filters onto Beads status commands in `internal/task/beads_tracker.go`.
 
 ### 3) Pick one task
 
@@ -57,8 +56,8 @@ For each cycle, `norma loop`:
 
 ### 4) Run PDCA on selected task
 
-- `runTaskByID(...)` calls `runner.Run(...)`: `cmd/norma/task.go`
-- Runner creates run record in `.norma/norma.db` then executes workflow: `internal/run/run.go`
+- `runTaskByID(...)` calls the configured PDCA agent factory from `internal/agents/normaloop/task.go`.
+- The factory creates the run record in `.norma/norma.db` then executes the structured PDCA workflow.
 
 ### 5) Verdict from PDCA agent session
 

@@ -283,10 +283,7 @@ func (r *Runtime) executeCandidate(ctx context.Context, epicID string, item cand
 		return fmt.Errorf("reload task after role run: %w", err)
 	}
 
-	outcome, err := inferOutcome(item.task, after, r.primaryRole.config.Assignee)
-	if err != nil {
-		return err
-	}
+	outcome := inferOutcome(item.task, after, r.primaryRole.config.Assignee)
 
 	switch outcome {
 	case taskOutcomeCompleted:
@@ -384,22 +381,22 @@ func startEmbeddedTaskServer(ctx context.Context, workingDir string, tracker tas
 	return tasksmcp.StartHTTPServer(ctx, tracker, "127.0.0.1:0")
 }
 
-func inferOutcome(before, after task.Task, primaryAssignee string) (taskOutcome, error) {
+func inferOutcome(before, after task.Task, primaryAssignee string) taskOutcome {
 	if strings.TrimSpace(after.Status) == "done" {
-		return taskOutcomeCompleted, nil
+		return taskOutcomeCompleted
 	}
 	afterAssignee := strings.TrimSpace(after.Assignee)
 	beforeAssignee := strings.TrimSpace(before.Assignee)
 	if afterAssignee == "" {
-		return taskOutcomeNeedsHumanTriage, nil
+		return taskOutcomeNeedsHumanTriage
 	}
 	if afterAssignee != beforeAssignee {
-		return taskOutcomeHandedOff, nil
+		return taskOutcomeHandedOff
 	}
 	if afterAssignee == strings.TrimSpace(primaryAssignee) {
-		return taskOutcomeNoProgress, nil
+		return taskOutcomeNoProgress
 	}
-	return taskOutcomeBouncedToCoordinator, nil
+	return taskOutcomeBouncedToCoordinator
 }
 
 func buildPrompt(workingDir, epicID, taskDir string, item task.Task, role config.ResolvedSwarmRoleConfig) string {

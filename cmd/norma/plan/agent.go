@@ -336,11 +336,7 @@ func createPlannerAgentWithOptions(
 		return nil, nil, fmt.Errorf("start embedded tasks MCP server: %w", err)
 	}
 
-	plannerMCP, err := plannerMCPServers(workingDir, cfg.Runtime.Runtime.MCPServers, taskServer.Addr)
-	if err != nil {
-		_ = taskServer.Close()
-		return nil, nil, err
-	}
+	plannerMCP := plannerMCPServers(cfg.Runtime.Runtime.MCPServers, taskServer.Addr)
 
 	factoryOpts := make([]agentfactory.Option, 0, 2)
 	factoryOpts = append(factoryOpts, agentfactory.WithPermissionHandler(options.PermissionHandler))
@@ -404,9 +400,7 @@ func startEmbeddedTaskServer(ctx context.Context, workingDir string, coordinator
 	return tasksmcp.StartHTTPServer(ctx, tasksmcp.NewCoordinatorAssigningTracker(tracker, coordinatorAssignee), "127.0.0.1:0")
 }
 
-func plannerMCPServers(workingDir string, configured map[string]config.MCPServerConfig, tasksServerAddr string) (map[string]agentconfig.MCPServerConfig, error) {
-	_ = strings.TrimSpace(workingDir)
-
+func plannerMCPServers(configured map[string]config.MCPServerConfig, tasksServerAddr string) map[string]agentconfig.MCPServerConfig {
 	merged := make(map[string]agentconfig.MCPServerConfig, len(configured)+1)
 	for name, cfg := range configured {
 		merged[name] = cfg
@@ -415,7 +409,7 @@ func plannerMCPServers(workingDir string, configured map[string]config.MCPServer
 		Type: agentconfig.MCPServerTypeHTTP,
 		URL:  fmt.Sprintf("http://%s", tasksServerAddr),
 	}
-	return merged, nil
+	return merged
 }
 
 func formatPlannerRunError(err error) string {

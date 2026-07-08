@@ -38,9 +38,7 @@ type Config struct {
 	Tracker    task.Tracker
 	RunStore   runStatusStore
 	Factory    runpkg.AgentFactory
-	// ContinueOnFail is kept for CLI compatibility. Runtime loop failures continue by default.
-	ContinueOnFail bool
-	Policy         task.SelectionPolicy
+	Policy     task.SelectionPolicy
 }
 
 type runStatusStore interface {

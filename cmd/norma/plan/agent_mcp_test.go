@@ -15,10 +15,7 @@ func TestPlannerMCPServersAddsTasksServerAndMergesConfigured(t *testing.T) {
 		},
 	}
 
-	servers, err := plannerMCPServers("./repo", configured, "127.0.0.1:12345")
-	if err != nil {
-		t.Fatalf("plannerMCPServers() error = %v", err)
-	}
+	servers := plannerMCPServers(configured, "127.0.0.1:12345")
 	if len(servers) != 2 {
 		t.Fatalf("len(servers) = %d, want 2", len(servers))
 	}
@@ -47,10 +44,7 @@ func TestPlannerMCPServersAddsTasksServerAndMergesConfigured(t *testing.T) {
 }
 
 func TestPlannerMCPServersUsesHTTPTransport(t *testing.T) {
-	servers, err := plannerMCPServers(".", nil, "localhost:8080")
-	if err != nil {
-		t.Fatalf("plannerMCPServers() error = %v", err)
-	}
+	servers := plannerMCPServers(nil, "localhost:8080")
 
 	tasksCfg, ok := servers[plannerTasksMCPName]
 	if !ok {

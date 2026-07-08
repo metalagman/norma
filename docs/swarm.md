@@ -1,6 +1,6 @@
-# Swarm Harness
+# Experimental Swarm Harness
 
-The swarm harness is a second orchestration mode alongside PDCA.
+The swarm harness is an experimental, non-core orchestration surface. The core Norma workflow remains the fixed PDCA loop.
 
 Command surface:
 

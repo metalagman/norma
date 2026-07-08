@@ -436,38 +436,49 @@ Stored in `.norma/config.yaml`.
 
 Example:
 ```yaml
-profile: default
+runtime:
+  providers:
+    gemini:
+      type: gemini_acp
+      gemini_acp:
+        model: gemini-3-flash-preview
+    opencode:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
 
-agents:
-  gemini_agent:
-    type: gemini_acp
-    model: gemini-3-flash-preview
-  opencode_agent:
-    type: opencode_acp
-    model: opencode/big-pickle
+cli:
+  pdca:
+    plan: gemini
+    do: opencode
+    check: gemini
+    act: gemini
+  budgets:
+    max_iterations: 5
+  retention:
+    keep_last: 50
+    keep_days: 30
+
+planner:
+  provider: gemini
 
 profiles:
   default:
-    pdca:
-      plan: gemini_agent
-      do: opencode_agent
-      check: gemini_agent
-      act: gemini_agent
-    planner: gemini_agent
-
-budgets:
-  max_iterations: 5
-
-retention:
-  keep_last: 50
-  keep_days: 30
+    cli:
+      pdca:
+        plan: gemini
+        do: opencode
+        check: gemini
+        act: gemini
+    planner:
+      provider: gemini
 ```
 
 Notes:
 - Every configured role agent MUST be instantiated and executed through ADK (`agent.Agent` + ADK runner).
 - The orchestrator creates a fresh agent instance for every PDCA step.
 - The `structured` ADK wrapper handles mapping of JSON input/output and schema validation.
-- `profiles.<name>.pdca.*` and `profiles.<name>.planner` must reference keys defined in top-level `agents`.
+- `cli.pdca.*`, `planner.provider`, and profile overrides must reference keys defined in `runtime.providers`.
 - `retention.keep_last` and `retention.keep_days` control auto-pruning on each run (optional).
 
 ---

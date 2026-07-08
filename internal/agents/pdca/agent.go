@@ -160,22 +160,22 @@ func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, track
 		embeddedMCP:   embeddedMCP,
 	}
 
-	planAgent, err := rt.newRoleAgent(ctx, planRoleAgentSpec(), mcpServers)
+	planAgent, err := rt.newRoleAgent(planRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RolePlan, err)
 	}
-	doAgent, err := rt.newRoleAgent(ctx, doRoleAgentSpec(), mcpServers)
+	doAgent, err := rt.newRoleAgent(doRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleDo, err)
 	}
-	checkAgent, err := rt.newRoleAgent(ctx, checkRoleAgentSpec(), mcpServers)
+	checkAgent, err := rt.newRoleAgent(checkRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleCheck, err)
 	}
-	actAgent, err := rt.newRoleAgent(ctx, actRoleAgentSpec(), mcpServers)
+	actAgent, err := rt.newRoleAgent(actRoleAgentSpec(), mcpServers)
 	if err != nil {
 		_ = embeddedMCP.close()
 		return nil, fmt.Errorf("create %s subagent: %w", RoleAct, err)
@@ -196,7 +196,7 @@ func NewLoopAgent(ctx context.Context, cfg config.Config, store *db.Store, track
 	return ag, nil
 }
 
-func (a *runtime) newRoleAgent(ctx context.Context, spec roleAgentSpec, mcpServers map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
+func (a *runtime) newRoleAgent(spec roleAgentSpec, mcpServers map[string]agentconfig.MCPServerConfig) (agent.Agent, error) {
 	role := Role(spec.roleName)
 	if role == nil {
 		return nil, fmt.Errorf("unknown role %q", spec.roleName)
@@ -224,7 +224,7 @@ func (a *runtime) newRoleAgent(ctx context.Context, spec roleAgentSpec, mcpServe
 	ag, err := agent.New(agent.Config{
 		Name:        spec.displayName,
 		Description: fmt.Sprintf("Norma %s agent", spec.displayName),
-		Run:         roleRuntime.run(ctx),
+		Run:         roleRuntime.run(),
 	})
 	if err != nil {
 		return nil, err
@@ -232,7 +232,7 @@ func (a *runtime) newRoleAgent(ctx context.Context, spec roleAgentSpec, mcpServe
 	return ag, nil
 }
 
-func (r *roleAgent) run(ctx context.Context) func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
+func (r *roleAgent) run() func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 	return func(ctx agent.InvocationContext) iter.Seq2[*session.Event, error] {
 		l := log.With().
 			Str("component", "pdca").
@@ -380,7 +380,7 @@ func (r *roleAgent) runStep(ctx agent.InvocationContext, iteration int) (*contra
 		return nil, fmt.Errorf("set current_step_index in session state: %w", err)
 	}
 
-	req := r.runtime.baseRequest(iteration, index, r.roleName)
+	req := r.runtime.baseRequest(iteration, index)
 
 	// Pass TaskState to all roles - each role reads what it needs
 	state := r.runtime.getTaskState(ctx)
@@ -634,7 +634,7 @@ func (a *runtime) sharedWorkspace(ctx context.Context) (string, error) {
 	return a.workspaceDir, nil
 }
 
-func (a *runtime) baseRequest(iteration, index int, role string) contracts.AgentRequest {
+func (a *runtime) baseRequest(iteration, index int) contracts.AgentRequest {
 	return contracts.AgentRequest{
 		Run: contracts.RunInfo{
 			ID:        a.runInput.RunID,

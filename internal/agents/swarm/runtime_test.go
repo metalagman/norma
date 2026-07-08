@@ -30,14 +30,11 @@ func TestInferOutcome(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := inferOutcome(
+			got := inferOutcome(
 				task.Task{Assignee: tc.beforeAssignee},
 				task.Task{Assignee: tc.afterAssignee, Status: tc.afterStatus},
 				tc.primaryAssignee,
 			)
-			if err != nil {
-				t.Fatalf("inferOutcome() error = %v", err)
-			}
 			if got != tc.want {
 				t.Fatalf("inferOutcome() = %v, want %v", got, tc.want)
 			}

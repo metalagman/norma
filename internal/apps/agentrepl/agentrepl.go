@@ -270,7 +270,7 @@ func (a *acpToolTurnAccumulator) flushAll() {
 	a.flushText()
 }
 
-func (a *acpToolTurnAccumulator) printToolCallStart(title string, params any) {
+func (a *acpToolTurnAccumulator) printToolCallStart(title string) {
 	// Parameter payloads are intentionally hidden to keep transcripts readable.
 	// Only the tool name/title is displayed here, providing clear identification
 	// of which tool ran without introducing large request bodies into the output.
@@ -299,7 +299,7 @@ func renderACPToolEvent(accumulator *acpToolTurnAccumulator, ev *session.Event) 
 				if title == "" {
 					title = part.FunctionCall.Name
 				}
-				accumulator.printToolCallStart(title, args["rawInput"])
+				accumulator.printToolCallStart(title)
 				continue
 			}
 			if part.FunctionResponse != nil && part.FunctionResponse.Name == "acp_tool_call_update" {

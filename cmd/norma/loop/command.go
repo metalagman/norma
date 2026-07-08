@@ -16,7 +16,6 @@ import (
 
 // Command builds the `norma loop` command.
 func Command() *cobra.Command {
-	var continueOnFail bool
 	var activeFeatureID string
 	var activeEpicID string
 	cmd := &cobra.Command{
@@ -56,14 +55,13 @@ func Command() *cobra.Command {
 				ActiveEpicID:    activeEpicID,
 			}
 			loopAgent, err := normaloop.New(normaloop.Config{
-				Logger:         log.Logger,
-				Cfg:            cfg,
-				WorkingDir:     workingDir,
-				Tracker:        tracker,
-				RunStore:       runStore,
-				Factory:        pdcaFactory,
-				ContinueOnFail: continueOnFail,
-				Policy:         policy,
+				Logger:     log.Logger,
+				Cfg:        cfg,
+				WorkingDir: workingDir,
+				Tracker:    tracker,
+				RunStore:   runStore,
+				Factory:    pdcaFactory,
+				Policy:     policy,
 			})
 			if err != nil {
 				return err
@@ -81,8 +79,6 @@ func Command() *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().BoolVar(&continueOnFail, "continue", false, "deprecated no-op; loop continues after runtime failures by default")
-	_ = cmd.Flags().MarkDeprecated("continue", "loop continues after runtime failures by default")
 	cmd.Flags().StringVar(&activeFeatureID, "active-feature", "", "prefer ready issues under this feature id")
 	cmd.Flags().StringVar(&activeEpicID, "active-epic", "", "prefer ready issues under this epic id")
 	return cmd

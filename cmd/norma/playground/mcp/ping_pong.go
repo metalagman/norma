@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -17,7 +15,7 @@ func PingPongCommand() *cobra.Command {
 		Short:        "Run a ping-pong MCP server over stdio",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPingPongServer(cmd.Context(), os.Stdin, os.Stdout, os.Stderr)
+			return runPingPongServer(cmd.Context())
 		},
 	}
 }
@@ -30,7 +28,7 @@ type pingOutput struct {
 	Reply string `json:"reply"`
 }
 
-func runPingPongServer(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) error {
+func runPingPongServer(ctx context.Context) error {
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "norma-playground-ping-pong",
