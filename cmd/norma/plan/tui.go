@@ -13,7 +13,7 @@ func tuiCommand() *cobra.Command {
 		Use:     "tui",
 		Short:   "Launch the interactive TUI planner",
 		Long:    "Launch an interactive terminal UI (TUI) for decomposing epics into features and tasks. The TUI provides a visual, step-by-step workflow for planning work with AI agent assistance.",
-		Example: "  codex plan tui",
+		Example: "  norma plan tui",
 		Args:    cobra.NoArgs,
 		RunE:    runTUI,
 	}

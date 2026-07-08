@@ -207,6 +207,8 @@ profiles:
 - [Swarm Harness](docs/swarm.md)
 - [Experimental Goalkeeper Command](docs/goalkeeper.md)
 - [Experimental Goalkeeper Actor Command](docs/goalkeeper-actor.md)
+- [Experimental PDCA Sync Command](docs/pdca-sync.md)
+- [Experimental PDCA Taskmaster Command](docs/pdca-taskmaster.md)
 - [Experimental Taskmaster Commands](docs/taskmaster.md)
 - [Actorlayer Runtime (Actor Model over ADK)](docs/actorlayer.md)
 

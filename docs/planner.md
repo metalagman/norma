@@ -4,7 +4,7 @@ The `norma plan` command provides an interactive way to decompose high-level pro
 
 ## Interactive Planning
 
-When you run `norma plan` (or `norma plan tui`), Norma starts an interactive TUI session powered by an LLM agent. The agent will:
+When you run `norma plan tui`, Norma starts an interactive TUI session powered by an LLM agent. The bare `norma plan` command shows help and does not launch a default mode. The agent will:
 
 1.  **Analyze** your goal.
 2.  **Inspect** your current project state using available tools.
@@ -35,7 +35,7 @@ Used by the agent to ask the user a question. The question appears in the TUI, a
 ### `norma.tasks.*` (MCP Tasks Tools)
 Enables the agent to interact with the Beads-backed task tracker via Norma's MCP server.
 
-*   **Operations:** `norma.tasks.list`, `norma.tasks.get`, `norma.tasks.children`, `norma.tasks.leaf`, `norma.tasks.add`, `norma.tasks.add_feature`, `norma.tasks.add_follow_up`, `norma.tasks.update`, `norma.tasks.mark_status`, `norma.tasks.set_assignee`, `norma.tasks.close_with_reason`, `norma.tasks.add_dependency`, `norma.tasks.add_label`, `norma.tasks.set_notes`.
+*   **Operations:** `norma.tasks.add`, `norma.tasks.add_epic`, `norma.tasks.add_feature`, `norma.tasks.add_follow_up`, `norma.tasks.list`, `norma.tasks.list_features`, `norma.tasks.children`, `norma.tasks.get`, `norma.tasks.leaf`, `norma.tasks.list_blocked_dependents`, `norma.tasks.mark_done`, `norma.tasks.mark_status`, `norma.tasks.update_workflow_state`, `norma.tasks.update`, `norma.tasks.delete`, `norma.tasks.set_run`, `norma.tasks.set_assignee`, `norma.tasks.set_notes`, `norma.tasks.close_with_reason`, `norma.tasks.add_dependency`, `norma.tasks.add_related_link`, `norma.tasks.add_label`, `norma.tasks.remove_label`.
 *   **Rules:**
     *   Use `norma.tasks.*` tools for task graph/state operations.
     *   Do not use direct `bd` CLI commands in planner responses.

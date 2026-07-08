@@ -179,6 +179,12 @@ func TestPlanCommand_HelpOutput_ListsSubcommands(t *testing.T) {
 	if !strings.Contains(output, "repl") {
 		t.Error("plan --help output should list 'repl' subcommand")
 	}
+	if strings.Contains(output, "codex plan") {
+		t.Errorf("plan --help output contains stale codex examples:\n%s", output)
+	}
+	if !strings.Contains(output, "norma plan tui") || !strings.Contains(output, "norma plan repl") {
+		t.Errorf("plan --help output missing norma examples:\n%s", output)
+	}
 }
 
 func TestPlanCommand_HelpOutput_NoImplicitTUI(t *testing.T) {

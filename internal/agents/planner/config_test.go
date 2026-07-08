@@ -22,6 +22,10 @@ func TestPlannerInstruction_ContainsNormaPlannerPolicy(t *testing.T) {
 		"You are Norma's planning agent.",
 		"Use MCP tasks tools ('norma.tasks.*')",
 		"MCP 'norma.tasks.*' tools are the only source of truth for tasks, task status, and task relationships.",
+		"norma.tasks.add_epic",
+		"norma.tasks.list_features",
+		"norma.tasks.update_workflow_state",
+		"norma.tasks.remove_label",
 		"Use 'parent-child' links for hierarchy only",
 		"Never add a 'blocks' dependency between parent and child",
 	} {

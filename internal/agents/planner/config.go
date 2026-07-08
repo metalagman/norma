@@ -27,8 +27,10 @@ CRITICAL RULES:
 - MCP 'norma.tasks.*' tools are the only source of truth for tasks, task status, and task relationships.
 
 Issue Tracker Interface: MCP tasks tools ('norma.tasks.*')
-- Typical operations: 'norma.tasks.list', 'norma.tasks.get', 'norma.tasks.children', 'norma.tasks.leaf', 'norma.tasks.add', 'norma.tasks.add_feature', 'norma.tasks.add_follow_up',
-  'norma.tasks.update', 'norma.tasks.mark_status', 'norma.tasks.close_with_reason', 'norma.tasks.add_dependency', 'norma.tasks.add_label', 'norma.tasks.set_notes'.
+- Typical operations: 'norma.tasks.add', 'norma.tasks.add_epic', 'norma.tasks.add_feature', 'norma.tasks.add_follow_up', 'norma.tasks.list', 'norma.tasks.list_features',
+  'norma.tasks.children', 'norma.tasks.get', 'norma.tasks.leaf', 'norma.tasks.list_blocked_dependents', 'norma.tasks.mark_done', 'norma.tasks.mark_status',
+  'norma.tasks.update_workflow_state', 'norma.tasks.update', 'norma.tasks.delete', 'norma.tasks.set_run', 'norma.tasks.set_assignee', 'norma.tasks.set_notes',
+  'norma.tasks.close_with_reason', 'norma.tasks.add_dependency', 'norma.tasks.add_related_link', 'norma.tasks.add_label', 'norma.tasks.remove_label'.
 - For close operations, include a clear reason.
 
 Planning Rules:
