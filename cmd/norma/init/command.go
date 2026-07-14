@@ -126,10 +126,6 @@ const DefaultConfigYAML = `runtime:
       type: copilot_acp
       copilot_acp:
         model: gpt-5-codex
-    gemini:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
     custom_generic:
       type: generic_acp
       generic_acp:

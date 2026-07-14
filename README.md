@@ -24,7 +24,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 - **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/gastownhall/beads). Task status and workflow phase labels stay in Beads; implementation progress stays in Git.
 - **Branch-First Recovery:** Interrupted runs are retried from the task branch (`norma/task/<id>`) instead of using persisted role state in Beads notes.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
-- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`, `copilot_acp`, `claude_code_acp`, `claude_acp`).
+- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `copilot_acp`, `claude_code_acp`, `claude_acp`).
 - **Inspectable Run Artifacts:** Persists step inputs, outputs, logs, and event streams under `.norma/runs/` for local debugging.
 
 ---
@@ -54,7 +54,6 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 | Agent | Type | Description |
 | :--- | :--- | :--- |
 | **Generic** | `generic_acp` | Run any local binary or script that implements the Agent Control Protocol. |
-| **Gemini** | `gemini_acp` | Native support for the Gemini CLI with tool-calling and code-reading capabilities. |
 | **OpenCode** | `opencode_acp` | Deep integration with OpenCode for high-performance coding tasks. |
 | **Codex** | `codex_acp` | Optimized bridge for OpenAI Codex-style CLI tools via Norma's Codex ACP bridge. |
 | **Copilot** | `copilot_acp` | Runs Copilot CLI in ACP mode via `copilot --acp`. |
@@ -111,10 +110,6 @@ runtime:
       type: copilot_acp
       copilot_acp:
         model: gpt-5-codex
-    gemini:
-      type: gemini_acp
-      gemini_acp:
-        model: gemini-3-flash-preview
 cli:
   pdca:
     plan: opencode
@@ -198,6 +193,10 @@ profiles:
     swarm:
       default_provider: copilot
 ```
+
+`gemini_acp` is deprecated in the shared runtime and is no longer included in
+the default Norma configuration. If you need Gemini, configure it explicitly
+through `generic_acp`.
 
 ## 📖 Documentation
 
@@ -299,3 +298,6 @@ We welcome contributions! Whether it's adding new agent wrappers, improving the 
 ## 📜 License
 
 MIT License. See [LICENSE](LICENSE) for details.
+`gemini_acp` is deprecated in the shared runtime and is no longer included in
+the default Norma configuration. If you need Gemini, configure it explicitly
+through `generic_acp`.
