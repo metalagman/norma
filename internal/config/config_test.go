@@ -153,11 +153,12 @@ func TestIsACPType(t *testing.T) {
 		want bool
 	}{
 		{typ: AgentTypeGenericACP, want: true},
-		{typ: AgentTypeGeminiACP, want: true},
+		{typ: AgentTypeGeminiACP, want: false},
 		{typ: AgentTypeOpenCodeACP, want: true},
 		{typ: AgentTypeCodexACP, want: true},
 		{typ: AgentTypeCopilotACP, want: true},
 		{typ: AgentTypeClaudeCodeACP, want: true},
+		{typ: "claude_acp", want: true},
 		{typ: "generic_exec", want: false},
 	}
 
@@ -182,6 +183,7 @@ func TestIsPlannerSupportedType(t *testing.T) {
 		{typ: AgentTypeCodexACP, want: true},
 		{typ: AgentTypeCopilotACP, want: true},
 		{typ: AgentTypeClaudeCodeACP, want: true},
+		{typ: "claude_acp", want: true},
 		{typ: "generic_exec", want: false},
 		{typ: "unknown", want: false},
 	}

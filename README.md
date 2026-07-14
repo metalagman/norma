@@ -24,7 +24,7 @@ Built for transparency and reliability, norma ensures every agent action is logg
 - **AUTHORITATIVE Backlog (Beads):** Deeply integrated with [Beads](https://github.com/gastownhall/beads). Task status and workflow phase labels stay in Beads; implementation progress stays in Git.
 - **Branch-First Recovery:** Interrupted runs are retried from the task branch (`norma/task/<id>`) instead of using persisted role state in Beads notes.
 - **Pure-Go & CGO-Free:** Authoritative run state is managed via SQLite using the `modernc.org/sqlite` driver. Portable, fast, and easy to build.
-- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`, `copilot_acp`, `claude_code_acp`).
+- **Pluggable Agent Ecosystem:** Seamlessly mix and match agents using `generic_acp` binaries and standard ACP aliases (`codex_acp`, `opencode_acp`, `gemini_acp`, `copilot_acp`, `claude_code_acp`, `claude_acp`).
 - **Inspectable Run Artifacts:** Persists step inputs, outputs, logs, and event streams under `.norma/runs/` for local debugging.
 
 ---
@@ -58,7 +58,7 @@ Norma speaks a normalized JSON contract and utilizes the **Agent Control Protoco
 | **OpenCode** | `opencode_acp` | Deep integration with OpenCode for high-performance coding tasks. |
 | **Codex** | `codex_acp` | Optimized bridge for OpenAI Codex-style CLI tools via Norma's Codex ACP bridge. |
 | **Copilot** | `copilot_acp` | Runs Copilot CLI in ACP mode via `copilot --acp`. |
-| **Claude Code** | `claude_code_acp` | Runs Claude Code ACP via `npx -y @zed-industries/claude-code-acp@latest`. |
+| **Claude Code** | `claude_code_acp` / `claude_acp` | Runs Claude Code ACP via `npx -y @zed-industries/claude-code-acp@latest`. |
 
 ---
 
@@ -104,7 +104,7 @@ runtime:
       codex_acp:
         model: gpt-5-codex
     claude_code:
-      type: claude_code_acp
+      type: claude_acp
       claude_code_acp:
         model: claude-sonnet-4-20250514
     copilot:

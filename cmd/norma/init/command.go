@@ -119,7 +119,7 @@ const DefaultConfigYAML = `runtime:
       codex_acp:
         model: gpt-5-codex
     claude_code:
-      type: claude_code_acp
+      type: claude_acp
       claude_code_acp:
         model: claude-sonnet-4-20250514
     copilot:

@@ -12,7 +12,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kazhuravlev/options-gen v0.55.5
 	github.com/modelcontextprotocol/go-sdk v1.5.0
-	github.com/normahq/go-adk-acpagent/v2 v2.0.1
+	github.com/normahq/go-adk-acpagent/v2 v2.2.1
 	github.com/pressly/goose/v3 v3.16.0
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
@@ -205,7 +205,7 @@ require (
 	github.com/nakabonne/nestif v0.3.1 // indirect
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
-	github.com/normahq/runtime/v2 v2.0.0
+	github.com/normahq/runtime/v2 v2.0.8
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
