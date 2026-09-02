@@ -14,7 +14,7 @@ When you run `norma plan tui`, Norma starts an interactive TUI session powered b
 
 ## Line REPL Mode
 
-If you prefer a plain terminal prompt (same interaction style as `acp-repl`), use:
+If you prefer a plain terminal prompt (same interaction style as `acpchat`), use:
 
 ```bash
 norma plan repl

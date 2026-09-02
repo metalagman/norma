@@ -262,16 +262,16 @@ Notes:
 
 Protocol inspection and REPL helpers are distributed as standalone tools:
 
-- `acp-dump`: <https://github.com/normahq/acp-dump>
-- `mcp-dump`: <https://github.com/normahq/mcp-dump>
-- `acp-repl`: <https://github.com/normahq/acp-repl>
+- `acpdump`: <https://github.com/baldaworks/acpdump>
+- `mcpdump`: <https://github.com/baldaworks/mcpdump>
+- `acpchat`: <https://github.com/baldaworks/acpchat>
 
 Install with npm:
 
 ```bash
-npm install -g @normahq/acp-dump@latest
-npm install -g @normahq/mcp-dump@latest
-npm install -g @normahq/acp-repl@latest
+npm install -g @baldaworks/acpdump@latest
+npm install -g @baldaworks/mcpdump@latest
+npm install -g @baldaworks/acpchat@latest
 ```
 
 ---
